@@ -1,10 +1,23 @@
+[gpg]
+	format = ssh
+[gpg "ssh"]
+	program = /Applications/1Password.app/Contents/MacOS/op-ssh-sign
+[commit]
+	gpgsign = true
+[user]
+	signingkey = ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILEq2/lXBeDmLB84SXWxSMtXry28x5HyR+vnlaGA5kYv
+	email = jordan@parkerlabs.co
+	name = Jordan Parker
+[push]
+	default = simple
+[fetch]
+    prune = true
 [alias]
-	b = branch
 	lg = log --color --graph --pretty=format:'%Cred%h%Creset -%C(yellow)%d%Creset %s %Cgreen(%cr) %C(bold blue)<%an>%Creset' --abbrev-commit
 	st = status -sb
 	sh = show --oneline --stat
 	clone = clone --recursive
-	amend = commit -a --amend --allow-empty --no-edit
+	amend = commit -a --amend --no-edit
 	ec = config --global -e
 	ours = "!f() { git co --ours $@ && git add $@; }; f"
 	theirs = "!f() { git co --theirs $@ && git add $@; }; f"
@@ -20,10 +33,13 @@
 	filelog = log -u
 	fl = log -u
 	undo = reset HEAD~1 --mixed
-	cm = !git add -A && git commit --allow-empty -m
+	cm = !git add -A && git commit -m
 	up = !git pull --rebase --prune $@ && git submodule update --init --recursive
 	co = checkout
 	cob = checkout -b
-	auto-deploy = !(git push -f dev $(git rev-parse --abbrev-ref HEAD):master 2> /dev/null &)
-	start = !git init && git commit --allow-empty -m 'Initial Commit'
-	track = branch -u
+	wt = "!f() { git worktree add ../$1 -b $1 && echo \"Created worktree at: $(realpath ../$1)\"; }; f"
+	wtd = "!f() { git worktree remove ../$1; }; f"
+[difftool "vscode"]
+	cmd = "cursor --wait --diff  "
+[init]
+	defaultBranch = master
