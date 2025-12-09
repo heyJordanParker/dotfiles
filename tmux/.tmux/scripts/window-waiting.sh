@@ -12,8 +12,8 @@ while read -r pane_id pane_command; do
     exit 0
   fi
 
-  # Check if zsh is waiting
-  if [[ "$pane_command" == "zsh" ]]; then
+  # Check if zsh is waiting (inactive window prompt)
+  if [ -f "/tmp/zsh-waiting-${pane_id}" ]; then
     echo "*"
     exit 0
   fi

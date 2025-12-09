@@ -103,3 +103,21 @@ v() {
 
 # Load local secrets last
 [[ -f ~/.zshrc.local ]] && source ~/.zshrc.local
+
+# Tmux Waiting Indicator Hooks
+precmd() {
+  if [ -n "$TMUX" ]; then
+    # Check if window is active (1 = active, 0 = inactive)
+    # Explicitly target the current pane to be safe
+    is_active=$(tmux display-message -t "$TMUX_PANE" -p '#{window_active}' 2>/dev/null)
+    if [ "$is_active" = "0" ]; then
+       touch "/tmp/zsh-waiting-${TMUX_PANE}"
+    fi
+  fi
+}
+
+preexec() {
+  if [ -n "$TMUX" ]; then
+    /bin/rm -f "/tmp/zsh-waiting-${TMUX_PANE}"
+  fi
+}
