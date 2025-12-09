@@ -12,12 +12,18 @@ if [ "$CURRENT_SESSION" = "$SESSION_NAME" ]; then
     exit 0
 fi
 
-# 2. CONTEXT CHECK (Reset session if directory changed)
+# 2. CHECK if we need to reset (kill) the session
+# Mode 1: Reset if CWD changed
 if [ "$RESET_ON_DIR_CHANGE" -eq 1 ] && tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
     SESSION_CWD=$(tmux list-panes -t "$SESSION_NAME" -F "#{pane_current_path}" | head -n 1)
     if [ "$SESSION_CWD" != "$WORKDIR" ]; then
         tmux kill-session -t "$SESSION_NAME"
     fi
+fi
+
+# Mode 2: Always Reset (Force Refresh)
+if [ "$RESET_ON_DIR_CHANGE" -eq 2 ] && tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
+    tmux kill-session -t "$SESSION_NAME"
 fi
 
 # 3. CREATE session if it doesn't exist
