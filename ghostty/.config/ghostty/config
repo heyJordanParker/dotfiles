@@ -59,5 +59,6 @@ background-blur = 35
 window-decoration = none
 macos-window-buttons = hidden
 macos-titlebar-proxy-icon = hidden
+macos-option-as-alt = true
 initial-window = false
 theme = GruvboxDark

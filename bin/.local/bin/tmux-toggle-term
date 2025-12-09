@@ -1,0 +1,39 @@
+#!/bin/bash
+
+SESSION_NAME="$1"
+COMMAND="${2:-zsh}"
+WORKDIR="${3:-$(pwd)}"
+RESET_ON_DIR_CHANGE="${4:-0}"
+
+# 1. DETACH if we are currently INSIDE this specific popup
+CURRENT_SESSION=$(tmux display-message -p -F "#{session_name}")
+if [ "$CURRENT_SESSION" = "$SESSION_NAME" ]; then
+    tmux detach-client
+    exit 0
+fi
+
+# 2. CONTEXT CHECK (Reset session if directory changed)
+if [ "$RESET_ON_DIR_CHANGE" -eq 1 ] && tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
+    SESSION_CWD=$(tmux list-panes -t "$SESSION_NAME" -F "#{pane_current_path}" | head -n 1)
+    if [ "$SESSION_CWD" != "$WORKDIR" ]; then
+        tmux kill-session -t "$SESSION_NAME"
+    fi
+fi
+
+# 3. CREATE session if it doesn't exist
+if ! tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
+    tmux new-session -d -s "$SESSION_NAME" -c "$WORKDIR" "$COMMAND"
+
+    # 4. CONFIGURATION (Performance & Bug Fixes)
+    tmux set-option -t "$SESSION_NAME" status off
+    tmux set-option -t "$SESSION_NAME" pane-border-status off
+    tmux set-option -t "$SESSION_NAME" status-interval 0
+    tmux set-option -t "$SESSION_NAME" @continuum-save-interval 0
+
+    # CRITICAL: Ensures typing 'exit' closes the popup, not the parent session
+    tmux set-option -t "$SESSION_NAME" detach-on-destroy on
+fi
+
+# 5. DISPLAY
+tmux display-popup -d "$WORKDIR" -xC -yC -w 80% -h 80% \
+    -E "tmux attach-session -t $SESSION_NAME || exit 0"

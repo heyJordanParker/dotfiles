@@ -7,10 +7,19 @@ vim.opt.shiftwidth = 2
 vim.opt.tabstop = 2
 vim.opt.smartindent = true
 vim.opt.wrap = false
-vim.opt.swapfile = false
-vim.opt.backup = false
+-- Crash-proof settings for persistent nvim server
+vim.opt.swapfile = true
+vim.opt.directory = os.getenv("HOME") .. "/.local/share/nvim/swap//"
+
 vim.opt.undofile = true
-vim.opt.undodir = os.getenv("HOME") .. "/.vim/undodir"
+vim.opt.undodir = os.getenv("HOME") .. "/.local/share/nvim/undo//"
+
+vim.opt.backup = true
+vim.opt.backupdir = os.getenv("HOME") .. "/.local/share/nvim/backup//"
+vim.opt.writebackup = true
+
+-- Auto-write when switching buffers
+vim.opt.autowrite = true
 vim.opt.hlsearch = false
 vim.opt.incsearch = true
 vim.opt.termguicolors = true
@@ -57,7 +66,7 @@ require("lazy").setup({
         integrations = {
           cmp = true,
           gitsigns = true,
-          nvimtree = true,
+          neotree = true,
           telescope = true,
           treesitter = true,
         },
@@ -278,39 +287,52 @@ require("lazy").setup({
     end,
   },
   
-  -- File explorer
+  -- snacks.nvim (QoL utilities + image preview)
   {
-    "nvim-tree/nvim-tree.lua",
-    dependencies = { "nvim-tree/nvim-web-devicons" },
+    "folke/snacks.nvim",
+    priority = 1000,
+    lazy = false,
+    opts = {
+      image = { enabled = true },
+    },
+  },
+
+  -- neo-tree (file explorer)
+  {
+    "nvim-neo-tree/neo-tree.nvim",
+    branch = "v3.x",
+    dependencies = {
+      "nvim-lua/plenary.nvim",
+      "nvim-tree/nvim-web-devicons",
+      "MunifTanjim/nui.nvim",
+    },
     config = function()
-      -- Disable netrw (vim's default file explorer)
-      vim.g.loaded_netrw = 1
-      vim.g.loaded_netrwPlugin = 1
-      
-      require("nvim-tree").setup({
-        sort_by = "case_sensitive",
-        view = {
+      require("neo-tree").setup({
+        close_if_last_window = false,
+        filesystem = {
+          follow_current_file = { enabled = true },
+          use_libuv_file_watcher = true,
+        },
+        window = {
+          position = "right",
           width = 30,
-          side = "right",  -- Move tree to right side
         },
-        renderer = {
-          group_empty = true,
+        buffers = {
+          follow_current_file = { enabled = true },
         },
-        filters = {
-          dotfiles = false,
+        default_component_configs = {
+          indent = {
+            with_expanders = true,
+          },
         },
-      })
-      
-      -- Auto open tree only when opening a directory
-      vim.api.nvim_create_autocmd("VimEnter", {
-        callback = function()
-          local arg = vim.fn.argv(0)
-          if arg == "" or vim.fn.isdirectory(arg) == 1 then
-            require("nvim-tree.api").tree.open()
-          end
-        end,
       })
     end,
+  },
+
+  -- Claude Code integration
+  {
+    "coder/claudecode.nvim",
+    config = true,
   },
   
   -- Bufferline (tabs for open files)
@@ -324,7 +346,7 @@ require("lazy").setup({
           theme = "catppuccin",
           offsets = {
             {
-              filetype = "NvimTree",
+              filetype = "neo-tree",
               text = "File Explorer",
               highlight = "Directory",
               text_align = "center",
@@ -343,12 +365,13 @@ require("lazy").setup({
 
   -- Auto save sessions
   {
-  "rmagatti/auto-session",
-  config = function()
-    require("auto-session").setup({
-      log_level = "error",
-    })
-  end,
+    "rmagatti/auto-session",
+    config = function()
+      require("auto-session").setup({
+        log_level = "error",
+        auto_restore_enabled = false,
+      })
+    end,
   },
 
   -- CodeCompanion
@@ -377,3 +400,25 @@ require("lazy").setup({
     },
   },
 })
+
+-- Auto-save on focus lost (popup close, etc)
+vim.api.nvim_create_autocmd('FocusLost', {
+  pattern = '*',
+  command = 'silent! wa'
+})
+
+-- Auto-save before leaving buffer
+vim.api.nvim_create_autocmd('BufLeave', {
+  pattern = '*',
+  callback = function()
+    if vim.bo.modified and vim.bo.buftype == '' then
+      vim.cmd('silent! write')
+    end
+  end
+})
+
+-- Neo-tree keymaps
+vim.keymap.set("n", "<leader>e", ":Neotree toggle<CR>", { desc = "Toggle file explorer" })
+vim.keymap.set("n", "<leader>o", ":Neotree focus<CR>", { desc = "Focus file explorer" })
+vim.keymap.set("n", "<leader>b", ":Neotree buffers<CR>", { desc = "Show open buffers" })
+vim.keymap.set("n", "<leader>gs", ":Neotree git_status<CR>", { desc = "Git status" })

@@ -1,0 +1,19 @@
+#!/bin/bash
+SOCKET="$HOME/.cache/nvim/server.pipe"
+
+# 1. Ensure Server is Running (The "Safety" Layer)
+if [ ! -S "$SOCKET" ]; then
+    mkdir -p "$(dirname "$SOCKET")"
+    nohup nvim --headless --listen "$SOCKET" >/dev/null 2>&1 &
+    # Wait max 1s for socket
+    cnt=0
+    while [ ! -S "$SOCKET" ] && [ $cnt -lt 10 ]; do
+        sleep 0.1
+        ((cnt++))
+    done
+fi
+
+# 2. Connect (Client Layer)
+# We simply exec the remote-ui.
+# We DO NOT create a tmux session here anymore. The toggle helper does that.
+exec nvim --server "$SOCKET" --remote-ui

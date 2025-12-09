@@ -57,7 +57,7 @@
   },
   "enabledPlugins": {
     "frontend-design@claude-code-plugins": true,
-    "double-shot-latte@superpowers-marketplace": true,
+    "double-shot-latte@superpowers-marketplace": false,
     "superpowers-developing-for-claude-code@superpowers-marketplace": true,
     "superpowers-chrome@superpowers-marketplace": true,
     "elements-of-style@superpowers-marketplace": true,
@@ -67,5 +67,5 @@
     "plugin-dev@claude-code-plugins": true,
     "feature-dev@claude-code-plugins": true
   },
-  "alwaysThinkingEnabled": false
+  "alwaysThinkingEnabled": true
 }
