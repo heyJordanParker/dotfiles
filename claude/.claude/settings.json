@@ -49,6 +49,36 @@
           }
         ]
       }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "touch /tmp/claude-waiting-$TMUX_PANE"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "rm -f /tmp/claude-waiting-$TMUX_PANE"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "rm -f /tmp/claude-waiting-$TMUX_PANE"
+          }
+        ]
+      }
     ]
   },
   "statusLine": {

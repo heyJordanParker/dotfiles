@@ -62,7 +62,7 @@ require("lazy").setup({
     config = function()
       require("catppuccin").setup({
         flavour = "mocha", -- latte, frappe, macchiato, mocha
-        transparent_background = false,
+        transparent_background = true,
         integrations = {
           cmp = true,
           gitsigns = true,
@@ -72,6 +72,11 @@ require("lazy").setup({
         },
       })
       vim.cmd.colorscheme "catppuccin"
+      -- Force transparency
+      vim.api.nvim_set_hl(0, "Normal", { bg = "none" })
+      vim.api.nvim_set_hl(0, "NormalFloat", { bg = "none" })
+      vim.api.nvim_set_hl(0, "NormalNC", { bg = "none" })
+      vim.api.nvim_set_hl(0, "FloatBorder", { bg = "none" })
     end,
   },
   
