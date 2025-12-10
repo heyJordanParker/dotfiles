@@ -313,6 +313,7 @@ require("lazy").setup({
     },
     config = function()
       require("neo-tree").setup({
+        enable_git_status = false,
         close_if_last_window = false,
         filesystem = {
           follow_current_file = { enabled = true },

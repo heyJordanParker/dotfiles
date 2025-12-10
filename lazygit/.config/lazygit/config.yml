@@ -1,5 +1,4 @@
 promptToReturnFromSubprocess: false
-
 gui:
   theme:
     activeBorderColor:
@@ -23,8 +22,6 @@ gui:
       - '#f9e2af'
   authorColors:
     '*': '#b4befe'
-
 git:
   pagers:
-    - pager: delta --dark --paging=never --line-numbers
-      colorArg: always
+    - externalDiffCommand: difft --color=always

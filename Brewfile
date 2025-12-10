@@ -17,6 +17,7 @@ brew "trash"
 
 # Dev
 brew "git-delta"
+brew "difftastic"
 brew "lazygit"
 brew "node"
 brew "composer"
@@ -34,4 +35,4 @@ cask "claude"
 cask "claude-code"
 cask "raycast"
 cask "youtube-music"
-cask "font-hack-nerd-font"
+cask "font-jetbrains-mono-nerd-font"
