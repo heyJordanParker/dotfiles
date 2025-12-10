@@ -16,6 +16,7 @@ brew "zinit"
 brew "trash"
 
 # Dev
+brew "git-delta"
 brew "lazygit"
 brew "node"
 brew "composer"

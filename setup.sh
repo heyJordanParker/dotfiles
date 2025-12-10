@@ -32,7 +32,10 @@ fi
 
 echo "==> Linking dotfiles..."
 cd "$DOTFILES_DIR"
-stow -v zsh git tmux npm ssh nvim ghostty karabiner btop claude
+stow -v zsh git tmux npm ssh nvim ghostty karabiner btop claude lazygit delta bat
+
+# Build bat theme cache
+bat cache --build 2>/dev/null || true
 
 echo ""
 echo "Done. Restart terminal, enable 1Password SSH agent, run: gh auth login"
