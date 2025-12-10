@@ -60,6 +60,9 @@ window-decoration = none
 macos-window-buttons = hidden
 macos-titlebar-proxy-icon = hidden
 macos-option-as-alt = true
+keybind = alt+semicolon=text:…
+keybind = alt+minus=text:–
+keybind = alt+8=text:•
 initial-window = false
 theme = Catppuccin Mocha
 font-family = JetBrainsMonoNerdFont
