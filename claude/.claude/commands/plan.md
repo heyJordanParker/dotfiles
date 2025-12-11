@@ -70,6 +70,13 @@ Use the `pragmatic-engineering` skill to validate your plan against:
 - The 5-step algorithm (did we actually delete enough?)
 - Code philosophy (will this be trivial to maintain?)
 
+### Step 6: Name the Session
+
+After planning is complete, prompt the user to rename the session. Suggest a name based on the feature being planned.
+
+Remember to rename this session to easily resume it later.
+E.g. `/rename <your-suggested-name-here>`
+
 ## Asking Questions
 
 Every question must be **standalone**:
