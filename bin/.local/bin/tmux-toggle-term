@@ -5,41 +5,37 @@ COMMAND="${2:-zsh}"
 WORKDIR="${3:-$(pwd)}"
 RESET_ON_DIR_CHANGE="${4:-0}"
 
-# 1. DETACH if we are currently INSIDE this specific popup
-CURRENT_SESSION=$(tmux display-message -p -F "#{session_name}")
-if [ "$CURRENT_SESSION" = "$SESSION_NAME" ]; then
-    tmux detach-client
+POPUP_SOCKET="popup"
+TMUX_POPUP="tmux -L $POPUP_SOCKET"
+
+# Detach if inside this popup session (pattern: */popup,* in TMUX env)
+if [[ "$TMUX" == */popup,* ]]; then
+    $TMUX_POPUP detach-client
     exit 0
 fi
 
-# 2. CHECK if we need to reset (kill) the session
+# Initialize popup server if not running
+$TMUX_POPUP start-server 2>/dev/null
+
 # Mode 1: Reset if CWD changed
-if [ "$RESET_ON_DIR_CHANGE" -eq 1 ] && tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
-    SESSION_CWD=$(tmux list-panes -t "$SESSION_NAME" -F "#{pane_current_path}" | head -n 1)
-    if [ "$SESSION_CWD" != "$WORKDIR" ]; then
-        tmux kill-session -t "$SESSION_NAME"
-    fi
+if [ "$RESET_ON_DIR_CHANGE" -eq 1 ] && $TMUX_POPUP has-session -t "$SESSION_NAME" 2>/dev/null; then
+    SESSION_CWD=$($TMUX_POPUP list-panes -t "$SESSION_NAME" -F "#{pane_current_path}" | head -n 1)
+    [ "$SESSION_CWD" != "$WORKDIR" ] && $TMUX_POPUP kill-session -t "$SESSION_NAME"
 fi
 
-# Mode 2: Always Reset (Force Refresh)
-if [ "$RESET_ON_DIR_CHANGE" -eq 2 ] && tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
-    tmux kill-session -t "$SESSION_NAME"
+# Mode 2: Always Reset
+if [ "$RESET_ON_DIR_CHANGE" -eq 2 ] && $TMUX_POPUP has-session -t "$SESSION_NAME" 2>/dev/null; then
+    $TMUX_POPUP kill-session -t "$SESSION_NAME"
 fi
 
-# 3. CREATE session if it doesn't exist
-if ! tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
-    tmux new-session -d -s "$SESSION_NAME" -c "$WORKDIR" "$COMMAND"
-
-    # 4. CONFIGURATION (Performance & Bug Fixes)
-    tmux set-option -t "$SESSION_NAME" status off
-    tmux set-option -t "$SESSION_NAME" pane-border-status off
-    tmux set-option -t "$SESSION_NAME" status-interval 0
-    tmux set-option -t "$SESSION_NAME" @continuum-save-interval 0
-
-    # CRITICAL: Ensures typing 'exit' closes the popup, not the parent session
-    tmux set-option -t "$SESSION_NAME" detach-on-destroy on
+# Create session if needed
+if ! $TMUX_POPUP has-session -t "$SESSION_NAME" 2>/dev/null; then
+    $TMUX_POPUP new-session -d -s "$SESSION_NAME" -c "$WORKDIR" "$COMMAND"
+    $TMUX_POPUP set-option -t "$SESSION_NAME" status off
+    $TMUX_POPUP set-option -t "$SESSION_NAME" pane-border-status off
+    $TMUX_POPUP set-option -t "$SESSION_NAME" detach-on-destroy on
 fi
 
-# 5. DISPLAY
+# Display popup (runs from main tmux, content from popup server)
 tmux display-popup -d "$WORKDIR" -xC -yC -w 80% -h 80% \
-    -E "tmux attach-session -t $SESSION_NAME || exit 0"
+    -E "$TMUX_POPUP attach-session -t $SESSION_NAME || exit 0"
