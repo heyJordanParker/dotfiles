@@ -7,6 +7,7 @@ brew "tmux"
 brew "btop"
 
 # Shell
+brew "jq"
 brew "zoxide"
 brew "fzf"
 brew "eza"
@@ -17,7 +18,6 @@ brew "trash"
 
 # Dev
 brew "git-delta"
-brew "difftastic"
 brew "lazygit"
 brew "node"
 brew "composer"

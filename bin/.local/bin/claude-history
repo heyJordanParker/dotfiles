@@ -1,0 +1,37 @@
+#!/bin/bash
+TRANSCRIPT=$(cat "/tmp/claude-transcript-$TMUX_PANE" 2>/dev/null)
+
+if [[ -f "$TRANSCRIPT" ]]; then
+  jq -r '
+    select(.type == "user" or .type == "assistant") |
+    if .type == "user" then
+      (.message.content | if type == "string" then
+        "\n> " + .
+      elif type == "array" then
+        map(
+          if .type == "text" then "\n> " + .text
+          elif .type == "tool_result" then
+            "  ⎿  Response:\n" + (
+              if .content | type == "array" then
+                (.content | map(select(.type == "text" and (.text | contains("agentId:") | not)) | "       " + .text) | join("\n"))
+              elif .content | type == "string" then
+                "       " + .content
+              else empty end
+            )
+          else empty end
+        ) | join("\n")
+      else empty end)
+    elif .type == "assistant" then
+      (.message.content | if type == "array" then
+        map(
+          if .type == "text" then "\n⏺ " + .text
+          elif .type == "tool_use" then
+            "\n⏺ " + .name + "(" + (.input.description // .input.query // .input.pattern // (.input | keys[0]) // "") + ")" +
+            (if .input.subagent_type then " " + .input.subagent_type else "" end) +
+            (if .input.prompt then "\n  ⎿  Prompt: " + .input.prompt else "" end)
+          else empty end
+        ) | join("\n")
+      else empty end)
+    else empty end
+  ' "$TRANSCRIPT"
+fi

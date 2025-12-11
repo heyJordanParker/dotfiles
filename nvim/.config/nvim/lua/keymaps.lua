@@ -37,6 +37,9 @@ for _, obj in ipairs({'w', 'W', 's', 'p', 'b', 'B', 't'}) do
   keymap('o', 'A' .. obj, 'a' .. obj, opts)
 end
 
+-- Escape with jj
+keymap('i', 'jj', '<Esc>', opts)
+
 -- Insert mode: Enter key
 keymap('n', '<CR>', 'a', opts)
 keymap('n', '<S-CR>', 'i', opts)
@@ -127,6 +130,8 @@ keymap('o', 'H', 'B', opts)
 
 -- Leader key mappings (Space + key)
 keymap('n', '<leader>s', ':w<CR>', opts)  -- Space+s to save
+keymap('n', '<leader>sq', ':wqa<CR>', opts)  -- Space+sq to save all and quit
+keymap('n', '<leader>sw', ':w<CR>:close<CR>', opts)  -- Space+sw to save and close window
 keymap('n', '<leader>w', ':q!<CR>', opts)  -- Space+w to close window (or quit if last)
 keymap('n', '<leader>W', ':w<CR>:close<CR>', opts)  -- Space+W to save and close window
 keymap('n', '<leader>q', ':qa!<CR>', opts)  -- Space+q to force quit all (without saving)

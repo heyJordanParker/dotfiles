@@ -32,8 +32,16 @@
       {
         "hooks": [
           {
-            "type": "prompt",
-            "prompt": "You have personal skills in ~/.claude/skills/. Some are MANDATORY (check their descriptions). Before any task, ask: \"Does a skill apply?\" Use skills proactively - even for simple tasks. They contain hard-won lessons that prevent mistakes."
+            "type": "command",
+            "command": "echo 'You have personal skills in ~/.claude/skills/. Some are MANDATORY (check their descriptions). Before any task, ask: \"Does a skill apply?\" Use skills proactively - even for simple tasks. They contain hard-won lessons that prevent mistakes.'"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "INPUT=$(cat); SESSION_ID=$(echo \"$INPUT\" | jq -r '.session_id'); [[ \"$SESSION_ID\" != agent-* ]] && echo \"$INPUT\" | jq -r '.transcript_path' > /tmp/claude-transcript-$TMUX_PANE || true"
           }
         ]
       }

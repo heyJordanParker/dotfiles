@@ -62,7 +62,9 @@ alias ls='eza -1l --icons=always --hyperlink --group-directories-first'
 alias copy='pbcopy'
 alias reload='source ~/.zshrc'
 alias vim='nvim'
-alias cld="claude --dangerously-skip-permissions"
+alias cld="EDITOR=prompt-editor claude --dangerously-skip-permissions"
+alias python='python3'
+alias pip='pip3'
 f() { find . -iname "*$1*" }
 
 # --- THE FAST VIM POPUP ---

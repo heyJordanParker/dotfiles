@@ -302,6 +302,16 @@ require("lazy").setup({
     },
   },
 
+  -- Smooth scrolling (keyboard only)
+  {
+    "karb94/neoscroll.nvim",
+    config = function()
+      require("neoscroll").setup({
+        mappings = { "<C-u>", "<C-d>", "<C-b>", "<C-f>", "zt", "zz", "zb" },
+      })
+    end,
+  },
+
   -- neo-tree (file explorer)
   {
     "nvim-neo-tree/neo-tree.nvim",
@@ -383,6 +393,7 @@ require("lazy").setup({
   -- CodeCompanion
   {
     "olimorris/codecompanion.nvim",
+    version = "v17.33.0",
     dependencies = {
       "nvim-lua/plenary.nvim",
     },
@@ -428,3 +439,36 @@ vim.keymap.set("n", "<leader>e", ":Neotree toggle<CR>", { desc = "Toggle file ex
 vim.keymap.set("n", "<leader>o", ":Neotree focus<CR>", { desc = "Focus file explorer" })
 vim.keymap.set("n", "<leader>b", ":Neotree buffers<CR>", { desc = "Show open buffers" })
 vim.keymap.set("n", "<leader>gs", ":Neotree git_status<CR>", { desc = "Git status" })
+
+-- Enable wrap for prose filetypes
+vim.api.nvim_create_autocmd("FileType", {
+  pattern = { "markdown", "text" },
+  callback = function()
+    vim.opt_local.wrap = true
+  end,
+})
+
+-- Prompt-editor mode (Claude Code)
+if os.getenv("CLAUDE_PROMPT_EDITOR") then
+  vim.opt.wrap = true
+  -- Auto-save on quit
+  vim.api.nvim_create_autocmd("QuitPre", {
+    pattern = "*",
+    callback = function()
+      if vim.bo.modified and vim.bo.buftype == "" then
+        vim.cmd("silent! write")
+      end
+    end,
+  })
+
+  -- Ctrl+G to quit AND signal auto-submit
+  vim.keymap.set("n", "<C-g>", function()
+    io.open("/tmp/claude-submit", "w"):close()
+    vim.cmd("qa!")
+  end, { silent = true })
+  vim.keymap.set("i", "<C-g>", function()
+    vim.cmd("stopinsert")
+    io.open("/tmp/claude-submit", "w"):close()
+    vim.cmd("qa!")
+  end, { silent = true })
+end

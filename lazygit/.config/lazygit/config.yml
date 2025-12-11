@@ -24,4 +24,5 @@ gui:
     '*': '#b4befe'
 git:
   pagers:
-    - externalDiffCommand: difft --color=always
+    - colorArg: always
+      pager: delta --dark --paging=never --line-numbers

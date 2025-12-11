@@ -1,0 +1,15 @@
+#!/bin/bash
+
+HISTORY="/tmp/claude-history-$$.md"
+PANE="$TMUX_PANE"
+claude-history > "$HISTORY"
+
+tmux display-popup -d '#{pane_current_path}' -xC -yC -w 80% -h 80% \
+    -E "CLAUDE_PROMPT_EDITOR=1 nvim -c 'split $HISTORY' -c 'norm G' -c 'wincmd j' -c 'norm G$' -c 'startinsert!' '$1'"
+
+rm -f "$HISTORY"
+
+if [[ -f /tmp/claude-submit ]]; then
+    rm -f /tmp/claude-submit
+    osascript -e 'tell application "System Events" to keystroke return'
+fi
