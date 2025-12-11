@@ -129,8 +129,17 @@ Watch for these phrases that signal over-engineering:
 - **Testing mocks** – Asserting mock was called, not real behavior
 - **Incomplete mocks** – Missing fields the code depends on
 - **No failure test** – Only happy path
+- **Test-only methods** – Methods in production only called by tests
+- **Over-mocking** – Mocking "to be safe" breaks real side effects
+- **Tests as afterthought** – Code "complete" without tests
 
-**Fix:** Test real behavior. See [testing-anti-patterns](../testing-anti-patterns/Skill.md).
+**Red flags:**
+- Mock test IDs in assertions (`*-mock`)
+- Methods only called in test files
+- Mock setup >50% of test code
+- Test fails when you remove mock
+
+**Fix:** Test real behavior. TDD: failing test → implement → refactor.
 
 ### 12. Security Holes
 
