@@ -17,7 +17,7 @@ Always check the project first. Consistency within the project trumps external s
 
 ## Core Rules
 
-- **Never ALL_CAPS for names** - use language features (`const`, `final`, `readonly`) to express immutability. Exception: PHP `define()` constants follow WordPress convention.
+- **Never ALL_CAPS for names** - use language features (`const`, `final`, `readonly`) to express immutability. Exception: PHP `define()` constants follow WordPress convention. Note: Claude Code metadata files use capital case (Skill.md, Claude.md).
 
 - **Avoid abbreviations** - spell words out. Exception: universally understood shortenings of long words (`info`, `max`, `min`, `config`).
 

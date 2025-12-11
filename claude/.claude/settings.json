@@ -111,7 +111,6 @@
     "superpowers-chrome@superpowers-marketplace": true,
     "elements-of-style@superpowers-marketplace": true,
     "episodic-memory@superpowers-marketplace": true,
-    "code-review@claude-code-plugins": true,
     "pr-review-toolkit@claude-code-plugins": true,
     "plugin-dev@claude-code-plugins": true,
     "feature-dev@claude-code-plugins": true
