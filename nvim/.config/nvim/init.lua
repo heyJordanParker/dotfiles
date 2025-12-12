@@ -117,6 +117,24 @@ require("lazy").setup({
           ["<C-k>"] = cmp.mapping.select_next_item(),  -- down in your layout
         }),
       })
+
+      -- Cmdline completions for :
+      cmp.setup.cmdline(":", {
+        mapping = cmp.mapping.preset.cmdline(),
+        sources = cmp.config.sources({
+          { name = "path" },
+        }, {
+          { name = "cmdline" },
+        }),
+      })
+
+      -- Cmdline completions for / and ?
+      cmp.setup.cmdline({ "/", "?" }, {
+        mapping = cmp.mapping.preset.cmdline(),
+        sources = {
+          { name = "buffer" },
+        },
+      })
     end,
   },
   
@@ -177,10 +195,51 @@ require("lazy").setup({
       })
       -- Manual trigger with ?
       vim.keymap.set("n", "?", "<cmd>WhichKey<cr>", { desc = "Show keybindings" })
-      
+
       -- Fix Space moving cursor - make it a no-op when pressed alone
       vim.keymap.set("n", "<Space>", "<Nop>", { silent = true })
     end,
+  },
+
+  -- Hardtime (break bad habits)
+  {
+    "m4xshen/hardtime.nvim",
+    dependencies = { "MunifTanjim/nui.nvim" },
+    opts = {},
+  },
+
+  -- Noice (popup messages + command palette)
+  {
+    "folke/noice.nvim",
+    event = "VeryLazy",
+    dependencies = {
+      "MunifTanjim/nui.nvim",
+      "rcarriga/nvim-notify",
+    },
+    config = function()
+      require("noice").setup({
+        lsp = {
+          override = {
+            ["vim.lsp.util.convert_input_to_markdown_lines"] = true,
+            ["vim.lsp.util.stylize_markdown"] = true,
+            ["cmp.entry.get_documentation"] = true,
+          },
+        },
+        presets = {
+          bottom_search = true,
+          command_palette = true,
+          long_message_to_split = true,
+          inc_rename = false,
+          lsp_doc_border = false,
+        },
+      })
+    end,
+  },
+
+  -- Multiple cursors (Sublime-style)
+  {
+    "mg979/vim-visual-multi",
+    branch = "master",
   },
   
   -- LSP Support
