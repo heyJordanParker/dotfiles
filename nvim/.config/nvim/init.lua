@@ -193,8 +193,8 @@ require("lazy").setup({
           return true -- Always defer (never show automatically)
         end,
       })
-      -- Manual trigger with ?
-      vim.keymap.set("n", "?", "<cmd>WhichKey<cr>", { desc = "Show keybindings" })
+      -- Manual trigger with leader+/
+      vim.keymap.set("n", "<leader>/", "<cmd>WhichKey<cr>", { desc = "Show keybindings" })
 
       -- Fix Space moving cursor - make it a no-op when pressed alone
       vim.keymap.set("n", "<Space>", "<Nop>", { silent = true })

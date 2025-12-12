@@ -47,6 +47,14 @@ keymap('n', 'I', 'gk', opts)  -- Capital I moves up (visual line up)
 keymap('v', '<CR>', '<Esc>i', opts)  -- Exit visual and enter insert
 keymap('x', '<CR>', '<Esc>i', opts)  -- Exit visual block and enter insert
 
+-- Alt + movement for insert entry (directional mnemonics)
+keymap('n', '<M-j>', 'i', opts)  -- insert before cursor (left)
+keymap('n', '<M-l>', 'a', opts)  -- append after cursor (right)
+keymap('n', '<M-k>', 'o', opts)  -- new line below (down)
+keymap('n', '<M-i>', 'O', opts)  -- new line above (up)
+keymap('n', '<M-u>', 'I', opts)  -- insert at line start
+keymap('n', '<M-o>', 'A', opts)  -- append at line end
+
 -- Select all
 keymap('n', 'A', 'ggVG', opts)  -- Select entire file
 
@@ -70,9 +78,7 @@ keymap('x', ';', 'w', opts)
 keymap('o', 'h', 'b', opts)
 keymap('o', ';', 'w', opts)
 
--- Editing commands
-keymap('n', 'n', 'o', opts)  -- open line below
-keymap('n', 'N', 'O', opts)  -- open line above
+-- Editing commands (n/N restored to vim default for search navigation)
 keymap('n', 'z', 'u', opts)  -- undo
 keymap('n', 'Z', '<C-r>', opts)  -- redo
 
@@ -84,19 +90,18 @@ keymap('v', 'O', 'G', opts)
 keymap('x', 'U', 'gg', opts)
 keymap('x', 'O', 'G', opts)
 
--- Search navigation: [=prev, ]=next
-keymap('n', '[', 'N', opts)
-keymap('n', ']', 'n', opts)
+-- Search navigation: n/N restored to vim default, [/] freed
 
--- Character search repeat: .=repeat, ,=reverse
-keymap('n', '.', ';', opts)
-keymap('n', ',', ',', opts)
-keymap('v', '.', ';', opts)
-keymap('v', ',', ',', opts)
-keymap('x', '.', ';', opts)
-keymap('x', ',', ',', opts)
-keymap('o', '.', ';', opts)
-keymap('o', ',', ',', opts)
+-- Motions & repeat: .=edit repeat (default), ,=f/t repeat, <=f/t reverse, >=Ex repeat
+keymap('n', ',', ';', opts)  -- f/t repeat (was ;)
+keymap('n', '<', ',', opts)  -- f/t reverse (was ,)
+keymap('n', '>', '@:', opts) -- repeat Ex command
+keymap('v', ',', ';', opts)
+keymap('v', '<', ',', opts)
+keymap('x', ',', ';', opts)
+keymap('x', '<', ',', opts)
+keymap('o', ',', ';', opts)
+keymap('o', '<', ',', opts)
 
 -- Window navigation with Ctrl+w (keeping for compatibility)
 keymap('n', '<C-w>j', '<C-w>h', opts)  -- left window
@@ -160,9 +165,17 @@ keymap('n', '<leader>gb','<cmd>Telescope git_branches<cr>',              { desc 
 keymap('n', '<leader>e', '<cmd>NvimTreeToggle<cr>', { desc = 'Toggle file explorer' })
 keymap('n', '<leader>E', '<cmd>NvimTreeFindFile<cr>', { desc = 'Find current file in explorer' })
 
--- Bufferline navigation
-keymap('n', '<Tab>', '<cmd>BufferLineCycleNext<cr>', { desc = 'Next buffer tab' })
-keymap('n', '<S-Tab>', '<cmd>BufferLineCyclePrev<cr>', { desc = 'Previous buffer tab' })
+-- Indent/unindent (all modes)
+keymap('n', '<Tab>', '>>', { desc = 'Indent line' })
+keymap('n', '<S-Tab>', '<<', { desc = 'Unindent line' })
+keymap('v', '<Tab>', '>gv', { desc = 'Indent selection' })
+keymap('v', '<S-Tab>', '<gv', { desc = 'Unindent selection' })
+keymap('i', '<Tab>', '<C-t>', { desc = 'Indent' })
+keymap('i', '<S-Tab>', '<C-d>', { desc = 'Unindent' })
+
+-- Buffer navigation (leader + Tab)
+keymap('n', '<leader><Tab>', '<cmd>BufferLineCycleNext<cr>', { desc = 'Next buffer' })
+keymap('n', '<leader><S-Tab>', '<cmd>BufferLineCyclePrev<cr>', { desc = 'Previous buffer' })
 keymap('n', '<leader>x', '<cmd>bd<cr>', { desc = 'Close current buffer' })
 keymap('n', '<leader>X', '<cmd>BufferLineCloseOthers<cr>', { desc = 'Close other buffers' })
 
