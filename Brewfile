@@ -15,6 +15,7 @@ brew "bat"
 brew "starship"
 brew "zinit"
 brew "trash"
+brew "zippoxer/tap/recall"
 
 # Dev
 brew "git-delta"
