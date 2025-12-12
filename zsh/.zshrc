@@ -67,6 +67,7 @@ alias cld="EDITOR=prompt-editor claude --dangerously-skip-permissions"
 alias python='python3'
 alias pip='pip3'
 f() { find . -iname "*$1*" }
+bun() { [[ "$1" == "test" ]] && shift && command bun run test "$@" || command bun "$@" }
 
 # --- THE FAST VIM POPUP ---
 
