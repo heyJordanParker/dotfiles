@@ -3,6 +3,7 @@ export ZSH="$HOME/.oh-my-zsh"
 export PATH="$HOME/.local/bin:$HOME/bin:/usr/local/bin:$PATH"
 export PATH="/Users/jordan/.claude/local:$PATH"
 export DEV_FOLDER="$HOME/Developer"
+export DEV_BROWSER="Helium"
 
 # --- OH-MY-ZSH & PLUGINS ---
 ZSH_THEME="robbyrussell"
