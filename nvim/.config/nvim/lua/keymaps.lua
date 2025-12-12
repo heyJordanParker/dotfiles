@@ -137,7 +137,10 @@ keymap('o', 'H', 'B', opts)
 keymap('n', '<leader>s', ':w<CR>', opts)  -- Space+s to save
 keymap('n', '<leader>sq', ':wqa<CR>', opts)  -- Space+sq to save all and quit
 keymap('n', '<leader>sw', ':w<CR>:close<CR>', opts)  -- Space+sw to save and close window
-keymap('n', '<leader>w', ':q!<CR>', opts)  -- Space+w to close window (or quit if last)
+keymap('n', '<leader>w', function()
+  if vim.bo.filetype == "neo-tree" then return end
+  vim.cmd("q!")
+end, { desc = "Close window (skip neo-tree)" })
 keymap('n', '<leader>W', ':w<CR>:close<CR>', opts)  -- Space+W to save and close window
 keymap('n', '<leader>q', ':qa!<CR>', opts)  -- Space+q to force quit all (without saving)
 keymap('n', '<leader>C', ':source $MYVIMRC<CR>', opts)  -- Space+C to reload config
@@ -176,6 +179,9 @@ keymap('i', '<S-Tab>', '<C-d>', { desc = 'Unindent' })
 -- Buffer navigation (leader + Tab)
 keymap('n', '<leader><Tab>', '<cmd>BufferLineCycleNext<cr>', { desc = 'Next buffer' })
 keymap('n', '<leader><S-Tab>', '<cmd>BufferLineCyclePrev<cr>', { desc = 'Previous buffer' })
-keymap('n', '<leader>x', '<cmd>bd<cr>', { desc = 'Close current buffer' })
+keymap('n', '<leader>x', function()
+  if vim.bo.filetype == "neo-tree" then return end
+  vim.cmd("bd")
+end, { desc = "Close buffer (skip neo-tree)" })
 keymap('n', '<leader>X', '<cmd>BufferLineCloseOthers<cr>', { desc = 'Close other buffers' })
 

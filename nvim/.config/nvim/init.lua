@@ -27,6 +27,12 @@ vim.opt.scrolloff = 8
 vim.opt.signcolumn = "yes"
 vim.opt.updatetime = 50
 
+-- Folding settings (for nvim-ufo)
+vim.opt.foldcolumn = "1"
+vim.opt.foldlevel = 99
+vim.opt.foldlevelstart = 99
+vim.opt.foldenable = true
+
 -- Set leader key to space
 vim.g.mapleader = " "
 vim.g.maplocalleader = " "
@@ -69,6 +75,8 @@ require("lazy").setup({
           neotree = true,
           telescope = true,
           treesitter = true,
+          ufo = true,
+          blink_cmp = true,
         },
       })
       vim.cmd.colorscheme "catppuccin"
@@ -149,11 +157,17 @@ require("lazy").setup({
     config = function()
       require("telescope").setup({
         defaults = {
+          hidden = true,
           mappings = {
             i = {
               ["<C-k>"] = "move_selection_next",
               ["<C-i>"] = "move_selection_previous",
             },
+          },
+        },
+        pickers = {
+          find_files = {
+            hidden = true,
           },
         },
       })
@@ -267,6 +281,11 @@ require("lazy").setup({
       })
 
       local capabilities = require("cmp_nvim_lsp").default_capabilities()
+      -- Add folding capabilities for nvim-ufo
+      capabilities.textDocument.foldingRange = {
+        dynamicRegistration = false,
+        lineFoldingOnly = true,
+      }
 
       -- Define server configs using new vim.lsp.config API
       local servers = { "ts_ls", "pyright", "intelephense", "html", "cssls", "jsonls" }
@@ -302,14 +321,44 @@ require("lazy").setup({
     config = function()
       require("gitsigns").setup({
         signs = {
-          add = { text = "+" },
-          change = { text = "~" },
-          delete = { text = "_" },
-          topdelete = { text = "‾" },
-          changedelete = { text = "~" },
+          add = { text = "▎" },
+          change = { text = "▎" },
+          delete = { text = "▎" },
+          topdelete = { text = "▎" },
+          changedelete = { text = "▎" },
         },
       })
     end,
+  },
+
+  -- nvim-ufo (modern folding)
+  {
+    "kevinhwang91/nvim-ufo",
+    dependencies = { "kevinhwang91/promise-async" },
+    config = function()
+      require("ufo").setup({
+        provider_selector = function()
+          return { "lsp", "indent" }
+        end,
+      })
+      -- Keymaps for fold operations
+      vim.keymap.set("n", "zR", require("ufo").openAllFolds, { desc = "Open all folds" })
+      vim.keymap.set("n", "zM", require("ufo").closeAllFolds, { desc = "Close all folds" })
+      vim.keymap.set("n", "zK", function()
+        require("ufo").peekFoldedLinesUnderCursor()
+      end, { desc = "Preview fold" })
+    end,
+  },
+
+  -- blink.indent (fast indent guides)
+  {
+    "saghen/blink.indent",
+    opts = {
+      scope = {
+        enabled = true,
+        highlights = { "RainbowOrange", "RainbowViolet", "RainbowBlue" },
+      },
+    },
   },
   
   -- Mini.nvim (utilities)
@@ -342,15 +391,183 @@ require("lazy").setup({
   -- Lualine (status bar)
   {
     "nvim-lualine/lualine.nvim",
-    dependencies = { "nvim-tree/nvim-web-devicons" },
+    dependencies = { "nvim-tree/nvim-web-devicons", "catppuccin/nvim" },
     config = function()
+      local mocha = require("catppuccin.palettes").get_palette("mocha")
+      local transparent = { fg = mocha.text, bg = "NONE" }
+      local div = { fg = mocha.overlay0, bg = "NONE" }
+
+      local function divider()
+        return "│"
+      end
+
+      local mode_map = {
+        n = "Normal", i = "Insert", v = "Visual", V = "V-Line",
+        ["\22"] = "V-Block", c = "Command", R = "Replace", t = "Terminal",
+      }
+      local function mode()
+        return mode_map[vim.fn.mode()] or vim.fn.mode()
+      end
+
+      -- Get folder name from git root or cwd
+      local function folder_name()
+        local git_root = vim.fn.systemlist("git rev-parse --show-toplevel 2>/dev/null")[1]
+        if git_root and git_root ~= "" then
+          return vim.fn.fnamemodify(git_root, ":t")
+        end
+        return vim.fn.fnamemodify(vim.fn.getcwd(), ":t")
+      end
+
+      -- folder@branch
+      local function repo_branch()
+        local branch = vim.fn.systemlist("git branch --show-current 2>/dev/null")[1] or ""
+        if branch == "" then
+          return folder_name()
+        end
+        return folder_name() .. "@" .. branch
+      end
+
       require("lualine").setup({
         options = {
-          theme = "catppuccin",
-          component_separators = { left = "", right = "" },
-          section_separators = { left = "", right = "" },
+          theme = {
+            normal = { a = transparent, b = transparent, c = transparent },
+            insert = { a = transparent, b = transparent, c = transparent },
+            visual = { a = transparent, b = transparent, c = transparent },
+            replace = { a = transparent, b = transparent, c = transparent },
+            command = { a = transparent, b = transparent, c = transparent },
+            inactive = { a = transparent, b = transparent, c = transparent },
+          },
+          section_separators = "",
+          component_separators = "",
+          disabled_filetypes = {
+            statusline = {},
+            winbar = {},
+          },
+        },
+        sections = {},  -- no statusline
+        inactive_sections = {},
+        winbar = {
+          lualine_a = {
+            {
+              function()
+                return vim.bo.filetype == "neo-tree" and "File Manager" or mode()
+              end,
+              color = function()
+                return { fg = vim.bo.filetype == "neo-tree" and mocha.blue or mocha.green }
+              end,
+              padding = { left = 1, right = 1 },
+            },
+          },
+          lualine_b = {
+            {
+              function()
+                return vim.bo.filetype == "neo-tree" and "" or repo_branch()
+              end,
+              color = { fg = mocha.peach },
+              padding = { left = 0, right = 0 },
+            },
+          },
+          lualine_c = {
+            {
+              function()
+                if vim.bo.filetype == "neo-tree" then return "" end
+                local name = vim.fn.expand("%:t")
+                return name == "" and "[No Name]" or name
+              end,
+              color = { fg = mocha.blue },
+              padding = { left = 1, right = 0 },
+            },
+          },
+          lualine_x = {
+            {
+              function()
+                return vim.bo.filetype == "neo-tree" and "" or vim.bo.filetype
+              end,
+              color = { fg = mocha.maroon },
+              padding = { left = 0, right = 1 },
+            },
+          },
+          lualine_y = {
+            {
+              function()
+                if vim.bo.filetype == "neo-tree" then return "" end
+                return math.floor(vim.fn.line(".") / vim.fn.line("$") * 100) .. "%%"
+              end,
+              color = { fg = mocha.overlay1 },
+              padding = { left = 0, right = 1 },
+            },
+          },
+          lualine_z = {
+            {
+              function()
+                return vim.bo.filetype == "neo-tree" and "" or (vim.fn.line(".") .. ":" .. vim.fn.col("."))
+              end,
+              color = { fg = mocha.blue },
+              padding = { left = 0, right = 1 },
+            },
+          },
+        },
+        inactive_winbar = {
+          lualine_a = {
+            {
+              function()
+                return vim.bo.filetype == "neo-tree" and "File Manager" or mode()
+              end,
+              color = { fg = mocha.overlay0 },
+              padding = { left = 1, right = 1 },
+            },
+          },
+          lualine_b = {
+            {
+              function()
+                return vim.bo.filetype == "neo-tree" and "" or repo_branch()
+              end,
+              color = { fg = mocha.overlay0 },
+              padding = { left = 0, right = 0 },
+            },
+          },
+          lualine_c = {
+            {
+              function()
+                if vim.bo.filetype == "neo-tree" then return "" end
+                local name = vim.fn.expand("%:t")
+                return name == "" and "[No Name]" or name
+              end,
+              color = { fg = mocha.overlay0 },
+              padding = { left = 1, right = 0 },
+            },
+          },
+          lualine_x = {
+            {
+              function()
+                return vim.bo.filetype == "neo-tree" and "" or vim.bo.filetype
+              end,
+              color = { fg = mocha.overlay0 },
+              padding = { left = 0, right = 1 },
+            },
+          },
+          lualine_y = {
+            {
+              function()
+                if vim.bo.filetype == "neo-tree" then return "" end
+                return math.floor(vim.fn.line(".") / vim.fn.line("$") * 100) .. "%%"
+              end,
+              color = { fg = mocha.overlay0 },
+              padding = { left = 0, right = 1 },
+            },
+          },
+          lualine_z = {
+            {
+              function()
+                return vim.bo.filetype == "neo-tree" and "" or (vim.fn.line(".") .. ":" .. vim.fn.col("."))
+              end,
+              color = { fg = mocha.overlay0 },
+              padding = { left = 0, right = 1 },
+            },
+          },
         },
       })
+      vim.opt.laststatus = 0  -- hide statusline
     end,
   },
   
@@ -390,10 +607,30 @@ require("lazy").setup({
         filesystem = {
           follow_current_file = { enabled = true },
           use_libuv_file_watcher = true,
+          filtered_items = {
+            visible = true,  -- show hidden files by default
+            hide_dotfiles = false,
+            hide_gitignored = true,
+          },
         },
         window = {
           position = "right",
           width = 30,
+          mappings = {
+            -- jkli navigation (user's custom layout)
+            ["j"] = "noop",
+            ["k"] = "noop",
+            ["i"] = "noop",
+            ["I"] = "show_file_details",
+          },
+        },
+        event_handlers = {
+          {
+            event = "neo_tree_window_after_open",
+            handler = function()
+              vim.wo.foldcolumn = "0"
+            end,
+          },
         },
         buffers = {
           follow_current_file = { enabled = true },
