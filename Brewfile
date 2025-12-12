@@ -16,6 +16,8 @@ brew "starship"
 brew "zinit"
 brew "trash"
 brew "zippoxer/tap/recall"
+brew "tobi/try/try"
+brew "superfile"
 
 # Dev
 brew "git-delta"

@@ -1,0 +1,1 @@
+../dotfiles/.claude/statusline-command.sh
