@@ -307,7 +307,7 @@ require("lazy").setup({
           vim.keymap.set("n", "gh", vim.lsp.buf.hover, opts)
           vim.keymap.set("n", "<leader>rn", vim.lsp.buf.rename, opts)
           vim.keymap.set("n", "<leader>ca", vim.lsp.buf.code_action, opts)
-          vim.keymap.set("n", "<leader>e", vim.diagnostic.open_float, opts)
+          vim.keymap.set("n", "<leader>d", vim.diagnostic.open_float, opts)
           vim.keymap.set("n", "[d", vim.diagnostic.goto_prev, opts)
           vim.keymap.set("n", "]d", vim.diagnostic.goto_next, opts)
         end,
@@ -441,129 +441,54 @@ require("lazy").setup({
           component_separators = "",
           disabled_filetypes = {
             statusline = {},
-            winbar = {},
+            winbar = { "neo-tree" },
           },
         },
         sections = {},  -- no statusline
         inactive_sections = {},
         winbar = {
           lualine_a = {
-            {
-              function()
-                return vim.bo.filetype == "neo-tree" and "File Manager" or mode()
-              end,
-              color = function()
-                return { fg = vim.bo.filetype == "neo-tree" and mocha.blue or mocha.green }
-              end,
-              padding = { left = 1, right = 1 },
-            },
+            { mode, color = { fg = mocha.green }, padding = { left = 1, right = 1 } },
           },
           lualine_b = {
-            {
-              function()
-                return vim.bo.filetype == "neo-tree" and "" or repo_branch()
-              end,
-              color = { fg = mocha.peach },
-              padding = { left = 0, right = 0 },
-            },
+            { repo_branch, color = { fg = mocha.peach }, padding = { left = 0, right = 0 } },
           },
           lualine_c = {
             {
-              function()
-                if vim.bo.filetype == "neo-tree" then return "" end
-                local name = vim.fn.expand("%:t")
-                return name == "" and "[No Name]" or name
-              end,
+              "filename",
+              path = 0,
               color = { fg = mocha.blue },
               padding = { left = 1, right = 0 },
             },
           },
           lualine_x = {
-            {
-              function()
-                return vim.bo.filetype == "neo-tree" and "" or vim.bo.filetype
-              end,
-              color = { fg = mocha.maroon },
-              padding = { left = 0, right = 1 },
-            },
+            { "filetype", color = { fg = mocha.maroon }, padding = { left = 0, right = 1 } },
           },
           lualine_y = {
-            {
-              function()
-                if vim.bo.filetype == "neo-tree" then return "" end
-                return math.floor(vim.fn.line(".") / vim.fn.line("$") * 100) .. "%%"
-              end,
-              color = { fg = mocha.overlay1 },
-              padding = { left = 0, right = 1 },
-            },
+            { "progress", color = { fg = mocha.overlay1 }, padding = { left = 0, right = 1 } },
           },
           lualine_z = {
-            {
-              function()
-                return vim.bo.filetype == "neo-tree" and "" or (vim.fn.line(".") .. ":" .. vim.fn.col("."))
-              end,
-              color = { fg = mocha.blue },
-              padding = { left = 0, right = 1 },
-            },
+            { function() return vim.fn.line(".") .. ":" .. vim.fn.col(".") end, color = { fg = mocha.blue }, padding = { left = 0, right = 1 } },
           },
         },
         inactive_winbar = {
           lualine_a = {
-            {
-              function()
-                return vim.bo.filetype == "neo-tree" and "File Manager" or mode()
-              end,
-              color = { fg = mocha.overlay0 },
-              padding = { left = 1, right = 1 },
-            },
+            { mode, color = { fg = mocha.overlay0 }, padding = { left = 1, right = 1 } },
           },
           lualine_b = {
-            {
-              function()
-                return vim.bo.filetype == "neo-tree" and "" or repo_branch()
-              end,
-              color = { fg = mocha.overlay0 },
-              padding = { left = 0, right = 0 },
-            },
+            { repo_branch, color = { fg = mocha.overlay0 }, padding = { left = 0, right = 0 } },
           },
           lualine_c = {
-            {
-              function()
-                if vim.bo.filetype == "neo-tree" then return "" end
-                local name = vim.fn.expand("%:t")
-                return name == "" and "[No Name]" or name
-              end,
-              color = { fg = mocha.overlay0 },
-              padding = { left = 1, right = 0 },
-            },
+            { "filename", path = 0, color = { fg = mocha.overlay0 }, padding = { left = 1, right = 0 } },
           },
           lualine_x = {
-            {
-              function()
-                return vim.bo.filetype == "neo-tree" and "" or vim.bo.filetype
-              end,
-              color = { fg = mocha.overlay0 },
-              padding = { left = 0, right = 1 },
-            },
+            { "filetype", color = { fg = mocha.overlay0 }, padding = { left = 0, right = 1 } },
           },
           lualine_y = {
-            {
-              function()
-                if vim.bo.filetype == "neo-tree" then return "" end
-                return math.floor(vim.fn.line(".") / vim.fn.line("$") * 100) .. "%%"
-              end,
-              color = { fg = mocha.overlay0 },
-              padding = { left = 0, right = 1 },
-            },
+            { "progress", color = { fg = mocha.overlay0 }, padding = { left = 0, right = 1 } },
           },
           lualine_z = {
-            {
-              function()
-                return vim.bo.filetype == "neo-tree" and "" or (vim.fn.line(".") .. ":" .. vim.fn.col("."))
-              end,
-              color = { fg = mocha.overlay0 },
-              padding = { left = 0, right = 1 },
-            },
+            { function() return vim.fn.line(".") .. ":" .. vim.fn.col(".") end, color = { fg = mocha.overlay0 }, padding = { left = 0, right = 1 } },
           },
         },
       })
@@ -604,6 +529,13 @@ require("lazy").setup({
       require("neo-tree").setup({
         enable_git_status = false,
         close_if_last_window = false,
+        source_selector = {
+          winbar = true,
+          content_layout = "center",
+          sources = {
+            { source = "filesystem", display_name = "File Manager" },
+          },
+        },
         filesystem = {
           follow_current_file = { enabled = true },
           use_libuv_file_watcher = true,
@@ -624,14 +556,6 @@ require("lazy").setup({
             ["I"] = "show_file_details",
           },
         },
-        event_handlers = {
-          {
-            event = "neo_tree_window_after_open",
-            handler = function()
-              vim.wo.foldcolumn = "0"
-            end,
-          },
-        },
         buffers = {
           follow_current_file = { enabled = true },
         },
@@ -640,6 +564,13 @@ require("lazy").setup({
             with_expanders = true,
           },
         },
+      })
+      -- Hide foldcolumn for neo-tree
+      vim.api.nvim_create_autocmd("FileType", {
+        pattern = "neo-tree",
+        callback = function()
+          vim.opt_local.foldcolumn = "0"
+        end,
       })
     end,
   },
@@ -736,7 +667,6 @@ vim.api.nvim_create_autocmd('BufLeave', {
 -- Neo-tree keymaps
 vim.keymap.set("n", "<leader>e", ":Neotree toggle<CR>", { desc = "Toggle file explorer" })
 vim.keymap.set("n", "<leader>o", ":Neotree focus<CR>", { desc = "Focus file explorer" })
-vim.keymap.set("n", "<leader>b", ":Neotree buffers<CR>", { desc = "Show open buffers" })
 vim.keymap.set("n", "<leader>gs", ":Neotree git_status<CR>", { desc = "Git status" })
 
 -- Enable wrap for prose filetypes

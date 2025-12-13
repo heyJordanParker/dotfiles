@@ -164,10 +164,6 @@ keymap('n', '<leader>gf','<cmd>Telescope git_files<cr>',                 { desc 
 keymap('n', '<leader>gc','<cmd>Telescope git_commits<cr>',               { desc = 'Git commits',          silent = true })
 keymap('n', '<leader>gb','<cmd>Telescope git_branches<cr>',              { desc = 'Git branches',         silent = true })
 
--- NvimTree keybindings
-keymap('n', '<leader>e', '<cmd>NvimTreeToggle<cr>', { desc = 'Toggle file explorer' })
-keymap('n', '<leader>E', '<cmd>NvimTreeFindFile<cr>', { desc = 'Find current file in explorer' })
-
 -- Indent/unindent (all modes)
 keymap('n', '<Tab>', '>>', { desc = 'Indent line' })
 keymap('n', '<S-Tab>', '<<', { desc = 'Unindent line' })
