@@ -139,8 +139,13 @@ keymap('n', '<leader>sq', ':wqa<CR>', opts)  -- Space+sq to save all and quit
 keymap('n', '<leader>sw', ':w<CR>:close<CR>', opts)  -- Space+sw to save and close window
 keymap('n', '<leader>w', function()
   if vim.bo.filetype == "neo-tree" then return end
-  vim.cmd("q!")
-end, { desc = "Close window (skip neo-tree)" })
+  local buffers = vim.fn.getbufinfo({ buflisted = 1 })
+  if #buffers <= 1 then
+    vim.cmd("qa!")
+  else
+    vim.cmd("bp | bd #")  -- switch to prev buffer, then delete the one we left
+  end
+end, { desc = "Close buffer, quit if last" })
 keymap('n', '<leader>W', ':w<CR>:close<CR>', opts)  -- Space+W to save and close window
 keymap('n', '<leader>q', ':qa!<CR>', opts)  -- Space+q to force quit all (without saving)
 keymap('n', '<leader>C', ':source $MYVIMRC<CR>', opts)  -- Space+C to reload config

@@ -6,7 +6,7 @@ vim.opt.expandtab = true
 vim.opt.shiftwidth = 2
 vim.opt.tabstop = 2
 vim.opt.smartindent = true
-vim.opt.wrap = false
+vim.opt.wrap = true
 -- Crash-proof settings for persistent nvim server
 vim.opt.swapfile = true
 vim.opt.directory = os.getenv("HOME") .. "/.local/share/nvim/swap//"
@@ -27,11 +27,6 @@ vim.opt.scrolloff = 8
 vim.opt.signcolumn = "yes"
 vim.opt.updatetime = 50
 
--- Folding settings (for nvim-ufo)
-vim.opt.foldcolumn = "1"
-vim.opt.foldlevel = 99
-vim.opt.foldlevelstart = 99
-vim.opt.foldenable = true
 
 -- Set leader key to space
 vim.g.mapleader = " "
@@ -75,7 +70,6 @@ require("lazy").setup({
           neotree = true,
           telescope = true,
           treesitter = true,
-          ufo = true,
           blink_cmp = true,
         },
       })
@@ -230,7 +224,7 @@ require("lazy").setup({
       "MunifTanjim/nui.nvim",
       {
         "rcarriga/nvim-notify",
-        opts = { background_colour = "#000000" },
+        opts = { background_colour = "#000000", top_down = false, render = "compact" },
       },
     },
     config = function()
@@ -281,11 +275,6 @@ require("lazy").setup({
       })
 
       local capabilities = require("cmp_nvim_lsp").default_capabilities()
-      -- Add folding capabilities for nvim-ufo
-      capabilities.textDocument.foldingRange = {
-        dynamicRegistration = false,
-        lineFoldingOnly = true,
-      }
 
       -- Define server configs using new vim.lsp.config API
       local servers = { "ts_ls", "pyright", "intelephense", "html", "cssls", "jsonls" }
@@ -331,24 +320,6 @@ require("lazy").setup({
     end,
   },
 
-  -- nvim-ufo (modern folding)
-  {
-    "kevinhwang91/nvim-ufo",
-    dependencies = { "kevinhwang91/promise-async" },
-    config = function()
-      require("ufo").setup({
-        provider_selector = function()
-          return { "lsp", "indent" }
-        end,
-      })
-      -- Keymaps for fold operations
-      vim.keymap.set("n", "zR", require("ufo").openAllFolds, { desc = "Open all folds" })
-      vim.keymap.set("n", "zM", require("ufo").closeAllFolds, { desc = "Close all folds" })
-      vim.keymap.set("n", "zK", function()
-        require("ufo").peekFoldedLinesUnderCursor()
-      end, { desc = "Preview fold" })
-    end,
-  },
 
   -- blink.indent (fast indent guides)
   {
@@ -444,55 +415,8 @@ require("lazy").setup({
             winbar = { "neo-tree" },
           },
         },
-        sections = {},  -- no statusline
-        inactive_sections = {},
-        winbar = {
-          lualine_a = {
-            { mode, color = { fg = mocha.green }, padding = { left = 1, right = 1 } },
-          },
-          lualine_b = {
-            { repo_branch, color = { fg = mocha.peach }, padding = { left = 0, right = 0 } },
-          },
-          lualine_c = {
-            {
-              "filename",
-              path = 0,
-              color = { fg = mocha.blue },
-              padding = { left = 1, right = 0 },
-            },
-          },
-          lualine_x = {
-            { "filetype", color = { fg = mocha.maroon }, padding = { left = 0, right = 1 } },
-          },
-          lualine_y = {
-            { "progress", color = { fg = mocha.overlay1 }, padding = { left = 0, right = 1 } },
-          },
-          lualine_z = {
-            { function() return vim.fn.line(".") .. ":" .. vim.fn.col(".") end, color = { fg = mocha.blue }, padding = { left = 0, right = 1 } },
-          },
-        },
-        inactive_winbar = {
-          lualine_a = {
-            { mode, color = { fg = mocha.overlay0 }, padding = { left = 1, right = 1 } },
-          },
-          lualine_b = {
-            { repo_branch, color = { fg = mocha.overlay0 }, padding = { left = 0, right = 0 } },
-          },
-          lualine_c = {
-            { "filename", path = 0, color = { fg = mocha.overlay0 }, padding = { left = 1, right = 0 } },
-          },
-          lualine_x = {
-            { "filetype", color = { fg = mocha.overlay0 }, padding = { left = 0, right = 1 } },
-          },
-          lualine_y = {
-            { "progress", color = { fg = mocha.overlay0 }, padding = { left = 0, right = 1 } },
-          },
-          lualine_z = {
-            { function() return vim.fn.line(".") .. ":" .. vim.fn.col(".") end, color = { fg = mocha.overlay0 }, padding = { left = 0, right = 1 } },
-          },
-        },
       })
-      vim.opt.laststatus = 0  -- hide statusline
+      vim.opt.laststatus = 0
     end,
   },
   
@@ -528,13 +452,9 @@ require("lazy").setup({
     config = function()
       require("neo-tree").setup({
         enable_git_status = false,
-        close_if_last_window = false,
+        close_if_last_window = true,
         source_selector = {
-          winbar = true,
-          content_layout = "center",
-          sources = {
-            { source = "filesystem", display_name = "File Manager" },
-          },
+          winbar = false,  -- disabled: bufferline already shows "File Explorer"
         },
         filesystem = {
           follow_current_file = { enabled = true },
@@ -588,8 +508,8 @@ require("lazy").setup({
     dependencies = { "nvim-tree/nvim-web-devicons" },
     config = function()
       require("bufferline").setup({
+        highlights = require("catppuccin.special.bufferline").get_theme(),
         options = {
-          theme = "catppuccin",
           offsets = {
             {
               filetype = "neo-tree",
@@ -603,7 +523,7 @@ require("lazy").setup({
           show_buffer_close_icons = false,
           show_close_icon = false,
           separator_style = "thin",
-          always_show_bufferline = false,
+          always_show_bufferline = true,
         },
       })
     end,
@@ -701,3 +621,35 @@ if os.getenv("CLAUDE_PROMPT_EDITOR") then
     vim.cmd("qa!")
   end, { silent = true })
 end
+
+-- Visual mode overlay (top-right, minimal, inverted colors)
+vim.api.nvim_set_hl(0, "VisualModeOverlay", { fg = "#1e1e2e", bg = "#cdd6f4", bold = true })
+local visual_overlay = nil
+vim.api.nvim_create_autocmd("ModeChanged", {
+  callback = function()
+    local mode = vim.fn.mode()
+    local visual_modes = { v = "Visual", V = "V-Line", ["\22"] = "V-Block" }
+
+    if visual_modes[mode] then
+      if not visual_overlay or not vim.api.nvim_win_is_valid(visual_overlay) then
+        local buf = vim.api.nvim_create_buf(false, true)
+        local text = " " .. visual_modes[mode] .. " "
+        vim.api.nvim_buf_set_lines(buf, 0, -1, false, { text })
+        visual_overlay = vim.api.nvim_open_win(buf, false, {
+          relative = "win",
+          row = 0,
+          col = vim.api.nvim_win_get_width(0) - #text,
+          width = #text,
+          height = 1,
+          style = "minimal",
+        })
+        vim.api.nvim_win_set_option(visual_overlay, "winhl", "Normal:VisualModeOverlay")
+      end
+    else
+      if visual_overlay and vim.api.nvim_win_is_valid(visual_overlay) then
+        vim.api.nvim_win_close(visual_overlay, true)
+        visual_overlay = nil
+      end
+    end
+  end,
+})
