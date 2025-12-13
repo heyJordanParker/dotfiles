@@ -1,0 +1,15 @@
+{
+  "name": "karabiner",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "build": "bun run src/index.ts"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "karabiner.ts": "^1.36.0"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  }
+}

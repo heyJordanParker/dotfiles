@@ -1,0 +1,9 @@
+src
+package.json
+tsconfig.json
+bun.lock
+node_modules
+CLAUDE.md
+\.gitignore
+\.cursor
+\.stow-local-ignore
