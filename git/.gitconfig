@@ -58,3 +58,7 @@
 	cmd = "cursor --wait --diff  "
 [init]
 	defaultBranch = master
+[advice]
+	addIgnoredFile = false
+	detachedHead = false
+	statusHints = false
