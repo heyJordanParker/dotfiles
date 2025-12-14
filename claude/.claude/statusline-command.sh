@@ -73,6 +73,7 @@ total_output=$(echo "$input" | jq -r '.context_window.total_output_tokens // 0')
 context_size=$(echo "$input" | jq -r '.context_window.context_window_size // 200000')
 total_tokens=$((total_input + total_output))
 percentage=$((total_tokens * 100 / context_size))
+[ "$percentage" -gt 100 ] && percentage=100
 
 # Create progress bar (10 chars wide)
 bar_width=10
