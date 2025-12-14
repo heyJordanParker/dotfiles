@@ -54,6 +54,11 @@
             "type": "command",
             "command": "/Users/jordan/.claude/hooks/block-git-revert.sh",
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "/Users/jordan/.claude/hooks/block-unsafe-delete.sh",
+            "timeout": 5
           }
         ]
       }
@@ -110,7 +115,7 @@
     "superpowers-developing-for-claude-code@superpowers-marketplace": true,
     "superpowers-chrome@superpowers-marketplace": true,
     "elements-of-style@superpowers-marketplace": true,
-    "episodic-memory@superpowers-marketplace": true,
+    "episodic-memory@superpowers-marketplace": false,
     "pr-review-toolkit@claude-code-plugins": true,
     "plugin-dev@claude-code-plugins": true,
     "feature-dev@claude-code-plugins": true
