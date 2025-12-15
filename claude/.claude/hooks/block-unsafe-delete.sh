@@ -7,6 +7,7 @@ ALLOWED_PREFIXES=(
   "/Users/jordan/Developer"
   "/Users/jordan/Downloads"
   "/Users/jordan/Desktop"
+  "/Users/jordan/conductor"
   "/tmp"
 )
 
