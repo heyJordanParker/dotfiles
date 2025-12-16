@@ -46,10 +46,9 @@ eval "$(starship init zsh)"
 # FZF
 eval "$(fzf --zsh)"
 
-# Bun (Defined once)
+# Bun
 export BUN_INSTALL="$HOME/.bun"
 export PATH="$BUN_INSTALL/bin:$PATH"
-[ -s "/Users/jordan/.bun/_bun" ] && source "/Users/jordan/.bun/_bun"
 
 # Antigravity & Lando
 export PATH="/Users/jordan/.antigravity/antigravity/bin:$PATH"
@@ -107,6 +106,9 @@ v() {
 
 # Load local secrets last
 [[ -f ~/.zshrc.local ]] && source ~/.zshrc.local
+
+# Completions (bun, npm, etc.)
+source ~/.zsh_completions.zsh
 
 # Tmux Waiting Indicator Hooks
 precmd() {
