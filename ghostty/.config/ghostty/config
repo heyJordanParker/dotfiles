@@ -63,6 +63,7 @@ macos-option-as-alt = true
 keybind = alt+semicolon=text:…
 keybind = alt+minus=text:–
 keybind = alt+8=text:•
+keybind = cmd+d=unbind
 initial-window = false
 theme = Catppuccin Mocha
 font-family = JetBrainsMonoNerdFont
