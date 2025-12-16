@@ -67,12 +67,15 @@ else
   duration="<1m"
 fi
 
-# Context usage progress bar
-total_input=$(echo "$input" | jq -r '.context_window.total_input_tokens // 0')
-total_output=$(echo "$input" | jq -r '.context_window.total_output_tokens // 0')
+# Context usage progress bar (approximates /context output)
 context_size=$(echo "$input" | jq -r '.context_window.context_window_size // 200000')
-total_tokens=$((total_input + total_output))
-percentage=$((total_tokens * 100 / context_size))
+autocompact_buffer=45000  # fixed reservation
+system_overhead=15000     # partial - rest is in cache_read when cached
+current_tokens=$(echo "$input" | jq -r --argjson overhead $((autocompact_buffer + system_overhead)) '
+  .context_window.current_usage |
+  if . then (.input_tokens // 0) + (.output_tokens // 0) + (.cache_creation_input_tokens // 0) + (.cache_read_input_tokens // 0) + $overhead else 0 end
+')
+percentage=$((current_tokens * 100 / context_size))
 [ "$percentage" -gt 100 ] && percentage=100
 
 # Create progress bar (10 chars wide)

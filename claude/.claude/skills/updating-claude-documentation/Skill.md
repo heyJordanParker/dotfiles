@@ -93,3 +93,5 @@ After explicit approval:
 
 - [hierarchy.md](hierarchy.md) - Hierarchy & placement principles for Claude.md files
 - [style-guide.md](style-guide.md) - Style rules for writing Claude.md content
+- `.claude/rules/` - Alternative to Claude.md; files auto-loaded (2.0.64+)
+- [Claude Code Changelog](https://github.com/anthropics/claude-code/blob/main/CHANGELOG.md) - Check for new features affecting documentation

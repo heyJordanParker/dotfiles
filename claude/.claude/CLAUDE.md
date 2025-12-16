@@ -26,6 +26,7 @@ Working Rules:
 - Test everything - Untested code is a guess
 - Report failures immediately - Don't work around silently
 - Ask when unclear - Propose options, let me decide
+- Claude.md uses PascalCase (never CLAUDE.md or claude.md)
 
 Red Flags:
 - Building before understanding library behavior
