@@ -1,11 +1,4 @@
----
-description: Karabiner.ts configuration reference - TypeScript DSL for Karabiner-Elements keyboard remapping
-globs:
-  - "**/*.ts"
-  - "**/karabiner.json"
----
-
-# Karabiner.ts Reference
+# Karabiner.ts API Reference
 
 TypeScript DSL for [Karabiner-Elements](https://karabiner-elements.pqrs.org/) keyboard remapping.
 
