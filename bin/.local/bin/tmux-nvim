@@ -2,7 +2,9 @@
 SOCKET="$HOME/.cache/nvim/server.pipe"
 
 # 1. Ensure Server is Running (The "Safety" Layer)
-if [ ! -S "$SOCKET" ]; then
+# Check if server is actually responding, not just if socket file exists
+if ! nvim --server "$SOCKET" --remote-send '' 2>/dev/null; then
+    rm -f "$SOCKET"
     mkdir -p "$(dirname "$SOCKET")"
     nohup nvim --headless --listen "$SOCKET" >/dev/null 2>&1 &
     # Wait max 1s for socket
