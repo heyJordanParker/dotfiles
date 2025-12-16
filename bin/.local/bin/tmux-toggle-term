@@ -31,9 +31,13 @@ fi
 # Create session if needed
 if ! $TMUX_POPUP has-session -t "$SESSION_NAME" 2>/dev/null; then
     $TMUX_POPUP new-session -d -s "$SESSION_NAME" -c "$WORKDIR" "$COMMAND"
+    # Enable extended key recognition (CSI u / fixterms protocol)
+    $TMUX_POPUP set -s extended-keys always
+    $TMUX_POPUP set -as terminal-features 'tmux-256color:extkeys'
     $TMUX_POPUP set-option -t "$SESSION_NAME" status off
     $TMUX_POPUP set-option -t "$SESSION_NAME" pane-border-status off
     $TMUX_POPUP set-option -t "$SESSION_NAME" detach-on-destroy on
+    $TMUX_POPUP bind-key -n S-Enter send-keys M-Enter
 fi
 
 # Display popup (runs from main tmux, content from popup server)
