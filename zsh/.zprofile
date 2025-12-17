@@ -1,4 +1,5 @@
 eval "$(/opt/homebrew/bin/brew shellenv)"
+export HOMEBREW_NO_ENV_HINTS=1
 
 # Initialize zoxide for all shell types
 eval "$(zoxide init --cmd cd zsh)"
