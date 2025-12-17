@@ -32,7 +32,7 @@ fi
 
 echo "==> Linking dotfiles..."
 cd "$DOTFILES_DIR"
-stow -v zsh git tmux npm ssh nvim ghostty karabiner btop claude lazygit delta bat
+stow -v zsh git tmux npm ssh nvim ghostty karabiner btop claude lazygit delta bat opencode
 
 # Build bat theme cache
 bat cache --build 2>/dev/null || true

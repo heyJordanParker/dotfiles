@@ -20,6 +20,7 @@ brew "tobi/try/try"
 brew "superfile"
 
 # Dev
+brew "opencode"
 brew "git-delta"
 brew "lazygit"
 brew "node"
