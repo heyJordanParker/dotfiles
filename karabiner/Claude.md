@@ -58,8 +58,8 @@ for (const key of allKeys) {
 
 **Dual protection against accidental activation:**
 
-1. **Hold threshold:** 150ms before HRM becomes ready
-2. **Typing streak:** Active within window (default 150ms) blocks HRM activation
+1. **Hold threshold:** 120ms before HRM becomes ready
+2. **Typing streak:** Active within window (default 120ms) blocks HRM activation
 
 **Three behaviors:**
 
@@ -67,13 +67,19 @@ for (const key of allKeys) {
 - **Rollover:** Key pressed before HRM ready → output held letter first, then continue
 - **Source:** HRM key behavior (tap alone → letter, hold → set vars, held threshold → ready)
 
-**Example:** Hold `a` (⌃), press `j` within 150ms → outputs "aj" (rollover, not Ctrl+J)
+**Example:** Hold `a` (⌃), press `j` within 120ms → outputs "aj" (rollover, not Ctrl+J)
 
 ### Layers
 
-**Trigger:** Key that activates layer when held, outputs itself when tapped alone
+**Trigger:** Key that activates layer when held (after 120ms threshold), outputs itself when tapped alone
+
+**Dual protection:** Like HRM - hold threshold (120ms) before layer activates, tap outputs trigger key
 
 **Bindings:** Key mappings active when layer is on
+
+**Swallowing:** Undefined keys output nothing when layer active (no passthrough)
+
+**Inheritance:** When `inherit: true`, child layer uses parent bindings for unbound keys
 
 **Parent/Child:** Sub-layers require parent active
 
@@ -116,8 +122,9 @@ const config: KeyboardConfig = {
     },
   },
 
-  streakWindowMs: 100,        // ~105 WPM threshold
-  hrmHoldThresholdMs: 150,    // HRM activation delay
+  streakWindowMs: 120,           // Typing streak window
+  hrmHoldThresholdMs: 120,       // HRM activation delay
+  layerHoldThresholdMs: 120,     // Layer activation delay
 }
 
 writeToProfile('MyProfile', generateKeyboardRules(config))
@@ -141,8 +148,11 @@ streakUpdates(windowMs) // Sets isTypingStreak and updates expiry
 ### Layer Variable Lifecycle
 
 **Trigger key pressed:**
-- Set `{layerName}Active = 1`
+- Set `{layerName}Active = 0` (inactive initially)
 - Track typing streak
+
+**After hold threshold (120ms):**
+- Set `{layerName}Active = 1` (via toIfHeldDown)
 
 **Trigger key released:**
 - Set `{layerName}Active = 0` (via toAfterKeyUp)
@@ -156,7 +166,7 @@ streakUpdates(windowMs) // Sets isTypingStreak and updates expiry
 - Set `{key}HeldReady = 0` (not ready yet)
 - Set `{key}Outputted = 0`
 
-**After hold threshold (150ms):**
+**After hold threshold (120ms):**
 - Set `{key}HeldReady = 1` (via toIfHeldDown)
 
 **Key released:**
