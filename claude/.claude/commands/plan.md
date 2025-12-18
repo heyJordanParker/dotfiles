@@ -1,111 +1,59 @@
 ---
-description: Plan a feature using pragmatic engineering principles
+description: Plan a feature using structured format
 ---
 
-Plan implementation using the 5-step algorithm. Question requirements, delete scope, simplify approach.
+## Rules
 
-## Instructions
-
-Before writing any code, run through the pragmatic engineering process:
-
-### Step 0: Understand
-
-Before planning, fully understand the request:
-
-1. **Explore the codebase** - Find related code, patterns, dependencies
-2. **Answer your own questions first** - Search code before asking user
-3. **Ask remaining questions** - Use standalone questions with full context:
-   - Include file paths, code examples, risk assessment
-   - User answers without scrolling up
-4. **Confirm understanding** - Summarize intent back to user
-
-**Mistake this prevents:** Planning based on assumptions instead of code reality.
-
-### Step 1: Question Requirements
-
-Ask yourself and the user:
-
-- Does this need to exist?
-- Who asked for this? Can you question them?
-- Is this solving a real problem or an imagined one?
-- What happens if we don't build this?
-
-**AI-generated requirements get extra scrutiny.** Pattern matching isn't enough.
-
-### Step 2: Delete Scope
-
-What can be removed from this feature?
-
-- Which requirements are actually optional?
-- What's the epicenter - what can't be removed?
-- Can we solve 80% of the problem with 20% of the work?
-- Are we building features "for later"?
-
-**Target:** If you're not adding things back later, you didn't delete enough.
-
-### Step 3: Simplify
-
-For what remains:
-
-- What's the simplest solution that works?
-- Can we use existing libraries instead of building?
-- Can a single developer understand the whole thing?
-- Can any component be rewritten in 10 minutes?
-
-**Never optimize something that shouldn't exist.**
-
-### Step 4: Plan the Build
-
-Only after steps 1-3:
-
-- Interface first - start with user experience, work backward
-- Convention over configuration - use strong defaults
-- 2-day quality horizon - plan to be shippable within 2 days
-- Loosely coupled - independent components, one-way dependencies
-
-### Step 5: Validate with Skill
-
-Use the `pragmatic-engineering` skill to validate your plan against:
-- Red flags (building before understanding, abstractions "for later", etc.)
-- The 5-step algorithm (did we actually delete enough?)
-- Code philosophy (will this be trivial to maintain?)
-
-### Step 6: Name the Session
-
-After planning is complete, prompt the user to rename the session. Suggest a name based on the feature being planned.
-
-Remember to rename this session to easily resume it later.
-E.g. `/rename <your-suggested-name-here>`
-
-## Asking Questions
-
-Every question must be **standalone**:
-- Include: file path, code example, why it matters
-- User answers without reading earlier output
-- Try answering via code search first
+1. User is the architect. Decisions with impact >7 require user approval (see Claude.md).
+2. Plans DECIDE — don't say "X or Y". Pick one, add confidence %. If unsure, ask.
+3. Every assumption and decision needs a confidence score.
+4. Clarifying questions go through AskUserQuestion. Include full context IN the question so user doesn't need to read the plan.
+5. When asking, propose MULTIPLE DIFFERENT options. Mark your recommendation with confidence.
 
 ## Output Format
 
 ```
-# Plan: [Feature Name]
+# [Feature Name]
 
-## Requirements (after questioning)
-- [Only requirements that survived scrutiny]
+## Assumptions
+- [assumption] (X%)
 
-## Deleted (not building)
-- [What we decided not to build and why]
+## Plan
+1. [step]
 
-## Approach (simplified)
-- [The simplest approach that works]
+## Architecture
+path/to/
+├── file.ts   # what it does
+└── other.ts  # what it does
 
-## Implementation Steps
-1. [Concrete step]
-2. [Concrete step]
-...
+## New Names (using the naming skill)
+- name — description
 
-## Validation
-- [ ] Can be shipped in 2 days
-- [ ] Any component rewritable in 10 minutes
-- [ ] No abstractions without 3+ use cases
-- [ ] Using libraries for heavy lifting
+## Won't
+- [explicit exclusion]
+
+## Risk
+- [what could go wrong]
+
+## Questions
+- None (or list unresolved)
 ```
+
+## Process
+
+1. Explore codebase to understand context
+2. Question requirements (does this need to exist?)
+3. Delete scope (what's the 20% that solves 80%?)
+4. Draft assumptions with confidence scores
+5. If any assumption <70%, ask user before proceeding
+6. Draft plan with decisions (not options)
+7. Validate with `pragmatic-engineering` skill
+8. Present to user for approval
+
+## Asking Questions
+
+Use AskUserQuestion tool. Each question must be standalone:
+- Include: file path, code example, confidence scores for each option
+- Propose 2-4 different approaches
+- Mark recommendation: "Option A (recommended, 80%)"
+- User answers without reading the plan
