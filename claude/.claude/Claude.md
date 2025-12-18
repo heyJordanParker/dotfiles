@@ -1,3 +1,8 @@
+---
+version: 1.0
+updated: 2025-12-18
+---
+
 Focus on concise, minimal output. Prioritize actionable, well-formatted content. Use bullets, annotated file trees, and whitespace. Avoid prose, tables, and verbose explanations.
 
 Basic Context:
@@ -73,3 +78,12 @@ Red Flags:
 
 When Stuck:
 - Say "I'm stuck because X. Should I Y or Z?"
+
+Hooks:
+- block-git-revert.sh - Blocks destructive git: `git reset`, `git restore`, `git checkout -- <file>`. Forces manual execution.
+- block-unsafe-delete.sh - Whitelist rm. Only: ~/dotfiles, ~/Developer, ~/Downloads, ~/Desktop, ~/conductor, /tmp
+
+Settings (non-default):
+- Model: opus (not sonnet)
+- Tmux hooks track session state. Graceful degradation outside tmux.
+- SessionStart captures transcript path for logging.
