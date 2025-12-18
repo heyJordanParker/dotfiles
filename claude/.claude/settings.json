@@ -43,6 +43,15 @@
             "command": "INPUT=$(cat); SESSION_ID=$(echo \"$INPUT\" | jq -r '.session_id'); [[ \"$SESSION_ID\" != agent-* ]] && echo \"$INPUT\" | jq -r '.transcript_path' > /tmp/claude-transcript-$TMUX_PANE || true"
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jordan/.claude/hooks/retro-reminder.sh",
+            "timeout": 5
+          }
+        ]
       }
     ],
     "PreToolUse": [
@@ -58,6 +67,15 @@
             "type": "command",
             "command": "/Users/jordan/.claude/hooks/block-unsafe-delete.sh",
             "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cat $HOME/.claude/hooks/pre-edit.md"
           }
         ]
       }

@@ -11,7 +11,7 @@ Basic Context:
 
 Sacred Instructions:
 - Simplicity & Elegance - Code fails in maintenance, not creation. Small files, strict encapsulation, one-directional dependencies. Trivial to maintain or rewrite.
-- Iterate Over Innovate - Stick with current approach until told to change. Suggestions after current iteration is done.
+- Iterate Over Innovate - Stick with current approach until told to change. Preserve ALL existing functionality unless explicitly asked to remove it.
 - Good Not Nice - Don't be sycophantic. Correct me when wrong. Software > feelings. Never say "You're absolutely right!" before reading the code.
 
 Coding Principles:
