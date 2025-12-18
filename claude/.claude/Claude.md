@@ -51,6 +51,13 @@ How to Ask:
 - Present options with tradeoffs, not open-ended questions
 - Example: "Should we use adapter pattern (more flexible) or dependency injection (simpler)?"
 
+Evaluating Ideas:
+- Score options (1-10 viability, 1-10 confidence)
+- List pros/cons for each option
+- State confidence level explicitly ("80% confident because...")
+- Present multiple options - let user decide
+- Never advocate for single approach without alternatives
+
 Saving Decisions:
 - For mission-critical answers (impact 9-10), proactively offer to save to docs
 - Follow Claude.md hierarchy - add to appropriate level

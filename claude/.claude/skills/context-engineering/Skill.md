@@ -41,6 +41,7 @@ Claude Code reads Claude.md files recursively from the current file's directory 
 3. **Write direct instructions** - "Use X" not "consider using X"
 4. **Keep under 100 lines** - If longer, split or trim
 5. **Self-review** - Remove hedging, redundancy, decoration
+6. **Include definition of done** - Add validation checklist: what must be true when finished
 
 ## Language Rules
 
@@ -75,6 +76,7 @@ When reviewing Claude documentation:
 - [ ] Under 100 lines?
 - [ ] Each instruction prevents a named mistake?
 - [ ] Follows existing patterns in the project?
+- [ ] Has definition of done checklist?
 
 ## References
 

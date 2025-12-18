@@ -26,6 +26,13 @@ Start by understanding the current project context, then ask questions one at a 
 - Present options conversationally with your recommendation and reasoning
 - Lead with your recommended option and explain why
 
+**Scoring each approach:**
+- Viability score (1-10): How likely to work given constraints
+- Confidence (1-10): How certain you are about the assessment
+- Pros: Concrete benefits
+- Cons: Concrete risks/costs
+- Hidden assumptions: What must be true for this to work
+
 **Presenting the design:**
 - Once you believe you understand what you're building, present the design
 - Break it into sections of 200-300 words

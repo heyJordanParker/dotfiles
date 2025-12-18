@@ -29,6 +29,8 @@ Explicit request only: "create a skill", "build a skill", "make a skill for..."
 
 8. **Validate incrementally** - Get key decisions approved first. Then ask if user wants section-by-section review.
 
+9. **Definition of done** - Every skill needs a checklist to verify work is complete. Not process steps - output validation.
+
 ## Process
 
 ### 1. Understand Scope
@@ -73,6 +75,7 @@ Before presenting:
 - [ ] Is Skill.md lean enough? Move details to reference files.
 - [ ] Does every example include the why?
 - [ ] Would someone else understand without the brainstorming context?
+- [ ] Does skill have validation checklist? (what to verify when done)
 
 ## References
 
