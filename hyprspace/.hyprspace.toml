@@ -1,0 +1,140 @@
+# HyprSpace Configuration
+# Location: ~/.hyprspace.toml
+
+config-version = 2
+start-at-login = false
+
+after-startup-command = [
+  'exec-and-forget ln -sf /tmp/com.barut.hyprspace-jordan.sock /tmp/bobko.aerospace-jordan.sock',
+  'workspace 1',
+  'layout dwindle'
+]
+
+default-root-container-layout = 'dwindle'
+default-root-container-orientation = 'auto'
+
+# Dwindle settings
+dwindle-default-split-ratio = 1.0
+
+# Workspaces
+persistent-workspaces = ["1", "2", "3", "4", "5", "6", "7", "8", "9"]
+
+# Scratchpad hook (pulls window back when switching workspaces)
+exec-on-workspace-change = ["/bin/bash", "-c",
+  "aerospace-scratchpad hook pull-window $AEROSPACE_PREV_WORKSPACE $AEROSPACE_FOCUSED_WORKSPACE 2>/dev/null || true"
+]
+
+# Focus follows workspace change
+on-focused-monitor-changed = 'move-mouse monitor-lazy-center'
+
+# Gaps
+[gaps]
+inner.horizontal = 12
+inner.vertical = 12
+outer.left = 12
+outer.bottom = 12
+outer.top = 12
+outer.right = 12
+
+# Environment
+[exec]
+inherit-env-vars = true
+
+[exec.env-vars]
+PATH = '/opt/homebrew/bin:/opt/homebrew/sbin:${PATH}'
+
+# Keybindings
+[mode.main.binding]
+
+# Focus (ctrl+alt + hjkl)
+ctrl-alt-h = 'focus left'
+ctrl-alt-j = 'focus down'
+ctrl-alt-k = 'focus up'
+ctrl-alt-l = 'focus right'
+
+# Move windows (ctrl+alt+shift + hjkl)
+ctrl-alt-shift-h = 'move left'
+ctrl-alt-shift-j = 'move down'
+ctrl-alt-shift-k = 'move up'
+ctrl-alt-shift-l = 'move right'
+
+# Workspaces (ctrl+alt + number)
+ctrl-alt-1 = 'workspace 1'
+ctrl-alt-2 = 'workspace 2'
+ctrl-alt-3 = 'workspace 3'
+ctrl-alt-4 = 'workspace 4'
+ctrl-alt-5 = 'workspace 5'
+ctrl-alt-6 = 'workspace 6'
+ctrl-alt-7 = 'workspace 7'
+ctrl-alt-8 = 'workspace 8'
+ctrl-alt-9 = 'workspace 9'
+
+# Move to workspace (ctrl+alt+shift + number)
+ctrl-alt-shift-1 = 'move-node-to-workspace 1'
+ctrl-alt-shift-2 = 'move-node-to-workspace 2'
+ctrl-alt-shift-3 = 'move-node-to-workspace 3'
+ctrl-alt-shift-4 = 'move-node-to-workspace 4'
+ctrl-alt-shift-5 = 'move-node-to-workspace 5'
+ctrl-alt-shift-6 = 'move-node-to-workspace 6'
+ctrl-alt-shift-7 = 'move-node-to-workspace 7'
+ctrl-alt-shift-8 = 'move-node-to-workspace 8'
+ctrl-alt-shift-9 = 'move-node-to-workspace 9'
+
+# Cycle workspaces
+ctrl-alt-tab = 'workspace next'
+ctrl-alt-shift-tab = 'workspace prev'
+
+# Layouts
+ctrl-alt-d = 'layout dwindle'
+ctrl-alt-t = 'layout tiles horizontal vertical'
+ctrl-alt-m = 'layout master'
+ctrl-alt-space = 'layout floating tiling'
+
+# Window management
+ctrl-alt-f = 'fullscreen'
+ctrl-alt-q = 'close'
+ctrl-alt-b = 'balance-sizes'
+
+# Resize
+ctrl-alt-equal = 'resize width +50'
+ctrl-alt-minus = 'resize width -50'
+
+# Launch terminal
+ctrl-alt-enter = 'exec-and-forget open -n /Applications/Ghostty.app'
+
+# Reload config
+ctrl-alt-r = 'reload-config'
+
+# Scratchpad
+ctrl-alt-backtick = 'exec-and-forget aerospace-scratchpad show Ghostty'
+ctrl-alt-e = 'exec-and-forget aerospace-scratchpad show Finder'
+ctrl-alt-shift-backtick = 'exec-and-forget aerospace-scratchpad move'
+
+# Always float certain apps
+[[on-window-detected]]
+if.app-id = 'com.apple.finder'
+run = 'layout floating'
+
+[[on-window-detected]]
+if.app-id = 'com.apple.MobileSMS'
+run = 'layout floating'
+
+[[on-window-detected]]
+if.app-id = 'com.automattic.beeper.desktop'
+run = 'layout floating'
+
+[[on-window-detected]]
+if.app-id = 'com.github.th-ch.youtube-music'
+run = 'layout floating'
+
+[[on-window-detected]]
+if.app-id = 'com.dygmalab.bazecor'
+run = 'layout floating'
+
+[[on-window-detected]]
+if.app-id = 'com.openai.chat'
+run = 'layout floating'
+
+[[on-window-detected]]
+if.app-id = 'com.anthropic.claudefordesktop'
+run = 'layout floating'

@@ -29,6 +29,11 @@ brew "composer"
 brew "wp-cli"
 brew "roots/tap/trellis-cli"
 
+# Window Management
+cask "BarutSRB/tap/hyprspace"
+brew "FelixKratz/formulae/borders"
+brew "cristianoliveira/tap/aerospace-scratchpad"
+
 # Apps
 cask "1password"
 cask "1password-cli"
