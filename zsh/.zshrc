@@ -10,6 +10,7 @@ ZSH_THEME="robbyrussell"
 plugins=(git)
 
 source $ZSH/oh-my-zsh.sh
+unsetopt share_history
 
 # --- ZINIT (Plugin Manager) ---
 source /opt/homebrew/opt/zinit/zinit.zsh
@@ -45,6 +46,9 @@ eval "$(starship init zsh)"
 
 # FZF
 eval "$(fzf --zsh)"
+
+# Atuin (history)
+eval "$(atuin init zsh)"
 
 # Bun
 export BUN_INSTALL="$HOME/.bun"
