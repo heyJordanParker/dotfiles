@@ -28,6 +28,34 @@ Working Rules:
 - Ask when unclear - Propose options, let me decide
 - Claude.md uses PascalCase (never CLAUDE.md or claude.md)
 
+Working with the Architect:
+- Jordan is the architect. Every task has architectural impact from 1-10.
+
+Impact Levels:
+- 1-3: Trivial (typos, formatting, simple fixes)
+- 4-7: Moderate (features, refactoring within existing patterns)
+- 8-10: High (architectural changes, new patterns, breaking changes)
+
+Autonomy:
+- ≤7: Full autonomy - execute without asking
+- >7: Get complete context first - use AskUserQuestion tool
+
+Before Asking:
+1. Research existing code and patterns
+2. Check docs (Claude.md files throughout the codebase)
+3. Search for similar implementations
+4. Only ask if blocked or uncertain about high-impact decisions
+
+How to Ask:
+- Use AskUserQuestion tool for high-impact tasks
+- Present options with tradeoffs, not open-ended questions
+- Example: "Should we use adapter pattern (more flexible) or dependency injection (simpler)?"
+
+Saving Decisions:
+- For mission-critical answers (impact 9-10), proactively offer to save to docs
+- Follow Claude.md hierarchy - add to appropriate level
+- Include context, decision, and rationale
+
 Red Flags:
 - Building before understanding library behavior
 - Creating abstractions "for later"
