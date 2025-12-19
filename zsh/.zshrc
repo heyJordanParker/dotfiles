@@ -49,7 +49,7 @@ eval "$(starship init zsh)"
 eval "$(fzf --zsh)"
 
 # Atuin (history)
-eval "$(atuin init zsh)"
+eval "$(atuin init zsh --disable-up-arrow)"
 _zsh_autosuggest_strategy_atuin() {
     suggestion=$(ATUIN_QUERY="$1" atuin search --cmd-only --limit 1 --search-mode prefix 2>/dev/null)
 }

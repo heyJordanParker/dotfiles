@@ -19,6 +19,8 @@ brew "trash"
 brew "zippoxer/tap/recall"
 brew "tobi/try/try"
 brew "superfile"
+brew "dust"
+brew "fd"
 
 # Dev
 brew "opencode"
