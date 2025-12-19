@@ -48,6 +48,14 @@
         "hooks": [
           {
             "type": "command",
+            "command": "INPUT=$(cat); SESSION_ID=$(echo \"$INPUT\" | jq -r '.session_id'); if [[ \"$SESSION_ID\" != agent-* ]] && [ -n \"$TMUX_PANE\" ]; then STABLE_ID=$(tmux display-message -t \"$TMUX_PANE\" -p '#{session_name}:#{window_index}:#{pane_index}' 2>/dev/null); [ -n \"$STABLE_ID\" ] && mkdir -p ~/.claude/tmux-sessions && echo \"$SESSION_ID\" > ~/.claude/tmux-sessions/\"${STABLE_ID//:/--}\"; fi"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
             "command": "/Users/jordan/.claude/hooks/retro-reminder.sh",
             "timeout": 5
           }
@@ -106,6 +114,14 @@
           {
             "type": "command",
             "command": "/bin/rm -f /tmp/claude-waiting-$TMUX_PANE"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if [ -n \"$TMUX_PANE\" ]; then STABLE_ID=$(tmux display-message -t \"$TMUX_PANE\" -p '#{session_name}:#{window_index}:#{pane_index}' 2>/dev/null); [ -n \"$STABLE_ID\" ] && rm -f ~/.claude/tmux-sessions/\"${STABLE_ID//:/--}\"; fi"
           }
         ]
       }
