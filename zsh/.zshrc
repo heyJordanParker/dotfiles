@@ -4,6 +4,7 @@ export PATH="$HOME/.local/bin:$HOME/bin:/usr/local/bin:$PATH"
 export PATH="/Users/jordan/.claude/local:$PATH"
 export DEV_FOLDER="$HOME/Developer"
 export DEV_BROWSER="Helium"
+export BROWSER="/Applications/Helium.app/Contents/MacOS/Helium"
 
 # --- OH-MY-ZSH & PLUGINS ---
 ZSH_THEME="robbyrussell"
