@@ -146,10 +146,7 @@ Aggregate findings from all reviewers:
 
 1. Run `git log --oneline -5` for style reference
 2. Analyze `git diff --cached`
-3. Generate message:
-   - `type: subject` (<72 chars)
-   - Body explaining WHY
-   - Types: fix, feat, chore, refactor, docs
+3. Generate message (use the `commit-messages` skill)
 4. Auto-commit with generated message
 5. User can amend after: `git commit --amend`
 
