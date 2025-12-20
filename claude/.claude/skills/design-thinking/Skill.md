@@ -23,7 +23,7 @@ Ask: What's the key functionality? Start from there. Fewer colors, fewer words, 
 ## Anti-Patterns
 
 Never create generic AI aesthetics:
-- Gratuitous gradients and glows
+- Gaudy, high-saturation, or rainbow gradients (subtle gradients that add texture are good)
 - Excessive rounded corners on everything
 - Purple-blue-pink color schemes with no purpose
 - Animations that don't serve function

@@ -75,6 +75,36 @@ This creates a 120° arc - the same distance between primary colors on the wheel
 - Text: No chroma (pure gray) or very low
 - Accents: Higher chroma for emphasis
 
+## Gradients
+
+Never use gaudy, high-saturation, or rainbow gradients. Use gradients to add texture and make the UI feel less flat, but keep them subtle and elegant.
+
+**Oklab interpolation:** Tailwind v4 uses oklab by default—smoother than sRGB, no muddy midpoints.
+
+**Grain overlay:** Breaks digital smoothness.
+
+```css
+.hero {
+  @apply bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900;
+  position: relative;
+}
+
+.hero::after {
+  content: '';
+  @apply absolute inset-0 pointer-events-none;
+  background: url('/noise.svg');
+  opacity: 0.03;
+}
+```
+
+**Subtle card accent:**
+
+```css
+.card--elevated {
+  @apply bg-gradient-to-b from-white/5 to-transparent;
+}
+```
+
 ## Elevation & Shadows
 
 **Light source is at the top.** Top surfaces are lighter, bottom surfaces are darker.
