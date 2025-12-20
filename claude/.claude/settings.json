@@ -32,7 +32,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "echo 'You have personal skills in ~/.claude/skills/. Some are MANDATORY (check their descriptions). Before any task, ask: \"Does a skill apply?\" Use skills proactively - even for simple tasks. They contain hard-won lessons that prevent mistakes.'"
+            "command": "cat $HOME/.claude/hooks/session-start.md"
           }
         ]
       },
@@ -77,15 +77,6 @@
             "timeout": 5
           }
         ]
-      },
-      {
-        "matcher": "Edit|Write|MultiEdit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "cat $HOME/.claude/hooks/pre-edit.md"
-          }
-        ]
       }
     ],
     "Stop": [
@@ -99,6 +90,14 @@
       }
     ],
     "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cat $HOME/.claude/hooks/user-prompt-submit.md"
+          }
+        ]
+      },
       {
         "hooks": [
           {
