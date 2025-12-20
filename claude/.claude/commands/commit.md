@@ -9,8 +9,10 @@ Use `/code-review` during development after architectural changes.
 
 Run `git status --porcelain`.
 
-- No staged changes but unstaged exist: "Stage files first: `git add <files>`" → exit
+- Unstaged changes exist: Stage all changes
 - Nothing to commit: "Nothing to commit." → exit
+
+**Sanity check after staging:** Review what's staged. Warn and confirm if anything looks off—secrets, credentials, unrelated files, or anything that doesn't belong in this commit.
 
 ## Step 2: Tests (Hard Block)
 
