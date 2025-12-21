@@ -45,6 +45,15 @@ Always check the project first. Consistency within the project trumps external s
 
 **Transformers**: Method on the source object → `user.toJson()`, `order.toResponse()`
 
+## Checklist
+
+- [ ] Checked project conventions first
+- [ ] No ALL_CAPS (except PHP define())
+- [ ] No abbreviations (except ultra common & universal ones like info/max/min/config)
+- [ ] Context not repeated (user.isValid not user.isUserValid)
+- [ ] No redundant suffixes (users not userList)
+- [ ] Booleans use is/has/can/should prefix
+
 ## References
 
 - [reference.md](reference.md) - Ecosystem casing conventions

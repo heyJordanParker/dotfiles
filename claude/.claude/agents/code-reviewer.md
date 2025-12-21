@@ -2,7 +2,7 @@
 name: code-reviewer
 description: |
   Use this agent when a major project step has been completed and needs to be reviewed against the original plan and coding standards.
-model: sonnet
+model: opus
 ---
 
 > Originally from superpowers plugin. Copied for stability.
