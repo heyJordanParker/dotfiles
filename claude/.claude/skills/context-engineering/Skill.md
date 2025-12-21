@@ -78,6 +78,47 @@ When reviewing Claude documentation:
 - [ ] Follows existing patterns in the project?
 - [ ] Has definition of done checklist?
 
+## Avoiding Stale Content
+
+Don't hardcode lists that change as the project evolves. Derive from source instead.
+
+**Instead of hardcoding:**
+- File lists → `git ls-files` or glob patterns
+- Dependencies → parse package.json/composer.json
+- Project structure → `eza --tree -L 2`
+- Recent changes → `git log --oneline -5`
+
+**Example - bad:**
+"This project has: src/auth.ts, src/api.ts, src/utils.ts"
+
+**Example - good:**
+"Run `git ls-files 'src/*.ts'` to see current source files"
+
+### Verified Commands
+
+**Files:**
+```bash
+git ls-files                              # all tracked files
+git ls-files '*.ts'                       # by pattern
+git diff --name-only                      # changed (unstaged)
+git diff --name-only --cached             # changed (staged)
+git status --porcelain                    # working state
+find . -name '*.ts' -not -path './node_modules/*'
+```
+
+**Structure:**
+```bash
+eza --tree -L 2 -I node_modules           # project tree
+```
+
+**Dependencies:**
+```bash
+jq -r '(.dependencies//{}),(.devDependencies//{}) | keys[]' package.json
+jq -r '(.require//{}),(.["require-dev"]//{}) | keys[]' composer.json
+bun pm ls                                 # installed packages
+composer show --direct                    # installed packages
+```
+
 ## References
 
 - [updating-claude-documentation](../updating-claude-documentation/Skill.md) - Style guide and update process
