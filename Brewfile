@@ -23,6 +23,7 @@ brew "dust"
 brew "fd"
 
 # Dev
+brew "hcloud"
 brew "opencode"
 brew "git-delta"
 brew "lazygit"

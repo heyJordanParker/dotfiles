@@ -1,0 +1,3 @@
+#!/bin/bash
+export HCLOUD_TOKEN=$(op item get "Hetzner" --fields cliKey --reveal)
+exec /opt/homebrew/bin/hcloud "$@"
