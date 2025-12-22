@@ -5,7 +5,7 @@ description: Plan a feature using structured format
 ## Rules
 
 1. User is the architect. Decisions with impact >7 require user approval (see Claude.md).
-2. Plans DECIDE — don't say "X or Y". Pick one, add confidence %. If unsure, ask.
+2. Plans are about decisions. No "Or"s in plans. Pick. Score both options with how confident you are they'll work in %, then pick the higher one. If both are under 85%, continue thinking, explore other options, or ask the user accordingly.
 3. Every assumption and decision needs a confidence score.
 4. Clarifying questions go through AskUserQuestion. Include full context IN the question so user doesn't need to read the plan.
 5. When asking, propose MULTIPLE DIFFERENT options. Mark your recommendation with confidence.
