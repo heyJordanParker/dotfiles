@@ -41,7 +41,7 @@ end
 keymap('i', 'jj', '<Esc>', opts)
 
 -- Insert mode: Enter key
-keymap('n', '<CR>', 'a', opts)
+keymap('n', '<CR>', 'i', opts)
 keymap('n', '<S-CR>', 'i', opts)
 keymap('n', 'I', 'gk', opts)  -- Capital I moves up (visual line up)
 keymap('v', '<CR>', '<Esc>i', opts)  -- Exit visual and enter insert
