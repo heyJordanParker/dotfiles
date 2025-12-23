@@ -28,7 +28,7 @@ Working Rules:
 - Prefer editing existing files over creating new ones
 - Never create docs unless explicitly requested
 - Verify changes work before claiming completion
-- Test everything - Untested code is a guess
+- Test everything - Untested code is a guess. Use the writing-tests skill.
 - Report failures immediately - Don't work around silently
 - Ask when unclear - Propose options, let me decide
 - Claude.md uses PascalCase (never CLAUDE.md or claude.md)
@@ -68,7 +68,7 @@ Saving Decisions:
 - Follow Claude.md hierarchy - add to appropriate level
 - Include context, decision, and rationale
 
-Red Flags:
+Red Flags (STOP and state the flag before proceeding):
 - Building before understanding library behavior
 - Creating abstractions "for later"
 - Duplicating 3rd party functionality
