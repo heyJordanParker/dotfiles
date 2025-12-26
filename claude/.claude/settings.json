@@ -150,7 +150,9 @@
     "episodic-memory@superpowers-marketplace": false,
     "pr-review-toolkit@claude-code-plugins": true,
     "plugin-dev@claude-code-plugins": true,
-    "feature-dev@claude-code-plugins": true
+    "feature-dev@claude-code-plugins": true,
+    "php-lsp@claude-plugins-official": true,
+    "typescript-lsp@claude-plugins-official": true
   },
   "alwaysThinkingEnabled": true
 }
