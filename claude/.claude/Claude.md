@@ -81,7 +81,7 @@ When Stuck:
 
 Hooks:
 - block-git-revert.sh - Blocks destructive git: `git reset`, `git restore`, `git checkout -- <file>`. Forces manual execution.
-- block-unsafe-delete.sh - Whitelist rm. Only: ~/dotfiles, ~/Developer, ~/Downloads, ~/Desktop, ~/conductor, /tmp
+- block-unsafe-delete.sh - Whitelist rm (e.g. ~/dotfiles, ~/Developer, /tmp). See script for full list.
 
 Settings (non-default):
 - Model: opus (not sonnet)

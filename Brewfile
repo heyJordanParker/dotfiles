@@ -7,6 +7,7 @@ brew "tmux"
 brew "btop"
 
 # Shell
+brew "pipx"
 brew "jq"
 brew "zoxide"
 brew "fzf"
@@ -21,6 +22,8 @@ brew "tobi/try/try"
 brew "superfile"
 brew "dust"
 brew "fd"
+brew "glow"
+brew "tw93/tap/mole"
 
 # Dev
 brew "hcloud"
@@ -50,3 +53,4 @@ cask "claude-code"
 cask "raycast"
 cask "youtube-music"
 cask "font-jetbrains-mono-nerd-font"
+brew "bash"

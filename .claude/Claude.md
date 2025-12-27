@@ -32,3 +32,10 @@ When adding a new CLI tool:
 2. If config needed: create package dir, add config files
 3. If wrapper needed (secrets, env vars): add to `bin/.local/bin/`
 4. Stow any new/modified packages: `stow -R <package>`
+
+## Python Tools (pipx)
+
+For Python CLI tools, use pipx (isolated venvs):
+```bash
+pipx install <package>
+```
