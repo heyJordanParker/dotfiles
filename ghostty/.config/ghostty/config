@@ -69,3 +69,15 @@ initial-window = false
 theme = Catppuccin Mocha
 font-family = JetBrainsMonoNerdFont
 bell-features = no-attention
+
+# macOS navigation → terminal equivalents
+keybind = super+left=text:\x01
+keybind = super+right=text:\x05
+keybind = alt+left=esc:b
+keybind = alt+right=esc:f
+keybind = super+backspace=text:\x15
+keybind = alt+backspace=text:\x17
+keybind = super+delete=text:\x0b
+keybind = alt+delete=esc:d
+keybind = super+up=csi:1;5H
+keybind = super+down=csi:1;5F

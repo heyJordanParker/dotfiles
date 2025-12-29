@@ -114,9 +114,7 @@ require("lazy").setup({
         mapping = cmp.mapping.preset.insert({
           ["<Tab>"] = cmp.mapping.confirm({ select = true }),
           ["<C-Space>"] = cmp.mapping.complete(),
-          ["<C-e>"] = cmp.mapping.abort(),
           ["<C-i>"] = cmp.mapping.select_prev_item(),  -- up in your layout
-          ["<C-k>"] = cmp.mapping.select_next_item(),  -- down in your layout
         }),
       })
 
@@ -207,13 +205,6 @@ require("lazy").setup({
       -- Fix Space moving cursor - make it a no-op when pressed alone
       vim.keymap.set("n", "<Space>", "<Nop>", { silent = true })
     end,
-  },
-
-  -- Hardtime (break bad habits)
-  {
-    "m4xshen/hardtime.nvim",
-    dependencies = { "MunifTanjim/nui.nvim" },
-    opts = { disable_mouse = false },
   },
 
   -- Noice (popup messages + command palette)

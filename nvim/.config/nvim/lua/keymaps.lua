@@ -40,6 +40,18 @@ end
 -- Escape with jj
 keymap('i', 'jj', '<Esc>', opts)
 
+-- Readline-style navigation in insert mode
+keymap('i', '<C-a>', '<Home>', opts)
+keymap('i', '<C-e>', '<End>', opts)
+keymap('i', '<C-k>', '<C-o>D', opts)
+keymap('i', '<M-b>', '<C-o>b', opts)
+keymap('i', '<M-f>', '<C-o>w', opts)
+keymap('i', '<M-d>', '<C-o>dw', opts)
+keymap('i', '<C-Home>', '<C-o>gg', opts)
+keymap('i', '<C-End>', '<C-o>G', opts)
+keymap('n', '<C-Home>', 'gg', opts)
+keymap('n', '<C-End>', 'G', opts)
+
 -- Insert mode: Enter key
 keymap('n', '<CR>', 'i', opts)
 keymap('n', '<S-CR>', 'i', opts)
