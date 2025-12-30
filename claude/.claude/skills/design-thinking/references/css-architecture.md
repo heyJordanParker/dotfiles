@@ -87,6 +87,53 @@ Specificity order: base < components < utilities < wordpress-fixes
 .sidebar--collapsed { }         /* Modifier */
 ```
 
+### The Layout-Component Mix Rule
+
+Avoid deep nesting ("grandchildren") and coupling by strictly separating **Layout** (positioning) from **Component** (appearance).
+
+**The Rules:**
+
+1. **2-Level Limit:** Never create `block__element__sub-element`. If you need a third level, start a new Block.
+
+2. **The Mix:** When a structural slot contains a UI component, apply **two classes** to the same DOM element:
+   - **Layout Role:** `parent-block__element` → `grid-area`, `margin`, `z-index`, `position`
+   - **Component Role:** `child-block` → `background`, `border`, `padding`, `display: flex/gap`
+
+3. **Separation of Concerns:**
+   - Parent Block knows *where* children sit, not *what* they look like
+   - Child Block knows *how* it looks, not *where* it sits
+
+**Wrong:**
+```html
+<div class="frame">
+  <div class="frame__footer">
+    <button class="frame__footer-btn">Save</button>
+  </div>
+</div>
+```
+
+**Right (The Mix):**
+```html
+<div class="frame">
+  <div class="frame__dock toolbar">
+    <button class="toolbar__btn">Save</button>
+  </div>
+</div>
+```
+
+```css
+/* Layout: where it sits */
+.frame__dock {
+  grid-area: footer;
+  margin-block-start: auto;
+}
+
+/* Component: how it looks */
+.toolbar {
+  @apply flex gap-2 p-2 bg-muted border-t;
+}
+```
+
 ## Tailwind @apply Pattern
 
 Use @apply inside BEM classes to compose Tailwind utilities:
