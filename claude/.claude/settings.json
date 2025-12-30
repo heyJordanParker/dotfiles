@@ -152,7 +152,8 @@
     "plugin-dev@claude-code-plugins": true,
     "feature-dev@claude-code-plugins": true,
     "php-lsp@claude-plugins-official": true,
-    "typescript-lsp@claude-plugins-official": true
+    "typescript-lsp@claude-plugins-official": true,
+    "dev-browser@dev-browser-marketplace": true
   },
   "alwaysThinkingEnabled": true
 }
