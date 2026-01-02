@@ -1,129 +1,105 @@
 ---
 name: writing-tests
-description: MANDATORY when writing tests. Test behavior, not implementation. Functional tests are primary. Unit tests ONLY for state mutations. Errors must surface to users, not spin silently.
+description: MANDATORY when writing tests. Test behavior, not implementation. Functional tests are primary. Unit tests ONLY for state mutations. Includes fixing flaky tests with condition-based waiting.
 ---
 
 # Writing Tests
 
-## Core Philosophy
+Test that the feature works, not that code runs.
 
-**Test that the feature works, not that code runs.**
+## Principles
 
-Don't test that a hook is registered. Test that uploading an image actually produces a WebP on S3.
+1. **Tests that matter** - Not coverage theater. One test proving behavior > ten tests proving code ran.
+2. **No defensive programming** - Let code fail. Don't catch and swallow. Failures are information.
+3. **Make it deletable** - Tests simple enough to rewrite. No elaborate fixtures or Enterprise patterns.
+4. **Be pragmatic** - Write the obvious tests. Skip clever ones.
+   - Setup longer than test = wrong.
+   - "One assertion per test" is cargo cult.
+   - If you're mocking 5 things, test is worthless. Avoid mocks and test vs a live server.
 
-Don't test that a method returns true. Test that the user's data is actually in the database.
+## Before
 
-## Test Types (In Order of Importance)
+**Server is truth.** Test the real backend. Mock only what crosses the boundary (HTTP request shape, not the database).
 
-### 1. Functional Tests (Primary - Most Tests)
+**Decide test type:**
+1. **Functional** (most tests) - Full system through entry points. Mock only boundary input.
+2. **Integration** (few) - Through UI with Playwright. Critical paths only.
+3. **Unit** (rare) - ONLY for pure state mutations: sanitizers, calculators, state machines.
 
-Test the full system through backend entry points. Mock only the boundary input.
-
-| Direction | Mock | Test Real |
-|-----------|------|-----------|
-| Backend | Frontend request shape | Full backend: hooks, storage, DB |
-| Frontend | API response shape | Full frontend logic |
+More than 5 unit tests per feature? You're testing implementation, not behavior.
 
 **The user story is the test:**
 - "When a user uploads an image, it appears as WebP on S3"
 - "When a user submits the form, their order is created"
 - "When the API returns an error, the user sees an error message"
 
-### 2. Integration Tests (Few - Critical Paths Only)
+## During
 
-Through UI with Playwright. Validate that functional test assumptions match reality.
+### Fail Fast, Fail Loud
 
-### 3. Unit Tests (Rare - State Mutations Only)
+No defensive programming. Errors are information — let them surface. No silent failures. No endless spinners.
 
-**STOP. Before writing a unit test, ask: "Is this testing a pure state mutation?"**
-
-Unit tests are ONLY for:
-- Pure functions (sanitize string → get sanitized string)
-- Calculators (input numbers → output number)
-- State machines (action → new state)
-
-**Do NOT write unit tests for:**
-- Testing that hooks fire
-- Testing that methods call other methods
-- Testing return values that aren't state
-- Testing "coverage" of code paths
-- Testing internal implementation details
-
-If you're writing more than 5 unit tests for a feature, you're doing it wrong.
-
-## Fail Fast, Fail Loud
-
-Errors must be visible. No silent failures. No endless spinners.
-
-### Backend: Throw Exceptions
-
-**WRONG:**
+**Backend:** Let exceptions propagate.
 ```php
+// WRONG
 try { return $this->disk->get($key); }
-catch (Exception $e) { return null; }  // User sees nothing, spinner forever
+catch (Exception $e) { return null; }  // Silent failure
+
+// RIGHT
+return $this->disk->get($key);  // Exception propagates
 ```
 
-**RIGHT:**
+**Controllers:** Return renderable errors.
 ```php
-return $this->disk->get($key);  // Exception propagates, error visible
-```
-
-### Controllers: Return Renderable Errors
-
-Exceptions must become responses the frontend can display.
-
-**WRONG:**
-```php
-public function store(Request $request) {
-    $this->service->process($request);  // Throws, returns 500, frontend spins
+try {
+    $this->service->process($request);
+    return response()->json(['success' => true]);
+} catch (ValidationException $e) {
+    return response()->json(['error' => $e->getMessage()], 422);
 }
 ```
 
-**RIGHT:**
-```php
-public function store(Request $request) {
-    try {
-        $this->service->process($request);
-        return response()->json(['success' => true]);
-    } catch (ValidationException $e) {
-        return response()->json(['error' => $e->getMessage()], 422);
-    }
-    // Let unexpected exceptions bubble up as 500 with stack trace in dev
-}
+### Fixing Flaky Tests
+
+Wait for conditions, not arbitrary timeouts.
+
+```typescript
+// WRONG: Guessing at timing
+await new Promise(r => setTimeout(r, 50));
+const result = getResult();
+
+// RIGHT: Waiting for condition
+await waitFor(() => getResult() !== undefined);
+const result = getResult();
 ```
 
-The frontend must know when something fails. Silence is the enemy.
+| Scenario | Pattern |
+|----------|---------|
+| Wait for event | `waitFor(() => events.find(e => e.type === 'DONE'))` |
+| Wait for state | `waitFor(() => machine.state === 'ready')` |
+| Wait for count | `waitFor(() => items.length >= 5)` |
 
-## Writing a Functional Test
+See [flaky-tests-example.ts](flaky-tests-example.ts) for waitFor implementation.
 
-```php
-it('creates order when user submits checkout', function() {
-    // Mock: what frontend sends
-    $request = ['product_id' => 1, 'quantity' => 2];
+**Arbitrary timeout is correct ONLY when:**
+1. Testing actual timing behavior (debounce, throttle)
+2. Based on known timing, not guessing
+3. Comment explains WHY
 
-    // Real: full backend through entry point
-    $response = $this->post('/api/checkout', $request);
+## After
 
-    // Assert: actual outcome the user cares about
-    expect($response->status())->toBe(200);
-    expect(Order::where('product_id', 1)->exists())->toBeTrue();
-    expect(Storage::disk('s3')->exists('receipts/order-1.pdf'))->toBeTrue();
-});
-```
-
-## Red Flags
-
+**Red Flags:**
 | If you see this... | Stop and reconsider |
 |-------------------|---------------------|
-| More than 5 unit tests per feature | You're testing implementation, not behavior |
-| `try/catch` returning null | Silent failure waiting to happen |
-| Test calls method directly instead of entry point | Bypassing how the feature actually runs |
-| Asserting on return values only | Not verifying actual outcomes |
-| 50 tests pass, feature broken | Wrong tests entirely. Reexamine fundamental testing methodology. |
+| More than 5 unit tests per feature | Testing implementation, not behavior |
+| `try/catch` returning null | Silent failure |
+| Test calls method directly instead of entry point | Bypassing how feature runs |
+| 50 tests pass, feature broken | Wrong tests entirely |
 | Test uses local filesystem, prod uses S3 | Testing different code than production |
+| Elaborate fixtures, factories, builders | Over-engineered. Make it deletable. |
 
-## Before You Commit
-
-- Does the test verify what the user experiences?
-- If you delete the feature code, does the test fail?
-- Can errors reach the user (not just logs)?
+**Before commit:**
+- [ ] Does the test verify what the user experiences?
+- [ ] If you delete the feature code, does the test fail?
+- [ ] Can errors reach the user (not just logs)?
+- [ ] No arbitrary timeouts (or documented why)?

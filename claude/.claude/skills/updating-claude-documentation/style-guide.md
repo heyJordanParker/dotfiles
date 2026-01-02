@@ -3,7 +3,7 @@
 **File Metadata:**
 - File name must be `Claude.md` (PascalCase, not ALL_CAPS)
 - Version number at top (e.g., `v1.2`) - bump major for structural changes, minor for content additions
-- Last updated date (e.g., `Updated: 2025-11-29`)
+- Last updated date (e.g., `Updated: 2026-01-01`)
 
 **Structure:**
 - 2-space indentation

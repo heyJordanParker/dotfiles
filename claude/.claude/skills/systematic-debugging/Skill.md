@@ -99,5 +99,5 @@ Before ANY fix attempt:
 ## References
 
 - [phases.md](phases.md) - Detailed phase instructions with examples
-- [CREATION-LOG.md](CREATION-LOG.md) - How this skill was developed
+- [CreationLog.md](CreationLog.md) - How this skill was developed
 - test-pressure-*.md - Test scenarios used to validate this skill

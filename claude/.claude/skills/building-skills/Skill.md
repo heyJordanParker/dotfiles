@@ -3,7 +3,7 @@ name: building-skills
 description: Use when creating, editing, moving, or understanding Claude Code skills. Covers skill structure, locations, building process, and maintenance.
 ---
 
-# Skills
+# Building Skills
 
 Guide for creating and maintaining Claude Code skills.
 
@@ -14,19 +14,7 @@ Guide for creating and maintaining Claude Code skills.
 - "move skill to dotfiles", "make skill personal/project"
 - "how do skills work", "where do skills live"
 
-## Locations
-
-| Type | Path | Use for |
-|------|------|---------|
-| Personal | `~/.claude/skills/skill-name/` | General skills across all projects |
-| Project | `.claude/skills/skill-name/` | Codebase-specific skills |
-| Plugin | `plugin/skills/skill-name/` | Bundled with plugins |
-
-**Discovery:** Claude auto-discovers from all locations. Restart required after changes.
-
-## Building Skills
-
-### Principles
+## Principles
 
 1. **Project first** - Check existing skills for style. Project conventions → ecosystem standards → these principles.
 2. **Principles over rules** - "Follow project patterns" beats a 20-row lookup table.
@@ -38,16 +26,44 @@ Guide for creating and maintaining Claude Code skills.
 8. **Validate incrementally** - Get key decisions approved first.
 9. **Definition of done** - Every skill needs a validation checklist.
 
-### Process
+## Locations
+
+| Type | Path | Use for |
+|------|------|---------|
+| Personal | `~/.claude/skills/skill-name/` | General skills across all projects |
+| Project | `.claude/skills/skill-name/` | Codebase-specific skills |
+| Plugin | `plugin/skills/skill-name/` | Bundled with plugins |
+
+**Discovery:** Claude auto-discovers from all locations. Restart required after changes.
+
+## Before
 
 1. **Understand Scope** - Use AskUserQuestion. One question at a time, prefer multiple choice.
 2. **Research** - Read existing skills for patterns. Check Claude.md files.
-3. **Decide Placement** - Personal (general) vs Project (codebase-specific). Infer from context.
-4. **Key Decisions First** - Get approval on structure before writing.
-5. **Write Files** - Use `context-engineering` skill for effective documentation.
-6. **Self-Review** - Run checklist before presenting.
+3. **Explore Related Skills** - Find skills that overlap or complement. Prevent duplicates. Plan cross-references.
+4. **Decide Placement** - Personal (general) vs Project (codebase-specific). Infer from context.
+5. **Key Decisions First** - Get approval on structure before writing.
 
-### Self-Review Checklist
+## During
+
+**Write Files** - Use `context-engineering` skill for effective documentation.
+
+Structure skill execution in phases:
+1. **Before** - What does the skill need to prepare? Prerequisites, research, setup.
+2. **During** - The actual work. Steps, decisions, guidance.
+3. **After** - Validation. Checklists, verification, cleanup.
+
+**Avoid Stale Content** - You love hardcoding file lists. Don't. They go stale immediately.
+
+- Mention only critical components by name
+- Instruct the skill to use `codebase-exploration` to derive lists dynamically
+- Never enumerate files, dependencies, or structure inline
+
+**Bad:** "This project has: src/auth.ts, src/api.ts, src/utils.ts"
+
+**Good:** "Run `git ls-files 'src/*.ts'` to see current source files"
+
+## After
 
 - [ ] Description clear about when to use? (≤1024 chars)
 - [ ] Principles (adaptable) not rules (brittle)?
@@ -55,6 +71,7 @@ Guide for creating and maintaining Claude Code skills.
 - [ ] Every example includes the why?
 - [ ] Understandable without brainstorming context?
 - [ ] Has validation checklist?
+- [ ] Related skills identified and cross-referenced?
 
 ## Editing Skills
 
@@ -87,46 +104,11 @@ Format in Skill.md:
 - **To personal:** Move from `.claude/skills/` to `~/.claude/skills/`
 - **To project:** Move from `~/.claude/skills/` to `.claude/skills/`
 
-## Avoiding Stale Content
+## Related Skills
 
-Don't hardcode lists that change as the project evolves. Derive from source instead.
-
-**Instead of hardcoding:**
-- File lists → `git ls-files` or glob patterns
-- Dependencies → parse package.json/composer.json
-- Project structure → `eza --tree -L 2`
-- Recent changes → `git log --oneline -5`
-
-**Example - bad:**
-"This project has: src/auth.ts, src/api.ts, src/utils.ts"
-
-**Example - good:**
-"Run `git ls-files 'src/*.ts'` to see current source files"
-
-### Verified Commands
-
-**Files:**
-```bash
-git ls-files                              # all tracked files
-git ls-files '*.ts'                       # by pattern
-git diff --name-only                      # changed (unstaged)
-git diff --name-only --cached             # changed (staged)
-git status --porcelain                    # working state
-find . -name '*.ts' -not -path './node_modules/*'
-```
-
-**Structure:**
-```bash
-eza --tree -L 2 -I node_modules           # project tree
-```
-
-**Dependencies:**
-```bash
-jq -r '(.dependencies//{}),(.devDependencies//{}) | keys[]' package.json
-jq -r '(.require//{}),(.["require-dev"]//{}) | keys[]' composer.json
-bun pm ls                                 # installed packages
-composer show --direct                    # installed packages
-```
+- `context-engineering` - Writing effective Claude documentation
+- `updating-claude-documentation` - Editing Claude.md files
+- `codebase-exploration` - Commands for exploring codebases
 
 ## References
 
