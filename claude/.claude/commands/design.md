@@ -3,7 +3,7 @@ description: Design UI components with intentional, anti-slop thinking
 argument-hint: [design task]
 ---
 
-Use the `design-thinking` skill.
+Use the `design` skill.
 
 $ARGUMENTS
 

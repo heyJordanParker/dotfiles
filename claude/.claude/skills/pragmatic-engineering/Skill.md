@@ -1,6 +1,6 @@
 ---
 name: pragmatic-engineering
-description: Use when planning features, reviewing code, or making architectural decisions. Applies principles from Musk, Valve, Spotify, Shopify, 37 Signals to ensure pragmatic, ship-focused development.
+description: Use when user says KISS, pragmatic, don't overengineer, ship it, keep it simple. Also for planning features, reviewing code, or architectural decisions.
 ---
 
 # Pragmatic Engineering

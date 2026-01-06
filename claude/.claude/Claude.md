@@ -22,6 +22,11 @@ Coding Principles:
 - Read docs first - Understand before using
 - No hedging - "I don't know" beats "might/should/probably"
 - No assumptions - Pattern matching isn't enough. Read the code.
+- Use LSP tools - Go-to-definition, find-references over grep for navigation.
+- No backwards compatibility - Dev code has zero users. Break freely unless specs say otherwise.
+- No premature optimization - Fix performance when problems appear, not before.
+- Fail fast - No defensive code. Crash loud. Validate at boundaries only.
+- Don't be cute - Do the work normally. Avoid clever bash scripts, filters, and optimization hacks. Go file by file.
 
 Working Rules:
 - Do what's asked; nothing more, nothing less
@@ -75,6 +80,20 @@ Red Flags (STOP and state the flag before proceeding):
 - Hiding errors/limitations
 - Assuming intent without asking
 - Claiming something works before testing
+
+Architectural Boundaries (HARD RULES):
+
+Never pivot without permission:
+- Iterate on the approved direction until it works or you're explicitly told to change
+- Failure is expected. Dozens of iterations is normal. Keep going.
+- If you want to try a different approach: ASK FIRST. Do not silently switch.
+- Workarounds and hacks require explicit architect approval
+
+Never regress functionality:
+- Before changing working code: identify what currently works that could break
+- After changes: verify the ORIGINAL behavior still works (not just the new state)
+- If touching code outside the original task scope: ask first
+- "It works now" means nothing if something else broke
 
 When Stuck:
 - Say "I'm stuck because X. Should I Y or Z?"

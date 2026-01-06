@@ -8,10 +8,10 @@ ls -d .worktrees 2>/dev/null     # Preferred (hidden)
 ls -d worktrees 2>/dev/null      # Alternative
 ```
 
-## Check CLAUDE.md for Preference
+## Check Claude.md for Preference
 
 ```bash
-grep -i "worktree.*director" CLAUDE.md 2>/dev/null
+grep -i "worktree.*director" Claude.md 2>/dev/null
 ```
 
 ## Safety Verification

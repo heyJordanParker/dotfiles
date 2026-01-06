@@ -13,7 +13,7 @@ Git worktrees create isolated workspaces sharing the same repository, allowing w
 ## Directory Selection Priority
 
 1. **Check existing directories:** `.worktrees/` (preferred) or `worktrees/`
-2. **Check CLAUDE.md** for documented preference
+2. **Check Claude.md** for documented preference
 3. **Ask user** if neither exists
 
 ## Safety Verification
@@ -39,7 +39,7 @@ Git worktrees create isolated workspaces sharing the same repository, allowing w
 | `.worktrees/` exists | Use it (verify .gitignore) |
 | `worktrees/` exists | Use it (verify .gitignore) |
 | Both exist | Use `.worktrees/` |
-| Neither exists | Check CLAUDE.md → Ask user |
+| Neither exists | Check Claude.md → Ask user |
 | Not in .gitignore | Add immediately + commit |
 | Tests fail during baseline | Report + ask |
 
