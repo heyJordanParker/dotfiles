@@ -2,6 +2,7 @@
 brew "stow"
 brew "git"
 brew "gh"
+brew "mosh"
 brew "neovim"
 brew "tmux"
 brew "btop"

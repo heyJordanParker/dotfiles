@@ -1,0 +1,10 @@
+# macOS junk
+\.DS_Store
+Icon\r
+\.AppleDouble
+\.LSOverride
+\._*
+
+# Thumbnails
+\.Spotlight-V100
+\.Trashes
