@@ -38,6 +38,8 @@
 
 To emphasize an element, de-emphasize everything else. You can't make white "more white" - instead reduce the lightness of secondary text.
 
+**Line length:** Never make paragraphs wider than 55ch. Long lines overwhelm users on wide displays.
+
 | Role | Lightness (dark mode) | Tailwind |
 |------|----------------------|----------|
 | Primary (titles) | 90-100% | text-foreground |
@@ -50,12 +52,44 @@ To emphasize an element, de-emphasize everything else. You can't make white "mor
 
 OKLCH is perceptually uniform - colors with same lightness actually look equally bright.
 
+**Never hardcode colors.** Always derive from tokens:
+
+```css
+/* Wrong */
+background: #3b82f6;
+background: oklch(0.64 0.17 250);
+
+/* Right - derive from tokens */
+background: var(--primary);
+background: color-mix(in oklch, var(--primary), transparent 50%);
+background: oklch(from var(--primary) l c h / 50%);
+```
+
+**Color mixing patterns:**
+
+```css
+/* Transparency */
+color-mix(in oklch, var(--color), transparent 50%)
+
+/* Lighten */
+oklch(from var(--color) calc(l + 0.1) c h)
+
+/* Darken */
+oklch(from var(--color) calc(l - 0.1) c h)
+
+/* Desaturate */
+oklch(from var(--color) l calc(c * 0.5) h)
+```
+
+**Token format:**
+
 ```css
 /* Format: oklch(lightness chroma hue) */
 --primary: oklch(0.64 0.17 36);  /* Warm orange */
 ```
 
 **Palette generation with 60° hue shifts:**
+
 ```css
 :root {
   --hue: 36;  /* Base hue */

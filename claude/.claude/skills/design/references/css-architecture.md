@@ -239,15 +239,60 @@ This lets you use `bg-primary`, `shadow-sm` in @apply and TSX.
 - Lowercase kebab-case (`sidebar-menu.css`)
 - Match component/page name exactly
 
-## Units
+## Sizing Hierarchy
 
-**Use rem.** Tailwind uses rem natively. Divide px by 16.
+Use units in priority order:
 
-| px | rem |
-|----|-----|
-| 12 | 0.75rem |
-| 14 | 0.875rem |
-| 16 | 1rem |
-| 18 | 1.125rem |
+1. **Token sizing** - Project tokens first (auto-clamped via clamp())
+2. **Grid/flex sizing** - Every block is grid/flex. Always add 1 dynamic-width column. Fixed widths use `ch` or `%`, never `px`
+3. **Typography sizing** - `1em`, `1lh`, `1rlh` for rhythm. Icons, avatars, buttons can use these
+4. **Container sizing** - `cqi`, `cqb` over media queries and viewport units
+5. **Visual alignment** - Sub-em offsets (`0.02em`) for optical corrections. Also for letter-spacing
 
-Rem respects user browser font settings (accessibility).
+**Hard Rules:**
+
+- **Never use pixels** - except borders (aliasing) and box-shadow (constant depth across sizes)
+- **Never use margin for offsets** - use gaps. Negative margins allowed to elegantly remove gaps
+- **Use `calc()` sparingly** - 80% of content uses default tokens to establish rhythm
+- **Paragraphs ≤55ch** - long lines overwhelm users on wide displays
+
+**Layout pattern:**
+
+```css
+.container {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr; /* Always include dynamic column */
+  gap: 1rem;
+}
+```
+
+**Typography rhythm:**
+
+```css
+.icon {
+  width: 1em;
+  height: 1em;
+}
+
+.avatar {
+  width: 2lh;  /* 2x line height */
+  height: 2lh;
+}
+
+.button {
+  padding-block: 0.5lh;
+  padding-inline: 1em;
+}
+```
+
+**Visual alignment (optical corrections):**
+
+```css
+.icon-with-text {
+  margin-top: 0.02em; /* Align icon baseline with text */
+}
+
+.heading {
+  letter-spacing: -0.02em; /* Tighten large text */
+}
+```

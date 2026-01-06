@@ -49,9 +49,17 @@ If it looks like every AI-generated landing page, redo it.
 
 ## Quick Reference
 
+**Sizing:** Tokens → Grid/flex (`ch`/`%`) → Typography (`em`/`lh`) → Container (`cqi`/`cqb`) → Visual (sub-em)
+
+**Layout:** Every block is grid/flex. Always include 1 dynamic column. Use gaps, not margins.
+
+**Responsive:** Container queries (`cqi`) over media queries. Media queries only for device-specific (modals, off-canvas).
+
+**Colors:** Never hardcode. Use tokens + `color-mix(in oklch, ...)` for variations.
+
 **Spacing:** 4px grid in rem (0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 2.5, 3, 4rem)
 
-**Typography:** 3 sizes (0.75, 0.875, 1.125rem) + weight/color for hierarchy
+**Typography:** 3 sizes (0.75, 0.875, 1.125rem) + weight/color for hierarchy. Max 55ch line length.
 
 **Timing:** hover=200ms, active=instant, modal=300ms
 

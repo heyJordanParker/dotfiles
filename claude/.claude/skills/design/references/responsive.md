@@ -1,47 +1,86 @@
 # Responsive Design
 
-## Desktop-First (Admin UI)
+## Container Queries First
 
-This is an admin interface. Desktop is the primary experience. Mobile is functional but degraded.
+Container queries ask "how much room do I have?" instead of "how big is the screen?" Components adapt to their context, not device size.
 
-**Write styles for desktop first, then adapt down:**
+**Use container queries for:**
+- Cards, grids, forms, galleries, tables
+- Headers, footers, navigation
+- Any component that could exist in multiple contexts
+
+**Use media queries only for:**
+- Modals, off-canvas menus
+- Fixed-position elements
+- Device-specific concerns (print, reduced-motion)
+
+## The "Has Me" Pattern
+
+Container queries require `container-type` on the parent. Instead of manual setup, auto-declare from the child:
+
 ```css
-.dashboard-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-
-  @media (max-width: 1024px) {
-    grid-template-columns: repeat(2, 1fr);
+.card {
+  /* Auto-declare parent as container */
+  :has(> &) {
+    container-type: inline-size;
   }
 
-  @media (max-width: 768px) {
-    grid-template-columns: 1fr;
+  /* Now use container queries */
+  @container (min-width: 400px) {
+    display: grid;
+    grid-template-columns: 200px 1fr;
   }
 }
 ```
 
-## Breakpoints
+This makes container declarations travel with components - no manual sync needed.
 
-| Name | Width | Target |
-|------|-------|--------|
-| Wide | 1440px+ | Large monitors |
-| Desktop | 1024px+ | Standard laptops |
-| Tablet | 768px+ | iPad landscape |
-| Mobile | <768px | Phones (degraded) |
+## Grid Item Wrapper Requirement
 
-**Tailwind (desktop-first):**
-```
-Default = desktop
-lg:  < 1024px
-md:  < 768px
-sm:  < 640px
+Grid items need physical "cells" for container queries to measure. Use semantic wrappers:
+
+```html
+<!-- Right: list items provide the container boundary -->
+<ul class="grid">
+  <li>
+    <article class="card">...</article>
+  </li>
+</ul>
 ```
 
-Note: Tailwind defaults to mobile-first. For desktop-first, use max-width media queries in CSS or consider if the complexity is worth it.
+```css
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 1rem;
+}
+
+.grid > li {
+  container-type: inline-size;
+}
+
+.card {
+  @container (min-width: 300px) {
+    /* horizontal layout */
+  }
+}
+```
+
+## Container Units
+
+| Unit | Meaning |
+|------|---------|
+| `cqi` | 1% of container's inline size (width in horizontal writing) |
+| `cqb` | 1% of container's block size (height) |
+| `cqmin` | Smaller of cqi/cqb |
+| `cqmax` | Larger of cqi/cqb |
+
+Prefer `cqi`/`cqb` over viewport units (`vw`/`vh`) and media queries.
 
 ## Touch Detection
 
-**Desktop-only hover effects:**
+Desktop-only hover effects:
+
 ```css
 @media (hover: hover) {
   .card:hover {
@@ -50,37 +89,23 @@ Note: Tailwind defaults to mobile-first. For desktop-first, use max-width media 
 }
 ```
 
-`(hover: hover)` = device has a pointer that can hover (mouse, trackpad).
-`(hover: none)` = touch-only device.
+Touch targets: minimum 44x44px for touch interactions.
 
-**Touch targets:**
-- Minimum 44x44px for touch interactions
-- More spacing between clickable items on mobile
-- Larger buttons on tablet
+## When Media Queries Are Appropriate
 
-## Admin-Specific Patterns
+```css
+/* Print styles */
+@media print {
+  .no-print { display: none; }
+}
 
-**Sidebar:**
-- Desktop: persistent sidebar (16rem)
-- Mobile: collapsible or hidden, hamburger trigger
+/* Reduced motion preference */
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: 0.01ms !important; }
+}
 
-**Tables:**
-- Desktop: full table with all columns
-- Tablet: horizontal scroll or hide less important columns
-- Mobile: card layout or horizontal scroll
-
-**Forms:**
-- Desktop: can use side-by-side layouts if needed
-- Mobile: always single column
-
-**Complex features:**
-- Some admin features may simply not work well on mobile
-- That's acceptable - show a message directing to desktop
-- Don't degrade the desktop experience for mobile parity
-
-## What NOT to Do
-
-- Don't hide critical functionality on desktop for "clean" mobile
-- Don't mobile-first when desktop is the primary use case
-- Don't add complexity for edge-case mobile scenarios
-- Don't test mobile responsiveness before desktop is solid
+/* Off-canvas menu - device-specific */
+@media (max-width: 768px) {
+  .sidebar { transform: translateX(-100%); }
+}
+```
