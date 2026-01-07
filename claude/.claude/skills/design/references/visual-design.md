@@ -24,6 +24,23 @@
 
 **Use Tailwind utilities** for spacing: `gap-4`, `p-6`, `m-2`. Define CSS variables only for component-specific values.
 
+**Vertical spacing: rem. Horizontal sizing: ch.**
+
+- `rem` for margins, padding, gaps (scales with root font)
+- `ch` for widths of text containers, inputs, content areas (scales with font)
+
+```css
+.layout {
+  container-type: inline-size;
+  display: grid;
+  grid-template-columns: 1fr 40ch; /* Main + sidebar */
+
+  @container (width < 100ch) {
+    grid-template-columns: 1fr; /* Main, then sidebar if there's not enough space */
+  }
+}
+```
+
 ## Typography
 
 **3 sizes only (rem):**
