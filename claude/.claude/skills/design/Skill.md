@@ -9,10 +9,8 @@ Use when building UI components, styling pages, or making visual/interaction dec
 
 ## Design Modes
 
-| Mode | Philosophy | When to use |
-|------|------------|-------------|
-| **minimal** (default) | Less is more, function-first | Admin tools, utilities, dashboards |
-| **bold** | Distinctive, unforgettable | Landing pages, portfolios, marketing |
+- **minimal** (default): Less is more, function-first — Admin tools, utilities, dashboards
+- **bold**: Distinctive, unforgettable — Landing pages, portfolios, marketing
 
 For bold mode, see [bold.md](references/bold.md).
 

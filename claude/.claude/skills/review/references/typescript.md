@@ -25,13 +25,11 @@ const data: ApiResponse = await fetchData();
 const name = data.user?.name ?? 'Anonymous';
 ```
 
-| Escape | Fix |
-|--------|-----|
-| `any` | Define interface/type |
-| `as unknown as X` | Fix the actual type mismatch |
-| `x!` | Optional chaining `x?.` or null check |
-| `// @ts-ignore` | Fix the type error |
-| `as X` | Narrow with type guards |
+- `any` → define interface/type
+- `as unknown as X` → fix the actual type mismatch
+- `x!` → optional chaining `x?.` or null check
+- `// @ts-ignore` → fix the type error
+- `as X` → narrow with type guards
 
 ## Null Handling
 
@@ -86,15 +84,13 @@ for (const item of items) {
 const found = items.find(item => item.id === targetId);
 ```
 
-| Instead of | Use |
-|------------|-----|
-| Loop + push | `.filter()`, `.map()` |
-| Loop + break | `.find()`, `.findIndex()` |
-| Loop + counter | `.reduce()`, `.length` |
-| Loop + boolean | `.some()`, `.every()` |
-| Manual includes check | `.includes()`, `Set.has()` |
-| String concatenation loop | `.join()` |
-| `Object.keys().forEach()` | `Object.entries()` |
+- Loop + push → `.filter()`, `.map()`
+- Loop + break → `.find()`, `.findIndex()`
+- Loop + counter → `.reduce()`, `.length`
+- Loop + boolean → `.some()`, `.every()`
+- Manual includes check → `.includes()`, `Set.has()`
+- String concatenation loop → `.join()`
+- `Object.keys().forEach()` → `Object.entries()`
 
 ## Object/Array Patterns
 
@@ -220,15 +216,13 @@ function wrap<T>(value: T) { ... }
 
 ## Quick Reference
 
-| Slop | Fix |
-|------|-----|
-| `: any` | Define interface |
-| `as unknown as X` | Fix type mismatch |
-| `x!.prop` | `x?.prop` or null check |
-| `// @ts-ignore` | Fix the error |
-| Manual loop | Array methods |
-| `.then()` chains | `async/await` |
-| `catch(e) { log(e) }` | Handle or rethrow |
-| `import *` | Named imports |
-| Inline type literals | Named interface |
-| `object` type | Specific interface |
+- `: any` → define interface
+- `as unknown as X` → fix type mismatch
+- `x!.prop` → `x?.prop` or null check
+- `// @ts-ignore` → fix the error
+- Manual loop → array methods
+- `.then()` chains → `async/await`
+- `catch(e) { log(e) }` → handle or rethrow
+- `import *` → named imports
+- Inline type literals → named interface
+- `object` type → specific interface

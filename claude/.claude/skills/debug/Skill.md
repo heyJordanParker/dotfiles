@@ -20,23 +20,19 @@ Framework for finding and fixing bugs correctly.
 
 ## Approach Selection
 
-| Situation | Reference | When to use |
-|-----------|-----------|-------------|
-| **First error** | [systematic.md](references/systematic.md) | Any bug - start here |
-| **Deep stack error** | [root-cause-tracing.md](references/root-cause-tracing.md) | Error far from source |
-| **After fix** | [defense-in-depth.md](references/defense-in-depth.md) | Add multi-layer validation |
+- **First error** — [systematic.md](references/systematic.md) — any bug, start here
+- **Deep stack error** — [root-cause-tracing.md](references/root-cause-tracing.md) — error far from source
+- **After fix** — [defense-in-depth.md](references/defense-in-depth.md) — add multi-layer validation
 
 ## Quick Reference
 
 ### The Five Phases (Systematic)
 
-| Phase | Goal |
-|-------|------|
-| 0. Basic Checks | Rule out typos, wrong values, copy-paste errors |
-| 1. Root Cause | Read errors, reproduce, gather evidence |
-| 2. Pattern | Find similar working code, compare |
-| 3. Hypothesis | Single theory, test minimally |
-| 4. Implementation | Failing test, single fix, verify |
+- **Phase 0: Basic Checks** — rule out typos, wrong values, copy-paste errors
+- **Phase 1: Root Cause** — read errors, reproduce, gather evidence
+- **Phase 2: Pattern** — find similar working code, compare
+- **Phase 3: Hypothesis** — single theory, test minimally
+- **Phase 4: Implementation** — failing test, single fix, verify
 
 ### Tracing Process
 

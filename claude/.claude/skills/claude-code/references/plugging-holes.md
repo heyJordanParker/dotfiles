@@ -32,12 +32,11 @@ Write code before test? Delete it. Start over.
 - Delete means delete
 ```
 
-### 2. Rationalization Table Entry
+### 2. Rationalization Entry
 
 ```markdown
-| Excuse | Reality |
-|--------|---------|
-| "Keep as reference, write tests first" | You'll adapt it. That's testing after. Delete means delete. |
+**Rationalizations:**
+- **"Keep as reference, write tests first":** You'll adapt it. That's testing after. Delete means delete.
 ```
 
 ### 3. Red Flag Entry

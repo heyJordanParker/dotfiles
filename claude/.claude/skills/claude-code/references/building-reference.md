@@ -13,10 +13,8 @@ skill-name/
 
 ## Locations
 
-| Type | Path | Use for |
-|------|------|---------|
-| Personal | `~/.claude/skills/skill-name/` | General skills across all projects |
-| Project | `.claude/skills/skill-name/` | Codebase-specific skills |
+- **Personal:** `~/.claude/skills/skill-name/` — General skills across all projects
+- **Project:** `.claude/skills/skill-name/` — Codebase-specific skills
 
 ## Frontmatter Fields
 
@@ -31,11 +29,9 @@ allowed-tools:  # Optional - restricts available tools
 ---
 ```
 
-| Field | Constraints | Notes |
-|-------|-------------|-------|
-| `name` | ≤64 chars, lowercase, hyphens, numbers | Must match directory name |
-| `description` | ≤1024 chars | Critical for auto-activation. Be specific about triggers. |
-| `allowed-tools` | Array of tool names | Optional. Restricts which tools Claude can use. |
+- **name:** ≤64 chars, lowercase, hyphens, numbers — must match directory name
+- **description:** ≤1024 chars — critical for auto-activation, be specific about triggers
+- **allowed-tools:** Array of tool names — optional, restricts which tools Claude can use
 
 **Note**: If the skill requires external packages, list them in the description.
 

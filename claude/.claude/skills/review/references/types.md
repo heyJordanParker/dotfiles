@@ -42,12 +42,10 @@ Analyze:
 
 ## What It Catches
 
-| Issue | Example |
-|-------|---------|
-| Weak invariants | `status: string` vs `status: 'pending' \| 'done'` |
-| Exposed internals | Public mutable arrays |
-| Primitive obsession | `userId: string` vs `UserId` brand |
-| Impossible states | `{ loading: boolean, data: T, error: Error }` |
+- **Weak invariants:** `status: string` vs `status: 'pending' | 'done'`
+- **Exposed internals:** Public mutable arrays
+- **Primitive obsession:** `userId: string` vs `UserId` brand
+- **Impossible states:** `{ loading: boolean, data: T, error: Error }`
 
 ## Integration
 

@@ -43,13 +43,11 @@ Focus on:
 
 ## What It Catches
 
-| Pattern | Problem |
-|---------|---------|
-| `catch (e) {}` | Silent failure |
-| `catch (e) { log(e) }` | Logged but swallowed |
-| `?? defaultValue` | Silent fallback |
-| `try { } catch { return null }` | Error hidden as valid state |
-| `catch (Error e)` | Overly broad, loses specifics |
+- `catch (e) {}` - Silent failure
+- `catch (e) { log(e) }` - Logged but swallowed
+- `?? defaultValue` - Silent fallback
+- `try { } catch { return null }` - Error hidden as valid state
+- `catch (Error e)` - Overly broad, loses specifics
 
 ## Integration
 

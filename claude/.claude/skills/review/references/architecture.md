@@ -82,14 +82,12 @@ Stop if you see:
 
 ## Quick Reference
 
-| Issue | Fix |
-|-------|-----|
-| Bi-directional dependency | Extract shared code to third module |
-| Business logic in controller | Move to service/model |
-| Exposed internal state | Make private, add behavior methods |
-| God class | Split by responsibility |
-| Mixed concerns in file | Separate into focused files |
-| Circular import | Invert dependency or extract interface |
+- **Bi-directional dependency:** Extract shared code to third module
+- **Business logic in controller:** Move to service/model
+- **Exposed internal state:** Make private, add behavior methods
+- **God class:** Split by responsibility
+- **Mixed concerns in file:** Separate into focused files
+- **Circular import:** Invert dependency or extract interface
 
 ## Not Covered Here
 

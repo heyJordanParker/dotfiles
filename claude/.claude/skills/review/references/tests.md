@@ -42,13 +42,11 @@ Analyze:
 
 ## What It Catches
 
-| Issue | Problem |
-|-------|---------|
-| Mock-heavy tests | Tests pass but don't verify behavior |
-| Missing edge cases | Happy path only |
-| No error tests | Failure paths untested |
-| Snapshot abuse | Tests don't verify intent |
-| Setup-heavy tests | More setup than assertion |
+- **Mock-heavy tests:** Tests pass but don't verify behavior
+- **Missing edge cases:** Happy path only
+- **No error tests:** Failure paths untested
+- **Snapshot abuse:** Tests don't verify intent
+- **Setup-heavy tests:** More setup than assertion
 
 ## Integration
 

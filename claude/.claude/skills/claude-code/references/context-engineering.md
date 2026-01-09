@@ -1,9 +1,31 @@
-
 # Context Engineering
 
-Write instructions that make the most of limited AI context.
+## Why This Matters
 
-**Core principle:** Information lives where it's needed. Not too much, not too little.
+Context is AI's bottleneck. Every token loaded:
+- Competes with reasoning capacity
+- Can push critical info out of working memory
+- Costs something even if never used
+
+No "nice to have" context. Everything loaded is necessary or harmful.
+
+## Progressive Disclosure
+
+Load minimum needed. Drill deeper only when required.
+
+**Structure:**
+- **Entry points** (Skill.md, root Claude.md) → routing and baseline principles
+- **Topic files** (references/, feature Claude.md) → one complete workflow
+- **Deep dives** (supporting files) → specs, examples, edge cases
+
+**Goal:** Each file is focused. Agent loads only what the task requires.
+
+**Split along task boundaries, not topic boundaries.** Will different tasks need different parts? Split. Will every task need everything? Don't.
+
+**Signs structure is wrong:**
+- Agent loads file, uses <10% of content → file not focused enough, split it
+- Same info appears in multiple files → move to common parent
+- Agent can't complete task without principles → principles not in entry point
 
 ## The Rule
 
@@ -60,7 +82,7 @@ Claude Code reads Claude.md files recursively from the current file's directory 
 - Decorative formatting (boxes, fancy headers)
 - Examples that repeat what the rule already said
 - Process sections duplicated across files
-- Tables with low information density
+- Tables (use bullets with bold keys instead)
 
 ## Review Checklist
 

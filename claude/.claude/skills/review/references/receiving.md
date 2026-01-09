@@ -53,13 +53,11 @@ If ANY item is unclear: STOP. Ask for clarification on ALL unclear items before 
 
 ## Common Mistakes
 
-| Mistake | Fix |
-|---------|-----|
-| Performative agreement | State requirement or just act |
-| Blind implementation | Verify against codebase first |
-| Batch without testing | One at a time, test each |
-| Avoiding pushback | Technical correctness > comfort |
-| Partial implementation | Clarify all items first |
+- **Performative agreement:** State requirement or just act
+- **Blind implementation:** Verify against codebase first
+- **Batch without testing:** One at a time, test each
+- **Avoiding pushback:** Technical correctness > comfort
+- **Partial implementation:** Clarify all items first
 
 ## References
 

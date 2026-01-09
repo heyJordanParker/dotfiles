@@ -68,12 +68,10 @@ Grid items need physical "cells" for container queries to measure. Use semantic 
 
 ## Container Units
 
-| Unit | Meaning |
-|------|---------|
-| `cqi` | 1% of container's inline size (width in horizontal writing) |
-| `cqb` | 1% of container's block size (height) |
-| `cqmin` | Smaller of cqi/cqb |
-| `cqmax` | Larger of cqi/cqb |
+- **`cqi`:** 1% of container's inline size (width in horizontal writing)
+- **`cqb`:** 1% of container's block size (height)
+- **`cqmin`:** Smaller of cqi/cqb
+- **`cqmax`:** Larger of cqi/cqb
 
 Prefer `cqi`/`cqb` over viewport units (`vw`/`vh`) and media queries.
 

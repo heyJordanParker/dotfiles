@@ -6,14 +6,12 @@ Anti-slop patterns for Laravel, WordPress, Acorn, Sage, and Radicle.
 
 **Slop:** Reinventing what the framework provides.
 
-| Instead of | Use |
-|------------|-----|
-| Raw `foreach` + conditionals | `collect()->filter()->map()` |
-| `get_posts()` in controllers | Eloquent models: `Post::published()->get()` |
-| `get_post_meta()` directly | `$post->getMeta('key', 'default')` |
-| Manual array manipulation | Laravel Collection methods |
-| Custom validation logic | Laravel validation rules |
-| `$_GET`/`$_POST`/`$_REQUEST` | `$request->input()` |
+- Raw `foreach` + conditionals → `collect()->filter()->map()`
+- `get_posts()` in controllers → Eloquent models: `Post::published()->get()`
+- `get_post_meta()` directly → `$post->getMeta('key', 'default')`
+- Manual array manipulation → Laravel Collection methods
+- Custom validation logic → Laravel validation rules
+- `$_GET`/`$_POST`/`$_REQUEST` → `$request->input()`
 
 ## Configuration
 
@@ -38,13 +36,11 @@ $endpoint = config('services.example.endpoint');
 
 **Slop:** Hardcoded paths that break across environments.
 
-| Instead of | Use |
-|------------|-----|
-| `'/wp-content/themes/...'` | `get_theme_file_uri()` |
-| `'/wp-content/uploads/...'` | `wp_upload_dir()['baseurl']` |
-| `'https://mysite.com/...'` | `home_url()`, `site_url()` |
-| `'/app/public/...'` | `public_path()`, `asset()` |
-| Hardcoded admin URLs | `admin_url()` |
+- `'/wp-content/themes/...'` → `get_theme_file_uri()`
+- `'/wp-content/uploads/...'` → `wp_upload_dir()['baseurl']`
+- `'https://mysite.com/...'` → `home_url()`, `site_url()`
+- `'/app/public/...'` → `public_path()`, `asset()`
+- Hardcoded admin URLs → `admin_url()`
 
 ## Templates
 
@@ -115,14 +111,12 @@ Use container for services with dependencies. Direct `new` is fine for simple va
 
 **Slop:** Outdated PHP patterns.
 
-| Slop | Clean |
-|------|-------|
-| `$snake_case` variables | `$camelCase` |
-| `'value' === $var` (Yoda) | `$var === 'value'` |
-| `array()` | `[]` |
-| `if/else` chains | Early returns, guard clauses |
-| No type declarations | `function name(Type $param): ReturnType` |
-| `$this->prop = $prop` in constructor | Constructor promotion: `protected Type $prop` |
+- `$snake_case` variables → `$camelCase`
+- `'value' === $var` (Yoda) → `$var === 'value'`
+- `array()` → `[]`
+- `if/else` chains → Early returns, guard clauses
+- No type declarations → `function name(Type $param): ReturnType`
+- `$this->prop = $prop` in constructor → Constructor promotion: `protected Type $prop`
 
 ## REST API
 
@@ -246,16 +240,14 @@ return view('blocks.my-block', [
 
 ## Quick Reference
 
-| Pattern | Fix |
-|---------|-----|
-| `get_posts()` in controller | Use Eloquent model |
-| Hardcoded URL/path | Use helper function |
-| `<?php ?>` in Blade | Use directives |
-| `echo $var` in WP | `echo esc_html($var)` |
-| `{!! $user_input !!}` | `{{ $user_input }}` |
-| `new Service()` everywhere | Use container |
-| `$snake_case` | `$camelCase` |
-| `wp_ajax_*` hooks | REST API |
-| `wp_localize_script()` | `wp_add_inline_script()` |
-| Logic in provider | Delegate to service |
-| JSX in block `save()` | Server-side render |
+- `get_posts()` in controller → Use Eloquent model
+- Hardcoded URL/path → Use helper function
+- `<?php ?>` in Blade → Use directives
+- `echo $var` in WP → `echo esc_html($var)`
+- `{!! $user_input !!}` → `{{ $user_input }}`
+- `new Service()` everywhere → Use container
+- `$snake_case` → `$camelCase`
+- `wp_ajax_*` hooks → REST API
+- `wp_localize_script()` → `wp_add_inline_script()`
+- Logic in provider → Delegate to service
+- JSX in block `save()` → Server-side render

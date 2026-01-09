@@ -15,11 +15,9 @@ Framework for executing implementation plans.
 
 ## Execution Modes
 
-| Mode | Reference | When to use |
-|------|-----------|-------------|
-| **batched** | [batched.md](references/batched.md) | Execute in batches, pause for review |
-| **subagent-driven** | [subagent-driven.md](references/subagent-driven.md) | Fresh subagent per task, review between |
-| **parallel-agents** | [parallel-agents.md](references/parallel-agents.md) | 3+ independent failures, concurrent investigation |
+- **batched** — [batched.md](references/batched.md) — execute in batches, pause for review
+- **subagent-driven** — [subagent-driven.md](references/subagent-driven.md) — fresh subagent per task, review between
+- **parallel-agents** — [parallel-agents.md](references/parallel-agents.md) — 3+ independent failures, concurrent investigation
 
 ## Quick Reference
 

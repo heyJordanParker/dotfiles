@@ -73,11 +73,9 @@ await waitFor(() => getResult() !== undefined);
 const result = getResult();
 ```
 
-| Scenario | Pattern |
-|----------|---------|
-| Wait for event | `waitFor(() => events.find(e => e.type === 'DONE'))` |
-| Wait for state | `waitFor(() => machine.state === 'ready')` |
-| Wait for count | `waitFor(() => items.length >= 5)` |
+- **Wait for event** — `waitFor(() => events.find(e => e.type === 'DONE'))`
+- **Wait for state** — `waitFor(() => machine.state === 'ready')`
+- **Wait for count** — `waitFor(() => items.length >= 5)`
 
 See [flaky-tests-example.ts](flaky-tests-example.ts) for waitFor implementation.
 
@@ -89,14 +87,12 @@ See [flaky-tests-example.ts](flaky-tests-example.ts) for waitFor implementation.
 ## After
 
 **Red Flags:**
-| If you see this... | Stop and reconsider |
-|-------------------|---------------------|
-| More than 5 unit tests per feature | Testing implementation, not behavior |
-| `try/catch` returning null | Silent failure |
-| Test calls method directly instead of entry point | Bypassing how feature runs |
-| 50 tests pass, feature broken | Wrong tests entirely |
-| Test uses local filesystem, prod uses S3 | Testing different code than production |
-| Elaborate fixtures, factories, builders | Over-engineered. Make it deletable. |
+- **More than 5 unit tests per feature** — testing implementation, not behavior
+- **`try/catch` returning null** — silent failure
+- **Test calls method directly instead of entry point** — bypassing how feature runs
+- **50 tests pass, feature broken** — wrong tests entirely
+- **Test uses local filesystem, prod uses S3** — testing different code than production
+- **Elaborate fixtures, factories, builders** — over-engineered. Make it deletable.
 
 **Before commit:**
 - [ ] Does the test verify what the user experiences?

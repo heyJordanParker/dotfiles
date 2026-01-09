@@ -2,15 +2,13 @@
 
 ## Timing
 
-| Action | Duration | Why |
-|--------|----------|-----|
-| Hover | 200ms | Perceptible but not sluggish |
-| Active/Press | Instant (0-50ms) | Immediate feedback |
-| Focus | 150ms | Quick but visible |
-| Modal open/close | 300ms | Deliberate, noticeable |
-| Page transition | 200ms | Smooth but efficient |
-| Toast appear | 200ms | Quick entrance |
-| Toast dismiss | 150ms | Faster exit |
+- **Hover:** 200ms — Perceptible but not sluggish
+- **Active/Press:** Instant (0-50ms) — Immediate feedback
+- **Focus:** 150ms — Quick but visible
+- **Modal open/close:** 300ms — Deliberate, noticeable
+- **Page transition:** 200ms — Smooth but efficient
+- **Toast appear:** 200ms — Quick entrance
+- **Toast dismiss:** 150ms — Faster exit
 
 **Rule:** Exits faster than entrances.
 
@@ -31,14 +29,12 @@ Use for most transitions. Starts fast, ends smooth.
 
 Every interactive element needs:
 
-| State | Visual Change |
-|-------|---------------|
-| Default | Base appearance |
-| Hover | Subtle bg change, slight lift |
-| Focus | Visible ring (accessibility) |
-| Active | Pressed/depressed feel |
-| Disabled | Reduced opacity (50-60%), no pointer |
-| Loading | Spinner or pulse, disabled interaction |
+- **Default:** Base appearance
+- **Hover:** Subtle bg change, slight lift
+- **Focus:** Visible ring (accessibility)
+- **Active:** Pressed/depressed feel
+- **Disabled:** Reduced opacity (50-60%), no pointer
+- **Loading:** Spinner or pulse, disabled interaction
 
 **Hover example:**
 ```css

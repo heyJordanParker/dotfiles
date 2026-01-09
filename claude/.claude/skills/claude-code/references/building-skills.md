@@ -24,11 +24,9 @@ Guide for creating and maintaining Claude Code skills.
 
 ## Locations
 
-| Type | Path | Use for |
-|------|------|---------|
-| Personal | `~/.claude/skills/skill-name/` | General skills across all projects |
-| Project | `.claude/skills/skill-name/` | Codebase-specific skills |
-| Plugin | `plugin/skills/skill-name/` | Bundled with plugins |
+- **Personal:** `~/.claude/skills/skill-name/` — General skills across all projects
+- **Project:** `.claude/skills/skill-name/` — Codebase-specific skills
+- **Plugin:** `plugin/skills/skill-name/` — Bundled with plugins
 
 **Discovery:** Claude auto-discovers from all locations. Restart required after changes.
 

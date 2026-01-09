@@ -15,10 +15,8 @@ Framework for implementation planning.
 
 ## Planning Modes
 
-| Mode | Reference | When to use |
-|------|-----------|-------------|
-| **writing-plans** | [writing-plans.md](references/writing-plans.md) | Create detailed task list for implementation |
-| **question-driven** | [question-driven.md](references/question-driven.md) | Multiple decisions needing approval |
+- **writing-plans** — [writing-plans.md](references/writing-plans.md) — create detailed task list for implementation
+- **question-driven** — [question-driven.md](references/question-driven.md) — multiple decisions needing approval
 
 ## Quick Reference
 

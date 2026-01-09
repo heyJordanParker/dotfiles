@@ -16,16 +16,14 @@ Code review gate for quality and correctness.
 
 ## Review Types
 
-| Type | Reference | When to use |
-|------|-----------|-------------|
-| **anti-slop** | [anti-slop.md](references/anti-slop.md) | Before commit - catch AI slop, YAGNI, dead code |
-| **architecture** | [architecture.md](references/architecture.md) | Check SOLID, encapsulation, dependency direction |
-| **receiving** | [receiving.md](references/receiving.md) | Handling feedback - verify before implementing |
-| **requesting** | [requesting.md](references/requesting.md) | Dispatch code-reviewer subagent |
-| **errors** | [errors.md](references/errors.md) | Deep audit of error handling (silent-failure-hunter) |
-| **types** | [types.md](references/types.md) | Deep audit of type design (type-design-analyzer) |
-| **tests** | [tests.md](references/tests.md) | Deep audit of test quality (pr-test-analyzer) |
-| **naming** | [naming.md](references/naming.md) | Audit identifier clarity and conventions |
+- **anti-slop** ([ref](references/anti-slop.md)) - Before commit - catch AI slop, YAGNI, dead code
+- **architecture** ([ref](references/architecture.md)) - Check SOLID, encapsulation, dependency direction
+- **receiving** ([ref](references/receiving.md)) - Handling feedback - verify before implementing
+- **requesting** ([ref](references/requesting.md)) - Dispatch code-reviewer subagent
+- **errors** ([ref](references/errors.md)) - Deep audit of error handling (silent-failure-hunter)
+- **types** ([ref](references/types.md)) - Deep audit of type design (type-design-analyzer)
+- **tests** ([ref](references/tests.md)) - Deep audit of test quality (pr-test-analyzer)
+- **naming** ([ref](references/naming.md)) - Audit identifier clarity and conventions
 
 ## Quick Reference
 

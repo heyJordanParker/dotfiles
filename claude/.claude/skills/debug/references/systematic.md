@@ -24,13 +24,11 @@ If you haven't completed Phase 1, you cannot propose fixes.
 
 Complete each phase before proceeding to the next.
 
-| Phase | Goal | Key Activities |
-|-------|------|----------------|
-| **0. Basic Checks** | Rule out obvious | Typos, wrong names, wrong values, copy-paste errors |
-| **1. Root Cause** | Understand WHAT and WHY | Read errors, reproduce, check changes, gather evidence |
-| **2. Pattern** | Find working reference | Find similar working code, compare differences |
-| **3. Hypothesis** | Test theory | Form single hypothesis, test minimally |
-| **4. Implementation** | Fix correctly | Create failing test, single fix, verify |
+- **Phase 0: Basic Checks** — rule out obvious: typos, wrong names, wrong values, copy-paste errors
+- **Phase 1: Root Cause** — understand WHAT and WHY: read errors, reproduce, check changes, gather evidence
+- **Phase 2: Pattern** — find working reference: find similar working code, compare differences
+- **Phase 3: Hypothesis** — test theory: form single hypothesis, test minimally
+- **Phase 4: Implementation** — fix correctly: create failing test, single fix, verify
 
 ## Phase 0: Basic Checks First
 
@@ -85,12 +83,10 @@ Before ANY fix attempt:
 
 ## Common Rationalizations
 
-| Excuse | Reality |
-|--------|---------|
-| "Issue is simple" | Simple issues have root causes too |
-| "Emergency, no time" | Systematic is FASTER than thrashing |
-| "I see the problem" | Symptoms ≠ root cause |
-| "One more fix attempt" | 3+ failures = architectural problem |
+- **"Issue is simple"** — simple issues have root causes too
+- **"Emergency, no time"** — systematic is FASTER than thrashing
+- **"I see the problem"** — symptoms ≠ root cause
+- **"One more fix attempt"** — 3+ failures = architectural problem
 
 ## References
 

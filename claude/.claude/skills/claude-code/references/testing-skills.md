@@ -21,13 +21,11 @@ Run scenarios without the skill (RED - watch agent fail), write skill addressing
 
 ## TDD Mapping
 
-| TDD Phase | Skill Testing |
-|-----------|---------------|
-| **RED** | Run scenario WITHOUT skill, watch agent fail |
-| **Verify RED** | Document exact rationalizations verbatim |
-| **GREEN** | Write skill addressing specific failures |
-| **Verify GREEN** | Run scenario WITH skill, verify compliance |
-| **REFACTOR** | Find new rationalizations, add counters |
+- **RED:** Run scenario WITHOUT skill, watch agent fail
+- **Verify RED:** Document exact rationalizations verbatim
+- **GREEN:** Write skill addressing specific failures
+- **Verify GREEN:** Run scenario WITH skill, verify compliance
+- **REFACTOR:** Find new rationalizations, add counters
 
 ## RED Phase: Baseline Testing
 

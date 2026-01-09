@@ -39,15 +39,13 @@ Skip any step = lying, not verifying
 
 ## Common Failures
 
-| Claim | Requires | Not Sufficient |
-|-------|----------|----------------|
-| Tests pass | Test command output: 0 failures | Previous run, "should pass" |
-| Linter clean | Linter output: 0 errors | Partial check, extrapolation |
-| Build succeeds | Build command: exit 0 | Linter passing, logs look good |
-| Bug fixed | Test original symptom: passes | Code changed, assumed fixed |
-| Regression test works | Red-green cycle verified | Test passes once |
-| Agent completed | VCS diff shows changes | Agent reports "success" |
-| Requirements met | Line-by-line checklist | Tests passing |
+- **"Tests pass"** — requires: test command output showing 0 failures (not previous run, not "should pass")
+- **"Linter clean"** — requires: linter output showing 0 errors (not partial check, not extrapolation)
+- **"Build succeeds"** — requires: build command exit 0 (not linter passing, not "logs look good")
+- **"Bug fixed"** — requires: test original symptom passes (not code changed + assumed fixed)
+- **"Regression test works"** — requires: red-green cycle verified (not test passes once)
+- **"Agent completed"** — requires: VCS diff shows changes (not agent reports "success")
+- **"Requirements met"** — requires: line-by-line checklist (not tests passing)
 
 ## Red Flags - STOP
 
@@ -62,16 +60,14 @@ Skip any step = lying, not verifying
 
 ## Rationalization Prevention
 
-| Excuse | Reality |
-|--------|---------|
-| "Should work now" | RUN the verification |
-| "I'm confident" | Confidence ≠ evidence |
-| "Just this once" | No exceptions |
-| "Linter passed" | Linter ≠ compiler |
-| "Agent said success" | Verify independently |
-| "I'm tired" | Exhaustion ≠ excuse |
-| "Partial check is enough" | Partial proves nothing |
-| "Different words so rule doesn't apply" | Spirit over letter |
+- **"Should work now"** — RUN the verification
+- **"I'm confident"** — confidence ≠ evidence
+- **"Just this once"** — no exceptions
+- **"Linter passed"** — linter ≠ compiler
+- **"Agent said success"** — verify independently
+- **"I'm tired"** — exhaustion ≠ excuse
+- **"Partial check is enough"** — partial proves nothing
+- **"Different words so rule doesn't apply"** — spirit over letter
 
 ## Key Patterns
 

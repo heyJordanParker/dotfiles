@@ -62,12 +62,10 @@ styles/
 
 Variables live where they belong:
 
-| Scope | Location | Purpose |
-|-------|----------|---------|
-| Design system | `theme.css` | Colors, shadows, fonts, radii. Copy-paste from generators. |
-| App-level | `global.css` | Timing, easing. Keep this lean. |
-| Component | `components/*.css` | `--sidebar-width`, `--card-padding` |
-| Page | `pages/*.css` | Page-specific overrides |
+- **Design system:** `theme.css` — Colors, shadows, fonts, radii. Copy-paste from generators.
+- **App-level:** `global.css` — Timing, easing. Keep this lean.
+- **Component:** `components/*.css` — `--sidebar-width`, `--card-padding`
+- **Page:** `pages/*.css` — Page-specific overrides
 
 **Rule:** If only one component uses a variable, it lives in that component's file.
 

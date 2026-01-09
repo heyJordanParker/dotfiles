@@ -34,14 +34,12 @@ Git worktrees create isolated workspaces sharing the same repository, allowing w
 
 ## Quick Reference
 
-| Situation | Action |
-|-----------|--------|
-| `.worktrees/` exists | Use it (verify .gitignore) |
-| `worktrees/` exists | Use it (verify .gitignore) |
-| Both exist | Use `.worktrees/` |
-| Neither exists | Check Claude.md → Ask user |
-| Not in .gitignore | Add immediately + commit |
-| Tests fail during baseline | Report + ask |
+- **`.worktrees/` exists** — use it (verify .gitignore)
+- **`worktrees/` exists** — use it (verify .gitignore)
+- **Both exist** — use `.worktrees/`
+- **Neither exists** — check Claude.md, then ask user
+- **Not in .gitignore** — add immediately + commit
+- **Tests fail during baseline** — report + ask
 
 ## Red Flags
 

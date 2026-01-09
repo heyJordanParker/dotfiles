@@ -50,10 +50,8 @@ For each issue:
 
 ## What It Catches
 
-| Issue | Example |
-|-------|---------|
-| Misleading | `getUser()` that creates if missing |
-| Generic | `processData()`, `handleEvent()` |
-| Inconsistent | `userId` and `user_name` in same file |
-| Abbreviated | `usrAccMgr` instead of `userAccountManager` |
-| Semantic mismatch | `isValid()` returns error message |
+- **Misleading:** `getUser()` that creates if missing
+- **Generic:** `processData()`, `handleEvent()`
+- **Inconsistent:** `userId` and `user_name` in same file
+- **Abbreviated:** `usrAccMgr` instead of `userAccountManager`
+- **Semantic mismatch:** `isValid()` returns error message

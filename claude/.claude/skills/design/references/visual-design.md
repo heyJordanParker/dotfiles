@@ -4,18 +4,16 @@
 
 **4px grid in rem.** Divide by 16 to convert:
 
-| px | rem | Tailwind |
-|----|-----|----------|
-| 4 | 0.25rem | gap-1, p-1 |
-| 8 | 0.5rem | gap-2, p-2 |
-| 12 | 0.75rem | gap-3, p-3 |
-| 16 | 1rem | gap-4, p-4 |
-| 20 | 1.25rem | gap-5, p-5 |
-| 24 | 1.5rem | gap-6, p-6 |
-| 32 | 2rem | gap-8, p-8 |
-| 40 | 2.5rem | gap-10, p-10 |
-| 48 | 3rem | gap-12, p-12 |
-| 64 | 4rem | gap-16, p-16 |
+- **4px:** 0.25rem / `gap-1`, `p-1`
+- **8px:** 0.5rem / `gap-2`, `p-2`
+- **12px:** 0.75rem / `gap-3`, `p-3`
+- **16px:** 1rem / `gap-4`, `p-4`
+- **20px:** 1.25rem / `gap-5`, `p-5`
+- **24px:** 1.5rem / `gap-6`, `p-6`
+- **32px:** 2rem / `gap-8`, `p-8`
+- **40px:** 2.5rem / `gap-10`, `p-10`
+- **48px:** 3rem / `gap-12`, `p-12`
+- **64px:** 4rem / `gap-16`, `p-16`
 
 **Process:**
 1. Start generous (2.5rem / 40px)
@@ -45,11 +43,9 @@
 
 **3 sizes only (rem):**
 
-| rem | px | Tailwind | Use |
-|-----|----|---------|----|
-| 0.75rem | 12px | text-xs | Captions, metadata |
-| 0.875rem | 14px | text-sm | Body text, UI (base) |
-| 1.125rem | 18px | text-lg | Headings, emphasis |
+- **0.75rem:** 12px / `text-xs` — Captions, metadata
+- **0.875rem:** 14px / `text-sm` — Body text, UI (base)
+- **1.125rem:** 18px / `text-lg` — Headings, emphasis
 
 **Hierarchy through weight and color, not size.**
 
@@ -57,11 +53,9 @@ To emphasize an element, de-emphasize everything else. You can't make white "mor
 
 **Line length:** Never make paragraphs wider than 55ch. Long lines overwhelm users on wide displays.
 
-| Role | Lightness (dark mode) | Tailwind |
-|------|----------------------|----------|
-| Primary (titles) | 90-100% | text-foreground |
-| Secondary | 60-70% | text-muted-foreground |
-| Disabled/hint | 40-50% | text-muted-foreground/50 |
+- **Primary (titles):** 90-100% lightness / `text-foreground`
+- **Secondary:** 60-70% lightness / `text-muted-foreground`
+- **Disabled/hint:** 40-50% lightness / `text-muted-foreground/50`
 
 **Line height as spacing.** Greater line height acts as natural margin-bottom. In most cases you don't need manual gap between text blocks - line height handles it.
 
@@ -160,12 +154,10 @@ Never use gaudy, high-saturation, or rainbow gradients. Use gradients to add tex
 
 **Light source is at the top.** Top surfaces are lighter, bottom surfaces are darker.
 
-| Level | Background | Shadow | Use |
-|-------|------------|--------|-----|
-| 0 | Page base | None | Content areas |
-| 1 | Slightly lifted | shadow-xs | Sidebar body, cards |
-| 2 | Floating | shadow-sm | Sticky headers, glass panels |
-| 3 | Overlay | shadow-md | Dropdowns, modals |
+- **Level 0:** Page base / no shadow — Content areas
+- **Level 1:** Slightly lifted / `shadow-xs` — Sidebar body, cards
+- **Level 2:** Floating / `shadow-sm` — Sticky headers, glass panels
+- **Level 3:** Overlay / `shadow-md` — Dropdowns, modals
 
 **Dual shadow system (soft + dark):**
 

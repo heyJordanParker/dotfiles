@@ -32,15 +32,13 @@ Multiple pressures: sunk cost + time + exhaustion + consequences.
 
 ## Pressure Types
 
-| Pressure | Example |
-|----------|---------|
-| **Time** | Emergency, deadline, deploy window closing |
-| **Sunk cost** | Hours of work, "waste" to delete |
-| **Authority** | Senior says skip it, manager overrides |
-| **Economic** | Job, promotion, company survival at stake |
-| **Exhaustion** | End of day, already tired, want to go home |
-| **Social** | Looking dogmatic, seeming inflexible |
-| **Pragmatic** | "Being pragmatic vs dogmatic" |
+- **Time:** Emergency, deadline, deploy window closing
+- **Sunk cost:** Hours of work, "waste" to delete
+- **Authority:** Senior says skip it, manager overrides
+- **Economic:** Job, promotion, company survival at stake
+- **Exhaustion:** End of day, already tired, want to go home
+- **Social:** Looking dogmatic, seeming inflexible
+- **Pragmatic:** "Being pragmatic vs dogmatic"
 
 **Best tests combine 3+ pressures.**
 

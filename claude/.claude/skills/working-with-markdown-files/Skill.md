@@ -9,11 +9,9 @@ description: Critical rules and best practices for working with markdown files.
 
 Markdown files are ALWAYS named in PascalCase.md.
 
-| Incorrect | Correct |
-|-----------|---------|
-| `CLAUDE.md` | `Claude.md` |
-| `SKILL.md` | `Skill.md` |
-| `README.md` | `ReadMe.md` |
+- `CLAUDE.md` → `Claude.md`
+- `SKILL.md` → `Skill.md`
+- `README.md` → `ReadMe.md`
 
 ## Claude.md Hierarchy
 

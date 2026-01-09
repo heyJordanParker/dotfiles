@@ -73,12 +73,10 @@ Return: Summary of what you found and fixed.
 
 ## Common Mistakes
 
-| Bad | Good |
-|-----|------|
-| "Fix all the tests" | "Fix agent-tool-abort.test.ts" |
-| "Fix the race condition" | Paste error messages and test names |
-| No constraints | "Do NOT change production code" |
-| "Fix it" | "Return summary of root cause and changes" |
+- **"Fix all the tests"** → "Fix agent-tool-abort.test.ts" — be specific
+- **"Fix the race condition"** → paste error messages and test names — provide context
+- **No constraints** → "Do NOT change production code" — set boundaries
+- **"Fix it"** → "Return summary of root cause and changes" — request output
 
 ## Verification
 
