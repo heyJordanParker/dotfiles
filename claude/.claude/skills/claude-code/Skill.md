@@ -35,6 +35,7 @@ Based on what you need, read the relevant reference:
 - **Updating docs:** [updating-docs.md](references/updating-docs.md) — editing Claude.md files
 - **Context engineering:** [context-engineering.md](references/context-engineering.md) — read when creating new skills/docs, restructuring, or debugging agent behavior
 - **Hooks:** [hooks.md](references/hooks.md) — creating event-driven automation
+- **Rules:** [rules.md](references/rules.md) — modular project instructions via .claude/rules/
 
 ## Quick Reference
 
