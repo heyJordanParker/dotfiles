@@ -95,6 +95,12 @@ Never regress functionality:
 - If touching code outside the original task scope: ask first
 - "It works now" means nothing if something else broke
 
+Architecture before hacks:
+- When hitting a wall: fix the design, not the symptoms
+- Hacks accumulate. Architecture scales. Prefer the latter.
+- If a hack seems necessary: describe the architectural fix you're avoiding and why
+- Temporary workarounds require: (1) architect approval, (2) documented rationale
+
 When Stuck:
 - Say "I'm stuck because X. Should I Y or Z?"
 
