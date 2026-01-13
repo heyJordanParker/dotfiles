@@ -44,13 +44,14 @@ build_excludes() {
 
 # Sort by depth (shallow first), then recency within same depth
 sort_by_depth_then_recency() {
-  while IFS= read -r f; do
-    if [[ -e "$f" ]]; then
-      local depth=$(tr -cd '/' <<< "$f" | wc -c)
-      [[ "$f" == */ ]] && ((depth--))
-      local mtime=$(stat -f '%m' "$f" 2>/dev/null)
-      printf '%d %s %s\n' "$depth" "$mtime" "$f"
-    fi
+  # Batch stat call (1 process vs N), pure bash depth calculation (0 subprocesses vs N)
+  xargs stat -f '%m %N' 2>/dev/null | while IFS= read -r line; do
+    mtime="${line%% *}"
+    path="${line#* }"
+    slashes="${path//[^\/]/}"
+    depth="${#slashes}"
+    [[ "$path" == */ ]] && ((depth--))
+    printf '%d %s %s\n' "$depth" "$mtime" "$path"
   done | sort -n -k1,1 -k2,2rn | cut -d' ' -f3-
 }
 
@@ -105,15 +106,13 @@ search_files() {
   local query="$2"
   local global="$3"  # non-empty for global, empty for local
 
-  # Hidden only when pattern starts with .
-  local hidden_flag=""
-  [[ "$query" == .* ]] && hidden_flag="--hidden"
-
-  local excludes depth_flag=""
+  local hidden_flag="" excludes="" depth_flag=""
   if [[ -n "$global" ]]; then
+    [[ "$query" == .* ]] && hidden_flag="--hidden"
     excludes=$(build_excludes "${EXCLUDES[@]}" "${GLOBAL_EXCLUDES[@]}")
     [[ -z "$query" ]] && depth_flag="--max-depth 1" || depth_flag="--max-depth 2"
   else
+    hidden_flag="--hidden"  # Always show hidden in local projects
     excludes=$(build_excludes "${EXCLUDES[@]}")
     [[ -z "$query" ]] && depth_flag="--max-depth 1" || depth_flag="--max-depth 3"
   fi
