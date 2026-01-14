@@ -81,8 +81,8 @@
         "matcher": "AskUserQuestion",
         "hooks": [
           {
-            "type": "prompt",
-            "prompt": "Before asking a question:\n\n- Research first. Only ask if <90% confident after checking codebase and docs.\n- If over 90% confident, decide yourself and mention it in the question text.\n- Make questions self-contained. User should answer without reading files, a plan you created, or anything else you said. Add details, code examples, annotated file trees, and anything else necessary to explain the issue effectively.\n- Provide 4+ options. Yes/no wastes the tool.\n- One decision per question. Don't batch."
+            "type": "command",
+            "command": "cat $HOME/.claude/hooks/ask-user-question.md"
           }
         ]
       }
