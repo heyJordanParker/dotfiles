@@ -91,7 +91,7 @@ Before committing, scan changed code for:
 - **Empty input** – What happens with `""`?
 - **Boundary conditions** – Off-by-one, max values
 
-**Fix:** Add guards at system boundaries. Trust internal code. See [bug-hunting](../bug-hunting/Skill.md) for comprehensive edge case coverage.
+**Fix:** Add guards at system boundaries. Trust internal code.
 
 ### 10. YAGNI Violations
 
