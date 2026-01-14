@@ -27,6 +27,7 @@ brew "glow"
 brew "tw93/tap/mole"
 
 # Dev
+brew "oven-sh/bun/bun"
 brew "hcloud"
 brew "opencode"
 brew "git-delta"

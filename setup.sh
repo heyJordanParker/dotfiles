@@ -25,10 +25,12 @@ fi
 echo "==> Installing brew packages..."
 brew bundle --file="$DOTFILES_DIR/Brewfile"
 
-if [ ! -d "$HOME/.bun" ]; then
-  echo "==> Installing bun..."
-  curl -fsSL https://bun.sh/install | bash
-fi
+echo "==> Installing bun global packages..."
+while read -r pkg; do
+  [ -n "$pkg" ] && bun add -g "$pkg"
+done < "$DOTFILES_DIR/bun/global-packages.txt"
+bun pm -g trust --all
+agent-browser install
 
 echo "==> Linking dotfiles..."
 cd "$DOTFILES_DIR"

@@ -1,6 +1,6 @@
 ---
-version: 1.0
-updated: 2026-01-01
+version: 1.1
+updated: 2026-01-14
 ---
 
 Focus on concise, minimal output. Prioritize actionable, well-formatted content. Use bullets, annotated file trees, and whitespace. Avoid prose, tables, and verbose explanations.
@@ -112,3 +112,6 @@ Settings (non-default):
 - Model: opus (not sonnet)
 - Tmux hooks track session state. Graceful degradation outside tmux.
 - SessionStart captures transcript path for logging.
+
+Tools:
+- agent-browser skill - Use for web browsing, form filling, screenshots, and data extraction
