@@ -25,8 +25,15 @@
       "Skill(updating-claude-documentation)",
       "Skill(using-git-worktrees)",
       "Skill(verification-before-completion)",
-      "Skill(writing-plans)"
-    ]
+      "Skill(writing-plans)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(brew install:*)",
+      "Bash(ls:*)"
+    ],
+    "defaultMode": "default"
   },
   "model": "opus",
   "hooks": {
@@ -159,5 +166,6 @@
     "dev-browser@dev-browser-marketplace": false,
     "ralph-wiggum@claude-code-plugins": true
   },
-  "alwaysThinkingEnabled": true
+  "alwaysThinkingEnabled": true,
+  "autoUpdatesChannel": "latest"
 }
