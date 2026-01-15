@@ -25,6 +25,7 @@ brew "dust"
 brew "fd"
 brew "glow"
 brew "tw93/tap/mole"
+brew "m-cli"
 
 # Dev
 brew "oven-sh/bun/bun"
