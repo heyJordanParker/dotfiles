@@ -115,3 +115,7 @@ Settings (non-default):
 
 Tools:
 - agent-browser skill - Use for web browsing, form filling, screenshots, and data extraction
+
+GitHub:
+- Use `gh` CLI for issues and PRs. Web URLs won't work for private repos.
+- **Creating issues from plans:** Issues must be fully self-contained. An agent with no prior context must be able to execute. Include all file paths, implementation details, and acceptance criteria. Never "see above" or "as discussed".

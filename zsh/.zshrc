@@ -6,23 +6,21 @@ export DEV_FOLDER="$HOME/Developer"
 export DEV_BROWSER="Helium"
 export BROWSER="/Applications/Helium.app/Contents/MacOS/Helium"
 
-# --- OH-MY-ZSH & PLUGINS ---
+# --- ZINIT (Plugin Manager) ---
+# Load BEFORE OMZ so completions are in fpath when OMZ runs compinit
+source /opt/homebrew/opt/zinit/zinit.zsh
+zinit light zsh-users/zsh-completions
+zinit light zsh-users/zsh-autosuggestions
+zinit light Aloxaf/fzf-tab
+
+# --- OH-MY-ZSH ---
 ZSH_THEME="robbyrussell"
 plugins=(git)
 
 source $ZSH/oh-my-zsh.sh
 unsetopt share_history
 
-# --- ZINIT (Plugin Manager) ---
-source /opt/homebrew/opt/zinit/zinit.zsh
-
-# Load plugins (Light mode for speed)
-zinit light zsh-users/zsh-completions
-zinit light zsh-users/zsh-autosuggestions
-zinit light Aloxaf/fzf-tab
-
-# Initialize Completions (ONCE, at the end of plugins)
-autoload -Uz compinit && compinit
+# Completion styles
 zstyle ':completion:*' matcher-list 'm:{a-z}={A-Za-z}'
 zstyle ':completion:*' list-colors "${(s.:.)LS_COLORS}"
 zstyle ':completion:*' menu no
@@ -62,9 +60,6 @@ export PATH="$BUN_INSTALL/bin:$PATH"
 # Antigravity & Lando
 export PATH="/Users/jordan/.antigravity/antigravity/bin:$PATH"
 export PATH="/Users/jordan/.lando/bin:$PATH"
-
-# Try experiment manager
-eval "$(try init ~/Developer/experiments)"
 
 # --- ALIASES ---
 alias ls='eza -1l --icons=always --hyperlink --group-directories-first'
