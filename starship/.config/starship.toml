@@ -1,0 +1,178 @@
+command_timeout = 200
+
+[directory]
+truncate_to_repo = false
+truncation_length = 0
+
+[git_metrics]
+disabled = true
+
+[git_status]
+disabled = true
+
+[git_state]
+disabled = false
+
+[cmd_duration]
+min_time = 2000
+show_milliseconds = false
+
+# Disable all language/tool version modules
+[php]
+disabled = true
+
+[nodejs]
+disabled = true
+
+[python]
+disabled = true
+
+[ruby]
+disabled = true
+
+[rust]
+disabled = true
+
+[golang]
+disabled = true
+
+[java]
+disabled = true
+
+[package]
+disabled = true
+
+[aws]
+disabled = true
+
+[gcloud]
+disabled = true
+
+[azure]
+disabled = true
+
+[docker_context]
+disabled = true
+
+[kubernetes]
+disabled = true
+
+[terraform]
+disabled = true
+
+[vagrant]
+disabled = true
+
+[nix_shell]
+disabled = true
+
+[conda]
+disabled = true
+
+[dart]
+disabled = true
+
+[deno]
+disabled = true
+
+[dotnet]
+disabled = true
+
+[elixir]
+disabled = true
+
+[elm]
+disabled = true
+
+[erlang]
+disabled = true
+
+[haskell]
+disabled = true
+
+[julia]
+disabled = true
+
+[kotlin]
+disabled = true
+
+[lua]
+disabled = true
+
+[nim]
+disabled = true
+
+[ocaml]
+disabled = true
+
+[perl]
+disabled = true
+
+[purescript]
+disabled = true
+
+[scala]
+disabled = true
+
+[swift]
+disabled = true
+
+[zig]
+disabled = true
+
+[vlang]
+disabled = true
+
+[cmake]
+disabled = true
+
+[cobol]
+disabled = true
+
+[crystal]
+disabled = true
+
+[daml]
+disabled = true
+
+[fennel]
+disabled = true
+
+[gradle]
+disabled = true
+
+[haxe]
+disabled = true
+
+[meson]
+disabled = true
+
+[opa]
+disabled = true
+
+[raku]
+disabled = true
+
+[red]
+disabled = true
+
+[solidity]
+disabled = true
+
+[typst]
+disabled = true
+
+[buf]
+disabled = true
+
+[bun]
+disabled = true
+
+[c]
+disabled = true
+
+[helm]
+disabled = true
+
+[pulumi]
+disabled = true
