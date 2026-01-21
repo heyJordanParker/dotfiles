@@ -28,13 +28,13 @@ brew bundle --file="$DOTFILES_DIR/Brewfile"
 echo "==> Installing bun global packages..."
 while read -r pkg; do
   [ -n "$pkg" ] && bun add -g "$pkg"
-done < "$DOTFILES_DIR/bun/global-packages.txt"
+done < "$DOTFILES_DIR/bun/.config/bun/globals"
 bun pm -g trust --all
 agent-browser install
 
 echo "==> Linking dotfiles..."
 cd "$DOTFILES_DIR"
-stow -v zsh git tmux npm ssh nvim ghostty karabiner btop claude lazygit delta bat opencode atuin
+stow -v zsh git tmux npm ssh nvim ghostty karabiner btop claude lazygit delta bat opencode atuin bun
 
 # Build bat theme cache
 bat cache --build 2>/dev/null || true
