@@ -44,11 +44,22 @@ path/to/
 1. Explore codebase to understand context
 2. Question requirements (does this need to exist?)
 3. Delete scope (what's the 20% that solves 80%?)
-4. Draft assumptions with confidence scores
-5. If any assumption <70%, ask user before proceeding
-6. Draft plan with decisions (not options)
-7. Validate with `pragmatic-engineering` skill
-8. Present to user for approval
+4. Classify domain risk:
+   - **High-risk** (security, auth, payments, external APIs, data privacy) → research externally
+   - **Unfamiliar** (new framework, no codebase examples, <70% confident) → research externally
+   - **Strong local patterns** (codebase has clear examples, >85% confident) → skip external
+5. If external research needed: use WebSearch/WebFetch for current best practices, then continue
+6. Validate spec completeness before planning:
+   - [ ] Success criteria defined? (how do we know it works?)
+   - [ ] Edge cases identified? (empty, null, max, concurrent)
+   - [ ] Error handling clear? (what fails, how?)
+   - [ ] Dependencies known? (external services, other features)
+   - If any missing: ask user via AskUserQuestion before proceeding
+7. Draft assumptions with confidence scores
+8. If any assumption <70%, ask user before proceeding
+9. Draft plan with decisions (not options)
+10. Validate with `pragmatic-engineering` skill
+11. Present to user for approval
 
 ## Asking Questions
 
