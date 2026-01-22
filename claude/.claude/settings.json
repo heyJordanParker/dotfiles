@@ -89,6 +89,15 @@
         ]
       },
       {
+        "matcher": "Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cat $HOME/.claude/hooks/pre-edit.md"
+          }
+        ]
+      },
+            {
         "matcher": "AskUserQuestion",
         "hooks": [
           {
