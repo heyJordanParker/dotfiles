@@ -32,6 +32,21 @@ allowed-tools:  # Optional - restricts available tools
 - **name:** ≤64 chars, lowercase, hyphens, numbers — must match directory name
 - **description:** ≤1024 chars — critical for auto-activation, be specific about triggers
 - **allowed-tools:** Array of tool names — optional, restricts which tools Claude can use
+- **context:** `fork` runs skill in forked sub-agent context
+- **agent:** Specify agent type for execution (e.g., `agent: code-reviewer`)
+- **user-invocable:** `false` hides from slash command menu (default: `true` for skills in `/skills/`)
+- **hooks:** Define scoped PreToolUse/PostToolUse/Stop hooks (see hooks.md)
+
+Both syntaxes work for allowed-tools:
+```yaml
+# Array
+allowed-tools:
+  - Read
+  - Grep
+
+# Inline
+allowed-tools: [Read, Grep]
+```
 
 **Note**: If the skill requires external packages, list them in the description.
 
@@ -48,4 +63,6 @@ Claude auto-discovers skills from all three locations (personal, project, plugin
 
 This means comprehensive documentation doesn't bloat initial decision-making.
 
-**Restart**: Changes to skills require Claude Code restart to take effect.
+**Hot reload**: Skills reload automatically when modified — no restart needed.
+
+**Nested discovery**: Skills in nested `.claude/skills/` directories (within project subdirectories) are auto-discovered.

@@ -1,6 +1,6 @@
 ---
 name: claude-code
-description: Use when working with Claude Code itself - skills, agents, commands, hooks, settings, documentation. Alias "cc". Covers building, testing, sharing skills, updating Claude.md files, and context engineering.
+description: Use when working with Claude Code itself - skills, agents, hooks, settings, documentation. Alias "cc". Covers building, testing, sharing skills, updating Claude.md files, and context engineering.
 ---
 
 # Claude Code
@@ -19,7 +19,7 @@ Apply to all topics below:
 ## Triggers
 
 - "cc", "claude code", "claude-code"
-- Creating/editing skills, agents, commands, hooks
+- Creating/editing skills, agents, hooks
 - Updating Claude.md documentation
 - Context engineering and efficiency
 - Testing skills with subagents
@@ -36,6 +36,7 @@ Based on what you need, read the relevant reference:
 - **Context engineering:** [context-engineering.md](references/context-engineering.md) — read when creating new skills/docs, restructuring, or debugging agent behavior
 - **Hooks:** [hooks.md](references/hooks.md) — creating event-driven automation
 - **Rules:** [rules.md](references/rules.md) — modular project instructions via .claude/rules/
+- **User commands:** [user-commands.md](references/user-commands.md) — built-in slash commands
 
 ## Quick Reference
 

@@ -28,7 +28,7 @@ Guide for creating and maintaining Claude Code skills.
 - **Project:** `.claude/skills/skill-name/` — Codebase-specific skills
 - **Plugin:** `plugin/skills/skill-name/` — Bundled with plugins
 
-**Discovery:** Claude auto-discovers from all locations. Restart required after changes.
+**Discovery:** Claude auto-discovers from all locations. Skills hot-reload automatically.
 
 ## Before
 

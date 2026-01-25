@@ -16,6 +16,7 @@ Event-driven automation for Claude Code.
 - **UserPromptSubmit:** Add context, validate prompts
 - **SessionStart:** Load context, set env vars — matcher: startup|resume|clear|compact
 - **SessionEnd:** Cleanup
+- **Setup:** Repository setup/maintenance — trigger: --init, --init-only, --maintenance
 - **PreCompact:** Preserve critical context — matcher: manual|auto
 - **Notification:** React to user notifications — matcher: notification types
 - **PermissionRequest:** Auto-allow/deny permissions — matcher: tool names
@@ -27,7 +28,7 @@ Event-driven automation for Claude Code.
 2. `.claude/settings.json` (project)
 3. `.claude/settings.local.json` (local, not committed)
 4. Plugin `hooks/hooks.json`
-5. Component frontmatter (skills, agents, commands)
+5. Component frontmatter (skills, agents)
 
 **Settings format:**
 ```json
@@ -39,6 +40,23 @@ Event-driven automation for Claude Code.
     }]
   }
 }
+```
+
+## Hook Options
+
+- `once: true` — run hook only once per session
+
+## Frontmatter Hooks
+
+Skills and agents can define scoped hooks in frontmatter:
+
+```yaml
+---
+hooks:
+  PreToolUse:
+    - matcher: "Write"
+      hooks: [{ type: "command", command: "./validate.sh" }]
+---
 ```
 
 ## Matchers
@@ -55,6 +73,8 @@ Event-driven automation for Claude Code.
 - **0:** Success (stdout processed)
 - **2:** Block (stderr shown to Claude/user)
 - **Other:** Non-blocking error
+
+PreToolUse hooks can return `additionalContext` to inject context into the model.
 
 ## Environment Variables
 

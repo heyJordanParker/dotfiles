@@ -52,7 +52,7 @@ Claude Code reads Claude.md files recursively from the current file's directory 
 4. **Write minimally** - Fewest words that prevent the mistake
 5. **Self-review** - Cut anything that doesn't prevent a specific error
 
-## Writing Skills/Commands/Agents
+## Writing Skills/Agents
 
 1. **Name the failures** - What mistakes will this prevent?
 2. **Read similar files** - Match existing patterns exactly
