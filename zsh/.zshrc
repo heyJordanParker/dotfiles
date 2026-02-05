@@ -134,3 +134,5 @@ preexec() {
     /bin/rm -f "/tmp/zsh-waiting-${TMUX_PANE}"
   fi
 }
+
+alias claude-mem='bun "/Users/jordan/.claude/plugins/marketplaces/thedotmack/plugin/scripts/worker-service.cjs"'

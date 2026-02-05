@@ -63,7 +63,7 @@ Structure skill execution in phases:
 - [ ] Principles (adaptable) not rules (brittle)?
 - [ ] Skill.md lean? Details in reference files?
 - [ ] Every example includes the why?
-- [ ] Understandable without brainstorming context?
+- [ ] Understandable without prior context?
 - [ ] Has validation checklist?
 - [ ] Related skills identified and cross-referenced?
 

@@ -120,7 +120,7 @@ codesign --sign "$IDENTITY" --verbose=4 "$APP"
 - Automated test if possible
 - One-off test script if no framework
 - MUST have before fixing
-- Use test-driven-development skill
+- Use writing-tests skill
 
 ### 2. Implement Single Fix
 - Address the root cause identified

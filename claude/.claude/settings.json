@@ -6,26 +6,13 @@
   "includeCoAuthoredBy": false,
   "permissions": {
     "allow": [
-      "Skill(brainstorming)",
       "Skill(building-skills)",
-      "Skill(condition-based-waiting)",
-      "Skill(defense-in-depth)",
-      "Skill(dispatching-parallel-agents)",
-      "Skill(executing-plans)",
-      "Skill(finishing-a-development-branch)",
       "Skill(naming)",
-      "Skill(receiving-code-review)",
-      "Skill(requesting-code-review)",
-      "Skill(root-cause-tracing)",
       "Skill(sharing-skills)",
-      "Skill(subagent-driven-development)",
-      "Skill(systematic-debugging)",
-      "Skill(test-driven-development)",
       "Skill(testing-skills-with-subagents)",
       "Skill(updating-claude-documentation)",
       "Skill(using-git-worktrees)",
       "Skill(verification-before-completion)",
-      "Skill(writing-plans)",
       "WebFetch(domain:github.com)",
       "WebFetch(domain:raw.githubusercontent.com)",
       "Bash(git add:*)",
@@ -173,7 +160,8 @@
     "php-lsp@claude-plugins-official": true,
     "typescript-lsp@claude-plugins-official": true,
     "dev-browser@dev-browser-marketplace": false,
-    "ralph-wiggum@claude-code-plugins": true
+    "ralph-wiggum@claude-code-plugins": true,
+    "claude-mem@thedotmack": true
   },
   "alwaysThinkingEnabled": true,
   "autoUpdatesChannel": "latest"

@@ -1,4 +1,3 @@
-> Originally from superpowers plugin. Copied to personal skills for stability.
 
 # Testing Skills With Subagents
 
@@ -8,7 +7,7 @@ Run scenarios without the skill (RED - watch agent fail), write skill addressing
 
 **Core principle:** If you didn't watch an agent fail without the skill, you don't know if the skill prevents the right failures.
 
-**Required:** Understand test-driven-development skill first. Same RED-GREEN-REFACTOR cycle.
+**Required:** Understand writing-tests skill first. Same RED-GREEN-REFACTOR cycle.
 
 ## When to Use
 

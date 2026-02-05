@@ -1,4 +1,3 @@
-
 # Architecture Review
 
 Gate for catching structural issues before they compound into maintenance nightmares.
@@ -91,8 +90,5 @@ Stop if you see:
 
 ## Not Covered Here
 
-These are in `anti-slop`:
-- YAGNI violations
-- Premature abstraction
-- Over-engineering
-- Unnecessary complexity
+These have dedicated reviewers:
+- YAGNI violations, premature abstraction, over-engineering → [elegance.md](elegance.md)

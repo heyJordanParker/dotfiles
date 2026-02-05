@@ -22,7 +22,7 @@ Run `bun test`.
 
 ## Step 3: Review
 
-Invoke `/review` skill. It runs 8 parallel subagents on staged changes.
+Invoke `/review` skill. It runs 6 parallel subagents on staged changes.
 
 Apply gate from review results:
 - **Any Critical:** Block. "Fix critical issues before committing." → exit
@@ -33,7 +33,7 @@ Apply gate from review results:
 
 1. Run `git log --oneline -5` for style reference
 2. Analyze `git diff --cached`
-3. Generate message (use the `commit-messages` skill)
+3. Generate message (use the `commit-message` skill)
 4. Auto-commit with generated message
 5. User can amend after: `git commit --amend`
 

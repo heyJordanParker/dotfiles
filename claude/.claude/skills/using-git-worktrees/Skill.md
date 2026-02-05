@@ -2,7 +2,6 @@
 name: using-git-worktrees
 description: Use when starting feature work that needs isolation from current workspace or before executing implementation plans - creates isolated git worktrees with smart directory selection and safety verification
 ---
-> Originally from superpowers plugin. Copied to personal skills for stability.
 
 # Using Git Worktrees
 
@@ -57,6 +56,3 @@ Git worktrees create isolated workspaces sharing the same repository, allowing w
 
 - [commands.md](commands.md) - Shell commands for worktree operations
 
-## Integration
-
-**Pairs with:** finishing-a-development-branch (cleanup after work complete)

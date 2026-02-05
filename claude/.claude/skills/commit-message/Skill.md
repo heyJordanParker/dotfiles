@@ -1,5 +1,5 @@
 ---
-name: commit-messages
+name: commit-message
 description: MANDATORY when writing commit messages. Structures commits with type prefix, what+why body, and architectural file tree.
 ---
 

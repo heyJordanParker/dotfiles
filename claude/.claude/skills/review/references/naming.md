@@ -1,57 +1,66 @@
-# Naming Review
+# Naming
 
-Dispatch naming-analyzer agent to audit identifier quality.
+Gate for identifier quality. Names are the primary documentation.
 
-**Focus:** Clarity, consistency, conventions, misleading names.
+**Core principle:** A name should tell you what it is, not make you read the code.
 
-## When to Use
+## The Gate
 
-- Large refactors with new identifiers
-- Code reviews with naming concerns
-- When onboarding finds names confusing
-- Domain modeling with new terminology
+Before commit, scan changed identifiers for:
 
-## How to Request
+### 1. Misleading Names
 
-**1. Get changed files:**
-```bash
-git diff --name-only HEAD~1
-```
+- **Name doesn't match behavior** – `getUser()` that creates if missing
+- **Semantic mismatch** – `isValid()` returns error message, not boolean
+- **Stale names** – Function was refactored but name reflects old behavior
+- **Verb mismatch** – `update` that deletes, `create` that upserts
 
-**2. Dispatch general-purpose agent with naming skill:**
+**Fix:** Name must exactly describe what the code does.
 
-Use Task tool with `general-purpose` subagent type:
+### 2. Generic Names
 
-```
-Review naming in these changes using the naming skill:
+- **Meaningless identifiers** – `data`, `info`, `result`, `item`, `handler`
+- **Process verbs** – `processData()`, `handleEvent()`, `doWork()`
+- **Manager/Service/Helper** – On simple utilities that don't manage anything
 
-Files: {CHANGED_FILES}
-Git range: {BASE_SHA}..{HEAD_SHA}
+**Fix:** Name the specific thing. `userData` → `activeSubscribers`. `handleEvent` → `routeWebhook`.
 
-Check for:
-- Misleading names (name doesn't match behavior)
-- Inconsistent conventions (camelCase vs snake_case mixing)
-- Abbreviation abuse (unclear acronyms)
-- Generic names (data, info, result, handler)
-- Length issues (too short or too long)
-- Semantic mismatches (getX that mutates, isX that returns non-boolean)
+### 3. Convention Violations
 
-For each issue:
-- File:line reference
-- Current name
-- Problem
-- Suggested alternative
-```
+- **Naming style mismatch** – camelCase in snake_case file or vice versa
+- **Inconsistent within file** – `userId` and `user_name` in same file
+- **Import style mismatch** – Mixed named/default imports
+- **Framework convention violation** – Not following library's naming patterns
 
-**3. Act on findings:**
-- Fix misleading names immediately (they cause bugs)
-- Standardize convention violations
-- Expand unclear abbreviations
+**Fix:** Match the surrounding code exactly. Follow framework conventions.
 
-## What It Catches
+### 4. Abbreviation Abuse
 
-- **Misleading:** `getUser()` that creates if missing
-- **Generic:** `processData()`, `handleEvent()`
-- **Inconsistent:** `userId` and `user_name` in same file
-- **Abbreviated:** `usrAccMgr` instead of `userAccountManager`
-- **Semantic mismatch:** `isValid()` returns error message
+- **Unclear acronyms** – `usrAccMgr` instead of `userAccountManager`
+- **Single-letter variables** – Outside of loop counters and lambdas
+- **Domain-specific jargon** – Without context or documentation
+
+**Fix:** Spell it out. Clarity > brevity.
+
+### 5. Length Issues
+
+- **Too short** – `p`, `fn`, `cb` for non-obvious things
+- **Too long** – `getUserAccountByEmailAddressFromDatabase`
+- **Boolean naming** – Should read as yes/no: `isActive`, `hasPermission`, `canEdit`
+
+**Fix:** Short enough to scan, long enough to understand.
+
+## Red Flags
+
+- `get` prefix on function that mutates state
+- `is`/`has` prefix on function returning non-boolean
+- Same concept named differently across files
+- Abbreviations that aren't universally understood
+- Generic names in domain-specific code
+
+## Process
+
+1. **Get diff** – `git diff HEAD`
+2. **List new identifiers** – Variables, functions, classes, types, files
+3. **Check each against categories** – Misleading? Generic? Inconsistent?
+4. **Suggest alternatives** – Concrete, specific, consistent names

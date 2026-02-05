@@ -1,4 +1,3 @@
-> Originally from superpowers plugin. Copied to personal skills for stability.
 
 # Sharing Skills
 

@@ -2,5 +2,6 @@
   "plugin": [
     "oh-my-opencode"
   ],
-  "$schema": "https://opencode.ai/config.json"
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {}
 }

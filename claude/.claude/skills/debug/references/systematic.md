@@ -1,4 +1,3 @@
-> Originally from superpowers plugin. Copied to personal skills for stability.
 
 # Systematic Debugging
 
@@ -65,7 +64,7 @@ Before ANY fix attempt:
 
 ## Phase 4: Implementation
 
-1. Create failing test case (use test-driven-development)
+1. Create failing test case (use writing-tests)
 2. Implement single fix (ONE change, no bundled refactoring)
 3. Verify fix
 
