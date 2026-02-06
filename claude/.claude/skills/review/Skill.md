@@ -141,7 +141,7 @@ If all clear: "No issues found."
 
 1. Comment slop – obvious/redundant comments
 2. Over-defense – unnecessary try/catch, null checks
-3. Type escapes & design – `any`, `as`, `!`, weak invariants, impossible states
+3. Type escapes & design – 'any', 'as', '!', weak invariants, impossible states
 4. Duplication – copy-paste, similar functions
 5. Style inconsistency – naming, patterns
 6. Silent failures – empty catch, swallowed errors, `?? fallback`

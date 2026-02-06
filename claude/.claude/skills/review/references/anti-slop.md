@@ -40,7 +40,7 @@ Before committing, scan changed code for:
 
 - **`any` types** – Lazy escape hatch
 - **`as unknown as X`** – Casting to bypass errors
-- **`!` non-null assertions** – Hiding null checks
+- **'!' non-null assertions** – Hiding null checks
 - **Weak invariants** – `status: string` vs `status: 'pending' | 'done'`
 - **Primitive obsession** – Raw strings/numbers where domain types add safety
 - **Impossible states** – `{ loading: boolean, data: T, error: Error }` instead of discriminated union
@@ -129,7 +129,7 @@ Before committing, scan changed code for:
 Stop if you see:
 - Comments explaining obvious code
 - Try/catch around simple operations
-- `any`, `as`, `!` in TypeScript
+- 'any', 'as', '!' in TypeScript
 - Same code block twice
 - Empty catch or `catch(e) { log(e) }`
 - Import you've never seen before
