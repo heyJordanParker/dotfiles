@@ -16,11 +16,12 @@ Guide for creating and maintaining Claude Code skills.
 2. **Principles over rules** - "Follow project patterns" beats a 20-row lookup table.
 3. **YAGNI** - Abstract after duplication, not before.
 4. **Capture the "why"** - Examples need rationale. "Bad: X, Good: Y, Why: Z"
-5. **Progressive disclosure** - Skill.md stays lean. Move details to reference files.
-6. **Ground in real code** - Explore codebase for actual patterns.
-7. **Check existing docs** - Claude.md files, README, linter configs may have conventions.
-8. **Validate incrementally** - Get key decisions approved first.
-9. **Definition of done** - Every skill needs a validation checklist.
+5. **Prefer examples to prose** — When defining acceptable patterns, use good/bad code examples instead of prose descriptions. The example shows what to do; the reasoning explains why it matters.
+6. **Progressive disclosure** - Skill.md stays lean. Move details to reference files.
+7. **Ground in real code** - Explore codebase for actual patterns.
+8. **Check existing docs** - Claude.md files, README, linter configs may have conventions.
+9. **Validate incrementally** - Get key decisions approved first.
+10. **Definition of done** - Every skill needs a validation checklist.
 
 ## Locations
 
