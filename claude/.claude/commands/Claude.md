@@ -21,4 +21,12 @@
 | #7 | " | 🔵 | Commands can modify Claude's response format with structured rules | ~307 |
 | #6 | " | 🔵 | Commands can delegate to skills and use argument-hint metadata | ~287 |
 | #5 | " | 🔵 | Command file structure uses YAML frontmatter and template variables | ~297 |
+
+### Feb 7, 2026
+
+| ID | Time | T | Title | Read |
+|----|------|---|-------|------|
+| #914 | 12:07 PM | ✅ | Enhanced /q command with explicit anti-reframing directives | ~369 |
+| #911 | 12:04 PM | 🔵 | Re-reading /q command before minimal edits | ~254 |
+| #905 | 11:51 AM | 🔵 | q skill current implementation reviewed | ~334 |
 </claude-mem-context>

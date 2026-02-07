@@ -7,9 +7,7 @@
 
 | ID | Time | T | Title | Read |
 |----|------|---|-------|------|
-| #22 | 3:09 PM | 🔵 | Claude documentation follows strict style guide emphasizing imperative voice and token efficiency | ~447 |
-| #21 | " | 🔵 | Skill frontmatter supports advanced features like tool restrictions and agent specification | ~483 |
-| #20 | 3:08 PM | 🔵 | Skills follow structured creation process with validation checklists and avoid hardcoded content | ~475 |
+| #13 | 3:07 PM | 🔵 | Skills use frontmatter with name, description, and trigger-based routing to references | ~461 |
 
 ### Feb 7, 2026
 
