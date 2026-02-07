@@ -3,6 +3,9 @@
     "type": "command",
     "command": "~/.claude/file-suggestion.sh"
   },
+  "env": {
+    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
+  },
   "includeCoAuthoredBy": false,
   "permissions": {
     "allow": [
@@ -160,12 +163,8 @@
     "php-lsp@claude-plugins-official": true,
     "typescript-lsp@claude-plugins-official": true,
     "dev-browser@dev-browser-marketplace": false,
-    "ralph-wiggum@claude-code-plugins": true,
-    "claude-mem@thedotmack": true
+    "ralph-wiggum@claude-code-plugins": true
   },
   "alwaysThinkingEnabled": true,
-  "autoUpdatesChannel": "latest",
-  "env": {
-    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
-  }
+  "autoUpdatesChannel": "latest"
 }
