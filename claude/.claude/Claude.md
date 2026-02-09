@@ -86,6 +86,7 @@ How to Ask:
 - Example: "Should we use adapter pattern (more flexible) or dependency injection (simpler)?"
 
 Evaluating Ideas:
+- Architectural options — use /architecture skill
 - Score options (1-10 viability, 1-10 confidence)
 - List pros/cons for each option
 - State confidence level explicitly ("80% confident because...")
