@@ -1,5 +1,12 @@
 # Naming Examples
 
+## Constants (No SCREAMING_SNAKE_CASE)
+
+- `MAX_RETRIES` → `maxRetries` — use `const` to express immutability
+- `BASE_URL` → `baseUrl` — ALL_CAPS is visual noise, not a language feature
+- `DEFAULT_TIMEOUT` → `defaultTimeout` — the type system handles this
+- `API_KEY` → `apiKey` — no exception for "important" values
+
 ## Abbreviations
 
 - `usr` → `user` — don't shorten common words

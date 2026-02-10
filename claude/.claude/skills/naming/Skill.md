@@ -9,9 +9,9 @@ description: MANDATORY for all naming decisions - variables, functions, files, f
 
 ## Hierarchy of Authority
 
-1. **Project conventions** - existing patterns in the codebase
-2. **Language/framework conventions** - ecosystem standards
-3. **These principles** - fallback when no convention exists
+1. **These rules** - non-negotiable baseline (e.g., no ALL_CAPS)
+2. **Project conventions** - existing patterns in the codebase
+3. **Language/framework conventions** - ecosystem standards
 
 Always check the project first. Consistency within the project trumps external standards.
 

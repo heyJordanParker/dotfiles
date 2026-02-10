@@ -6,6 +6,7 @@ Follow the project first. If no project convention exists, follow the ecosystem.
 
 **TypeScript/JavaScript**
 - Variables/functions: camelCase
+- Constants: camelCase (`maxRetries`, not `MAX_RETRIES`)
 - Classes/components/types: PascalCase
 
 **PHP**
