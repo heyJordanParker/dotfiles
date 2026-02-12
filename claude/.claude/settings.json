@@ -21,7 +21,8 @@
       "Bash(git add:*)",
       "Bash(git commit:*)",
       "Bash(brew install:*)",
-      "Bash(ls:*)"
+      "Bash(ls:*)",
+      "mcp__pencil"
     ],
     "defaultMode": "default"
   },

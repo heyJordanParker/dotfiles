@@ -1,0 +1,50 @@
+{
+  "ssh_connections": [
+    {
+      "host": "mac-studio",
+      "args": [],
+      "projects": [
+        {
+          "paths": [
+            "/Users/jordan"
+          ]
+        }
+      ]
+    }
+  ],
+  "which_key": {
+    "enabled": true
+  },
+  "session": {
+    "trust_all_worktrees": true
+  },
+  "telemetry": {
+    "diagnostics": false,
+    "metrics": false
+  },
+  "terminal": {
+    "cursor_shape": "bar",
+    "blinking": "on",
+    "copy_on_select": true
+  },
+  "project_panel": {
+    "hide_gitignore": true
+  },
+  "base_keymap": "VSCode",
+  "preview_tabs": {
+    "enable_preview_from_file_finder": true
+  },
+  "buffer_font_size": 13.0,
+  "buffer_font_fallbacks": [
+    "monospace"
+  ],
+  "buffer_font_family": "JetBrains Mono",
+  "linked_edits": true,
+  "soft_wrap": "none",
+  "theme": {
+    "mode": "light",
+    "light": "Gruvbox Light",
+    "dark": "Gruvbox Dark"
+  },
+  "use_system_window_tabs": true
+}
