@@ -167,5 +167,6 @@
     "ralph-wiggum@claude-code-plugins": true
   },
   "alwaysThinkingEnabled": true,
-  "autoUpdatesChannel": "latest"
+  "autoUpdatesChannel": "latest",
+  "skipDangerousModePermissionPrompt": true
 }
