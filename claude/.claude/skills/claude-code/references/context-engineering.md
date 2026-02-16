@@ -23,6 +23,7 @@ Load minimum needed. Drill deeper only when required.
 **Split along task boundaries, not topic boundaries.** Will different tasks need different parts? Split. Will every task need everything? Don't.
 
 **Signs structure is wrong:**
+- Agent always reads files A and B together → they're one file
 - Agent loads file, uses <10% of content → file not focused enough, split it
 - Same info appears in multiple files → move to common parent
 - Agent can't complete task without principles → principles not in entry point

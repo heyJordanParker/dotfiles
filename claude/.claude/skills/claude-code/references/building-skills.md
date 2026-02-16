@@ -17,7 +17,7 @@ Guide for creating and maintaining Claude Code skills.
 3. **YAGNI** - Abstract after duplication, not before.
 4. **Capture the "why"** - Examples need rationale. "Bad: X, Good: Y, Why: Z"
 5. **Prefer examples to prose** — When defining acceptable patterns, use good/bad code examples instead of prose descriptions. The example shows what to do; the reasoning explains why it matters.
-6. **Progressive disclosure** - Skill.md stays lean. Move details to reference files.
+6. **Progressive disclosure** - Skill.md stays lean and routes to reference files. Group content by what gets used together — when the agent opens a file, most of it should be relevant.
 7. **Ground in real code** - Explore codebase for actual patterns.
 8. **Check existing docs** - Claude.md files, README, linter configs may have conventions.
 9. **Validate incrementally** - Get key decisions approved first.
@@ -28,8 +28,6 @@ Guide for creating and maintaining Claude Code skills.
 - **Personal:** `~/.claude/skills/skill-name/` — General skills across all projects
 - **Project:** `.claude/skills/skill-name/` — Codebase-specific skills
 - **Plugin:** `plugin/skills/skill-name/` — Bundled with plugins
-
-**Discovery:** Claude auto-discovers from all locations. Skills hot-reload automatically.
 
 ## Before
 
@@ -75,7 +73,6 @@ Structure skill execution in phases:
 1. Read current skill files
 2. Identify what to change
 3. Use `context-engineering` skill for writing
-4. Restart Claude Code to pick up changes
 
 ### Add References
 
@@ -99,6 +96,67 @@ Format in Skill.md:
 - **To personal:** Move from `.claude/skills/` to `~/.claude/skills/`
 - **To project:** Move from `~/.claude/skills/` to `.claude/skills/`
 
+## File Structure
+
+```
+skill-name/
+├── Skill.md      # Required - must be named exactly "Skill.md"
+├── reference.md  # Optional - lookup/technical specs
+├── examples.md   # Optional - good/bad examples
+├── scripts/      # Optional - utility scripts
+└── templates/    # Optional - templates
+```
+
+## Frontmatter Fields
+
+```yaml
+---
+name: skill-name
+description: When to use this skill (≤1024 chars)
+allowed-tools:  # Optional - restricts available tools
+  - Read
+  - Grep
+  - Glob
+---
+```
+
+- **name:** ≤64 chars, lowercase, hyphens, numbers — must match directory name
+- **description:** ≤1024 chars — critical for auto-activation, be specific about triggers
+- **allowed-tools:** Array of tool names — optional, restricts which tools Claude can use
+- **context:** `fork` runs skill in forked sub-agent context
+- **agent:** Specify agent type for execution (e.g., `agent: code-reviewer`)
+- **user-invocable:** `false` hides from slash command menu (default: `true` for skills in `/skills/`)
+- **hooks:** Define scoped PreToolUse/PostToolUse/Stop hooks (see hooks.md)
+
+Both syntaxes work for allowed-tools:
+```yaml
+# Array
+allowed-tools:
+  - Read
+  - Grep
+
+# Inline
+allowed-tools: [Read, Grep]
+```
+
+**Note**: If the skill requires external packages, list them in the description.
+
+## Discovery
+
+Claude auto-discovers skills from all three locations (personal, project, plugin). No explicit invocation needed.
+
+**Activation**: Claude reads descriptions and decides when to use a skill based on the current task. Generic descriptions fail - be explicit about triggers and use cases.
+
+**Phases:**
+1. **Discovery**: Claude reads frontmatter to decide if skill is relevant
+2. **Execution**: Claude loads supporting files only if skill activates
+
+Comprehensive documentation doesn't bloat initial decision-making.
+
+**Hot reload**: Skills reload automatically when modified — no restart needed.
+
+**Nested discovery**: Skills in nested `.claude/skills/` directories (within project subdirectories) are auto-discovered.
+
 ## Related Skills
 
 - [context-engineering.md](context-engineering.md) - Writing effective Claude documentation
@@ -107,5 +165,4 @@ Format in Skill.md:
 
 ## References
 
-- [reference.md](reference.md) - Technical specs (frontmatter, structure, discovery)
-- [examples.md](examples.md) - Good/bad examples with rationale
+- [building-examples.md](building-examples.md) - Good/bad examples with rationale
