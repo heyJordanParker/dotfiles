@@ -4,6 +4,9 @@ export XDG_CONFIG_HOME="$HOME/.config"
 # Default editor
 export EDITOR="nvim"
 
+# Developer directories
+export SERVICES_DIR="$HOME/Developer/services"
+
 # Safe delete - moves to Trash instead of permanent deletion
 rm() {
   local args=()

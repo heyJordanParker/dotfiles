@@ -38,3 +38,19 @@ Avoid these when adding custom keybindings - they're system defaults.
 - Cmd+v - paste
 - Cmd+a - select all
 - Cmd+. - cancel
+
+# ~/Developer Directory
+
+Two subdirectories with distinct purposes:
+
+- **`references/`** — Temporary repos cloned for reading/studying code. Not synced or automated. Clone what you need, delete when done.
+- **`services/`** — Repos we clone and run. Setup automated in `setup.sh` so any machine can reproduce.
+
+## Current Services
+
+- **drawbridge** — Real-time diagram server for AI agents. Pushes simplified elements via HTTP → live Excalidraw canvas in browser.
+  - Repo: `alexknowshtml/drawbridge`
+  - Setup: `npm install && npm run build && npx playwright install chromium`
+  - Run: `npm start` (API + WebSocket + static frontend on :3062)
+  - Open: `http://localhost:3062/#session-name`
+  - Skill: `/diagram` (installed at `~/.claude/skills/diagram/Skill.md`)

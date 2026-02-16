@@ -1,0 +1,90 @@
+#!/bin/bash
+# Drawbridge CLI wrapper — auto-starts server, proxies all API commands.
+#
+# Usage:
+#   drawbridge push <session> <json>     Replace all elements
+#   drawbridge append <session> <json>   Add elements to existing
+#   drawbridge clear <session>           Clear canvas
+#   drawbridge undo <session>            Undo last operation
+#   drawbridge get <session>             Get current elements
+#   drawbridge health                    Check server status
+#   drawbridge render <in> <out>         Render .excalidraw to PNG/SVG
+#   drawbridge open <session>            Open viewer in browser
+
+set -e
+
+HOST="http://localhost:3062"
+
+ensure_server() {
+  curl -sf "$HOST/health" > /dev/null 2>&1 && return 0
+
+  if [ -z "$SERVICES_DIR" ]; then
+    echo "error: SERVICES_DIR not set" >&2
+    exit 1
+  fi
+
+  local server_dir="$SERVICES_DIR/drawbridge"
+  if [ ! -d "$server_dir" ]; then
+    echo "error: $server_dir not found" >&2
+    exit 1
+  fi
+
+  cd "$server_dir"
+  nohup node server.js > /dev/null 2>&1 &
+
+  for _ in $(seq 1 10); do
+    sleep 0.5
+    curl -sf "$HOST/health" > /dev/null 2>&1 && return 0
+  done
+
+  echo "error: drawbridge failed to start" >&2
+  exit 1
+}
+
+cmd="${1:-help}"
+shift 2>/dev/null || true
+
+case "$cmd" in
+  push)
+    ensure_server
+    session="$1"; shift
+    curl -s -X POST "$HOST/api/session/$session/elements" \
+      -H "Content-Type: application/json" \
+      -d "$*"
+    ;;
+  append)
+    ensure_server
+    session="$1"; shift
+    curl -s -X POST "$HOST/api/session/$session/append" \
+      -H "Content-Type: application/json" \
+      -d "$*"
+    ;;
+  clear)
+    ensure_server
+    curl -s -X POST "$HOST/api/session/$1/clear"
+    ;;
+  undo)
+    ensure_server
+    curl -s -X POST "$HOST/api/session/$1/undo"
+    ;;
+  get)
+    ensure_server
+    curl -s "$HOST/api/session/$1"
+    ;;
+  health)
+    curl -sf "$HOST/health" && echo || echo "not running"
+    ;;
+  render)
+    ensure_server
+    cd "$SERVICES_DIR/drawbridge"
+    npx tsx scripts/render.ts "$@"
+    ;;
+  open)
+    ensure_server
+    open "$HOST/#${1:-default}"
+    ;;
+  *)
+    echo "Usage: drawbridge <push|append|clear|undo|get|health|render|open> [args]"
+    exit 1
+    ;;
+esac

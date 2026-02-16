@@ -22,6 +22,11 @@ if [ ! -d "$DOTFILES_DIR" ]; then
   git clone "https://github.com/$REPO.git" "$DOTFILES_DIR"
 fi
 
+SERVICES_DIR="$HOME/Developer/services"
+
+echo "==> Creating Developer directories..."
+mkdir -p "$HOME/Developer/references" "$SERVICES_DIR"
+
 echo "==> Installing brew packages..."
 brew bundle --file="$DOTFILES_DIR/Brewfile"
 
@@ -32,6 +37,12 @@ done < "$DOTFILES_DIR/bun/.config/bun/globals"
 bun pm -g trust --all
 agent-browser install
 
+echo "==> Setting up services..."
+if [ ! -d "$SERVICES_DIR/drawbridge" ]; then
+  git clone https://github.com/alexknowshtml/drawbridge.git "$SERVICES_DIR/drawbridge"
+fi
+(cd "$SERVICES_DIR/drawbridge" && npm install && npm run build)
+npx playwright install chromium
 echo "==> Linking dotfiles..."
 cd "$DOTFILES_DIR"
 stow -v zsh git tmux npm ssh nvim ghostty karabiner btop claude lazygit delta bat opencode atuin bun
