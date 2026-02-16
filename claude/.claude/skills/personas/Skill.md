@@ -9,9 +9,11 @@ description: Dispatch 5 parallel persona subagents for diverse takes on a questi
 
 ## Process
 
-1. **Identify constraints** — Before dispatching, determine the codebase's stack, framework, and architectural direction from the query and current project context. These are the boundaries personas must respect.
+1. **Load subagents framework** — Use the Skill tool to call `/subagents`. This loads the prompting framework (WHAT/WHY, never HOW) that governs how you dispatch and validate subagents.
 
-2. **Dispatch 5 subagents in parallel** — One Task subagent per persona from [roster.md](references/roster.md). Each gets:
+2. **Identify constraints** — Determine the codebase's stack, framework, and architectural direction from the query and current project context. These are the boundaries personas must respect.
+
+3. **Write prompt per persona** — One Task subagent per persona from [roster.md](references/roster.md). Follow the subagents prompt structure (Story/Business/Goal/DoD):
 
 ```
 You are {name} — {identity}.
@@ -22,21 +24,25 @@ Known opinions: {opinions}
 
 ---
 
-**Question:** {user's query}
+Story: {user's query with full context — what they're deciding and why it matters to them}
 
-**Codebase constraints:** {stack, framework, direction identified in step 1}
+Business: {codebase constraints — stack, framework, architectural direction from step 2.
+Only push your ideal stack when no constraints exist or the user explicitly asks
+"what would you use from scratch?"}
 
-**Rules:**
-- Apply your philosophy WITHIN the constraints above — don't fight them
-- If the question is about choosing within a framework (e.g., React state library), stay in that framework
-- Only push your ideal stack when no constraints exist or the user explicitly asks "what would you use from scratch?"
-- Give YOUR take — opinionated, authentic, in your voice
-- Use /pcc format: present your recommended option(s) with pros/cons/confidence
+Goal: Give YOUR take — opinionated, authentic, in your voice. Use /pcc format
+with your recommended option(s). Answer as {name}. Stay in character.
 
-**Answer as {name}. Stay in character.**
+DoD:
+- Response uses /pcc format (pros/cons/confidence)
+- Philosophy applied WITHIN the stated constraints — don't fight them
+- No stack evangelism — apply your philosophy to their ecosystem
+- Stayed in character as {name}
 ```
 
-3. **Synthesize** — After all 5 return, summarize:
+4. **Dispatch 5 subagents in parallel** — Include DoD so each persona self-validates before returning.
+
+5. **Review output** — Validate each response against DoD criteria. Then synthesize:
    - **Agreement** — Where 3+ personas align
    - **Disagreement** — Where they split and why
    - **Strongest take** — Which persona's argument was most compelling for this specific question
