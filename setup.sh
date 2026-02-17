@@ -43,6 +43,9 @@ if [ ! -d "$SERVICES_DIR/drawbridge" ]; then
 fi
 (cd "$SERVICES_DIR/drawbridge" && npm install && npm run build)
 npx playwright install chromium
+# Lando 3 hardcodes a Docker Desktop check — symlink OrbStack so it's detected
+[ ! -e /Applications/Docker.app ] && ln -s /Applications/OrbStack.app /Applications/Docker.app
+
 echo "==> Linking dotfiles..."
 cd "$DOTFILES_DIR"
 stow -v zsh git tmux npm ssh nvim ghostty karabiner btop claude lazygit delta bat opencode atuin bun
