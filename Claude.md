@@ -49,7 +49,7 @@ Two subdirectories with distinct purposes:
 ## Current Services
 
 - **drawbridge** — Real-time diagram server for AI agents. Pushes simplified elements via HTTP → live Excalidraw canvas in browser.
-  - Repo: `alexknowshtml/drawbridge`
+  - Repo: `heyJordanParker/drawbridge`
   - Setup: `npm install && npm run build && npx playwright install chromium`
   - Run: `npm start` (API + WebSocket + static frontend on :3062)
   - Open: `http://localhost:3062/#session-name`

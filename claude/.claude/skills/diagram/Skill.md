@@ -27,13 +27,14 @@ Only specify what matters. The browser fills in all internal properties automati
 ### Labeled Shapes (preferred)
 
 ```json
-{ "type": "rectangle", "id": "r1", "x": 100, "y": 100, "width": 200, "height": 80,
+{ "type": "rectangle", "id": "r1", "x": 100, "y": 100, "width": 160, "height": 80,
   "roundness": { "type": 3 }, "backgroundColor": "#a5d8ff", "fillStyle": "solid",
   "label": { "text": "API Server", "fontSize": 20 } }
 ```
 
 - Works on rectangle, ellipse, diamond
-- Text auto-centers, container auto-resizes
+- Text auto-centers; container only auto-resizes when width/height are omitted
+- When setting explicit dimensions, calculate width from text: `max(120, text.length * fontSize * 0.6 + 40)`
 - Always include `"roundness": { "type": 3 }` for rounded corners
 
 ### Standalone Text
@@ -108,7 +109,8 @@ Add a zone label as standalone text just inside the top-left corner.
 ## Sizing Rules
 
 - **Font:** min 16 body, min 20 titles, min 14 annotations only. Never below 14.
-- **Elements:** min 120x60 for labeled shapes. 20-30px gaps between elements.
+- **Label width:** `max(120, text.length * fontSize * 0.6 + 40)` — always size boxes to fit their text
+- **Elements:** min height 60 for labeled shapes. 20-30px gaps between elements.
 - Prefer fewer, larger elements over many small ones.
 
 ## Drawing Order
@@ -182,7 +184,8 @@ drawbridge render input.excalidraw output.png      # render to PNG/SVG
 
 - [ ] Drawing order correct? (zones → shapes → arrows, progressive)
 - [ ] All font sizes ≥ 14?
-- [ ] All labeled shapes ≥ 120x60?
+- [ ] All labeled shapes wide enough for text? (`max(120, text.length * fontSize * 0.6 + 40)`)
+- [ ] All labeled shapes ≥ 60 height?
 - [ ] Arrow bindings use `start`/`end` (not `startBinding`/`endBinding`)?
 - [ ] Colors from the palette above?
 - [ ] Pushed to live viewer or rendered to file?

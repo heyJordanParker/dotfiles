@@ -39,7 +39,7 @@ agent-browser install
 
 echo "==> Setting up services..."
 if [ ! -d "$SERVICES_DIR/drawbridge" ]; then
-  git clone https://github.com/alexknowshtml/drawbridge.git "$SERVICES_DIR/drawbridge"
+  git clone https://github.com/heyJordanParker/drawbridge.git "$SERVICES_DIR/drawbridge"
 fi
 (cd "$SERVICES_DIR/drawbridge" && npm install && npm run build)
 npx playwright install chromium
