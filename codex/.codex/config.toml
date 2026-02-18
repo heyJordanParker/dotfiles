@@ -1,0 +1,8 @@
+model = "gpt-5.3-codex"
+model_reasoning_effort = "high"
+[projects."/Users/jordan/Products"]
+trust_level = "trusted"
+
+[mcp_servers.pencil]
+command = "/Users/jordan/.vscode/extensions/highagency.pencildev-0.6.9/out/mcp-server-darwin-arm64"
+args = ["--ws-port", "55725"]
