@@ -12,6 +12,12 @@ description: Automates browser interactions for web testing, form filling, scree
 3. Interact using refs from snapshot
 4. Re-snapshot after navigation or significant DOM changes
 
+## Execution Rules
+
+- **Always headless** — Never use `--headed` or set `headed: true` unless the user explicitly requests a visible browser
+- **Always background** — Run all `agent-browser` commands via Bash with `run_in_background: true`. Check output with `TaskOutput` or `tail`. The browser daemon persists, so commands don't need foreground shells.
+- **Never steal focus** — Browser automation must be invisible to the user. No windows, no foreground blocking.
+
 ## Commands
 
 ### Navigation
