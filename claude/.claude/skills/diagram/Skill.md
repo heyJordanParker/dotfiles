@@ -169,7 +169,7 @@ drawbridge append <session> '{"elements": [...]}'  # add to existing
 drawbridge clear <session>                         # clear canvas
 drawbridge undo <session>                          # undo last operation
 drawbridge get <session>                           # get current elements
-drawbridge open <session>                          # print viewer URL
+drawbridge open <session>                          # open viewer in browser
 drawbridge render input.excalidraw output.png      # render to PNG/SVG
 ```
 
