@@ -1,0 +1,32 @@
+{
+  "name": "talent-tree",
+  "owner": {
+    "name": "Jordan Parker",
+    "email": "jordan@parkerlabs.co"
+  },
+  "plugins": [
+    {
+      "name": "talents",
+      "source": "./claude/.claude",
+      "description": "Overpowered Claude Code talents to power level your software architecture.",
+      "version": "1.0.0",
+      "strict": false,
+      "keywords": [
+        "architecture",
+        "debugging",
+        "testing",
+        "code-review",
+        "shaping",
+        "breadboarding",
+        "engineering-workflow"
+      ],
+      "skills": ["./skills/"],
+      "commands": ["./commands/"],
+      "agents": []
+    }
+  ],
+  "metadata": {
+    "description": "Overpowered Claude Code talent tree.",
+    "version": "1.0.0"
+  }
+}
