@@ -43,8 +43,29 @@ if [ ! -d "$SERVICES_DIR/drawbridge" ]; then
 fi
 (cd "$SERVICES_DIR/drawbridge" && npm install && npm run build)
 npx playwright install chromium
-# Lando 3 hardcodes a Docker Desktop check — symlink OrbStack so it's detected
-[ ! -e /Applications/Docker.app ] && ln -s /Applications/OrbStack.app /Applications/Docker.app
+# Lando 3 hardcodes /Applications/Docker.app — create a stub app bundle that
+# satisfies detection without symlinking to OrbStack (symlinks trigger macOS
+# LaunchServices to activate OrbStack's window on any path access)
+[ -L /Applications/Docker.app ] && rm /Applications/Docker.app
+if [ ! -d /Applications/Docker.app ]; then
+  mkdir -p /Applications/Docker.app/Contents/MacOS
+  cat > /Applications/Docker.app/Contents/Info.plist << 'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleExecutable</key>
+  <string>Docker</string>
+  <key>CFBundleIdentifier</key>
+  <string>com.docker.stub</string>
+  <key>CFBundleShortVersionString</key>
+  <string>4.36.0</string>
+</dict>
+</plist>
+PLIST
+  printf '#!/bin/sh\nopen -a OrbStack\n' > /Applications/Docker.app/Contents/MacOS/Docker
+  chmod +x /Applications/Docker.app/Contents/MacOS/Docker
+fi
 
 echo "==> Linking dotfiles..."
 cd "$DOTFILES_DIR"
