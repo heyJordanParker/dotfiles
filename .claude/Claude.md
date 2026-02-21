@@ -1,19 +1,77 @@
 # Dotfiles
 
-GNU Stow-managed dotfiles. Each subdirectory is a package.
+## Why
 
-## Packages
+Reproducible macOS environment setup and Claude Code plugin distribution from a single repository.
+
+## What
+
+GNU Stow-managed dotfiles. Each subdirectory is a package. Also serves as a Claude Code plugin marketplace.
+
+### Requirements
+
+- Every config must be stow-manageable — mirror target directory structure inside each package
+- Plugin marketplace must distribute skills, hooks, and commands without leaking local config
+- Must restow after editing: `stow -R <package>`
+
+### Boundaries
+
+- Never commit `settings.json` or `Claude.md` to plugin distribution — these are local only
+- Never put rules in plugin manifest — not supported by plugin schema
+- Never break stow symlink structure — packages mirror their target paths exactly
+
+## Architecture
+
+Each top-level directory is a stow package mirroring its target path. `claude/` doubles as the plugin marketplace root.
 
 !`ls -d */ | grep -v '^\.'`
 
-## After Editing
+```
+dotfiles/
+├── .claude-plugin/
+│   └── marketplace.json        # marketplace catalog
+├── atuin/                      # shell history
+├── bat/                        # cat replacement
+├── bin/                        # custom scripts → ~/.local/bin/
+├── borders/                    # window borders
+├── btop/                       # system monitor
+├── bun/                        # JS runtime
+├── claude/.claude/             # Claude Code config → ~/.claude/
+│   ├── skills/                 #   plugin: auto-discovered
+│   ├── commands/               #   plugin: auto-discovered
+│   ├── hooks/                  #   plugin: hooks.json wiring
+│   ├── settings.json           #   LOCAL ONLY — not distributed
+│   └── Claude.md               #   LOCAL ONLY — not distributed
+├── codex/                      # OpenAI Codex
+├── delta/                      # git diff pager
+├── ghostty/                    # terminal emulator
+├── git/                        # git config + hooks
+├── hyprspace/                  # window management
+├── karabiner/                  # keyboard config (HRM + layers)
+├── lazygit/                    # git TUI
+├── npm/                        # npm config
+├── nvim/                       # neovim
+├── opencode/                   # OpenAI CLI
+├── ssh/                        # SSH config
+├── starship/                   # shell prompt
+├── superfile/                  # file manager TUI
+├── tmux/                       # terminal multiplexer
+├── zed/                        # code editor
+├── zsh/                        # shell config
+├── Brewfile                    # homebrew dependencies
+├── Claude.md                   # root docs (keybindings, ~/Developer)
+└── setup.sh                    # bootstrap script
+```
 
-After modifying files in any package, restow it:
+## Workflow
+
+### After Editing
+
 ```bash
 stow -R <package>   # e.g., stow -R zsh
 ```
 
-## Adding New Packages
+### Adding New Packages
 
 1. Create package directory: `mkdir <package>`
 2. Mirror the target structure inside:
@@ -25,59 +83,32 @@ stow -R <package>   # e.g., stow -R zsh
    ```
 3. Stow it: `stow <package>`
 
-## Installing CLI Tools
+### Installing CLI Tools
 
-When adding a new CLI tool:
 1. Add to `Brewfile` (appropriate section)
 2. If config needed: create package dir, add config files
 3. If wrapper needed (secrets, env vars): add to `bin/.local/bin/`
 4. Stow any new/modified packages: `stow -R <package>`
 
-## Python Tools (pipx)
+### Python Tools (pipx)
 
-For Python CLI tools, use pipx (isolated venvs):
 ```bash
 pipx install <package>
 ```
 
-## Plugin Marketplace
+## How
 
-This repo doubles as a Claude Code plugin marketplace via `.claude-plugin/marketplace.json`. Users install with:
+### Plugin Marketplace
+
+Users install with:
 ```
 /plugin marketplace add heyJordanParker/dotfiles
 /plugin install talents@talent-tree
 ```
 
-### Structure
+**What gets distributed:** Skills (`skills/`), Commands (`commands/*.md`), Hooks (`hooks/hooks.json` with `${CLAUDE_PLUGIN_ROOT}` paths)
 
-```
-dotfiles/
-├── .claude-plugin/
-│   └── marketplace.json       # marketplace catalog
-└── claude/.claude/            # plugin root (source: ./claude/.claude)
-    ├── skills/                # auto-discovered by plugin
-    ├── commands/              # auto-discovered by plugin
-    ├── hooks/
-    │   ├── hooks.json         # plugin hook wiring (non-tmux only)
-    │   ├── session-start.md   # shared hook content
-    │   ├── block-git-revert.sh
-    │   └── ...
-    ├── settings.json          # LOCAL ONLY — not used by plugin
-    ├── Claude.md              # LOCAL ONLY — not used by plugin
-    └── rules/                 # NOT SUPPORTED by plugins
-```
-
-### What Gets Distributed
-
-- **Skills** — all `skills/` subdirectories
-- **Commands** — all `commands/*.md` files
-- **Hooks** — wired via `hooks/hooks.json` (uses `${CLAUDE_PLUGIN_ROOT}` paths)
-
-### What Does NOT Get Distributed
-
-- **Rules** — no `rules` field in plugin manifest schema
-- **Settings** — no `settings` field in plugin manifest schema
-- `settings.json`, `Claude.md`, tmux hooks — exist locally via stow, ignored by plugin
+**What does NOT get distributed:** Rules, Settings, `settings.json`, `Claude.md`, tmux hooks
 
 ### Dual Hooks Setup
 
@@ -101,3 +132,8 @@ When adding/changing a non-tmux hook, update both files.
 - `strict: false` — marketplace entry defines all components, no `plugin.json` needed
 - Entire `./claude/.claude` directory gets copied to plugin cache (extra files are inert)
 - Plugin consumers don't get rules or settings — those go in their own Claude.md/settings
+
+## Ledger
+
+- 2026-02-21: Adopted Why/What/How template with Requirements/Boundaries/Ledger
+- 2026-02-15: Added plugin marketplace with `strict: false` manifest

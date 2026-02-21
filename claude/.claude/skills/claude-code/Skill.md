@@ -1,6 +1,6 @@
 ---
 name: claude-code
-description: Use when working with Claude Code itself - skills, agents, hooks, settings, documentation. Alias "cc". Covers building, testing, sharing skills, updating Claude.md files, and context engineering.
+description: Use when working with Claude Code itself - skills, agents, hooks, settings, documentation. Alias "cc". Covers building, testing, sharing skills, updating Claude.md files, and plugin distribution.
 ---
 
 # Claude Code
@@ -11,10 +11,14 @@ Guide for working with Claude Code's extensibility system.
 
 Apply to all topics below:
 
-- **Context is finite** — every token loaded competes with reasoning
-- **Progressive disclosure** — entry points route, details in references
+- **Context is finite** — every token loaded competes with reasoning. No "nice to have" context — everything loaded is necessary or harmful
+- **Progressive disclosure** — load minimum, drill deeper when required. Three tiers: entry points (routing + principles) → topic files (one complete workflow) → deep dives (specs, examples, edge cases)
+- **Split along tasks, not topics** — will different tasks need different parts? Split. Will every task need everything? Don't
 - **One job per file** — focused files > fewer files
 - **Trace actual flows** — follow how agents use skills to find gaps
+- **The rule** — every instruction prevents a specific mistake. Can't name the mistake? Delete the instruction
+- **Direct language** — "Use X" not "consider using X". Never: consider, might, should, could, maybe, perhaps
+- **Signs of bloat** — decorative formatting, examples repeating what the rule said, process sections duplicated across files, tables instead of bullets
 
 ## Triggers
 
@@ -31,9 +35,7 @@ Based on what you need, read the relevant reference:
 
 - **Building skills:** [building-skills.md](references/building-skills.md) — creating, editing, moving skills
 - **Testing skills:** [testing-skills.md](references/testing-skills.md) — TDD for skills, pressure testing
-- **Sharing skills:** [sharing-skills.md](references/sharing-skills.md) — contributing skills upstream via PR
-- **Updating docs:** [updating-docs.md](references/updating-docs.md) — editing Claude.md files
-- **Context engineering:** [context-engineering.md](references/context-engineering.md) — read when creating new skills/docs, restructuring, or debugging agent behavior
+- **Claude.md files:** [claude-md.md](references/claude-md.md) — template, structure, style guide, and update process for Claude.md files
 - **Hooks:** [hooks.md](references/hooks.md) — creating event-driven automation
 - **Rules:** [rules.md](references/rules.md) — modular project instructions via .claude/rules/
 - **Plugins & marketplace:** [plugins-marketplace.md](references/plugins-marketplace.md) — distributing skills/hooks/commands via plugin system

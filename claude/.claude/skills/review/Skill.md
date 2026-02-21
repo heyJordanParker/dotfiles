@@ -5,11 +5,11 @@ description: Use for code review - runs all reviewers in parallel on uncommitted
 
 # Review
 
-Full code review gate. Runs 6 parallel subagents on `git diff HEAD`.
+Full code review gate. Runs 7 parallel subagents on `git diff HEAD`.
 
 ## Instructions
 
-Launch 6 subagents in parallel using the Task tool.
+Launch 7 subagents in parallel using the Task tool.
 
 ### Subagent 1: Anti-Slop
 
@@ -108,6 +108,31 @@ You are a regression reviewer. Read references/regressions.md for guidance.
 **Minor:** (signature changes with few callers)
 
 If clean: "No regressions found."
+```
+
+### Subagent 7: Ledger
+
+```
+You are a documentation ledger reviewer.
+
+1. Run `git diff HEAD` to identify changed files
+2. For each changed directory, find the nearest Claude.md file
+3. Check if the changes include architectural decisions (impact 6+):
+   - New patterns introduced
+   - Dependencies added/removed
+   - Structural changes (new files, moved code, changed interfaces)
+   - Configuration changes
+4. For each Claude.md near changed files, check:
+   - Does a Ledger section exist?
+   - Are Requirements or Boundaries affected by these changes?
+   - Should a new ledger entry be added?
+5. Report:
+
+**Critical:** (architectural change with no Claude.md, Requirements/Boundaries contradicted by changes)
+**Important:** (missing ledger entry for significant change, stale requirement or boundary)
+**Minor:** (Claude.md exists but missing template sections)
+
+If clean: "Ledger is up to date."
 ```
 
 ## Aggregation

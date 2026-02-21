@@ -1,0 +1,53 @@
+---
+name: ledger
+description: Review and update Claude.md files — check template compliance, surface missing requirements/boundaries, and propose ledger entries.
+---
+
+# Ledger
+
+Review and update Claude.md files against the Why/What/How template.
+
+## Template Reference
+
+Read `/claude-code` reference `claude-md.md` for the full template before making any changes.
+
+## Modes
+
+### Review (default)
+
+`/ledger` or `/ledger path/to/dir`
+
+1. Read the Claude.md at the target path (default: nearest to cwd)
+2. Check template compliance:
+   - **Why** section exists (min 1 sentence)
+   - **What** section exists with Requirements and/or Boundaries
+   - **Ledger** section exists (min 1 dated entry)
+3. Run `git log --oneline -20 -- <dir>` for the target directory
+4. Identify:
+   - Architectural decisions in recent commits without ledger entries
+   - Requirements or Boundaries that may be stale based on recent changes
+   - Missing template sections
+5. Propose updates as diffs — one concept per diff
+
+### Backfill
+
+`/ledger backfill` or `/ledger backfill path/`
+
+1. Find all Claude.md files under the target path: `git ls-files '**/Claude.md'`
+2. For each non-compliant file:
+   a. Read full contents
+   b. Extract implicit requirements and boundaries from existing HOW sections
+   c. Draft Why/What sections with Requirements and Boundaries
+   d. Add initial Ledger entry
+3. Present all proposals grouped by file as diffs
+4. Apply approved changes
+
+## Rules
+
+- Only extract constraints that are **intentional architectural decisions**, not incidental implementation details
+- Requirements use **must** and **always**
+- Boundaries use **never**
+- Ledger entries are dated: `- 2026-02-21: Description of decision`
+- One concept per change — don't restructure entire files in a single diff
+- Preserve all existing content — restructure, don't delete
+- When extracting from HOW sections: move the constraint to What, keep the implementation detail in How

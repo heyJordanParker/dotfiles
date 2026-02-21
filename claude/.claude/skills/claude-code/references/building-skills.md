@@ -39,7 +39,7 @@ Guide for creating and maintaining Claude Code skills.
 
 ## During
 
-**Write Files** - Use `context-engineering` skill for effective documentation.
+**Write Files**
 
 Structure skill execution in phases:
 1. **Before** - What does the skill need to prepare? Prerequisites, research, setup.
@@ -55,6 +55,23 @@ Structure skill execution in phases:
 **Bad:** "This project has: src/auth.ts, src/api.ts, src/utils.ts"
 
 **Good:** "Run `git ls-files 'src/*.ts'` to see current source files"
+
+**Write Direct** - Name the failures each instruction prevents. Keep files under 100 lines — split or trim if longer. "Use X" not "consider using X."
+
+**Structure References** - References serve processes, not topics.
+
+- Name after what you're DOING: `building-skills.md` — not what the topic IS: `context-engineering.md`
+- **Litmus test:** verb phrase = process. "building skills" ✓. "context engineering" ✗.
+- If content is "generally useful knowledge":
+  - Universal → entry point (Skill.md)
+  - Process-specific → the process reference that uses it
+  - Both → split between them
+
+**Signs structure is wrong:**
+- Agent always reads files A and B together → merge into one file
+- Agent loads file, uses <10% → split along task boundaries
+- Same info in multiple files → move to common parent
+- Agent can't complete task without principles → principles not in entry point
 
 ## After
 
@@ -72,7 +89,7 @@ Structure skill execution in phases:
 
 1. Read current skill files
 2. Identify what to change
-3. Use `context-engineering` skill for writing
+3. Follow principles in Skill.md and "Write Direct" guidance above
 
 ### Add References
 
@@ -159,8 +176,7 @@ Comprehensive documentation doesn't bloat initial decision-making.
 
 ## Related Skills
 
-- [context-engineering.md](context-engineering.md) - Writing effective Claude documentation
-- [updating-docs.md](updating-docs.md) - Editing Claude.md files
+- [claude-md.md](claude-md.md) - Template, structure, and update process for Claude.md files
 - `codebase-exploration` skill - Commands for exploring codebases
 
 ## References

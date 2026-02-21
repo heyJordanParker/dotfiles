@@ -7,11 +7,27 @@ globs:
 
 # Karabiner Keyboard Config
 
+## Why
+
+Ergonomic keyboard configuration that eliminates modifier-key reaching. Home row mods for modifiers, layers for navigation/window management, all generated from a declarative TypeScript config.
+
+## What
+
 TypeScript-based keyboard configuration using [karabiner.ts](https://github.com/evan-liu/karabiner.ts).
 
-## Architecture
+### Requirements
 
-**Pipeline-based generator** - compose transformers for clean separation:
+- Must use pipeline-based generator — compose transformers for clean separation
+- Must protect against accidental HRM activation — dual protection via hold threshold + typing streak
+- Must support nested layers with parent/child relationships and handoff
+
+### Boundaries
+
+- Never activate HRM during fast typing — typing streak detection blocks activation within streak window
+- Never fire HRM from same-hand key press — activation requires opposite-hand key
+- Never bypass the pipeline order — layers (highest) → HRM → default (lowest)
+
+## Architecture
 
 ```
 src/
@@ -30,7 +46,7 @@ src/
 
 **Flow:** For each key → `addLayers(ctx) → addHrm(ctx) → addDefault(ctx)`
 
-## Key Concepts
+## How
 
 ### Pipeline Pattern
 
@@ -81,7 +97,7 @@ for (const key of allKeys) {
 
 **HRM Rollover:** Layer triggers check if HRM key is held but not ready - outputs the letter before activating layer
 
-## Config Example
+### Config Example
 
 ```typescript
 const config: KeyboardConfig = {
@@ -123,9 +139,9 @@ const config: KeyboardConfig = {
 writeToProfile('MyProfile', generateKeyboardRules(config))
 ```
 
-## Implementation Details
+### Implementation Details
 
-### Typing Streak Detection
+#### Typing Streak Detection
 
 Uses Karabiner v15.5+ expressions for timestamp-based tracking (no race conditions).
 
@@ -138,7 +154,7 @@ Uses Karabiner v15.5+ expressions for timestamp-based tracking (no race conditio
 streakUpdates(windowMs) // Sets isTypingStreak and updates expiry
 ```
 
-### Layer Variable Lifecycle
+#### Layer Variable Lifecycle
 
 **Trigger key pressed:**
 - Set `{layerName}Active = 1`
@@ -149,7 +165,7 @@ streakUpdates(windowMs) // Sets isTypingStreak and updates expiry
 
 **Tap alone:** Output trigger key (via toIfAlone)
 
-### HRM Variable Lifecycle
+#### HRM Variable Lifecycle
 
 **HRM key pressed:**
 - Set `{key}Held = 1`
@@ -164,7 +180,7 @@ streakUpdates(windowMs) // Sets isTypingStreak and updates expiry
 
 **Tap alone:** Output the letter (via toIfAlone)
 
-### Modifier Combinations
+#### Modifier Combinations
 
 Uses `allCombinations()` to generate all 2^n HRM modifier combos, sorted most-specific first.
 
@@ -172,6 +188,10 @@ Example: Left hand holds `s` (⌘) + `d` (⇧), press right-hand `j` → Cmd+Shi
 
 Order matters - Karabiner checks rules top to bottom, first match wins.
 
-## See Also
+## References
 
 - [karabiner.ts API Reference](./docs/karabiner-ts-reference.md) - Full karabiner.ts DSL documentation
+
+## Ledger
+
+- 2026-02-21: Adopted Why/What/How template with Requirements/Boundaries

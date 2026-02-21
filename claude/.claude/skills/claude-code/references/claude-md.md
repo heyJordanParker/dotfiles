@@ -1,7 +1,97 @@
 
-# Updating Claude.md Documentation
+# Claude.md Files
 
-Guide for maintaining project Claude.md files - capturing decisions, preserving context across sessions, preventing documentation drift, and proactively creating hierarchy when working in new areas.
+Guide for creating and maintaining Claude.md files — the hierarchical documentation system that gives agents context about a project, module, or directory.
+
+## Template
+
+Every Claude.md file follows this structure. `#` is reserved for the scope name. All sections use `##`.
+
+```markdown
+# [Scope Name]
+
+## Why
+
+A brief explanation of why this project or module exists — the business
+problem it solves, the motivation behind it, or the pain it addresses.
+Not what it does or how — just why it matters.
+
+## What
+
+A sentence framing what this scope is responsible for at a high level.
+
+### Requirements
+
+- Must [do something specific]
+- Always [enforce something]
+
+### Boundaries
+
+- Never [do something specific]
+- Never [cross some line]
+
+## Architecture
+
+Brief sentence describing the system shape, then an annotated file tree.
+
+app/
+├── Models/          # unified domain models
+├── Services/        # cross-cutting operations
+└── Http/
+    ├── Controllers/ # REST API endpoints
+    └── Middleware/   # access control
+
+## Workflow
+
+How to work within this scope day-to-day. Subsections vary — use
+whatever groupings make the content scannable.
+
+Examples at root level: Commands, Setup, URLs.
+Examples at module level: Testing, Migration.
+
+## How
+
+Patterns, conventions, and implementation details specific to this scope.
+Subsections vary by module — use whatever groupings make the content
+scannable (e.g. Conventions, Patterns, Naming).
+
+## Ledger
+
+- 2026-02-21: Adopted Why/What/How template for Claude.md files
+- 2026-01-15: Chose Postmark over SendGrid — pure env config, 12-factor fit
+
+## References
+
+- [app/Claude.md](app/Claude.md) — backend architecture
+- [admin/Claude.md](admin/Claude.md) — frontend architecture
+```
+
+### Section Rules
+
+**Required sections** (every Claude.md file):
+- **Why** — min 1 sentence
+- **What** — min 1 sentence, with Requirements and/or Boundaries subsections
+- **Ledger** — min 1 dated entry (init log is enough for new files)
+
+**Optional sections** (include when they add value):
+- **Architecture** — annotated shallow file tree
+- **Workflow** — commands, procedures, collaboration norms
+- **How** — patterns, conventions, implementation details
+- **References** — links to related Claude.md files
+
+### Language
+
+- Requirements use **must** and **always**
+- Boundaries use **never**
+- No hedging — "Use X" not "consider using X"
+
+### Scope Name
+
+The `#` heading names the current scope — an expanded, human-readable version of the directory name:
+- Root: `# Creator Income Blueprint`
+- Backend: `# Backend`
+- Models: `# Domain Models`
+- Admin frontend: `# Admin Frontend`
 
 ## Triggers
 
@@ -10,6 +100,7 @@ Guide for maintaining project Claude.md files - capturing decisions, preserving 
 3. **Opportunistic flags** - When reading a Claude.md, use AskUserQuestion to flag:
    - Contradictions with actual code (staleness)
    - Files covering too many concerns (needs splitting into deeper hierarchy)
+   - Missing Why or What sections (template compliance)
 4. **Pattern detection** - Offer to document when noticing:
    - Repeated explanations across sessions
    - Emerging conventions that should be codified
@@ -101,8 +192,8 @@ Claude.md files are hierarchical. When opening any file, Claude automatically re
 
 **What Goes Where:**
 
-- **Project root:** Vision, principles, architecture overview, dev commands, navigation guide to the codebase
-- **Feature/module/namespace directories:** What this area does, how it's organized, key patterns for working here, rules specific to this area
+- **Project root:** Why, requirements, boundaries, architecture overview, workflow commands
+- **Feature/module/namespace directories:** Module-specific why, requirements, boundaries, patterns
 - **Code-heavy directories:** Tactical docs with code examples, function signatures, usage patterns
 - **Organizational directories:** Structural docs explaining what's inside and how subdirectories relate
 
@@ -141,7 +232,7 @@ Claude.md files are hierarchical. When opening any file, Claude automatically re
 **Structure:**
 - 2-space indentation
 - Bullet points under descriptive headings
-- `##` for main sections, `###` for subsections
+- `#` for scope name, `##` for main sections, `###` for subsections
 - No orphan content (everything under a heading)
 - Keep sections under ~10 bullet points (split if larger)
 

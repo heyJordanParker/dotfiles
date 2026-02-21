@@ -1,8 +1,22 @@
-# macOS Terminal Keybindings Reference
+# macOS Environment
 
-Avoid these when adding custom keybindings - they're system defaults.
+## Why
 
-## Ctrl (readline/shell)
+Quick reference for system defaults that affect keybinding and development environment decisions.
+
+## What
+
+Reference documentation for terminal keybindings and local development services.
+
+### Boundaries
+
+- Never bind custom keybindings to the system defaults listed below
+
+## How
+
+### Terminal Keybindings
+
+#### Ctrl (readline/shell)
 - ^a - beginning of line
 - ^e - end of line
 - ^b - back one char
@@ -24,7 +38,7 @@ Avoid these when adding custom keybindings - they're system defaults.
 - ^j - newline (same keycode)
 - ^m - return (same keycode)
 
-## Alt/Option (word movement)
+#### Alt/Option (word movement)
 - ~b - back one word
 - ~f - forward one word
 - ~d - delete word forward
@@ -33,20 +47,20 @@ Avoid these when adding custom keybindings - they're system defaults.
 - ~Tab - insert tab
 - ~Esc - complete
 
-## Cmd - typically handled by terminal app, not shell
+#### Cmd - typically handled by terminal app, not shell
 - Cmd+c - copy
 - Cmd+v - paste
 - Cmd+a - select all
 - Cmd+. - cancel
 
-# ~/Developer Directory
+### ~/Developer Directory
 
 Two subdirectories with distinct purposes:
 
 - **`references/`** — Temporary repos cloned for reading/studying code. Not synced or automated. Clone what you need, delete when done.
 - **`services/`** — Repos we clone and run. Setup automated in `setup.sh` so any machine can reproduce.
 
-## Current Services
+#### Current Services
 
 - **drawbridge** — Real-time diagram server for AI agents. Pushes simplified elements via HTTP → live Excalidraw canvas in browser.
   - Repo: `heyJordanParker/drawbridge`
@@ -54,3 +68,7 @@ Two subdirectories with distinct purposes:
   - Run: `npm start` (API + WebSocket + static frontend on :3062)
   - Open: `http://localhost:3062/#session-name`
   - Skill: `/diagram` (installed at `~/.claude/skills/diagram/Skill.md`)
+
+## Ledger
+
+- 2026-02-21: Adopted Why/What/How template
