@@ -1,0 +1,54 @@
+# Safety rails for Codex full-access mode.
+# Reference: https://developers.openai.com/codex/rules
+
+# Block destructive file deletion. Use `trash` instead.
+prefix_rule(
+    pattern = [["rm", "/bin/rm"]],
+    decision = "forbidden",
+    justification = "Use `trash` instead of `rm` to avoid permanent deletion.",
+    match = [
+        "rm -rf build",
+        "/bin/rm -f /tmp/foo",
+    ],
+    not_match = [
+        "trash build",
+    ],
+)
+
+# Block destructive git commands.
+prefix_rule(
+    pattern = [["git", "/usr/bin/git"], "reset"],
+    decision = "forbidden",
+    justification = "Do not use git reset in-agent. Manually edit files or ask Jordan to run reset manually.",
+    match = [
+        "git reset --hard",
+        "/usr/bin/git reset HEAD~1",
+    ],
+)
+
+prefix_rule(
+    pattern = [["git", "/usr/bin/git"], "restore"],
+    decision = "forbidden",
+    justification = "Do not use git restore in-agent. Manually edit files or ask Jordan to run restore manually.",
+    match = [
+        "git restore .",
+        "/usr/bin/git restore --staged package.json",
+    ],
+)
+
+prefix_rule(
+    pattern = [["git", "/usr/bin/git"], "checkout", "--"],
+    decision = "forbidden",
+    justification = "Do not use git checkout -- <path> in-agent. Manually edit files or ask Jordan to run checkout manually.",
+    match = [
+        "git checkout -- README.md",
+    ],
+)
+
+# Existing allow-list entries.
+prefix_rule(pattern = ["lando", "info"], decision = "allow")
+prefix_rule(pattern = ["lando", "exec", "-s", "appserver_nginx", "--", "curl"], decision = "allow")
+prefix_rule(pattern = ["lando", "exec", "appserver_nginx", "--", "curl"], decision = "allow")
+prefix_rule(pattern = ["lando", "logs", "appserver"], decision = "allow")
+prefix_rule(pattern = ["lando", "psql"], decision = "allow")
+prefix_rule(pattern = ["bun", "run", "test", "api"], decision = "allow")
