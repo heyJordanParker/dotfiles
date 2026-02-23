@@ -4,7 +4,8 @@
     "command": "~/.claude/file-suggestion.sh"
   },
   "env": {
-    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
+    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
+    "CLAUDE_CODE_SPAWN_BACKEND": "in-process"
   },
   "includeCoAuthoredBy": false,
   "permissions": {

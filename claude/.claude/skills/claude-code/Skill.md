@@ -33,6 +33,7 @@ Apply to all topics below:
 
 Based on what you need, read the relevant reference:
 
+- **Building agents:** [writing-agents.md](references/writing-agents.md) — creating custom agents, agent-only skills, subagent types
 - **Building skills:** [building-skills.md](references/building-skills.md) — creating, editing, moving skills
 - **Testing skills:** [testing-skills.md](references/testing-skills.md) — TDD for skills, pressure testing
 - **Claude.md files:** [claude-md.md](references/claude-md.md) — template, structure, style guide, and update process for Claude.md files
@@ -51,12 +52,7 @@ Based on what you need, read the relevant reference:
 
 ### Agent-Only Skills
 
-Skills with empty description frontmatter won't appear in available_skills context but can still be loaded by agents via the `skills:` frontmatter field.
-
-```yaml
-# Agent frontmatter
-skills: skill-name-1, skill-name-2
-```
+Skills with empty description frontmatter won't appear in available_skills context but can still be loaded by agents via the `skills:` frontmatter field. See [writing-agents.md](references/writing-agents.md) for the full pattern.
 
 ### File Naming
 

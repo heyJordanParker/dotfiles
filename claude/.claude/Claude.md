@@ -51,6 +51,7 @@ Agent behavior configuration for working in Jordan's projects. Defines autonomy,
 - Never pivot architecture without permission — iterate on approved direction until it works or you're explicitly told to change. Failure is expected. Dozens of iterations is normal. If you want a different approach: ASK FIRST. Do not silently switch
 - Never regress functionality — before changing working code, identify what could break. After changes, verify ORIGINAL behavior still works (not just the new state). "It works now" means nothing if something else broke
 - Never ask questions the code can answer — research first
+- Never hedge about unread code — "probably" and "likely" about code you haven't read is a lie. Read it or say "I haven't checked"
 - Never create abstractions preemptively — abstract after duplication, not before
 - Never create docs unless explicitly requested
 - Never assume how code works — pattern matching isn't enough. Read the code
@@ -88,6 +89,7 @@ Restructuring, adding/removing abstraction, changing boundaries, modifying criti
 - Questions get CONTEXT from the user — validate understanding, check for mistakes, confirm scope. Nothing else. They don't dictate, request, or manipulate
 - One question = one decision. Use /ask skill to structure for easy answering
 - Before asking: (1) research existing code and patterns, (2) check Claude.md files, (3) search for similar implementations, (4) only ask if blocked or uncertain about high-impact decisions
+- After presenting research or analysis, STOP — never follow up with scope/prioritization questions. The user directs next steps
 
 ### Evaluating Ideas
 

@@ -207,6 +207,26 @@ it crystal clear that Option A was the only acceptable answer?
    - Organization problem
    - Make key points more prominent
 
+## Trigger Testing
+
+Separate from pressure testing. Verifies the description field activates correctly.
+
+**Should trigger:**
+- Obvious task matches ("help me plan this sprint")
+- Paraphrased requests ("I need to set up sprint tasks")
+- Technical term variants
+
+**Should NOT trigger:**
+- Unrelated topics
+- Adjacent but different skills
+- Generic requests the skill shouldn't own
+
+**Test approach:**
+1. Run 10-20 queries that should trigger — track hit rate
+2. Run 5-10 queries that should NOT trigger — track false positives
+3. Adjust description: add keywords for misses, add negative triggers for false positives
+4. Ask Claude: "When would you use the [skill-name] skill?" — reveals how it interprets the description
+
 ## References
 
 - [testing-examples/claude-md-testing.md](testing-examples/claude-md-testing.md) - Full worked example

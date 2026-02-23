@@ -4,9 +4,9 @@ You coordinate. You delegate. You review. You do NOT write code.
 
 ## Hard Rule
 
-**You do NOT use Edit, Write, or NotebookEdit tools.** Every line of code is written by a subagent. You preserve your context window for coordination, not implementation.
+**You do NOT use Edit, Write, or NotebookEdit tools.** Every line of code is written by a teammate. You preserve your context window for coordination, not implementation.
 
-You may use: Task, Read, Glob, Grep, Bash (read-only commands), AskUserQuestion, TaskCreate/Update/List/Get.
+You may use: Task, Read, Glob, Grep, Bash (read-only), AskUserQuestion, TeamCreate, TeamDelete, SendMessage, TaskCreate/Update/List/Get.
 
 ## When to Use
 
@@ -17,76 +17,104 @@ You may use: Task, Read, Glob, Grep, Bash (read-only commands), AskUserQuestion,
 
 ## Lifecycle
 
-### 1. Decompose
+### 1. Create Team
 
-Break the work into independent tasks. Each task should be completable by a subagent with no knowledge of other tasks.
+```
+TeamCreate(team_name: "feature-name", description: "What we're building")
+```
 
-### 2. Dispatch
+### 2. Decompose
 
-One subagent per task. Use the prompt structure from Skill.md (Story, Business, Goal, DoD + Architecture).
+Break work into independent tasks with TaskCreate. Each task completable by a teammate with no knowledge of other tasks.
 
-Track agent IDs for potential resume.
+### 3. Spawn Teammates
 
-### 3. Review
+One persistent teammate per task. Use the prompt structure from Skill.md (Story, Business, Goal, DoD + Architecture).
 
-When a subagent returns:
+```
+Task(
+  subagent_type: "general-purpose",
+  team_name: "feature-name",
+  name: "worker-name",
+  prompt: "Story, Business, Goal, DoD + Architecture block"
+)
+```
+
+Teammates persist between turns — send messages, assign new tasks, iterate on feedback without losing context.
+
+### 4. Coordinate
+
+- Teammates message you via SendMessage when they complete tasks or hit blockers
+- Messages deliver automatically — no polling needed
+- Respond via SendMessage to provide direction
+- Track progress via TaskList
+
+### 5. Review
+
+When a teammate completes work:
 - Check output against DoD
-- Dispatch code-reviewer subagent if implementation task
-- Note issues for fix cycle
+- Dispatch code-reviewer subagent for implementation tasks
+- Send feedback via SendMessage — teammate iterates with full context
 
-### 4. Fix
-
-If review finds issues:
-- **Resume** the original agent with review feedback (same problem, new direction)
-- Or dispatch a **new fix agent** with the specific issues
-
-### 5. Integrate
+### 6. Integrate
 
 After all tasks complete:
-- Verify no conflicts between subagent outputs
+- Verify no conflicts between teammate outputs
 - Run full verification (tests, build, lint)
 - Dispatch final review subagent across entire changeset
+
+### 7. Shutdown
+
+```
+SendMessage(type: "shutdown_request", recipient: "worker-name")
+```
+
+After all teammates shut down:
+```
+TeamDelete()
+```
 
 ## Dispatch Patterns
 
 ### Sequential (dependent tasks)
 
 ```
-Task A completes → review → Task B (uses A's output) → review → ...
+Teammate A completes → review → message Teammate B → review → ...
 ```
 
-Wait for each. Resume agents when iterating on feedback.
+Use TaskUpdate blockedBy to express dependencies. Resume teammates with new direction via SendMessage.
 
 ### Parallel (independent tasks)
 
 ```
-Task A ─┐
-Task B ─┼→ review all → integrate
-Task C ─┘
+Teammate A ─┐
+Teammate B ─┼→ review all → integrate
+Teammate C ─┘
 ```
 
-Dispatch all at once. Review after all return. Watch for file conflicts.
+Spawn all at once. Each works independently. Watch for file conflicts.
 
 ### Pipeline (research → implement)
 
 ```
-Research agent → you digest findings → implementation agent
+Research teammate → you digest findings → implementation teammate
 ```
 
-Research subagent returns findings. You weave relevant findings into the implementation prompt's Story/Business sections.
+Research teammate messages you with findings. Weave into implementation prompt's Story/Business sections.
 
 ## Review Cycles
 
-After each subagent returns:
+After each teammate returns results:
 
 1. **Read the summary** — does it match DoD?
 2. **Spot check** — read 1-2 changed files (use Read, not Edit)
 3. **Dispatch reviewer** — code-reviewer subagent against DoD
-4. **Decide** — accept, resume with feedback, or dispatch fix agent
+4. **Decide** — accept, send feedback for iteration, or spawn fix agent
 
 ## Common Mistakes
 
-- **Writing "just a small fix" yourself** — delegate it. Your context is for coordination.
-- **Reading full implementation files** — read summaries. Spot check selectively.
-- **Not tracking agent IDs** — you'll spawn duplicates instead of resuming.
-- **Skipping review** — every implementation task gets reviewed.
+- **Writing "just a small fix" yourself** — delegate it. Your context is for coordination
+- **Reading full implementation files** — read summaries. Spot check selectively
+- **Spawning new agents instead of messaging teammates** — teammates persist. Send them new work
+- **Skipping review** — every implementation task gets reviewed
+- **Not shutting down teammates** — always shutdown + TeamDelete when done

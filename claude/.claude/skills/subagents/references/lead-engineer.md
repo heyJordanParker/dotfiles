@@ -101,9 +101,25 @@ Task tool (code-reviewer):
   "Review uncommitted changes against this DoD: [paste DoD]"
 ```
 
+## Background Agents
+
+Use `run_in_background: true` on Task dispatches for non-blocking work. You keep coding while the agent works.
+
+```
+Task(
+  subagent_type: "Explore",
+  prompt: "Research how Stripe SDK handles idempotency...",
+  run_in_background: true
+)
+```
+
+Results return when the agent finishes. Check with TaskOutput if needed.
+
+Best for: research, test runs, documentation lookups — anything where you don't need the answer immediately.
+
 ## Patterns
 
-- **Feed-forward** — dispatch research, keep coding, incorporate findings when they return
+- **Feed-forward** — dispatch background research, keep coding, incorporate findings when they return
 - **Verify-then-commit** — dispatch test-writer + code-reviewer in parallel, fix issues, commit
 - **Delegate-the-boring** — mechanical tasks (bulk renames, format conversions) are fine with specific instructions since they're not architectural
 

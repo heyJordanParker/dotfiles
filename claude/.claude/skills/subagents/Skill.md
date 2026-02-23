@@ -36,7 +36,7 @@ See [lead-engineer.md](references/lead-engineer.md) for patterns.
 
 **When:** Task requires multiple compactions, touches many systems, or has 3+ independent subtasks.
 
-You coordinate. You delegate. You review. **You do NOT write code. You do NOT read implementation details. You do NOT use Edit, Write, or NotebookEdit tools.** Every line of code is written by a subagent.
+Create a team with persistent teammates. Coordinate via messages and shared task list. **You do NOT write code. You do NOT read implementation details. You do NOT use Edit, Write, or NotebookEdit tools.** Every line of code is written by a teammate.
 
 See [project-manager.md](references/project-manager.md) for lifecycle and patterns.
 
@@ -67,19 +67,19 @@ backend/
     └── PaymentServiceTest.php*         <- add timeout test coverage
 ```
 
-## Resuming
+## Persistence
 
-Save agent IDs. Resume instead of spawning new when:
-- Same problem, new information or direction
-- Iterating on review feedback
-- Continuing interrupted work
+Choose based on coordination needs:
 
-Spawn new when the problem is different or context is stale.
+- **Teams** — PM mode default. Persistent teammates with shared task list and messaging. Survive between turns, iterate without losing context
+- **Background + resume** — Lead Engineer feed-forward. `run_in_background: true` for non-blocking side work. Resume with new direction
+- **Fresh spawn** — One-shot tasks. Research, reviews, validation. No state between invocations
 
 ## Quick Reference
 
 - **Fits in one context window?** → Lead Engineer
-- **3+ independent subtasks?** → Project Manager
+- **3+ independent subtasks?** → Project Manager (create a team)
+- **Need non-blocking side work?** → Background agent (`run_in_background: true`)
 - **Same problem, new info?** → Resume agent
 - **Different problem?** → Spawn new agent
 - **Want to give step-by-step?** → Stop. Give WHAT/WHY instead.
