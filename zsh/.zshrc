@@ -73,7 +73,7 @@ alias cld="CLAUDE_CODE_ENABLE_TASKS=true EDITOR=prompt-editor claude --dangerous
 alias python='python3'
 alias pip='pip3'
 f() { find . -iname "*$1*" }
-bun() { case "$1" in test|build|publish) local cmd="$1"; shift; command bun run "$cmd" "$@";; *) command bun "$@";; esac }
+bun() { case "$1" in test|build|publish|login) local cmd="$1"; shift; command bun run "$cmd" "$@";; *) command bun "$@";; esac }
 
 # --- THE FAST VIM POPUP ---
 
