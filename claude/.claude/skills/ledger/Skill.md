@@ -48,6 +48,9 @@ Read `/claude-code` reference `claude-md.md` for the full template before making
 - Requirements use **must** and **always**
 - Boundaries use **never**
 - Ledger entries are dated: `- 2026-02-21: Description of decision`
+- One entry per architectural decision in the commit — not per iteration step
+- Amend existing entries when iterating before committing — the ledger matches what git shows (A→C, not A→B→C)
+- Ledger records facts ("Replaced Nginx with Caddy"), not ongoing constraints — those go in Requirements or Boundaries
 - One concept per change — don't restructure entire files in a single diff
 - Preserve all existing content — restructure, don't delete
 - When extracting from HOW sections: move the constraint to What, keep the implementation detail in How

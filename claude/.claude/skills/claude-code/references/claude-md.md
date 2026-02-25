@@ -3,6 +3,8 @@
 
 Guide for creating and maintaining Claude.md files — the hierarchical documentation system that gives agents context about a project, module, or directory.
 
+Document how agents should think about the system — business goals, user intent, strategic direction, and architectural reasoning that code alone can't express.
+
 ## Template
 
 Every Claude.md file follows this structure. `#` is reserved for the scope name. All sections use `##`.
@@ -32,7 +34,7 @@ A sentence framing what this scope is responsible for at a high level.
 
 ## Architecture
 
-Brief sentence describing the system shape, then an annotated file tree.
+Brief sentence describing the system shape, then annotated trees.
 
 app/
 ├── Models/          # unified domain models
@@ -40,6 +42,17 @@ app/
 └── Http/
     ├── Controllers/ # REST API endpoints
     └── Middleware/   # access control
+
+Schema overviews where relevant:
+
+public:
+├── tenants              # tenant registry
+├── accounts             # admin auth source of truth
+└── migrations           # schema versioning
+
+tenant_{id}:
+├── wp_*                 # all WordPress tables
+└── (business tables)    # products, orders, enrollments
 
 ## Workflow
 
@@ -51,11 +64,15 @@ Examples at module level: Testing, Migration.
 
 ## How
 
-Patterns, conventions, and implementation details specific to this scope.
-Subsections vary by module — use whatever groupings make the content
-scannable (e.g. Conventions, Patterns, Naming).
+Recurring process patterns specific to this scope (e.g. "how to add
+a migration", "how to register a new entity"). Not one-time code
+changes — those are visible in git.
+Subsections vary by module (e.g. Conventions, Patterns, Naming).
 
 ## Ledger
+
+One entry per architectural decision in the commit — amend while
+iterating so the ledger matches what git shows.
 
 - 2026-02-21: Adopted Why/What/How template for Claude.md files
 - 2026-01-15: Chose Postmark over SendGrid — pure env config, 12-factor fit
@@ -68,15 +85,32 @@ scannable (e.g. Conventions, Patterns, Naming).
 
 ### Section Rules
 
-**Required sections** (every Claude.md file):
-- **Why** — min 1 sentence
-- **What** — min 1 sentence, with Requirements and/or Boundaries subsections
-- **Ledger** — min 1 dated entry (init log is enough for new files)
+**Required sections:**
+
+**Why** — min 1 sentence. Business context, user intent, domain knowledge.
+- "Funnel SaaS for creators — solo developer, minimize maintenance, maximize 3rd-party reuse"
+- "Plan to fully remove FunnelKit — own our funnel data"
+
+**What** — min 1 sentence, with Requirements and/or Boundaries.
+
+Requirements prevent plausible future mistakes. If the code makes it obvious, skip it.
+- Good: "Account is source of truth for admin auth — WP users created on demand"
+- Bad: "Move billing from UserController to BillingService" — that's the commit
+- Bad: "No coupon CRUD in admin" — no agent builds unplanned UI unprompted
+
+Boundaries define encapsulation. Use domain language, not library names.
+- Good: "Domain models never import plugin code — service providers own integrations"
+- Bad: "Models never import FunnelKit" — names the library; generic rule is durable
+
+**Ledger** — min 1 dated entry. One entry per architectural decision in the commit — amend while iterating so the ledger matches what git shows.
+- Good: "Chose Postmark over SendGrid — pure env config, 12-factor fit"
+- Bad: "Added getCustomer() to Account" — that's the diff
+- Bad: A→B then B→C entries when the commit only shows A→C
 
 **Optional sections** (include when they add value):
-- **Architecture** — annotated shallow file tree
+- **Architecture** — annotated file trees and schema overviews
 - **Workflow** — commands, procedures, collaboration norms
-- **How** — patterns, conventions, implementation details
+- **How** — recurring process patterns. Not one-time code changes
 - **References** — links to related Claude.md files
 
 ### Language
@@ -192,7 +226,7 @@ Claude.md files are hierarchical. When opening any file, Claude automatically re
 
 **What Goes Where:**
 
-- **Project root:** Why, requirements, boundaries, architecture overview, workflow commands
+- **Project root:** Why, universal requirements/boundaries that apply to every subdirectory, architecture overview, workflow commands. If a requirement only applies to backend or frontend, it belongs there — not root
 - **Feature/module/namespace directories:** Module-specific why, requirements, boundaries, patterns
 - **Code-heavy directories:** Tactical docs with code examples, function signatures, usage patterns
 - **Organizational directories:** Structural docs explaining what's inside and how subdirectories relate
@@ -217,10 +251,11 @@ Claude.md files are hierarchical. When opening any file, Claude automatically re
 
 **Placement Decision Process:**
 
-1. Identify scope of what's being documented
-2. Find closest existing Claude.md that matches scope
-3. If no good match, consider creating new file at appropriate level
-4. Propose placement with reasoning, wait for approval
+1. Start at the deepest directory the content applies to
+2. Only escalate to parent if the content genuinely applies to ALL children of that parent
+3. If no Claude.md exists at the right level, create one
+4. Litmus test: would a developer working in a sibling directory need this? No → it stays deep. Yes → consider the parent
+5. Propose placement with reasoning, wait for approval
 
 ## Style Guide
 

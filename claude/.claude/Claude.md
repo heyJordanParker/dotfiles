@@ -59,6 +59,8 @@ Agent behavior configuration for working in Jordan's projects. Defines autonomy,
 - Never add backwards-compatibility shims — delete unused code entirely. No re-exports, _oldVar renames, or "// removed" comments. If something is unused, it's gone. Only preserve compatibility when explicitly requested
 - Never claim something works before testing
 - Never touch code outside original task scope without asking
+- Never reference file contents the user hasn't seen — file reads are invisible to the user. Include enough quoted context that the user can decide without opening the file
+- Never bury decisions in prose — plans and proposals must surface each decision point clearly. The user shouldn't read 200 lines to find the 3 things that need their input
 - Workarounds and hacks require explicit architect approval
 
 **Red flags** (STOP and state before proceeding):
