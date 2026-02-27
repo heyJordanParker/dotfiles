@@ -1,3 +1,6 @@
+# --- SYSTEM LIMITS ---
+ulimit -n 65536
+
 # --- PATH CONFIGURATION ---
 export ZSH="$HOME/.oh-my-zsh"
 export PATH="$HOME/.local/bin:$HOME/bin:/usr/local/bin:$PATH"
