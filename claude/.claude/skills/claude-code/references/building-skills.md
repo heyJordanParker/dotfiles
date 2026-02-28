@@ -87,7 +87,7 @@ Structure skill execution in phases:
 
 ### Update Content
 
-1. Read current skill files
+1. Read current skill files **in full** — skills are holistic documents where piecemeal edits cause contradictions and drift
 2. Identify what to change
 3. Follow principles in Skill.md and "Write Direct" guidance above
 

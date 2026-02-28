@@ -27,6 +27,7 @@ Read `/claude-code` reference `claude-md.md` for the full template before making
    - Architectural decisions in recent commits without ledger entries
    - Requirements or Boundaries that may be stale based on recent changes
    - Missing template sections
+   - Content that belongs at a different level of the hierarchy (too specific for parent, or duplicating parent in child)
 5. Propose updates as diffs — one concept per diff
 
 ### Backfill
@@ -54,3 +55,9 @@ Read `/claude-code` reference `claude-md.md` for the full template before making
 - One concept per change — don't restructure entire files in a single diff
 - Preserve all existing content — restructure, don't delete
 - When extracting from HOW sections: move the constraint to What, keep the implementation detail in How
+- Read the full Claude.md file before proposing any edits — piecemeal edits without full context cause contradictions and repetition
+- Never fabricate WHY in ledger entries — if the motivation is unknown, ask. "Chose X" requires knowing why X was chosen
+- Ledger entries record decisions, not descriptions — don't repeat what the file already documents
+- Ledger entries are one line — details belong in the file body or a deeper Claude.md, not the ledger
+- Never include execution context in ledger entries — impact scores, importance ratings, and session metadata are meaningless outside the session
+- Never place scope-specific entries in parent Claude.md files — a decision about backend belongs in the backend Claude.md, not root

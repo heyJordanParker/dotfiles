@@ -106,6 +106,12 @@ Boundaries define encapsulation. Use domain language, not library names.
 - Good: "Chose Postmark over SendGrid — pure env config, 12-factor fit"
 - Bad: "Added getCustomer() to Account" — that's the diff
 - Bad: A→B then B→C entries when the commit only shows A→C
+- Bad: Re-explaining architecture the file already documents — the ledger records decisions, not descriptions
+- Bad: Fabricating WHY — "to scale independently of X" when you don't know the motivation. Ask if unknown
+- Bad: Splitting one decision into multiple entries — "Added multi-tenancy" + "Added dual-boot" when they're one decision
+- Bad: Writing what changed instead of why it was decided — that's a changelog, not a ledger
+- Bad: Long entries with technical details — ledger entries are one line. Details belong in the file body or a deeper Claude.md
+- Bad: Including execution context — "(importance 8)", "(impact 6)" are meaningless outside the session that produced them
 
 **Optional sections** (include when they add value):
 - **Architecture** — annotated file trees and schema overviews
@@ -141,11 +147,8 @@ The `#` heading names the current scope — an expanded, human-readable version 
    - User corrections to assumptions or behavior
 5. **Missing hierarchy** - When working in a directory without a Claude.md but with established patterns, proactively offer to create one
 
-## Naming Convention
+## Proactive Offers (impact 9-10 decisions)
 
-Always use `Claude.md` (PascalCase) - never `CLAUDE.md` or `claude.md`. This follows the naming skill's "Never ALL_CAPS" rule.
-
-**Proactive offers (impact 9-10 decisions):**
 - Architectural changes
 - New patterns introduced
 - Breaking changes to existing conventions
@@ -170,7 +173,7 @@ Subagent returns summary:
 - Conflicts with proposed content (quote both sides)
 - Recommended placement with reasoning
 
-Main agent avoids reading Claude.md files directly and prefers working from subagent findings only.
+Main agent reads the full target Claude.md before proposing any edits. Claude.md files are holistic documents — piecemeal edits without full context cause contradictions and repetition.
 
 **Step 2: Handle Conflicts**
 
@@ -223,6 +226,8 @@ Claude.md files are hierarchical. When opening any file, Claude automatically re
 
 - **Push context as deep as possible while keeping it discoverable.** Root stays navigable, details live where they're needed.
 - **Write minimum documentation that provides full context.** AI context is limited and precious. Too little → agents can't complete tasks. Too much → agents overflow and forget critical details. Every line must earn its place. No fluff.
+- **Never duplicate parent content in child files.** Claude reads every Claude.md from root to the working directory automatically. Restating parent content wastes tokens and creates staleness risk.
+- **Never put scope-specific content in parent files.** A frontend agent doesn't need backend details. If content only applies to one subdirectory, it belongs there — not in the parent.
 
 **What Goes Where:**
 
