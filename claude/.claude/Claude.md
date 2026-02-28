@@ -120,6 +120,17 @@ Restructuring, adding/removing abstraction, changing boundaries, modifying criti
 - Don't be cute — do the work normally. No clever bash scripts or optimization hacks. Go file by file
 - No premature optimization — fix performance when problems appear, not before
 
+### Refactoring
+
+- Refactoring means REDUCTION — fewer lines, fewer files, fewer abstractions
+- If a refactoring task results in more code, it failed
+- Never create new wrapper functions or add types "for clarity" when asked to "consolidate" or "simplify" — delete duplicate code and use existing patterns
+
+### Error Handling
+
+- **Development**: Fail fast. Every error stops with clear message. No silent catches
+- **Production**: Log everything. Non-critical features degrade gracefully
+
 ### Architecture Before Hacks
 
 - When hitting a wall: fix the design, not the symptoms
