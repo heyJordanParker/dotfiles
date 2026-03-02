@@ -103,6 +103,8 @@ Boundaries define encapsulation. Use domain language, not library names.
 - Bad: "Models never import FunnelKit" — names the library; generic rule is durable
 
 **Ledger** — min 1 dated entry. One entry per architectural decision in the commit — amend while iterating so the ledger matches what git shows.
+- Read `git diff --stat` before writing — scope the entry to the actual commit, not the task
+- WHY comes from the architect (plan, shaping doc, conversation) — not from patterns inferred while coding
 - Good: "Chose Postmark over SendGrid — pure env config, 12-factor fit"
 - Bad: "Added getCustomer() to Account" — that's the diff
 - Bad: A→B then B→C entries when the commit only shows A→C
@@ -112,6 +114,10 @@ Boundaries define encapsulation. Use domain language, not library names.
 - Bad: Writing what changed instead of why it was decided — that's a changelog, not a ledger
 - Bad: Long entries with technical details — ledger entries are one line. Details belong in the file body or a deeper Claude.md
 - Bad: Including execution context — "(importance 8)", "(impact 6)" are meaningless outside the session that produced them
+- Bad: Implementation HOW — "extract helper so callers share validation" describes code mechanics. Ledger names decisions and business motivation, not how the code achieves them
+- Bad: Iteration debris — entries left from intermediate steps that were revised or reverted. Amend during iteration; the committed ledger reflects only final state
+- Bad: Unverified claims — stating outcomes without reading the code to confirm what actually changed
+- Bad: Overloaded terms — using words that conflict with codebase concepts (e.g. "schema" where `#[Schema]` is an attribute)
 
 **Optional sections** (include when they add value):
 - **Architecture** — annotated file trees and schema overviews
