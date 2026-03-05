@@ -82,26 +82,57 @@ Every interactive element needs:
 }
 ```
 
-## Page Transitions
+## View Transitions
+
+Use the View Transitions API for visual state changes between views or significant UI updates. Universal browser support since 2025. Never use JavaScript-driven or CSS-class-based page transition patterns.
+
+**Multi-page apps — opt in globally:**
 
 ```css
-.page-enter {
-  opacity: 0;
-}
-.page-enter-active {
-  opacity: 1;
-  transition: opacity 200ms var(--ease);
-}
-.page-exit {
-  opacity: 1;
-}
-.page-exit-active {
-  opacity: 0.5;
-  transition: opacity 200ms var(--ease);
+@view-transition {
+  navigation: auto;
 }
 ```
 
-Exit dims to 50%, enter fades from 0%.
+**Single-page apps — wrap DOM updates:**
+
+```js
+document.startViewTransition(() => {
+  updateDOM();
+});
+```
+
+**Customizing the transition:**
+
+```css
+::view-transition-old(root) {
+  animation: fade-out 200ms var(--ease);
+}
+
+::view-transition-new(root) {
+  animation: fade-in 200ms var(--ease);
+}
+```
+
+**Named transitions for specific elements:**
+
+```css
+.hero-image {
+  view-transition-name: hero;
+}
+
+::view-transition-old(hero) {
+  animation: scale-out 300ms var(--ease);
+}
+
+::view-transition-new(hero) {
+  animation: scale-in 300ms var(--ease);
+}
+```
+
+- Default to cross-fade — only customize when the default doesn't serve the interaction
+- `prefers-reduced-motion` is honored automatically
+- Name elements that should animate independently from the page transition
 
 ## Accessibility
 

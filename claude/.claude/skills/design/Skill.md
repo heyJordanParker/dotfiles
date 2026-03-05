@@ -40,6 +40,11 @@ If it looks like every AI-generated landing page, redo it.
 
 ## Core Principles
 
+- **Cutting-edge CSS** - Use the latest universally-supported CSS features. Gaps over margins, view transitions over JavaScript animations, logical properties over directional ones. If a modern CSS feature replaces a legacy pattern and has universal browser support, use it
+- **Encapsulated and reusable** - Design components, classes, and styles to work outside their current context. No assumptions about parent layout, sibling elements, or page-specific state. Every component is a portable unit
+- **BEM everywhere** - All CSS uses BEM naming. Block for the component, Element for children, Modifier for variants. No bare class names, no utility-only components. See [css-architecture.md](references/css-architecture.md)
+- **Styling lives in CSS** - Never style in React (no inline styles, no style objects, no conditional className string-building for visual concerns). React toggles data attributes and classes. CSS handles all visual and behavioral states
+- **Proactive reuse** - When building a component, extract reusable CSS classes and helpers for patterns that will obviously recur (buttons, cards, form fields, layout containers). Build the library as you go
 - **Simplicity wins** - Remove until it breaks, then add one thing back
 - **Hierarchy through restraint** - One focal point per view
 - **Consistency > novelty** - Match existing patterns before inventing
@@ -59,9 +64,7 @@ If it looks like every AI-generated landing page, redo it.
 
 **Typography:** 3 sizes (0.75, 0.875, 1.125rem) + weight/color for hierarchy. Max 55ch line length.
 
-**Timing:** hover=200ms, active=instant, modal=300ms
-
-**Easing:** `cubic-bezier(0.4, 0, 0.2, 1)`
+**Transitions:** Use the View Transitions API for page/state changes. See [interactions.md](references/interactions.md) for timing, easing, states, view transitions, and micro-interactions.
 
 ## References
 
