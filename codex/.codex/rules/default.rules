@@ -52,3 +52,4 @@ prefix_rule(pattern = ["lando", "exec", "appserver_nginx", "--", "curl"], decisi
 prefix_rule(pattern = ["lando", "logs", "appserver"], decision = "allow")
 prefix_rule(pattern = ["lando", "psql"], decision = "allow")
 prefix_rule(pattern = ["bun", "run", "test", "api"], decision = "allow")
+prefix_rule(pattern=["lando"], decision="allow")

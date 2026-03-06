@@ -177,7 +177,8 @@
     "php-lsp@claude-plugins-official": true,
     "typescript-lsp@claude-plugins-official": true,
     "dev-browser@dev-browser-marketplace": false,
-    "ralph-wiggum@claude-code-plugins": true
+    "ralph-wiggum@claude-code-plugins": true,
+    "skill-creator@claude-plugins-official": true
   },
   "alwaysThinkingEnabled": true,
   "autoUpdatesChannel": "latest",

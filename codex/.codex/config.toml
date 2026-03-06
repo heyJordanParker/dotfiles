@@ -1,5 +1,5 @@
-model = "gpt-5.3-codex"
-model_reasoning_effort = "xhigh"
+model = "gpt-5.4"
+model_reasoning_effort = "high"
 
 [projects."/Users/jordan/Products"]
 trust_level = "trusted"
