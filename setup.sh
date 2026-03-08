@@ -75,4 +75,6 @@ stow -v zsh git tmux npm ssh nvim ghostty karabiner btop claude lazygit delta ba
 bat cache --build 2>/dev/null || true
 
 echo ""
-echo "Done. Restart terminal, enable 1Password SSH agent, run: gh auth login"
+echo "Done. Restart terminal, enable 1Password SSH agent, then run:"
+echo "  gh auth login"
+echo "  ./setup-secrets.sh"
