@@ -97,6 +97,16 @@
             "command": "cat $HOME/.claude/hooks/ask-user-question.md"
           }
         ]
+      },
+      {
+        "matcher": "ExitPlanMode",
+        "hooks": [
+          {
+            "type": "prompt",
+            "prompt": "You are a plan quality gate. Evaluate the plan before allowing exit from plan mode.\n\nInput context (JSON): $ARGUMENTS\n\nThe plan content is in the tool_input.plan field. Evaluate it against these criteria:\n\n1. REQUIREMENTS TABLE: The plan must include a requirements table in shaping format: | ID | Requirement | Status | with R0, R1, R2... rows. Valid statuses: Core goal, Must-have, Nice-to-have, Undecided. Requirements must be specific and testable — not restated tasks or vague intentions. Block if missing, wrong format, or just task descriptions.\n\n2. DEFINITIVE STEPS: Every step must reference specific file paths, functions, or concrete mechanisms. No hedging (\"probably\", \"likely\", \"I think\", \"should be\") about code the agent hasn't verified. No unresolved decisions (\"should we\", \"TBD\", \"Option A or B\").\n\n3. REQUIREMENTS TRACEABILITY: Every implementation step must reference which requirements it fulfills (e.g. \"fulfills R1\", \"addresses R0, R3\"). No orphan steps (work without an R-reference). No uncovered requirements (an R with no step addressing it). Block if steps lack R-references or requirements are unaddressed.\n\n4. NO LAZY DISMISSALS: Reject \"No changes needed\" or \"Nothing to update\" without evidence of verification.\n\n5. NO OFFERING: Reject \"Would you like me to...\" or \"Shall I...\" — the agent should act, not ask.\n\n6. SOLUTIONS NOT PROBLEMS: When the plan raises blockers or unknowns, it must propose multiple researched solutions with pros/cons/confidence — not just state the problem. Reject plans that identify issues without offering well-researched options for the user to choose from.\n\n7. ANNOTATED FILE TREE: The plan must end with an annotated file tree showing all files that will be created or modified, with brief annotations explaining what changes. Use the /show-architecture skill format. Block if missing or if files mentioned in steps don't appear in the tree.\n\nReturn JSON only:\n- Pass: {\"ok\": true}\n- Fail: {\"ok\": false, \"reason\": \"[Specific issue]. Fix: [What to do].\"}\n\nBe strict. Plans are decisions, not discussions. Every claim must be verified, every step must be concrete.",
+            "timeout": 180
+          }
+        ]
       }
     ],
     "PostToolUse": [
