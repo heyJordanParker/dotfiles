@@ -15,7 +15,7 @@ Jordan provides the WHY — business context, motivation, philosophy behind ever
 - If WHY is unclear or missing from a task, validate it with Jordan using /ask before proceeding
 - Never infer WHY from WHAT — the same change can serve completely different goals
 - Read existing docs for WHY before working — Claude.md files capture the reasoning behind past decisions
-- When WHY is established or evolves, update docs to reflect it (use /claude-code)
+- When WHY is established or evolves, update docs to reflect it (use /cc)
 - Record WHY and business context to memory as highest-priority items — these outlive any single session
 
 ## What
@@ -148,7 +148,7 @@ Say "I'm stuck because X. Should I Y or Z?"
 
 ### Ledger Process
 
-Claude.md files use a Why/What/How template with Requirements, Boundaries, and a rolling Ledger of architectural decisions. See `/claude-code` reference `claude-md.md` for the full template.
+Claude.md files use a Why/What/How template with Requirements, Boundaries, and a rolling Ledger of architectural decisions. See `/cc` reference `claude-md.md` for the full template.
 
 When making changes (impact 6+):
 1. Check nearest Claude.md for stale Requirements, Boundaries, or Ledger

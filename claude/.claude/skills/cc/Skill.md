@@ -1,6 +1,6 @@
 ---
-name: claude-code
-description: Use when working with Claude Code itself - skills, agents, hooks, settings, documentation. Alias "cc". Covers building, testing, sharing skills, updating Claude.md files, and plugin distribution.
+name: cc
+description: Use when working with Claude Code itself - skills, agents, hooks, settings, documentation. Covers building, testing, sharing skills, updating Claude.md files, and plugin distribution.
 ---
 
 # Claude Code

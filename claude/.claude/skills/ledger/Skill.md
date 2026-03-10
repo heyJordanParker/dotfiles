@@ -9,7 +9,7 @@ Review and update Claude.md files against the Why/What/How template.
 
 ## Template Reference
 
-Read `/claude-code` reference `claude-md.md` for the full template before making any changes.
+Read `/cc` reference `claude-md.md` for the full template before making any changes.
 
 ## Modes
 

@@ -19,7 +19,7 @@ Invoked as `/talents:<name>`:
 - **architecture** — Present architectural options with tradeoffs
 - **breadboarding** — Map workflows into affordance tables
 - **breadboard-review** — Find design smells in breadboards
-- **claude-code** — Work with Claude Code skills, hooks, settings
+- **cc** — Work with Claude Code skills, hooks, settings
 - **codebase-exploration** — Explore codebase structure and dependencies
 - **commit-message** — Structured commits with type prefix and file tree
 - **debug** — Systematic debugging with root cause tracing
