@@ -11,6 +11,7 @@ Every Claude.md file follows this structure. `#` is reserved for the scope name.
 
 ```markdown
 # [Scope Name]
+v1.0 | Updated: 2026-01-01
 
 ## Why
 
@@ -71,11 +72,13 @@ Subsections vary by module (e.g. Conventions, Patterns, Naming).
 
 ## Ledger
 
-One entry per architectural decision in the commit — amend while
-iterating so the ledger matches what git shows.
+Every ledger entry uses the file's current version number as its key.
+Adding a ledger entry requires bumping the version; bumping the version
+requires a ledger entry. They enforce each other.
 
-- 2026-02-21: Adopted Why/What/How template for Claude.md files
-- 2026-01-15: Chose Postmark over SendGrid — pure env config, 12-factor fit
+Amend while iterating so the ledger matches what git shows.
+
+- v1.0: Chose Postmark over SendGrid — pure env config, 12-factor fit
 
 ## References
 
@@ -102,10 +105,10 @@ Boundaries define encapsulation. Use domain language, not library names.
 - Good: "Domain models never import plugin code — service providers own integrations"
 - Bad: "Models never import FunnelKit" — names the library; generic rule is durable
 
-**Ledger** — min 1 dated entry. One entry per architectural decision in the commit — amend while iterating so the ledger matches what git shows.
+**Ledger** — min 1 versioned entry. Every entry is keyed by the file's version number. Adding a ledger entry requires bumping the version; bumping the version requires a ledger entry. They enforce each other. Amend while iterating so the ledger matches what git shows.
 - Read `git diff --stat` before writing — scope the entry to the actual commit, not the task
 - WHY comes from the architect (plan, shaping doc, conversation) — not from patterns inferred while coding
-- Good: "Chose Postmark over SendGrid — pure env config, 12-factor fit"
+- Good: "v1.1: Chose Postmark over SendGrid — pure env config, 12-factor fit"
 - Bad: "Added getCustomer() to Account" — that's the diff
 - Bad: A→B then B→C entries when the commit only shows A→C
 - Bad: Re-explaining architecture the file already documents — the ledger records decisions, not descriptions
@@ -216,8 +219,7 @@ Rules:
 
 After explicit approval:
 - Apply exact change from approved diff
-- Bump version (minor for additions, major for structural changes)
-- Update last-updated date
+- Bump version and update date on the version line — every ledger entry requires a version bump, every version bump requires a ledger entry
 
 ## Hierarchy & Placement
 
@@ -272,8 +274,7 @@ Claude.md files are hierarchical. When opening any file, Claude automatically re
 
 **File Metadata:**
 - File name must be `Claude.md` (PascalCase, not ALL_CAPS)
-- Version number at top (e.g., `v1.2`) - bump major for structural changes, minor for content additions
-- Last updated date (e.g., `Updated: 2026-01-01`)
+- Version line under `#` heading: `v1.2 | Updated: 2026-01-01` — bump major for structural changes, minor for content additions. Every version bump requires a ledger entry; every ledger entry requires a version bump
 
 **Structure:**
 - 2-space indentation

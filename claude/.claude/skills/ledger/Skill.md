@@ -21,7 +21,7 @@ Read `/claude-code` reference `claude-md.md` for the full template before making
 2. Check template compliance:
    - **Why** section exists (min 1 sentence)
    - **What** section exists with Requirements and/or Boundaries
-   - **Ledger** section exists (min 1 dated entry)
+   - **Ledger** section exists (min 1 versioned entry)
 3. Run `git log --oneline -20 -- <dir>` for the target directory
 4. Identify:
    - Architectural decisions in recent commits without ledger entries
@@ -48,7 +48,7 @@ Read `/claude-code` reference `claude-md.md` for the full template before making
 - Only extract constraints that are **intentional architectural decisions**, not incidental implementation details
 - Requirements use **must** and **always**
 - Boundaries use **never**
-- Ledger entries are dated: `- 2026-02-21: Description of decision`
+- Ledger entries are keyed by the file's version number: `- v1.1: Description of decision`. Adding a ledger entry requires bumping the version; bumping the version requires a ledger entry. They enforce each other
 - One entry per architectural decision in the commit — not per iteration step
 - Amend existing entries when iterating before committing — the ledger matches what git shows (A→C, not A→B→C)
 - Ledger records facts ("Replaced Nginx with Caddy"), not ongoing constraints — those go in Requirements or Boundaries

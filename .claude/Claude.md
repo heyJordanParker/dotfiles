@@ -1,4 +1,5 @@
 # Dotfiles
+v1.2 | Updated: 2026-03-09
 
 ## Why
 
@@ -135,5 +136,5 @@ When adding/changing a non-tmux hook, update both files.
 
 ## Ledger
 
-- 2026-02-21: Adopted Why/What/How template with Requirements/Boundaries/Ledger
-- 2026-02-15: Added plugin marketplace with `strict: false` manifest
+- v1.2: Adopted Why/What/How template with Requirements/Boundaries/Ledger
+- v1.1: Added plugin marketplace with `strict: false` manifest

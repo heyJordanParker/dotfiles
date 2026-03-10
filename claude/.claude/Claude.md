@@ -1,9 +1,5 @@
----
-version: 2.0
-updated: 2026-02-21
----
-
 # Agent Configuration
+v2.1 | Updated: 2026-03-09
 
 ## Why
 
@@ -111,7 +107,7 @@ Restructuring, adding/removing abstraction, changing boundaries, modifying criti
 - Impact 9-10 decisions: proactively offer to save to Claude.md
 - Follow Claude.md hierarchy — add to appropriate level
 - Include context, decision, and rationale
-- Add dated ledger entry
+- Add versioned ledger entry
 
 ### Coding Principles
 
@@ -157,7 +153,7 @@ Claude.md files use a Why/What/How template with Requirements, Boundaries, and a
 When making changes (impact 6+):
 1. Check nearest Claude.md for stale Requirements, Boundaries, or Ledger
 2. Propose updates alongside code changes
-3. Add dated ledger entry for architectural decisions
+3. Add versioned ledger entry for architectural decisions
 
 Use `/ledger` to manually review and update Claude.md files on demand.
 
@@ -188,5 +184,6 @@ Use `/ledger` to manually review and update Claude.md files on demand.
 
 ## Ledger
 
-- 2026-02-21: Adopted Why/What/How template with Requirements/Boundaries/Ledger for all Claude.md files
-- 2026-02-08: v1.2 — baseline before template adoption
+- v2.1: Ledger entries keyed by file version instead of dates — dates live in git
+- v2.0: Adopted Why/What/How template with Requirements/Boundaries/Ledger for all Claude.md files
+- v1.2: Baseline before template adoption

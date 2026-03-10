@@ -1,4 +1,5 @@
 # macOS Environment
+v1.1 | Updated: 2026-03-09
 
 ## Why
 
@@ -71,4 +72,4 @@ Two subdirectories with distinct purposes:
 
 ## Ledger
 
-- 2026-02-21: Adopted Why/What/How template
+- v1.1: Adopted Why/What/How template
