@@ -33,6 +33,7 @@ Invoked as `/talents:<name>`:
 - **shaping** — Collaborate on problem definition and solution options
 - **show-architecture** — Annotated file trees inline
 - **subagents** — Framework for dispatching and managing subagents
+- **user-testing** — Trace real user flows through code changes, find gaps
 - **using-git-worktrees** — Isolated git worktrees for feature work
 - **verification-before-completion** — Evidence before assertions
 - **working-with-markdown-files** — Rules for markdown editing
