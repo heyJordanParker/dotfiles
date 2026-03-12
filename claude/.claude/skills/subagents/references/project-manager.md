@@ -25,18 +25,18 @@ TeamCreate(team_name: "feature-name", description: "What we're building")
 
 ### 2. Decompose
 
-Break work into independent tasks with TaskCreate. Each task completable by a teammate with no knowledge of other tasks.
+Break work into independent tasks with `TaskCreate`. Set `activeForm` to present-continuous (e.g., "Fixing payment timeout") — this drives the user's progress spinner. Each task completable by a teammate with no knowledge of other tasks.
 
 ### 3. Spawn Teammates
 
-One persistent teammate per task. Use the prompt structure from Skill.md (Story, Business, Goal, DoD + Architecture).
+One persistent teammate per task. Use the prompt structure from Skill.md (Story, Business, Goal, DoD + Architecture). End each prompt with: `Mark Task #N in_progress when you start. When DoD is met, mark it completed.`
 
 ```
 Task(
   subagent_type: "general-purpose",
   team_name: "feature-name",
   name: "worker-name",
-  prompt: "Story, Business, Goal, DoD + Architecture block"
+  prompt: "Story, Business, Goal, DoD + Architecture block\n\nMark Task #N in_progress when you start. When DoD is met, mark it completed."
 )
 ```
 

@@ -87,8 +87,8 @@ Choose based on coordination needs:
 ## Process
 
 1. **Select mode** — Lead Engineer or Project Manager
-2. **Write prompt** — Story, Business, Goal, DoD
-3. **Add architecture** — annotated file tree
-4. **Dispatch** — include DoD so agent self-validates
-5. **Track agent ID** — for potential resume
+2. **Create tasks** — `TaskCreate` for each piece of work. Set `activeForm` to present-continuous (e.g., "Fixing payment timeout"). This gives the user real-time visual progress via spinners and checkmarks
+3. **Write prompts** — Story, Business, Goal, DoD
+4. **Add architecture** — annotated file tree
+5. **Dispatch** — each subagent prompt ends with: `Mark Task #N in_progress when you start. When DoD is met, mark it completed.`
 6. **Review output** — against DoD criteria
