@@ -51,6 +51,18 @@
 
 To emphasize an element, de-emphasize everything else. You can't make white "more white" - instead reduce the lightness of secondary text.
 
+**Text wrapping:** Use `text-wrap: balance` on headings and short text blocks to distribute text evenly across lines. Prevents orphaned words that make text blocks look unfinished. `text-wrap: pretty` is an alternative (slower, different algorithm).
+
+**Font smoothing:** macOS default subpixel antialiasing renders text heavier than intended. Apply `antialiased` (Tailwind) or `-webkit-font-smoothing: antialiased` to the layout root:
+
+```css
+body {
+  -webkit-font-smoothing: antialiased;
+}
+```
+
+**Tabular numbers:** Use `tabular-nums` (Tailwind) or `font-variant-numeric: tabular-nums` for any numbers that update dynamically (counters, prices, tables). Without it, digits have variable width and visually shift on every update. Note: some fonts like Inter change numeral appearance when this is applied.
+
 **Line length:** Never make paragraphs wider than 55ch. Long lines overwhelm users on wide displays.
 
 - **Primary (titles):** 90-100% lightness / `text-foreground`
@@ -174,6 +186,41 @@ box-shadow:
 
 **Recessed elements** (inputs, wells): Dark inset shadow on top + light inset shadow on bottom.
 
+**Shadows instead of borders:** Solid border colors don't adapt to varied backgrounds (images, gradients). Use a multi-layer `box-shadow` for border-like definition that works universally via transparency:
+
+```css
+/* Wrong — solid border breaks on non-white backgrounds */
+border: 1px solid #e5e7eb;
+
+/* Right — shadow adapts to any background */
+box-shadow:
+  0px 0px 0px 1px rgba(0, 0, 0, 0.06),
+  0px 1px 2px -1px rgba(0, 0, 0, 0.06),
+  0px 2px 4px 0px rgba(0, 0, 0, 0.04);
+
+/* Hover — same shadows, slightly darker */
+box-shadow:
+  0px 0px 0px 1px rgba(0, 0, 0, 0.08),
+  0px 1px 2px -1px rgba(0, 0, 0, 0.08),
+  0px 2px 4px 0px rgba(0, 0, 0, 0.06);
+```
+
+Transition between states with `transition-[box-shadow]`.
+
+**Image outlines:** Images can blend into surrounding content when edge colors match the background. Add a subtle semi-transparent outline for consistent depth:
+
+```css
+.image-outline {
+  outline: 1px solid rgba(0, 0, 0, 0.1);
+  outline-offset: -1px;
+}
+.dark .image-outline {
+  outline-color: rgba(255, 255, 255, 0.1);
+}
+```
+
+Most useful in design systems where other elements also use borders or shadows.
+
 **Rules:**
 - Elevated = lighter background + more shadow
 - Never use z-index without corresponding shadow
@@ -188,6 +235,18 @@ Variants derived from it:
 - Large containers: `calc(var(--radius) + 0.25rem)`
 
 Don't round everything. Intentional use only.
+
+**Concentric border radius:** When nesting rounded elements, the outer radius must equal the inner radius plus the padding. Mismatched radii create a subtle visual imbalance that makes the interface feel off.
+
+```css
+/* Wrong — same radius on both */
+.outer { border-radius: 12px; padding: 8px; }
+.inner { border-radius: 12px; }
+
+/* Right — outer = inner + padding */
+.outer { border-radius: 20px; padding: 8px; }
+.inner { border-radius: 12px; }
+```
 
 ## Contrast & Accessibility
 

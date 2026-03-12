@@ -294,3 +294,20 @@ Use units in priority order:
   letter-spacing: -0.02em; /* Tighten large text */
 }
 ```
+
+Geometric centering can look visually off because shapes have different visual weight. Buttons with text + icon need smaller padding on the icon side to look balanced:
+
+```css
+/* Wrong — equal padding looks off because icon has built-in whitespace */
+.button-with-icon {
+  padding-inline: 1em;
+}
+
+/* Right — asymmetric padding, less on icon side */
+.button-with-icon {
+  padding-inline-start: 0.75em;
+  padding-inline-end: 1em;
+}
+```
+
+Best fix for icons: adjust the whitespace in the SVG itself so no extra CSS is needed.
