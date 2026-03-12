@@ -1,5 +1,5 @@
 # Dotfiles
-v1.2 | Updated: 2026-03-09
+v1.3 | Updated: 2026-03-12
 
 ## Why
 
@@ -38,6 +38,7 @@ dotfiles/
 ├── btop/                       # system monitor
 ├── bun/                        # JS runtime
 ├── claude/.claude/             # Claude Code config → ~/.claude/
+│   ├── agents/                 #   custom subagents (LOCAL ONLY)
 │   ├── skills/                 #   plugin: auto-discovered
 │   ├── commands/               #   plugin: auto-discovered
 │   ├── hooks/                  #   plugin: hooks.json wiring
@@ -109,7 +110,7 @@ Users install with:
 
 **What gets distributed:** Skills (`skills/`), Commands (`commands/*.md`), Hooks (`hooks/hooks.json` with `${CLAUDE_PLUGIN_ROOT}` paths)
 
-**What does NOT get distributed:** Rules, Settings, `settings.json`, `Claude.md`, tmux hooks
+**What does NOT get distributed:** Rules, Settings, Agents, `settings.json`, `Claude.md`, tmux hooks
 
 ### Dual Hooks Setup
 
@@ -136,5 +137,6 @@ When adding/changing a non-tmux hook, update both files.
 
 ## Ledger
 
+- v1.3: Added agents/ to architecture tree and plugin exclusion list -- agents are local-only, not distributed
 - v1.2: Adopted Why/What/How template with Requirements/Boundaries/Ledger
 - v1.1: Added plugin marketplace with `strict: false` manifest

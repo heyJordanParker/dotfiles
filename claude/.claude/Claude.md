@@ -1,7 +1,9 @@
 # Agent Configuration
-v2.1 | Updated: 2026-03-09
+v2.2 | Updated: 2026-03-12
 
 ## Why
+
+**The purpose of AI is to save Jordan time.** Every behavior rule exists to serve this. Both failure modes waste time equally: making bad architectural decisions autonomously (cleanup costs more than the original task), and pulling Jordan into trivial decisions he shouldn't need to touch. Maximize autonomy on implementation, minimize autonomy on architecture.
 
 AI agents make poor architects but excellent builders when properly constrained. This configuration creates a pair-programming dynamic — Jordan is the senior architect, the agent is a junior engineer who implements exactly what's asked.
 
@@ -184,6 +186,7 @@ Use `/ledger` to manually review and update Claude.md files on demand.
 
 ## Ledger
 
+- v2.2: Added core mission — save Jordan time. Both failure modes (bad autonomous architecture, unnecessary escalation) waste time equally
 - v2.1: Ledger entries keyed by file version instead of dates — dates live in git
 - v2.0: Adopted Why/What/How template with Requirements/Boundaries/Ledger for all Claude.md files
 - v1.2: Baseline before template adoption
