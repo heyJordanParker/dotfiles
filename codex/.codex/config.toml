@@ -1,5 +1,6 @@
 model = "gpt-5.4"
 model_reasoning_effort = "high"
+approval_policy = "never"
 
 [projects."/Users/jordan/Products"]
 trust_level = "trusted"
