@@ -29,14 +29,14 @@ Break work into independent tasks with `TaskCreate`. Set `activeForm` to present
 
 ### 3. Spawn Teammates
 
-One persistent teammate per task. Use the prompt structure from Skill.md (Story, Business, Goal, DoD + Architecture). End each prompt with: `Mark Task #N in_progress when you start. When DoD is met, mark it completed.`
+One persistent teammate per task. Use the prompt structure from Skill.md (Story, Business, Goal, DoD + Architecture + Workflow).
 
 ```
 Task(
   subagent_type: "general-purpose",
   team_name: "feature-name",
   name: "worker-name",
-  prompt: "Story, Business, Goal, DoD + Architecture block\n\nMark Task #N in_progress when you start. When DoD is met, mark it completed."
+  prompt: "Story, Business, Goal, DoD + Architecture + Workflow"
 )
 ```
 

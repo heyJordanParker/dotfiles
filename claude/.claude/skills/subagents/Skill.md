@@ -48,8 +48,24 @@ Every subagent dispatch uses these sections:
 - **Business** — Why this matters, constraints, limitations
 - **Goal** — What the subagent delivers, expected output
 - **DoD** — How the subagent validates its own work
+- **Workflow** — Task state transitions that frame the work (see below)
 
 Weave previous findings into whichever section they belong — a library limitation goes in Business, a broken test goes in Story. No dedicated "gotchas" section.
+
+### Workflow Section
+
+Every prompt ends with a Workflow section. This is the agent's operating procedure — not a footnote. It's the first thing the agent does and the last thing the agent does, sandwiching all implementation work.
+
+```
+Workflow:
+1. TaskUpdate task #N to in_progress
+2. Read every file marked * in the architecture block above
+3. Implement against the Goal
+4. For EACH DoD item: run verification, paste relevant output
+5. If any DoD item fails → fix and re-verify (loop step 4)
+6. Post a completion summary: what changed, what was verified, what was tricky
+7. TaskUpdate task #N to completed
+```
 
 ### Architecture Block
 
@@ -88,7 +104,7 @@ Choose based on coordination needs:
 
 1. **Select mode** — Lead Engineer or Project Manager
 2. **Create tasks** — `TaskCreate` for each piece of work. Set `activeForm` to present-continuous (e.g., "Fixing payment timeout"). This gives the user real-time visual progress via spinners and checkmarks
-3. **Write prompts** — Story, Business, Goal, DoD
-4. **Add architecture** — annotated file tree
-5. **Dispatch** — each subagent prompt ends with: `Mark Task #N in_progress when you start. When DoD is met, mark it completed.`
+3. **Write prompts** — Story, Business, Goal, DoD, Workflow
+4. **Add architecture** — annotated file tree before Workflow section
+5. **Dispatch** — every prompt includes the Workflow section as its final block
 6. **Review output** — against DoD criteria
