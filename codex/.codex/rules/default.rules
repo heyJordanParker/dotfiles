@@ -1,17 +1,21 @@
 # Safety rails for Codex full-access mode.
 # Reference: https://developers.openai.com/codex/rules
 
-# Block destructive file deletion. Use `trash` instead.
+# Block destructive file deletion.
+# Codex prefix_rule cannot express path-prefix whitelisting (exact token match only).
+# Claude Code equivalent (block-unsafe-delete.sh) allows rm within:
+#   ~/dotfiles, ~/Developer, ~/Downloads, ~/Desktop, ~/conductor, ~/.claude/plans, /tmp
+# Until Codex adds glob/regex rules, blanket block is the safe fallback.
 prefix_rule(
     pattern = [["rm", "/bin/rm"]],
     decision = "forbidden",
-    justification = "Use `trash` instead of `rm` to avoid permanent deletion.",
+    justification = "rm is blocked. Move or delete files manually. Allowed directories (enforced in Claude Code, not here): ~/dotfiles, ~/Developer, ~/Downloads, ~/Desktop, ~/conductor, ~/.claude/plans, /tmp.",
     match = [
         "rm -rf build",
         "/bin/rm -f /tmp/foo",
     ],
     not_match = [
-        "trash build",
+        "ls build",
     ],
 )
 
