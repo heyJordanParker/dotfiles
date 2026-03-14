@@ -250,7 +250,7 @@ A spike is an investigation task to learn how the existing system works and what
 
 ### File Management
 
-**Always create spikes in their own file** (e.g., `spike.md` or `spike-[topic].md`). Spikes are standalone investigation documents that may be shared or worked on independently from the shaping doc.
+**Always create spikes in the feature's shaping directory** (e.g., `~/.claude/shaping/[feature]/spike-[topic].md`). Spikes are standalone investigation documents that may be shared or worked on independently from the shaping doc.
 
 ### Purpose
 
@@ -524,9 +524,13 @@ When the user provides source material during framing (user requests, quotes, em
 
 ### File Management
 
-- **Shaping doc**: Update freely as you iterate — this is the ground truth
-- **Slices doc**: Created when ready to slice, updated as slice scope clarifies
-- **Slice plans**: Individual files (V1-plan.md, etc.) with implementation details
+All shaping documents live in `~/.claude/shaping/[feature]/` — one subdirectory per feature. Create the directory if it doesn't exist.
+
+- **Frame**: `frame.md`
+- **Shaping doc**: `shaping.md` — update freely as you iterate, this is the ground truth
+- **Slices doc**: `slices.md` — created when ready to slice, updated as slice scope clarifies
+- **Slice plans**: `V1-plan.md`, `V2-plan.md`, etc.
+- **Spikes**: `spike-[topic].md`
 
 ### Frontmatter
 
