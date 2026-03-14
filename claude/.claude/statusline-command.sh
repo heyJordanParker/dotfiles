@@ -42,7 +42,7 @@ if git -C "$cwd" rev-parse --git-dir >/dev/null 2>&1; then
 fi
 
 model_info=""
-[ "$model" != "Claude 3.5 Sonnet" ] && [ "$model" != "null" ] && model_info="󰧑 $model"
+[ "$model" != "null" ] && model_info="󰧑 $model"
 
 style_info=""
 [ "$style" != "default" ] && [ "$style" != "null" ] && style_info=" [$style]"
