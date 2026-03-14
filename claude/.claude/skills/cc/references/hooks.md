@@ -18,8 +18,11 @@ Event-driven automation for Claude Code.
 - **SessionEnd:** Cleanup
 - **Setup:** Repository setup/maintenance — trigger: --init, --init-only, --maintenance
 - **PreCompact:** Preserve critical context — matcher: manual|auto
+- **PostCompact:** React after compaction completes (e.g., log, notify, refresh state)
 - **Notification:** React to user notifications — matcher: notification types
 - **PermissionRequest:** Auto-allow/deny permissions — matcher: tool names
+- **Elicitation:** Intercept MCP elicitation requests before showing to user — matcher: MCP server names
+- **ElicitationResult:** Override/modify elicitation responses before sending back to MCP server — matcher: MCP server names
 
 ## Configuration
 
@@ -167,7 +170,7 @@ For complex logic, use LLM evaluation:
 }
 ```
 
-**Supported events:** PreToolUse, PostToolUse, Stop, SubagentStop, UserPromptSubmit, PermissionRequest
+**Supported events:** PreToolUse, PostToolUse, Stop, SubagentStop, UserPromptSubmit, PermissionRequest, Elicitation, ElicitationResult
 
 ## Performance
 

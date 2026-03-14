@@ -8,13 +8,14 @@ Built-in slash commands for Claude Code.
 - **/compact [instructions]** — Compress context, optionally focus on specific topics
 - **/rewind** — Roll back context and code state (also `Esc+Esc`)
 - **/resume <name>** — Resume session by name
-- **/rename** — Name current session
+- **/rename** — Name current session (also: `claude -n <name>` to name at startup)
 - **/exit** — End session
 
 ## Configuration
 
 - **/config** — Open settings panel (searchable)
 - **/model** — Switch AI model
+- **/effort** — Set model effort level (low/medium/high/max)
 - **/theme** — Open theme picker (`Ctrl+T` toggles syntax highlighting)
 - **/keybindings** — Configure keyboard shortcuts
 - **/permissions** — View/update tool permissions
@@ -60,12 +61,14 @@ Built-in slash commands for Claude Code.
 - **/tasks** — Background tasks dialog
 - **/pr_comments** — View pull request comments
 - **/sandbox** — Enable sandboxed bash
+- **/voice** — Toggle voice input mode (shows dictation language on enable, warns if `language` setting is unsupported for voice input)
 
 ## Session Transfer
 
 For claude.ai subscribers:
 
 - **/teleport** — Resume session at claude.ai/code
+- **/remote-control** (or **/rc**) — Enable remote control (connect from claude.ai/code or mobile app). Also: `claude --rc` flag or `claude remote-control` server mode
 - **/remote-env** — Configure remote sessions
 
 ## Setup & Integrations

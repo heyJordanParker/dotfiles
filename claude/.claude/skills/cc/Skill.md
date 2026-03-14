@@ -5,6 +5,8 @@ description: Use when working with Claude Code itself - skills, agents, hooks, s
 
 # Claude Code
 
+Last synced with Claude Code **v2.1.76** (2026-03-14).
+
 Guide for working with Claude Code's extensibility system.
 
 ## Principles
@@ -41,6 +43,7 @@ Based on what you need, read the relevant reference:
 - **Rules:** [rules.md](references/rules.md) — modular project instructions via .claude/rules/
 - **Plugins & marketplace:** [plugins-marketplace.md](references/plugins-marketplace.md) — distributing skills/hooks/commands via plugin system
 - **User commands:** [user-commands.md](references/user-commands.md) — built-in slash commands
+- **Updating this skill:** [updating-cc-skill.md](references/updating-cc-skill.md) — syncing with new Claude Code releases
 
 ## Quick Reference
 

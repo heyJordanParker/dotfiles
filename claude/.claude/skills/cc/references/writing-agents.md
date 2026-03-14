@@ -52,8 +52,8 @@ Priority order (highest wins on name collision):
 - `mcpServers` — MCP servers for this agent
 - `hooks` — lifecycle hooks scoped to this agent
 - `memory` — persistent memory: `user`, `project`, or `local`
-- `background` — `true` to always run in background
-- `isolation` — `worktree` for git worktree isolation
+- `background` — `true` to always run in background. Killing a background agent preserves partial results in conversation context
+- `isolation` — `worktree` for git worktree isolation. Use `worktree.sparsePaths` setting in large monorepos to check out only specific directories
 
 ## Built-in Subagent Types
 

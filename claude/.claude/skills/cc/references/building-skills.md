@@ -144,6 +144,7 @@ allowed-tools:  # Optional - restricts available tools
 **Common:**
 - **allowed-tools:** Array of tool names — optional, restricts which tools Claude can use
 - **context:** `fork` runs skill in forked sub-agent context
+- **model:** Override model for skill execution (e.g., `model: sonnet`)
 - **agent:** Specify agent type for execution (e.g., `agent: code-reviewer`)
 - **user-invocable:** `false` hides from slash command menu (default: `true` for skills in `/skills/`)
 - **hooks:** Define scoped PreToolUse/PostToolUse/Stop hooks (see hooks.md)

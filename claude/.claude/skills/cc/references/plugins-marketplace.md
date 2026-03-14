@@ -80,6 +80,7 @@ Plugin hooks live in `hooks/hooks.json` (auto-discovered) or inline in manifest.
 - **Host on GitHub** (recommended): users add with `/plugin marketplace add owner/repo`
 - **Private repos**: works if user has git credentials; set `GITHUB_TOKEN` for auto-updates
 - **Team defaults**: add to `.claude/settings.json` `extraKnownMarketplaces` + `enabledPlugins`
+- **CLI:** `--plugin-dir` accepts one path per flag. Repeat for multiple directories: `--plugin-dir ./a --plugin-dir ./b`
 
 ## Version Management
 
