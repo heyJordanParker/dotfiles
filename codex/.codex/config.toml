@@ -6,5 +6,5 @@ approval_policy = "never"
 trust_level = "trusted"
 
 [mcp_servers.pencil]
-command = "/Users/jordan/.vscode/extensions/highagency.pencildev-0.6.25/out/mcp-server-darwin-arm64"
-args = [ "--app", "visual_studio_code" ]
+command = "/Applications/Pencil.app/Contents/Resources/app.asar.unpacked/out/mcp-server-darwin-arm64"
+args = [ "--app", "desktop" ]

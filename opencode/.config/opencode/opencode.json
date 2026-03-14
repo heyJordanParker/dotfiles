@@ -6,9 +6,9 @@
   "mcp": {
     "pencil": {
       "command": [
-        "/Users/jordan/.vscode/extensions/highagency.pencildev-0.6.25/out/mcp-server-darwin-arm64",
+        "/Applications/Pencil.app/Contents/Resources/app.asar.unpacked/out/mcp-server-darwin-arm64",
         "--app",
-        "visual_studio_code"
+        "desktop"
       ],
       "enabled": true,
       "type": "local"
