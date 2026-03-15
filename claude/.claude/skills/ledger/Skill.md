@@ -1,6 +1,7 @@
 ---
 name: ledger
 description: Review and update Claude.md files — check template compliance, surface missing requirements/boundaries, and propose ledger entries.
+context: fork
 ---
 
 # Ledger
