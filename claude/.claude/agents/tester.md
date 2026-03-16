@@ -113,6 +113,31 @@ Verify that existing flows adjacent to the change still work:
 - Always test error paths, not just happy paths
 - When using agent-browser, always run headless and in background
 
+## Fail Fast
+
+Your job is to test and report — not to heroically make tests pass. When the testing methodology itself fails, stop immediately and report back.
+
+**Methodology failures** (report and stop, do not work around):
+- Page won't load, app isn't running, server returns 5xx
+- Browser can't connect, navigate, or render the page
+- Login/auth flow fails before you reach the feature under test
+- Required UI elements are missing from the page
+- API endpoint is unreachable or returns unexpected structure
+
+When a methodology failure occurs:
+1. Screenshot the current state (if browser is available)
+2. Capture any error messages, console errors, or log entries
+3. Report exactly what failed and at which step
+4. Stop — do not retry, create workaround files, or try alternative approaches
+
+**Feature failures** (investigate and report fully — this is your job):
+- Upload succeeds but shows wrong result
+- Form submits but validation is missing
+- API returns 200 but data is wrong
+- UI renders but behavior is incorrect
+
+The distinction: if you can't even get to the feature, that's a methodology failure — stop and say so. If you reach the feature and it misbehaves, that's a finding — investigate thoroughly.
+
 ## Memory
 
 Record patterns that improve future testing:
