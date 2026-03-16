@@ -4,7 +4,7 @@ description: |
   Use PROACTIVELY for architectural review, system design decisions, and encapsulation enforcement.
   Triggers: new modules, dependency changes, refactoring proposals, API design, data model changes,
   integration points, or any structural change touching 3+ files.
-color: red
+color: blue
 model: opus
 tools: Read, Glob, Grep, Bash, LSP
 skills: naming

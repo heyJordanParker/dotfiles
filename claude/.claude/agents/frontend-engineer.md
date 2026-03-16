@@ -5,7 +5,7 @@ description: |
   user flow testing, or standalone for frontend feature work. Focuses on UX correctness,
   user flow tracing, design quality, and regression prevention. Reads Claude.md files for
   stack-specific patterns.
-color: green
+color: yellow
 model: sonnet
 skills: design, agent-browser
 memory: user
