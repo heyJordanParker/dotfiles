@@ -143,7 +143,7 @@ Use @apply inside BEM classes to compose Tailwind utilities:
 }
 
 .sidebar-menu-btn {
-  @apply w-full cursor-pointer transition-all duration-200;
+  @apply w-full cursor-pointer transition-colors duration-200;
 }
 ```
 
@@ -158,7 +158,7 @@ Use `&` for pseudo-classes and attribute selectors:
 
 ```css
 .sidebar-menu-btn {
-  @apply transition-all duration-200;
+  @apply transition-colors duration-200;
 
   &:hover {
     @apply bg-sidebar-accent;
@@ -307,6 +307,14 @@ Geometric centering can look visually off because shapes have different visual w
 .button-with-icon {
   padding-inline-start: 0.75em;
   padding-inline-end: 1em;
+}
+```
+
+Play button triangles are a common case — the geometric center sits left of the visual center because most of the shape's mass is on the left. Shift right with `margin-left: 2px`:
+
+```css
+.play-button svg {
+  margin-left: 2px;
 }
 ```
 

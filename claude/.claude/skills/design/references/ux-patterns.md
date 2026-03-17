@@ -92,6 +92,27 @@ Don't show blank space. Provide:
 }
 ```
 
+**Minimum hit area:** Interactive elements need at least 44x44px (WCAG) or 40x40px minimum. If the visible element is smaller, extend with a pseudo-element:
+```css
+.checkbox {
+  position: relative;
+  width: 20px;
+  height: 20px;
+}
+.checkbox::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 44px;
+  height: 44px;
+}
+```
+Tailwind: `relative size-5 after:absolute after:top-1/2 after:left-1/2 after:size-11 after:-translate-1/2`
+
+**Collision rule:** Never let extended hit areas of two interactive elements overlap. Shrink the pseudo-element if needed — but make it as large as possible without colliding.
+
 **Focus indicators:**
 - Visible focus ring on all interactive elements
 - `focus-visible` for keyboard-only visibility

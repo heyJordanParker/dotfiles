@@ -51,7 +51,10 @@
 
 To emphasize an element, de-emphasize everything else. You can't make white "more white" - instead reduce the lightness of secondary text.
 
-**Text wrapping:** Use `text-wrap: balance` on headings and short text blocks to distribute text evenly across lines. Prevents orphaned words that make text blocks look unfinished. `text-wrap: pretty` is an alternative (slower, different algorithm).
+**Text wrapping:**
+- `text-wrap: balance` — headings and short text (≤6 lines in Chromium, ≤10 in Firefox). Distributes text evenly across lines, prevents orphans. Computationally expensive, so browsers limit it to short text.
+- `text-wrap: pretty` — body paragraphs and descriptions. Optimizes the last line to avoid orphans without the line limit. Use on longer text where `balance` would be silently ignored.
+- Neither — code blocks, pre-formatted text.
 
 **Font smoothing:** macOS default subpixel antialiasing renders text heavier than intended. Apply `antialiased` (Tailwind) or `-webkit-font-smoothing: antialiased` to the layout root:
 
@@ -203,6 +206,11 @@ box-shadow:
   0px 0px 0px 1px rgba(0, 0, 0, 0.08),
   0px 1px 2px -1px rgba(0, 0, 0, 0.08),
   0px 2px 4px 0px rgba(0, 0, 0, 0.06);
+
+/* Dark mode — simplify to a single white ring.
+   Layered depth shadows are invisible against dark backgrounds. */
+--shadow-border: 0 0 0 1px rgba(255, 255, 255, 0.08);
+--shadow-border-hover: 0 0 0 1px rgba(255, 255, 255, 0.13);
 ```
 
 Transition between states with `transition-[box-shadow]`.
@@ -236,7 +244,7 @@ Variants derived from it:
 
 Don't round everything. Intentional use only.
 
-**Concentric border radius:** When nesting rounded elements, the outer radius must equal the inner radius plus the padding. Mismatched radii create a subtle visual imbalance that makes the interface feel off.
+**Concentric border radius:** When nesting rounded elements, the outer radius must equal the inner radius plus the padding. Mismatched radii create a subtle visual imbalance that makes the interface feel off. Exception: if padding > 24px, treat layers as separate surfaces and choose radii independently.
 
 ```css
 /* Wrong — same radius on both */

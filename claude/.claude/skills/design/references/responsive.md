@@ -87,7 +87,7 @@ Desktop-only hover effects:
 }
 ```
 
-Touch targets: minimum 44x44px for touch interactions.
+Touch targets: minimum 44x44px (see hit area technique in [ux-patterns.md](ux-patterns.md)).
 
 ## When Media Queries Are Appropriate
 

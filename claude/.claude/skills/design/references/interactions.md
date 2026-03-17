@@ -10,7 +10,7 @@
 - **Toast appear:** 200ms — Quick entrance
 - **Toast dismiss:** 150ms — Faster exit
 
-**Rule:** Exits faster than entrances. Exit animations should also be more subtle — use fixed small movement (`-12px`) instead of full element height (`calc(-100% - 4px)`). Exiting elements don't need the same attention as entering ones; full-height exit movement is jarring and competes with incoming content. Never remove exit animation entirely — keep some motion to indicate direction.
+**Rule:** Exits roughly half the duration of entrances (e.g., 150ms exit vs 300ms enter). Exit animations should also be more subtle — use fixed small movement (`-12px`) instead of full element height (`calc(-100% - 4px)`). Exiting elements don't need the same attention as entering ones; full-height exit movement is jarring and competes with incoming content. Never remove exit animation entirely — keep some motion to indicate direction.
 
 ## Easing
 
@@ -39,7 +39,7 @@ Every interactive element needs:
 **Hover example:**
 ```css
 .button {
-  @apply transition-all duration-200;
+  @apply transition-[background-color,transform] duration-200;
 
   &:hover {
     @apply bg-primary/90 -translate-y-px;
@@ -184,7 +184,48 @@ Use `focus-visible` not `focus` - only shows for keyboard navigation.
 
 Small delights that feel intentional:
 
-- **Contextual icon animation** — when icons appear/disappear contextually (copy → check, menu open → close), animate `opacity`, `scale`, and `blur` simultaneously. Without animation, the swap feels abrupt and unresponsive
+- **Contextual icon animation** — when icons appear/disappear contextually (copy → check, menu open → close), animate `opacity`, `scale`, and `blur` simultaneously. Without animation, the swap feels abrupt and unresponsive. Use exactly these values — do not deviate:
+  - `scale`: `0.25` → `1` (never 0.5 or 0.6)
+  - `opacity`: `0` → `1`
+  - `filter`: `blur(4px)` → `blur(0px)`
+
+  **With Framer Motion:** Use `AnimatePresence mode="popLayout"` with spring transition. `bounce` must always be `0`:
+  ```tsx
+  <AnimatePresence mode="popLayout">
+    <motion.span
+      key={isActive ? "active" : "inactive"}
+      initial={{ opacity: 0, scale: 0.25, filter: "blur(4px)" }}
+      animate={{ opacity: 1, scale: 1, filter: "blur(0px)" }}
+      exit={{ opacity: 0, scale: 0.25, filter: "blur(4px)" }}
+      transition={{ type: "spring", duration: 0.3, bounce: 0 }}
+    >
+      <Icon />
+    </motion.span>
+  </AnimatePresence>
+  ```
+
+  **Without Framer Motion (CSS cross-fade):** Keep both icons in the DOM — one absolutely positioned over the other. Cross-fade them on state change. Because neither icon unmounts, both enter and exit animate smoothly:
+  ```tsx
+  <div className="relative">
+    <div className={cn(
+      "absolute inset-0 flex items-center justify-center",
+      "transition-[opacity,filter,scale] duration-300 [transition-timing-function:cubic-bezier(0.2,0,0,1)]",
+      isActive ? "scale-100 opacity-100 blur-0" : "scale-[0.25] opacity-0 blur-[4px]"
+    )}>
+      <ActiveIcon />
+    </div>
+    <div className={cn(
+      "transition-[opacity,filter,scale] duration-300 [transition-timing-function:cubic-bezier(0.2,0,0,1)]",
+      isActive ? "scale-[0.25] opacity-0 blur-[4px]" : "scale-100 opacity-100 blur-0"
+    )}>
+      <InactiveIcon />
+    </div>
+  </div>
+  ```
+  The non-absolute icon defines the layout size. Check `package.json` for `motion` or `framer-motion` — if present, use the Motion approach. If not, use CSS cross-fade.
+
+  **When to animate icons:** hover action buttons, state change icons (play→pause, like→liked), contextual toolbars, loading/success indicators. **Don't animate:** static navigation icons, decorative icons, always-visible icons.
+
 - **Icon rotation** on menu expand/collapse
 - **Staggered entering elements** — break content into individually animated chunks instead of animating one big block. Three granularity levels:
   - **Sections** (~100ms delay) — title, description, buttons animate separately
@@ -201,7 +242,29 @@ Small delights that feel intentional:
 }
 ```
 
-- **Button press** with slight scale down
+- **Button press** — `scale(0.96)` on `:active`. Always `0.96`, never smaller than `0.95` (feels exaggerated). Use CSS transitions for interruptibility. Add a `static` prop to disable when motion would be distracting:
+  ```css
+  .button { @apply transition-transform duration-150 ease-out active:scale-[0.96]; }
+  ```
 - **Success checkmark** with draw animation
+- **Skip animation on page load** — use `initial={false}` on `AnimatePresence` to prevent enter animations on first render. Elements in their default state (toggles, tabs, icon swaps) shouldn't animate in on mount — only on subsequent state changes. Don't use on staggered heroes or intentional entrance animations where the initial animation IS the entrance.
 
 Don't overdo it. One or two per view maximum.
+
+## Performance
+
+**Never use `transition: all`** or Tailwind's `transition` shorthand (maps to `transition-property: all`). Always specify exact properties. `transition: all` forces the browser to watch every property, causes unexpected transitions on unintended properties, and prevents optimizations.
+
+```css
+/* Good */ transition-property: scale, background-color;
+/* Bad */  transition: all 150ms ease-out;
+```
+
+Tailwind: `transition-transform` covers `transform, translate, scale, rotate`. For multiple non-transform properties: `transition-[scale,opacity,filter]`.
+
+**`will-change` — use sparingly.** Hints the browser to pre-promote an element to a GPU compositing layer, avoiding first-frame stutter. Only for GPU-compositable properties:
+
+- **Use:** `transform`, `opacity`, `filter`, `clip-path`
+- **Never:** `will-change: all`, `background-color`, `padding`, `top`, `left`, `width`, `height`
+
+Only add when you observe first-frame stutter (Safari benefits most). Each compositing layer costs memory — don't add preemptively.
