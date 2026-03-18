@@ -64,3 +64,5 @@
 	statusHints = false
 [credential]
 	helper = 
+[url "git@github.com:"]
+	insteadOf = https://github.com/
