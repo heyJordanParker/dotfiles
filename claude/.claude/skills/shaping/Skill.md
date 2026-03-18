@@ -48,20 +48,65 @@ When kicking off a new shaping session, offer the user both entry points:
 - **Start from R (Requirements)** — Describe the problem, pain points, or constraints. Build up requirements and let shapes emerge.
 - **Start from S (Shapes)** — Sketch a solution already in mind. Capture it as a shape and extract requirements as you go.
 
-There is no required order. Shaping is iterative — R and S inform each other throughout.
+As the conversation develops:
+- **Read appetite** from the user's behavior — mirror their architectural energy level. Adapt as it shifts.
+- **Identify boundaries** as they emerge — what is explicitly out of scope? What adjacent systems should NOT be touched?
+
+There is no required order. Shaping is iterative — R, X, and S inform each other throughout.
 
 ## Working with an Existing Shaping Doc
 
 When the shaping doc already has a selected shape:
 
-1. **Display the fit check for the selected shape only** — Show R × [selected shape] (e.g., R × F), not all shapes
-2. **Summarize what is unsolved** — Call out any requirements that are Undecided, or where the selected shape has ❌
+1. **Display scope** — Show the natural-language scope statement (e.g., "Build password reset flow for existing accounts"). Update if the conversation changes direction.
+2. **Display the fit check for the selected shape only** — Show R × [selected shape] (e.g., R × F), not all shapes
+3. **Display boundaries** — Show the full boundaries list
+4. **Summarize what is unsolved** — Call out any requirements that are Undecided, or where the selected shape has ❌
 
 This gives the user immediate context on where the shaping stands and what needs attention.
 
 ---
 
 ## Core Concepts
+
+### Appetite
+
+Appetite is the agent's read of the user's architectural energy level. The agent mirrors it — matching the user's posture, not imposing its own.
+
+- User is aggressively refactoring architecture → agent matches that energy, pushes in that direction, proactively suggests structural improvements
+- User is carefully adjusting one thing → agent stays focused, presents broader ideas as *optional future work* (never proactively creates issues or expands scope)
+- User shifts energy mid-session → agent adapts immediately
+- If uncertain, stay focused until the user signals otherwise
+
+**The agent never asks "what's your appetite?"** — it reads the user's behavior and adapts.
+
+**During shaping, proactively involve the user in every architectural decision that code and research can't answer.** This initial alignment saves massive rework during execution. During execution, the opposite: maximize autonomy, user is the last resort after all automated validation is exhausted.
+
+**How appetite affects the session:**
+- **Requirements gathering** — Focused: accept only the core problem. Expansive: actively look for adjacent requirements worth addressing
+- **Shape evaluation** — Focused: simplest shape that solves the problem. Expansive: best shape that also improves surrounding architecture
+- **Scope disputes** — When cutting scope, compare against current user experience. A cut is only valid if the result is still better than what users have today
+- **Boundaries** — Focused appetite produces many boundaries. Expansive appetite produces fewer, but they still exist
+- **Suggestions beyond scope** — Always frame as optional: "This could also be improved, but that's separate work." Never absorb silently
+
+### Boundaries
+
+A numbered set defining what this work does NOT cover. Stated upfront, before shaping begins. Boundaries prevent scope creep and make the edges of the work explicit. Same concept as Boundaries in Claude.md files, applied to the shaping scope.
+
+- **X0, X1, X2...** are members of the boundaries set
+- Boundaries are negotiated alongside requirements — they inform each other
+- A boundary is a firm "no" — if work touches a boundary, stop and renegotiate with the user
+- Boundaries are appetite-aware: focused appetite produces many boundaries, expansive produces fewer
+- When a requirement conflicts with a boundary, surface the conflict explicitly — never silently drop the boundary
+
+**Good boundaries are specific and testable:**
+- "No changes to the public API" (testable)
+- "No database migrations" (testable)
+- "No changes to the authentication flow" (specific)
+
+**Bad boundaries are vague:**
+- "Keep it simple" (not testable)
+- "Don't break anything" (everything is a boundary, so nothing is)
 
 ### R: Requirements
 A numbered set defining the problem space.
@@ -102,6 +147,7 @@ Good titles capture the essence of the approach in a few words:
 | Level | Notation | Meaning | Relationship |
 |-------|----------|---------|--------------|
 | Requirements | R0, R1, R2... | Problem constraints | Members of set R |
+| Boundaries | X0, X1, X2... | Explicit no-gos | Members of set X |
 | Shapes | A, B, C... | Solution options | Pick one from S |
 | Components | C1, C2, C3... | Parts of a shape | Combine within shape |
 | Alternatives | C3-A, C3-B... | Approaches to a component | Pick one per component |
@@ -209,6 +255,7 @@ The macro fit check has two columns per shape instead of one:
 These can happen in any order:
 
 - **Populate R** - Gather requirements as they emerge
+- **Populate X** - Identify boundaries (no-gos) as they emerge
 - **Sketch a shape** - Propose a high-level approach (A, B, C...)
 - **Detail (components)** - Break a shape into components (B1, B2...)
 - **Detail (affordances)** - Expand a selected shape into concrete UI/Non-UI affordances and wiring
@@ -467,7 +514,7 @@ Shaping produces up to four documents. Each has a distinct role:
 | Document | Contains | Purpose |
 |----------|----------|---------|
 | **Frame** | Source, Problem, Outcome | The "why" — concise, stakeholder-level |
-| **Shaping doc** | Requirements, Shapes (CURRENT/A/B/...), Affordances, Breadboard, Fit Check | The working document — exploration and iteration happen here |
+| **Shaping doc** | Appetite, Requirements, Boundaries, Shapes (CURRENT/A/B/...), Affordances, Breadboard, Fit Check | The working document — exploration and iteration happen here |
 | **Slices doc** | Slice details, affordance tables per slice, wiring diagrams | The implementation plan — how to build incrementally |
 | **Slice plans** | V1-plan.md, V2-plan.md, etc. | Individual implementation plans for each slice |
 
@@ -573,6 +620,8 @@ User is shaping a search feature:
 shaping: true
 ---
 
+**Scope:** Add client-side search filtering to the items index page
+
 ## Requirements (R)
 
 | ID | Requirement | Status |
@@ -580,6 +629,14 @@ shaping: true
 | R0 | Make items searchable from index page | Core goal |
 | R1 | State survives page refresh | Undecided |
 | R2 | Back button restores state | Undecided |
+
+## Boundaries (X)
+
+| ID | Boundary |
+|----|----------|
+| X0 | No changes to the existing API endpoints |
+| X1 | No full-text search infrastructure (Elasticsearch, etc.) — client-side filtering only |
+| X2 | No changes to the data model |
 
 ---
 
