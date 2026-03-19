@@ -5,7 +5,9 @@ Event-driven automation for Claude Code.
 ## Hook Types
 
 - **Command** (`type: "command"`) — Bash scripts, deterministic
-- **Prompt** (`type: "prompt"`) — LLM-driven, context-aware (recommended for complex logic)
+- **Prompt** (`type: "prompt"`) — Single LLM turn, no tools, context-aware
+- **Agent** (`type: "agent"`) — Spawns a full subagent with tool access (Read, Grep, Glob, Bash, etc.)
+- **HTTP** (`type: "http"`) — Delegates to an external HTTP service
 
 ## Events
 
@@ -13,6 +15,7 @@ Event-driven automation for Claude Code.
 - **PostToolUse:** React to results, logging — matcher: tool names
 - **Stop:** Completeness check before agent stops
 - **SubagentStop:** Validate subagent task completion
+- **TaskCompleted:** React to completed subagent tasks
 - **UserPromptSubmit:** Add context, validate prompts
 - **SessionStart:** Load context, set env vars — matcher: startup|resume|clear|compact
 - **SessionEnd:** Cleanup
@@ -160,7 +163,7 @@ echo "Project initialized with development settings"
 
 ## Prompt-Based Hooks
 
-For complex logic, use LLM evaluation:
+For complex logic, use LLM evaluation (single turn, no tools):
 
 ```json
 {
@@ -170,15 +173,63 @@ For complex logic, use LLM evaluation:
 }
 ```
 
-**Supported events:** PreToolUse, PostToolUse, Stop, SubagentStop, UserPromptSubmit, PermissionRequest, Elicitation, ElicitationResult
+**Supported events:** PreToolUse, PostToolUse, Stop, SubagentStop, UserPromptSubmit, PermissionRequest, TaskCompleted, Elicitation, ElicitationResult
+
+## Agent Hooks
+
+Spawns a full subagent with tool access (Read, Grep, Glob, Bash, etc.). Use when the hook needs to **inspect files or the codebase** before deciding.
+
+```json
+{
+  "type": "agent",
+  "prompt": "Check if the file being written has corresponding tests. Input: $ARGUMENTS. If no tests exist, block with reason.",
+  "model": "fast-model-id",
+  "timeout": 60,
+  "statusMessage": "Verifying test coverage..."
+}
+```
+
+**Schema:**
+- `type: "agent"` (required)
+- `prompt: string` (required) — `$ARGUMENTS` replaced with hook input JSON
+- `model: string` (optional) — defaults to a fast model
+- `timeout: number` (optional) — default 60s (vs 30s for prompt hooks)
+- `statusMessage: string` (optional) — custom spinner text
+- `once: boolean` (optional) — run once per session
+
+**Supported events:** Same as prompt hooks — PreToolUse, PostToolUse, Stop, SubagentStop, UserPromptSubmit, PermissionRequest, TaskCompleted, Elicitation, ElicitationResult
+
+**Output format:** Same JSON decision format as prompt hooks (event-dependent).
+
+**When to use agent vs prompt:**
+- **Prompt** — decision can be made from the hook input JSON alone (fast, cheap)
+- **Agent** — needs to read files, check build artifacts, scan code patterns (slow, costs API credits)
+
+Agent hooks spawn full Claude sessions. Reserve for high-value workflows where the automation justifies the overhead.
+
+## HTTP Hooks
+
+Delegates to an external HTTP service:
+
+```json
+{
+  "type": "http",
+  "url": "https://example.com/hooks/validate",
+  "timeout": 30
+}
+```
+
+Posts hook input JSON to the URL, expects the same decision JSON format back.
 
 ## Performance
 
 - Hooks run in parallel (no guaranteed order)
 - Design for independence (no shared state)
 - Use command hooks for fast deterministic checks
-- Use prompt hooks for complex reasoning
+- Use prompt hooks for context-aware single-turn reasoning
+- Use agent hooks only when filesystem inspection is required
+- Use HTTP hooks to delegate to external services
 
 ## References
 
-- [Official docs](https://docs.anthropic.com/en/docs/claude-code/hooks)
+- [Official docs](https://code.claude.com/docs/en/hooks)
