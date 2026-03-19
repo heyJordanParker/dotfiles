@@ -39,6 +39,18 @@ path/to/
 - None (or list unresolved)
 ```
 
+## Current Changes
+
+!`git changes`
+
+## Branch
+
+!`git branch --show-current`
+
+## Recent Commits
+
+!`git log --oneline -10`
+
 ## Process
 
 1. Explore codebase to understand context

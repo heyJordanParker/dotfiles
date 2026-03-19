@@ -7,9 +7,17 @@ description: Tests code changes by tracing real user flows. Lists flows affected
 
 ## Process
 
+## Current Changes
+
+!`git changes`
+
+## Full Diff
+
+!`git diff HEAD`
+
 ### 1. Identify Changed Code
 
-Run `git diff HEAD` to get uncommitted changes. If the diff is empty, tell the user there are no uncommitted changes to test and stop.
+Review the "Current Changes" and "Full Diff" sections above. If the diff is empty, tell the user there are no uncommitted changes to test and stop.
 
 Read the changed files in full. Prepare two pieces of context for subagents:
 - **Intent** — 1-2 sentences on WHY these changes were made (business motivation, not code details)

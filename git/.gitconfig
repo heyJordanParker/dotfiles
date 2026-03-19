@@ -43,6 +43,7 @@
 	assumeall = "!git st -s | awk {'print $2'} | xargs git assume"
 	grep = grep -Ii
 	f = "!git ls-files | grep -i"
+	changes = "!f() { echo 'Staged:'; git diff --cached --stat; echo ''; echo 'Unstaged:'; git diff --stat; echo ''; echo 'Untracked:'; git ls-files --others --exclude-standard; }; f"
 	root = "rev-parse --show-toplevel"
 	gra = "!f() { TOPLEVEL=$(git root) && cd \"$TOPLEVEL\"; }; f"
 	filelog = log -u

@@ -7,6 +7,14 @@ description: Use when encountering bugs, test failures, or unexpected behavior. 
 
 Framework for finding and fixing bugs correctly.
 
+## Recent Commits
+
+!`git log --oneline -10`
+
+## Current Changes
+
+!`git changes`
+
 ## Triggers
 
 - Any bug, test failure, or unexpected behavior

@@ -4,9 +4,17 @@ description: Validated commit with tests and comprehensive review
 
 Final gate when feature is done and user-tested.
 
+## Current Changes
+
+!`git changes`
+
+## Recent Commits
+
+!`git log --oneline -10`
+
 ## Step 1: Pre-flight
 
-Run `git status --porcelain`.
+Check the "Current Changes" section above.
 
 - Unstaged changes exist: Stage all changes
 - Nothing to commit: "Nothing to commit." → exit
@@ -31,7 +39,7 @@ Apply gate from review results:
 
 ## Step 4: Commit
 
-1. Run `git log --oneline -5` for style reference
+1. Use "Recent Commits" above for style reference
 2. Analyze `git diff --cached`
 3. Generate message (use the `commit-message` skill)
 4. Auto-commit with generated message

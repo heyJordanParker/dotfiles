@@ -5,9 +5,19 @@ description: Use for code review - runs all reviewers in parallel on uncommitted
 
 # Review
 
-Full code review gate. Runs 1 parallel subagent + 5 agents on `git diff HEAD`.
+Full code review gate. Runs 1 parallel subagent + 5 agents on uncommitted changes.
+
+## Current Changes
+
+!`git changes`
+
+## Full Diff
+
+!`git diff HEAD`
 
 ## Instructions
+
+Include the "Current Changes" and "Full Diff" sections above in each subagent prompt instead of telling them to run `git diff HEAD`.
 
 Launch 6 reviewers in parallel: 1 subagent using the Task tool + 5 agents using the Agent tool (`subagent_type: "code-reviewer"`, `subagent_type: "architect"`, `subagent_type: "backend-engineer"`, `subagent_type: "frontend-engineer"`, and `subagent_type: "context-engineer"`).
 
@@ -16,7 +26,7 @@ Launch 6 reviewers in parallel: 1 subagent using the Task tool + 5 agents using 
 Dispatch using `subagent_type: "code-reviewer"` via the Agent tool (not Task tool). Prompt:
 
 ```
-Review uncommitted changes. Run `git diff HEAD` and scan all 12 slop categories. Report using Critical/Important/Minor format. If clean: "No slop found."
+Review uncommitted changes. Review the diff provided and scan all 12 slop categories. Report using Critical/Important/Minor format. If clean: "No slop found."
 ```
 
 ### Architect Agent
@@ -24,7 +34,7 @@ Review uncommitted changes. Run `git diff HEAD` and scan all 12 slop categories.
 Dispatch using `subagent_type: "architect"` via the Agent tool (not Task tool). Prompt:
 
 ```
-Review uncommitted changes. Run `git diff HEAD` and apply your full review protocol. Report using Critical/Important/Minor format.
+Review uncommitted changes. Review the diff provided and apply your full review protocol. Report using Critical/Important/Minor format.
 ```
 
 ### Subagent 3: Naming
@@ -32,7 +42,7 @@ Review uncommitted changes. Run `git diff HEAD` and apply your full review proto
 ```
 You are a naming reviewer. Read references/naming.md for guidance.
 
-1. Run `git diff HEAD`
+1. Review the diff provided
 2. Check: misleading names, generic names, convention violations, abbreviation abuse
 3. Report:
 
@@ -48,7 +58,7 @@ If clean: "No naming issues found."
 Dispatch using `subagent_type: "backend-engineer"` via the Agent tool (not Task tool). Prompt:
 
 ```
-Review uncommitted changes. Run `git diff HEAD` and apply your review mode protocol. Check: reinvented wheels, library leverage, YAGNI, complexity creep, approach quality, API regressions. Report using Critical/Important/Minor format. If clean: "Code is appropriately simple."
+Review uncommitted changes. Review the diff provided and apply your review mode protocol. Check: reinvented wheels, library leverage, YAGNI, complexity creep, approach quality, API regressions. Report using Critical/Important/Minor format. If clean: "Code is appropriately simple."
 ```
 
 ### Frontend-Engineer Agent: User Flows
@@ -56,7 +66,7 @@ Review uncommitted changes. Run `git diff HEAD` and apply your review mode proto
 Dispatch using `subagent_type: "frontend-engineer"` via the Agent tool (not Task tool). Prompt:
 
 ```
-Review uncommitted changes. Run `git diff HEAD` and apply your user flow testing protocol. Identify affected user flows, trace each one through the code, and report gaps. Report using Critical/Important/Minor format. If clean: "All user flows verified."
+Review uncommitted changes. Review the diff provided and apply your user flow testing protocol. Identify affected user flows, trace each one through the code, and report gaps. Report using Critical/Important/Minor format. If clean: "All user flows verified."
 ```
 
 ### Context-Engineer Agent: Ledger
@@ -64,7 +74,7 @@ Review uncommitted changes. Run `git diff HEAD` and apply your user flow testing
 Dispatch using `subagent_type: "context-engineer"` via the Agent tool (not Task tool). Prompt:
 
 ```
-Audit Claude.md files against the current uncommitted changes. Run `git diff HEAD` to determine scope. Report using Critical/Important/Minor format:
+Audit Claude.md files against the current uncommitted changes (diff provided). Report using Critical/Important/Minor format:
 
 **Critical:** (architectural change with no Claude.md, Requirements/Boundaries contradicted by changes)
 **Important:** (missing ledger entry for significant change, stale requirement or boundary, hierarchy placement issues)

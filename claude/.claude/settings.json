@@ -20,6 +20,12 @@
       "WebFetch(domain:raw.githubusercontent.com)",
       "Bash(git add:*)",
       "Bash(git commit:*)",
+      "Bash(git diff:*)",
+      "Bash(git lg:*)",
+      "Bash(git log:*)",
+      "Bash(git status:*)",
+      "Bash(git branch:*)",
+      "Bash(git changes:*)",
       "Bash(brew install:*)",
       "Bash(ls:*)",
       "mcp__pencil"

@@ -7,6 +7,14 @@ description: Run N identical parallel subagents on the same task for independent
 
 N identical agents do the same work independently. Compare results for consensus.
 
+## Current Changes
+
+!`git changes`
+
+## Full Diff
+
+!`git diff HEAD`
+
 ## Triggers
 
 - "independent review", "cross check", "validate independently"

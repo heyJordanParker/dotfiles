@@ -7,6 +7,18 @@ description: MANDATORY when writing commit messages. Structures commits with typ
 
 **This skill is mandatory.** Follow this format for all commits.
 
+## Current Changes
+
+!`git changes`
+
+## Full Diff
+
+!`git diff HEAD`
+
+## Recent Commits
+
+!`git log --oneline -10`
+
 ## Format
 
 ```

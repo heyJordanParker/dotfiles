@@ -12,6 +12,10 @@ Review and update Claude.md files against the Why/What/How template.
 
 Read `/cc` reference `claude-md.md` for the full template before making any changes.
 
+## Claude.md Changes
+
+!`git diff HEAD --stat -- '**/Claude.md'`
+
 ## Modes
 
 ### Review (default)
