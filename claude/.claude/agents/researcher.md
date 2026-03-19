@@ -4,7 +4,7 @@ description: |
   Use for external research — finding documentation, understanding libraries, investigating APIs,
   and answering questions about systems outside the current codebase. Read-only. Never writes code.
 color: green
-model: sonnet
+model: opus
 tools: Read, Grep, Glob, Bash, WebFetch, WebSearch, mcp__context7__resolve-library-id, mcp__context7__query-docs
 skills: agent-browser, cc, claude-api
 memory: user

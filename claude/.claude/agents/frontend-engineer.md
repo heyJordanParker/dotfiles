@@ -6,7 +6,7 @@ description: |
   user flow tracing, design quality, and regression prevention. Reads Claude.md files for
   stack-specific patterns.
 color: yellow
-model: sonnet
+model: opus
 skills: design, agent-browser
 memory: user
 ---

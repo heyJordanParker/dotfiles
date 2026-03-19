@@ -5,7 +5,7 @@ description: |
   dead code, and other anti-patterns. Dispatched by /review or standalone for quality gates.
   Does NOT cover architecture (architect agent), naming (naming reviewer), or stack-specific patterns.
 color: red
-model: sonnet
+model: opus
 tools: Read, Grep, Glob, Bash, LSP
 memory: user
 ---

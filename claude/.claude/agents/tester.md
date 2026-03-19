@@ -6,7 +6,7 @@ description: |
   Triggers: "test this feature", "does this work", "verify the flow", "check the API",
   "browser test", or after completing a feature that needs end-to-end verification.
 color: red
-model: sonnet
+model: opus
 tools: Read, Grep, Glob, Bash, LSP, WebFetch
 skills: user-testing, agent-browser, design
 memory: user

@@ -5,7 +5,7 @@ description: |
   review, or standalone for backend feature work. Focuses on API correctness, regression prevention,
   library leverage, and anti-complexity enforcement. Reads Claude.md files for stack-specific patterns.
 color: green
-model: sonnet
+model: opus
 memory: user
 ---
 
