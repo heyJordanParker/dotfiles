@@ -17,7 +17,7 @@ Guide for creating and maintaining Claude Code skills.
 3. **YAGNI** - Abstract after duplication, not before.
 4. **Capture the "why"** - Examples need rationale. "Bad: X, Good: Y, Why: Z"
 5. **Prefer examples to prose** — When defining acceptable patterns, use good/bad code examples instead of prose descriptions. The example shows what to do; the reasoning explains why it matters.
-6. **Progressive disclosure** - Skill.md stays lean and routes to reference files. Group content by what gets used together — when the agent opens a file, most of it should be relevant.
+6. **Progressive disclosure** - Skill.md contains everything the agent needs for the skill's core job. If something is needed 80%+ of the time, it belongs in Skill.md. References are for sub-tasks that only sometimes apply — the agent may never open them. Group reference content by what gets used together.
 7. **Ground in real code** - Explore codebase for actual patterns.
 8. **Check existing docs** - Claude.md files, README, linter configs may have conventions.
 9. **Validate incrementally** - Get key decisions approved first.
@@ -58,26 +58,26 @@ Structure skill execution in phases:
 
 **Write Direct** - Name the failures each instruction prevents. Keep files under 100 lines — split or trim if longer. "Use X" not "consider using X."
 
-**Structure References** - References serve processes, not topics.
+**Structure References** - References are opt-in. The agent may never open them. Never put mission-critical information in a reference — if the agent produces wrong output without it, it belongs in Skill.md.
 
+- **The 80% test:** "Does the agent need this for 80%+ of invocations?" If yes → Skill.md. If no → reference for that specific sub-task
+- References are for sub-tasks that only sometimes apply (e.g. animation patterns in a design skill, error handling recipes in a coding skill)
 - Name after what you're DOING: `building-skills.md` — not what the topic IS: `context-engineering.md`
 - **Litmus test:** verb phrase = process. "building skills" ✓. "context engineering" ✗.
-- If content is "generally useful knowledge":
-  - Universal → entry point (Skill.md)
-  - Process-specific → the process reference that uses it
-  - Both → split between them
 
 **Signs structure is wrong:**
+- Agent produces wrong output despite rules existing → rules are in a reference instead of Skill.md
 - Agent always reads files A and B together → merge into one file
 - Agent loads file, uses <10% → split along task boundaries
 - Same info in multiple files → move to common parent
-- Agent can't complete task without principles → principles not in entry point
+- Agent can't complete task without opening a reference → that content belongs in Skill.md
 
 ## After
 
 - [ ] Description clear about when to use? (≤1024 chars)
 - [ ] Principles (adaptable) not rules (brittle)?
-- [ ] Skill.md lean? Details in reference files?
+- [ ] Everything needed 80%+ of invocations is in Skill.md?
+- [ ] Every reference is a sub-task that only sometimes applies?
 - [ ] Every example includes the why?
 - [ ] Understandable without prior context?
 - [ ] Has validation checklist?
