@@ -5,8 +5,6 @@ description: Use when building UI components, styling pages, or making visual/in
 
 # Frontend Design
 
-Use when building UI components, styling pages, or making visual/interaction decisions.
-
 ## Design Modes
 
 - **minimal** (default): Less is more, function-first — Admin tools, utilities, dashboards
@@ -29,52 +27,559 @@ Ask: What's the key functionality? Start from there. Fewer colors, fewer words, 
 
 **Intentionality > Intensity.** Every choice should have a reason.
 
-### Step 2: Build (Reference-Driven)
-
-Consult the reference files below while implementing. Follow every principle — they are not suggestions.
+### Step 2: Build
 
 **Anti-Patterns — never create generic AI aesthetics:**
 - Gaudy, high-saturation, or rainbow gradients (subtle gradients that add texture are good)
 - Excessive rounded corners on everything
 - Purple-blue-pink color schemes with no purpose
 - Animations that don't serve function
-- "Modern" for modern's sake
 
 If it looks like every AI-generated landing page, redo it.
 
 **Core Principles:**
-- **Cutting-edge CSS** - Gaps over margins, view transitions over JS animations, logical properties over directional. Use modern CSS when universally supported
-- **Encapsulated and reusable** - Components work outside their current context. No assumptions about parent layout
-- **BEM everywhere** - Block, Element, Modifier. No bare class names, no utility-only components. See [css-architecture.md](references/css-architecture.md)
-- **Styling lives in CSS** - Never style in React. React toggles data attributes and classes. CSS handles all visual states
-- **Proactive reuse** - Extract reusable CSS classes for patterns that will obviously recur
-- **Simplicity wins** - Remove until it breaks, then add one thing back
-- **Hierarchy through restraint** - One focal point per view
-- **Consistency > novelty** - Match existing patterns before inventing
-- **Function drives form** - Every visual choice serves usability
+- **Cutting-edge CSS** — Gaps over margins, view transitions over JS animations, logical properties over directional. Use modern CSS when universally supported
+- **Simplicity wins** — Remove until it breaks, then add one thing back
+- **Hierarchy through restraint** — One focal point per view
+- **Function drives form** — Every visual choice serves usability
+- **Consistency > novelty** — Match existing patterns before inventing
+- **Encapsulated and reusable** — Components work outside their current context
 
-**Quick Reference:**
+#### CSS Ownership
 
-**Sizing:** Tokens → Grid/flex (`ch`/`%`) → Typography (`em`/`lh`) → Container (`cqi`/`cqb`) → Visual (sub-em)
+**Rule:** If it's visual or behavioral and can be done with CSS + data attributes, do it in CSS. React toggles classes/attributes, CSS does the rest.
 
-**Layout:** Every block is grid/flex. Always include 1 dynamic column. Use gaps, not margins.
+CSS handles:
+- Disabled states (`:disabled`, `[aria-disabled="true"]`)
+- Hover/focus/active states
+- Sizes and spacing
+- Visibility (`[data-visible="false"]`)
+- Loading states (`.loading` class)
+- Transitions and animations
 
-**Responsive:** Container queries (`cqi`) over media queries. Media queries only for device-specific (modals, off-canvas).
+React handles:
+- Data fetching and state
+- Event handlers that change data
+- Conditional rendering of different components
+- Form submission logic
 
-**Colors:** Never hardcode. Use tokens + `color-mix(in oklch, ...)` for variations.
+```css
+.button:disabled {
+  @apply opacity-50 cursor-not-allowed;
+}
+.sidebar[data-collapsed="true"] {
+  width: var(--sidebar-width-icon);
+}
+```
 
-**Spacing:** 4px grid in rem (0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 2.5, 3, 4rem)
+```tsx
+<button disabled={isLoading}>Submit</button>
+<aside data-collapsed={isCollapsed}>...</aside>
+```
 
-**Typography:** 3 sizes (0.75, 0.875, 1.125rem) + weight/color for hierarchy. Max 55ch line length.
+**BEM naming** — Block, Element, Modifier. 2-level max — never `block__element__sub-element`, start a new block instead.
 
-**Transitions:** Use the View Transitions API for page/state changes. See [interactions.md](references/interactions.md) for timing, easing, states, view transitions, and micro-interactions.
+```css
+.sidebar { }                    /* Block */
+.sidebar__header { }            /* Element */
+.sidebar--collapsed { }         /* Modifier */
+```
+
+**@apply inside BEM classes** — TSX has semantic names, not utility soup. Tailwind handles values (rem, responsive, dark mode), BEM provides structure and discoverability.
+
+```css
+.sidebar-header {
+  @apply absolute top-0 left-0 w-full z-20 p-0;
+  @apply bg-sidebar-accent/30 backdrop-blur-md;
+}
+.sidebar-menu-btn {
+  @apply w-full cursor-pointer transition-colors duration-200;
+}
+```
+
+Arbitrary Tailwind values use explicit `var()` — `w-[var(--x)]` not `w-[--x]`.
+
+Tailwind v4 doesn't support `&--modifier` nesting — use flat rules:
+
+```css
+/* Wrong */
+.sidebar-icon { &--active { @apply text-primary; } }
+/* Right */
+.sidebar-icon--active { @apply text-primary; }
+```
+
+**Native CSS nesting** — use `&` for pseudo-classes and attribute selectors:
+
+```css
+.sidebar-menu-btn {
+  @apply transition-colors duration-200;
+  &:hover { @apply bg-sidebar-accent; }
+  &[data-active="true"] { @apply bg-sidebar-accent; }
+}
+```
+
+**Encapsulated** — components work outside their current context. No assumptions about parent layout.
+
+**Reuse over creation** — match existing patterns before inventing. Extract reusable CSS classes for patterns that obviously recur.
+
+**Variable scoping** — variables live where they belong:
+- **Design system:** `theme.css` — colors, shadows, fonts, radii
+- **App-level:** `global.css` — timing, easing (keep lean)
+- **Component:** `components/*.css` — `--sidebar-width`, `--card-padding`
+- **Page:** `pages/*.css` — page-specific overrides
+
+If only one component uses a variable, it lives in that component's file.
+
+```css
+/* components/sidebar.css */
+:root {
+  --sidebar-width: 16rem;
+  --sidebar-width-mobile: 18rem;
+  --sidebar-width-icon: 3rem;
+}
+.sidebar { width: var(--sidebar-width); }
+```
+
+**Layout-Component Mix** — avoid deep nesting and coupling by separating Layout (positioning) from Component (appearance). When a structural slot contains a UI component, apply two classes to the same element:
+- Layout role (`parent-block__element`): `grid-area`, `place-self`, `z-index`, `position`
+- Component role (`child-block`): `background`, `border`, `padding`, `display: flex/gap`
+
+Parent knows *where* children sit, not *what* they look like. Child knows *how* it looks, not *where* it sits.
+
+```html
+<!-- Wrong: grandchild selector -->
+<div class="frame">
+  <div class="frame__footer">
+    <button class="frame__footer-btn">Save</button>
+  </div>
+</div>
+
+<!-- Right: the Mix -->
+<div class="frame">
+  <div class="frame__dock toolbar">
+    <button class="toolbar__btn">Save</button>
+  </div>
+</div>
+```
+
+```css
+/* Layout: where it sits */
+.frame__dock { grid-area: footer; place-self: end; }
+/* Component: how it looks */
+.toolbar { @apply flex gap-2 p-2 bg-muted border-t; }
+```
+
+#### Layout
+
+**Every block uses grid or flex.** Always include at least one dynamic-width column. Use `gap` for all spacing.
+
+**Never use margins for layout spacing.** Margins only for:
+- Sub-em optical corrections (`0.02em` to align baselines)
+- `auto` margins for flex/grid alignment
+- Negative margins to elegantly remove gaps
+
+```css
+.container {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr; /* Always include dynamic column */
+  gap: 1rem;
+}
+```
+
+**Container queries over media queries.** Container queries ask "how much room do I have?" instead of "how big is the screen?" — components adapt to their context, not device size.
+
+**Use container queries for:** cards, grids, forms, galleries, tables, headers, footers, navigation — any component that could exist in multiple contexts.
+
+**Use media queries only for:** modals, off-canvas menus, fixed-position elements, device-specific concerns (print, reduced-motion).
+
+Auto-declare container from the child with the "Has Me" pattern:
+
+```css
+.card {
+  /* Auto-declare parent as container */
+  :has(> &) { container-type: inline-size; }
+
+  /* Now use container queries */
+  @container (min-width: 400px) {
+    display: grid;
+    grid-template-columns: 200px 1fr;
+  }
+}
+```
+
+**Grid items need physical cells** for container queries to measure. Use semantic wrappers:
+
+```html
+<ul class="grid">
+  <li>
+    <article class="card">...</article>
+  </li>
+</ul>
+```
+
+```css
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 1rem;
+}
+.grid > li { container-type: inline-size; }
+.card {
+  @container (min-width: 300px) { /* horizontal layout */ }
+}
+```
+
+**Container units:**
+- `cqi` — 1% of container's inline size (width)
+- `cqb` — 1% of container's block size (height)
+- `cqmin` / `cqmax` — smaller/larger of the two
+
+Prefer `cqi`/`cqb` over viewport units (`vw`/`vh`).
+
+**Touch detection** — desktop-only hover effects:
+
+```css
+@media (hover: hover) {
+  .card:hover { @apply shadow-md -translate-y-1; }
+}
+```
+
+Touch targets: minimum 44x44px (see hit area technique in [interactable.md](references/interactable.md)).
+
+**When media queries are appropriate:**
+
+```css
+@media print {
+  .no-print { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: 0.01ms !important; }
+}
+/* Off-canvas menu — device-specific */
+@media (max-width: 768px) {
+  .sidebar { transform: translateX(-100%); }
+}
+```
+
+#### Sizing
+
+Use units in priority order:
+
+1. **Design tokens** — auto-clamped via `clamp()`
+2. **Grid/flex** — `ch` or `%` for fixed widths, never `px`
+3. **Typography** — `1em`, `1lh`, `1rlh` for rhythm. Icons, avatars, buttons can use these
+4. **Container** — `cqi`, `cqb` over media queries and viewport units
+5. **Sub-em** — optical corrections (`0.02em`) and letter-spacing
+
+**No pixels** except borders (aliasing) and box-shadow (constant depth). All sizes in `rem` — users can adjust browser font size, rem respects this, px doesn't.
+
+Use `calc()` sparingly — 80% of content uses default tokens to establish rhythm.
+
+```css
+.icon { width: 1em; height: 1em; }
+.avatar { width: 2lh; height: 2lh; /* 2x line height */ }
+.button { padding-block: 0.5lh; padding-inline: 1em; }
+```
+
+#### Spacing
+
+**4px grid in rem:**
+
+- **0.25rem** (4px) / `gap-1`, `p-1`
+- **0.5rem** (8px) / `gap-2`, `p-2`
+- **0.75rem** (12px) / `gap-3`, `p-3`
+- **1rem** (16px) / `gap-4`, `p-4`
+- **1.25rem** (20px) / `gap-5`, `p-5`
+- **1.5rem** (24px) / `gap-6`, `p-6`
+- **2rem** (32px) / `gap-8`, `p-8`
+- **2.5rem** (40px) / `gap-10`, `p-10`
+- **3rem** (48px) / `gap-12`, `p-12`
+- **4rem** (64px) / `gap-16`, `p-16`
+
+**Use Tailwind utilities** for spacing: `gap-4`, `p-6`. Define CSS variables only for component-specific values.
+
+**Process:** Start generous (2.5rem / 40px), bring elements closer until they feel grouped, pick from scale.
+
+**Vertical spacing: rem. Horizontal sizing: ch.**
+- `rem` for padding, gaps (scales with root font)
+- `ch` for widths of text containers, inputs, content areas (scales with font)
+
+```css
+.layout {
+  container-type: inline-size;
+  display: grid;
+  grid-template-columns: 1fr 40ch; /* Main + sidebar */
+  @container (width < 100ch) {
+    grid-template-columns: 1fr;
+  }
+}
+```
+
+#### Typography
+
+**3 sizes only (rem):**
+- **0.75rem** (12px / `text-xs`) — Captions, metadata
+- **0.875rem** (14px / `text-sm`) — Body text, UI (base)
+- **1.125rem** (18px / `text-lg`) — Headings, emphasis
+
+**Hierarchy through weight and color, not size.** To emphasize an element, de-emphasize everything else. You can't make white "more white" — instead reduce the lightness of secondary text.
+
+- **Primary (titles):** 90-100% lightness / `text-foreground`
+- **Secondary:** 60-70% lightness / `text-muted-foreground`
+- **Disabled/hint:** 40-50% lightness / `text-muted-foreground/50`
+
+**Text wrapping:**
+- `text-wrap: balance` — headings and short text (≤6 lines in Chromium, ≤10 in Firefox). Distributes text evenly, prevents orphans. Computationally expensive — browsers limit to short text.
+- `text-wrap: pretty` — body paragraphs. Optimizes last line to avoid orphans without the line limit. Use on longer text where `balance` would be silently ignored.
+- Neither — code blocks, pre-formatted text.
+
+**Font smoothing:** macOS default subpixel antialiasing renders text heavier than intended. Apply `antialiased` (Tailwind) or `-webkit-font-smoothing: antialiased` to the layout root.
+
+**Tabular numbers:** `tabular-nums` for any numbers that update dynamically (counters, prices, tables). Without it, digits have variable width and visually shift on every update. Note: some fonts like Inter change numeral appearance when this is applied.
+
+**Line length:** Max 55ch for paragraphs — long lines overwhelm users on wide displays.
+
+**Line height as spacing:** Greater line height acts as natural margin-bottom. In most cases you don't need manual gap between text blocks.
+
+#### Colors (OKLCH)
+
+OKLCH is perceptually uniform — colors with same lightness actually look equally bright.
+
+**Never hardcode colors.** Always derive from tokens:
+
+```css
+/* Wrong */
+background: #3b82f6;
+background: oklch(0.64 0.17 250);
+
+/* Right — derive from tokens */
+background: var(--primary);
+background: color-mix(in oklch, var(--primary), transparent 50%);
+background: oklch(from var(--primary) l c h / 50%);
+```
+
+**Token format:**
+```css
+--primary: oklch(0.64 0.17 36);  /* oklch(lightness chroma hue) */
+```
+
+**Color mixing patterns:**
+```css
+color-mix(in oklch, var(--color), transparent 50%)  /* Transparency */
+oklch(from var(--color) calc(l + 0.1) c h)          /* Lighten */
+oklch(from var(--color) calc(l - 0.1) c h)          /* Darken */
+oklch(from var(--color) l calc(c * 0.5) h)          /* Desaturate */
+```
+
+**Palette generation with 60° hue shifts** — creates a 120° arc, same distance between primary colors on the wheel:
+```css
+:root {
+  --hue: 36;
+  --primary: oklch(0.64 0.17 var(--hue));
+  --secondary: oklch(0.55 0.12 var(--hue));
+  --tertiary: oklch(0.64 0.15 calc(var(--hue) - 60));  /* 60° left */
+  --accent: oklch(0.64 0.15 calc(var(--hue) + 60));    /* 60° right */
+}
+```
+
+**Dark/light mode:** `Light mode lightness = 100 - Dark mode lightness`
+
+**Hierarchy:**
+- Background: Very low chroma (nearly gray)
+- Text: No chroma (pure gray) or very low
+- Accents: Higher chroma for emphasis
+
+#### Gradients
+
+Never gaudy. Use gradients to add texture and make UI feel less flat — keep subtle and elegant.
+
+**Oklab interpolation:** Tailwind v4 uses oklab by default — smoother than sRGB, no muddy midpoints.
+
+**Grain overlay** — breaks digital smoothness:
+```css
+.hero {
+  @apply bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900;
+  position: relative;
+}
+.hero::after {
+  content: '';
+  @apply absolute inset-0 pointer-events-none;
+  background: url('/noise.svg');
+  opacity: 0.03;
+}
+```
+
+**Subtle card accent:**
+```css
+.card--elevated {
+  @apply bg-gradient-to-b from-white/5 to-transparent;
+}
+```
+
+#### Shadows & Elevation
+
+**Light source is at the top.** Top surfaces are lighter, bottom surfaces are darker.
+
+- **Level 0:** Page base / no shadow — Content areas
+- **Level 1:** Slightly lifted / `shadow-xs` — Sidebar body, cards
+- **Level 2:** Floating / `shadow-sm` — Sticky headers, glass panels
+- **Level 3:** Overlay / `shadow-md` — Dropdowns, modals
+
+**Dual shadow system (soft + dark)** — combine two shadow types for realistic depth:
+1. Light edge on top — simulates light hitting elevated surface
+2. Dark shadow at bottom — the actual shadow cast
+
+```css
+box-shadow:
+  inset 0 1px 0 rgba(255,255,255,0.05),  /* Light edge top */
+  0 4px 12px rgba(0,0,0,0.03),            /* Soft ambient */
+  0 1px 3px rgba(0,0,0,0.06);             /* Sharp contact */
+```
+
+**Recessed elements** (inputs, wells): dark inset shadow on top + light inset shadow on bottom.
+
+**Shadows instead of borders** — solid border colors don't adapt to varied backgrounds (images, gradients). Use multi-layer `box-shadow` for border-like definition that works universally via transparency:
+
+```css
+/* Wrong — solid border breaks on non-white backgrounds */
+border: 1px solid #e5e7eb;
+
+/* Right — shadow adapts to any background */
+box-shadow:
+  0px 0px 0px 1px rgba(0,0,0,0.06),
+  0px 1px 2px -1px rgba(0,0,0,0.06),
+  0px 2px 4px 0px rgba(0,0,0,0.04);
+
+/* Hover — same shadows, slightly darker */
+box-shadow:
+  0px 0px 0px 1px rgba(0,0,0,0.08),
+  0px 1px 2px -1px rgba(0,0,0,0.08),
+  0px 2px 4px 0px rgba(0,0,0,0.06);
+
+/* Dark mode — simplify to a single white ring.
+   Layered depth shadows are invisible against dark backgrounds. */
+--shadow-border: 0 0 0 1px rgba(255,255,255,0.08);
+--shadow-border-hover: 0 0 0 1px rgba(255,255,255,0.13);
+```
+
+Transition between states with `transition-[box-shadow]`.
+
+**Image outlines** — images can blend into surrounding content when edge colors match background:
+```css
+.image-outline {
+  outline: 1px solid rgba(0,0,0,0.1);
+  outline-offset: -1px;
+}
+.dark .image-outline {
+  outline-color: rgba(255,255,255,0.1);
+}
+```
+
+**Rules:**
+- Elevated = lighter background + more shadow
+- Never use z-index without corresponding shadow
+- Glass effect: `backdrop-blur-md` + semi-transparent bg + layered shadow
+
+#### Radius
+
+One radius value: `--radius: 0.675rem`
+
+Variants derived from it:
+- Small elements: `calc(var(--radius) - 0.125rem)`
+- Large containers: `calc(var(--radius) + 0.25rem)`
+
+Don't round everything. Intentional use only.
+
+**Concentric border radius:** outer = inner + padding. Mismatched radii create a subtle visual imbalance. Exception: if padding > 24px, treat layers as separate surfaces.
+
+```css
+/* Wrong — same radius on both */
+.outer { border-radius: 12px; padding: 8px; }
+.inner { border-radius: 12px; }
+
+/* Right — outer = inner + padding */
+.outer { border-radius: 20px; padding: 8px; }
+.inner { border-radius: 12px; }
+```
+
+#### Optical Corrections
+
+Geometric centering can look visually off because shapes have different visual weight. Buttons with text + icon need smaller padding on the icon side to look balanced:
+
+```css
+/* Wrong — equal padding looks off because icon has built-in whitespace */
+.button-with-icon { padding-inline: 1em; }
+
+/* Right — asymmetric padding, less on icon side */
+.button-with-icon {
+  padding-inline-start: 0.75em;
+  padding-inline-end: 1em;
+}
+```
+
+Play button triangles — geometric center sits left of the visual center because most of the shape's mass is on the left:
+```css
+.play-button svg { margin-left: 2px; }
+```
+
+Best fix for icons: adjust the whitespace in the SVG itself so no extra CSS is needed.
+
+**Visual alignment offsets:**
+```css
+.icon-with-text { margin-top: 0.02em; /* Align icon baseline with text */ }
+.heading { letter-spacing: -0.02em; /* Tighten large text */ }
+```
+
+#### Contrast & Accessibility
+
+**Minimum contrast ratios:**
+- Normal text: 4.5:1
+- Large text (1.125rem+ bold or 1.5rem+): 3:1
+- UI components: 3:1
+
+**OKLCH shortcut:** Lightness difference of ~0.4 usually passes.
+
+**Use rem for accessibility.** Users can adjust browser font size — rem respects this, px doesn't.
+
+#### CSS File Structure
+
+```
+styles/
+├── index.css              ← Entry point, imports, @theme inline, layers
+├── theme.css              ← Design system vars (copy from theme generators)
+├── global.css             ← App-level styles, keyframes (keep lean)
+├── components/
+│   └── [component].css    ← BEM classes + component-scoped vars
+├── utilities/
+│   └── [utility].css      ← Utility classes (use sparingly)
+└── pages/
+    └── [page].css         ← Page-scoped styles + vars
+```
+
+**Layers:**
+```css
+@layer base, components, utilities, wordpress-fixes;
+```
+Specificity order: base < components < utilities < wordpress-fixes
+
+**File naming:** no underscores, lowercase kebab-case, match component/page name.
+
+**@theme bridge (Tailwind v4)** — expose CSS variables to Tailwind utilities in index.css:
+```css
+@theme inline {
+  --color-primary: var(--primary);
+  --color-background: var(--background);
+  --shadow-sm: var(--shadow-sm);
+}
+```
+
+This lets you use `bg-primary`, `shadow-sm` in @apply and TSX.
 
 ### Step 3: Review (Required)
 
-Run through after all design work. Every item is yes/no. Do not skip this step.
+Run through after all design work. Every item is yes/no. Do not skip.
 
-### CSS Architecture
-
+#### CSS Architecture
 - [ ] All classes use BEM naming (block, element, modifier)
 - [ ] No inline styles, style objects, or conditional className string-building for visual concerns
 - [ ] React only toggles data attributes and classes — CSS handles all visual states
@@ -84,8 +589,7 @@ Run through after all design work. Every item is yes/no. Do not skip this step.
 - [ ] @apply used inside BEM classes — TSX has semantic names, not utility soup
 - [ ] Arbitrary Tailwind values use explicit `var()` — `w-[var(--x)]` not `w-[--x]`
 
-### Sizing & Layout
-
+#### Sizing & Layout
 - [ ] No pixel values (except borders and box-shadow)
 - [ ] Every block uses grid or flex with at least one dynamic-width column
 - [ ] Gaps used instead of margins for spacing
@@ -93,8 +597,7 @@ Run through after all design work. Every item is yes/no. Do not skip this step.
 - [ ] Typography-based sizing where appropriate (`em`, `lh` for icons, avatars, buttons)
 - [ ] Paragraphs max 55ch line length
 
-### Visual Design
-
+#### Visual Design
 - [ ] Spacing values from the 4px grid scale
 - [ ] Only 3 text sizes (0.75, 0.875, 1.125rem) — hierarchy via weight/color, not size
 - [ ] No hardcoded colors — all derived from tokens via `var()` or `color-mix(in oklch, ...)`
@@ -108,8 +611,7 @@ Run through after all design work. Every item is yes/no. Do not skip this step.
 - [ ] Images have subtle semi-transparent outline
 - [ ] No z-index without corresponding shadow
 
-### Interactions & Animation
-
+#### Interactions & Animation
 - [ ] No `transition: all` or bare Tailwind `transition` — only specific properties
 - [ ] `will-change` only on `transform`, `opacity`, `filter`, `clip-path` — never `all`
 - [ ] Exits roughly half the duration of entrances, more subtle (fixed `-12px`, not full height)
@@ -121,8 +623,7 @@ Run through after all design work. Every item is yes/no. Do not skip this step.
 - [ ] View Transitions API used for page/state changes
 - [ ] Micro-interactions limited to 1-2 per view
 
-### Responsive & Accessibility
-
+#### Responsive & Accessibility
 - [ ] Container queries over media queries for component adaptation
 - [ ] Media queries only for device-specific (modals, off-canvas, print, reduced-motion)
 - [ ] Interactive elements have at least 44x44px hit area (pseudo-element extension if smaller)
@@ -135,8 +636,7 @@ Run through after all design work. Every item is yes/no. Do not skip this step.
 - [ ] All sizes in `rem`
 - [ ] Desktop-only hover effects gated with `@media (hover: hover)`
 
-### UX Patterns
-
+#### UX Patterns
 - [ ] Forms: single column, labels above inputs, validate on blur
 - [ ] Error messages near the source with recovery action
 - [ ] Loading states present — user never wonders if something is happening
@@ -145,8 +645,7 @@ Run through after all design work. Every item is yes/no. Do not skip this step.
 - [ ] Non-destructive actions undoable (toast with Undo), not confirmed
 - [ ] Modals trap focus, close on Escape, return focus on close, prevent body scroll
 
-### Anti-Patterns (Reject If Present)
-
+#### Anti-Patterns (Reject If Present)
 - [ ] No gaudy/high-saturation/rainbow gradients
 - [ ] No excessive rounded corners on everything
 - [ ] No purple-blue-pink color scheme without purpose
@@ -154,8 +653,6 @@ Run through after all design work. Every item is yes/no. Do not skip this step.
 
 ## References
 
-- [css-architecture.md](references/css-architecture.md) - File structure, BEM, Tailwind @apply, variable scoping
-- [visual-design.md](references/visual-design.md) - Colors (OKLCH), spacing, typography, shadows, elevation
-- [interactions.md](references/interactions.md) - Timing, easing, states, keyframes, micro-interactions
-- [ux-patterns.md](references/ux-patterns.md) - Forms, navigation, feedback, accessibility, modals
-- [responsive.md](references/responsive.md) - Desktop-first breakpoints, touch detection, admin patterns
+- [motion.md](references/motion.md) - Timing, easing, states, transitions, micro-interactions
+- [interactable.md](references/interactable.md) - Forms, navigation, feedback, accessibility, modals
+- [bold.md](references/bold.md) - Bold design mode
