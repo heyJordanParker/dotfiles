@@ -8,7 +8,6 @@ style=$(echo "$input" | jq -r '.output_style.name')
 short_dir="${cwd/#$HOME/~}"
 
 git_info=""
-git_file_status=""
 
 if git -C "$cwd" rev-parse --git-dir >/dev/null 2>&1; then
   branch=$(git -C "$cwd" --no-optional-locks branch --show-current 2>/dev/null || git -C "$cwd" --no-optional-locks rev-parse --short HEAD 2>/dev/null)
@@ -26,19 +25,18 @@ if git -C "$cwd" rev-parse --git-dir >/dev/null 2>&1; then
       [ -n "$branch_status" ] && git_info="${git_info} [${branch_status}]"
     fi
 
-    # File status (for line 2)
-    status=$(git -C "$cwd" --no-optional-locks status --porcelain 2>/dev/null)
-    if [ -n "$status" ]; then
-      added=$(echo "$status" | grep -c -E '^A|^\?\?')
-      modified=$(echo "$status" | grep -c -E '^.?M')
-      deleted=$(echo "$status" | grep -c -E '^.?D')
-      dim=$'\033[90m'
-      reset=$'\033[0m'
-      [ "$added" -gt 0 ] && git_file_status="${git_file_status}${dim}󰐕${added}${reset} "
-      [ "$modified" -gt 0 ] && git_file_status="${git_file_status}${dim}󰏫${modified}${reset} "
-      [ "$deleted" -gt 0 ] && git_file_status="${git_file_status}${dim}󰍴${deleted}${reset} "
-    fi
   fi
+fi
+
+mode_display=""
+session_file=$(ls -t /tmp/claude-session-* 2>/dev/null | head -1)
+if [ -n "$session_file" ]; then
+  mode=$(grep "^MODE=" "$session_file" 2>/dev/null | cut -d= -f2-)
+  approach=$(grep "^APPROACH=" "$session_file" 2>/dev/null | cut -d= -f2-)
+  # Mode in yellow, approach in cyan, separated by space
+  [ -n "$mode" ] && mode_display=$(printf "\033[33m%s\033[0m" "$mode")
+  [ -n "$approach" ] && mode_display=$(printf "%s \033[36m%s\033[0m" "$mode_display" "$approach")
+  [ -n "$mode_display" ] && mode_display="$mode_display "
 fi
 
 model_info=""
@@ -91,5 +89,5 @@ progress_bar=$(printf "\033[90m%s %d%%\033[0m" "$bar" "$percentage")
 # Line 1: directory + git branch
 printf "\033[97m%s\033[0m\033[35m%s\033[0m\n" "$short_dir" "$git_info"
 
-# Line 2: model + style + duration + git file status + progress bar
-printf "\033[34m%s\033[0m\033[32m%s\033[0m \033[90m%s\033[0m %b%s\n" "$model_info" "$style_info" "$duration" "$git_file_status" "$progress_bar"
+# Line 2: mode + approach + model + style + duration + progress bar
+printf "%b\033[34m%s\033[0m\033[32m%s\033[0m \033[90m%s\033[0m %s\n" "$mode_display" "$model_info" "$style_info" "$duration" "$progress_bar"
