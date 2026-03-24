@@ -5,7 +5,7 @@ description: Use for code review - runs all reviewers in parallel on uncommitted
 
 # Review
 
-Full code review gate. Runs 1 parallel subagent + 5 agents on uncommitted changes.
+Full code review gate. Runs 1 parallel subagent + 6 agents on uncommitted changes.
 
 ## Current Changes
 
@@ -19,7 +19,7 @@ Full code review gate. Runs 1 parallel subagent + 5 agents on uncommitted change
 
 Include the "Current Changes" and "Full Diff" sections above in each subagent prompt instead of telling them to run `git diff HEAD`.
 
-Launch 6 reviewers in parallel: 1 subagent using the Task tool + 5 agents using the Agent tool (`subagent_type: "code-reviewer"`, `subagent_type: "architect"`, `subagent_type: "backend-engineer"`, `subagent_type: "frontend-engineer"`, and `subagent_type: "context-engineer"`).
+Launch 7 reviewers in parallel: 1 subagent using the Task tool + 6 agents using the Agent tool (`subagent_type: "code-reviewer"`, `subagent_type: "architect"`, `subagent_type: "backend-engineer"`, `subagent_type: "frontend-engineer"`, `subagent_type: "context-engineer"`, and `subagent_type: "ux-tester"`).
 
 ### Code-Reviewer Agent: Anti-Slop
 
@@ -84,6 +84,19 @@ If clean: "Ledger is up to date."
 
 DO NOT make any changes. Report findings only.
 ```
+
+### UX Tester Agent: User Experience
+
+Dispatch using `subagent_type: "ux-tester"` via the Agent tool (not Task tool). Do NOT include the diff — this agent doesn't read code. Instead, translate the diff into features/flows to test. Prompt:
+
+```
+Do a complete UX review of the following features/flows affected by the current changes:
+[list features/flows derived from the diff, with URLs/routes if identifiable]
+
+Report using Critical/Important/Minor format. If clean: "UX is clean."
+```
+
+Skip if: no dev server is running, changes are backend-only with no UI impact, or affected routes cannot be determined from the diff.
 
 ## Aggregation
 
