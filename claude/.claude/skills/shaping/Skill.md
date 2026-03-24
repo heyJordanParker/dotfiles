@@ -16,7 +16,7 @@ Shaping produces documents at different levels of abstraction. **Truth must stay
 ### The Document Hierarchy (high to low)
 
 1. **Shaping doc** — ground truth for R's, shapes, parts, fit checks
-2. **Slices doc** — ground truth for slice definitions, breadboards
+2. **Slices doc** — ground truth for slice definitions, models
 3. **Individual slice plans** (V1-plan, etc.) — ground truth for implementation details
 
 ### The Principle
@@ -165,17 +165,19 @@ Shaping → Slicing
 
 | Phase | Purpose | Output |
 |-------|---------|--------|
-| **Shaping** | Explore the problem and solution space, select and detail a shape | Shaping doc with R, shapes, fit checks, breadboard |
+| **Shaping** | Explore the problem and solution space, select and detail a shape | Shaping doc with R, shapes, fit checks, model |
 | **Slicing** | Break down for implementation | Vertical slices with demo-able UI |
 
 ### Phase Transition
 
 **Shaping → Slicing** happens when:
 - A shape is selected (passes fit check, feels right)
-- The shape has been breadboarded into concrete affordances
+- The shape has been modeled into concrete affordances
 - We need to plan implementation order
 
-You can't slice without a breadboarded shape.
+When a shape is selected, invoke `/modeling` to produce the concrete model (DB Schema, UX flows, Architecture).
+
+You can't slice without a modeled shape.
 
 ---
 
@@ -262,10 +264,10 @@ These can happen in any order:
 - **Explore alternatives** - For a component, identify options (C3-A, C3-B...)
 - **Check fit** - Build a fit check (decision matrix) playing options against R
 - **Extract Rs** - When fit checks reveal implicit requirements, add them to R as standalone items
-- **Breadboard** - Map the system to understand where changes happen and make the shape more concrete
+- **Model** - Map the system to understand where changes happen and make the shape more concrete
 - **Spike** - Investigate unknowns to identify concrete steps needed
 - **Decide** - Pick alternatives, compose final solution
-- **Slice** - Break a breadboarded shape into vertical slices for implementation
+- **Slice** - Break a modeled shape into vertical slices for implementation
 
 ## Communication
 
@@ -353,14 +355,14 @@ Avoid:
 - Vague questions ("Is this hard?")
 - Yes/no questions that don't reveal mechanics
 
-## Breadboards
+## Modeling
 
-Use the `/breadboarding` skill to map existing systems or detail a shape into concrete affordances. Breadboarding produces:
+Use the `/modeling` skill to map existing systems or detail a shape into concrete affordances. Modeling produces:
 - UI Affordances table
 - Non-UI Affordances table
 - Wiring diagram grouped by Place
 
-Invoke breadboarding when you need to:
+Invoke modeling when you need to:
 - Map existing code to understand where changes land
 - Translate a high-level shape into concrete affordances
 - Reveal orthogonal concerns (parts that are independent of each other)
@@ -493,7 +495,7 @@ Use "Detail X" (not a new letter) to show this is a breakdown of Shape X, not an
 
 ### What Detailing Produces
 
-Use the `/breadboarding` skill to produce:
+Use the `/modeling` skill to produce:
 - **UI Affordances table** — Things users see and interact with (inputs, buttons, displays)
 - **Non-UI Affordances table** — Data stores, handlers, queries, services
 - **Wiring diagram** — How affordances connect across places
@@ -514,7 +516,7 @@ Shaping produces up to four documents. Each has a distinct role:
 | Document | Contains | Purpose |
 |----------|----------|---------|
 | **Frame** | Source, Problem, Outcome | The "why" — concise, stakeholder-level |
-| **Shaping doc** | Appetite, Requirements, Boundaries, Shapes (CURRENT/A/B/...), Affordances, Breadboard, Fit Check | The working document — exploration and iteration happen here |
+| **Shaping doc** | Appetite, Requirements, Boundaries, Shapes (CURRENT/A/B/...), Affordances, Model, Fit Check | The working document — exploration and iteration happen here |
 | **Slices doc** | Slice details, affordance tables per slice, wiring diagrams | The implementation plan — how to build incrementally |
 | **Slice plans** | V1-plan.md, V2-plan.md, etc. | Individual implementation plans for each slice |
 
@@ -523,7 +525,7 @@ Shaping produces up to four documents. Each has a distinct role:
 ```
 Frame (problem/outcome)
     ↓
-Shaping (explore, detail, breadboard)
+Shaping (explore, detail, model)
     ↓
 Slices (plan implementation)
 ```
@@ -565,9 +567,9 @@ When the user provides source material during framing (user requests, quotes, em
 - User describes a scenario they were told about
 - Any raw material that informs the frame
 
-**Shaping doc** is where active work happens. All exploration, requirements gathering, shape comparison, breadboarding, and fit checking happens here. This is the working document and ground truth for R, shapes, parts, and fit checks.
+**Shaping doc** is where active work happens. All exploration, requirements gathering, shape comparison, modeling, and fit checking happens here. This is the working document and ground truth for R, shapes, parts, and fit checks.
 
-**Slices doc** is created when the selected shape is breadboarded and ready to build. It contains the slice breakdown, affordance tables per slice, and detailed wiring.
+**Slices doc** is created when the selected shape is modeled and ready to build. It contains the slice breakdown, affordance tables per slice, and detailed wiring.
 
 ### File Management
 
@@ -598,17 +600,17 @@ See **Multi-Level Consistency** at the top of this document. Changes at any leve
 
 ## Slicing
 
-After a shape is breadboarded, slice it into vertical implementation increments. Use the `/breadboarding` skill for the slicing process — it defines what vertical slices are, the procedure for creating them, and visualization formats.
+After a shape is modeled, slice it into vertical implementation increments. Use the `/modeling` skill for the slicing process — it defines what vertical slices are, the procedure for creating them, and visualization formats.
 
 **The flow:**
 1. **Parts** → high-level mechanisms in the shape
-2. **Breadboard** → concrete affordances with wiring (use `/breadboarding`)
-3. **Slices** → vertical increments that can each be demoed (use `/breadboarding` slicing section)
+2. **Model** → concrete affordances with wiring (use `/modeling`)
+3. **Slices** → vertical increments that can each be demoed (use `/modeling` slicing section)
 
 **Key principle:** Every slice must end in demo-able UI. A slice without visible output is a horizontal layer, not a vertical slice.
 
 **Document outputs:**
-- **Slices doc** — slice definitions, per-slice affordance tables, sliced breadboard
+- **Slices doc** — slice definitions, per-slice affordance tables, sliced model
 - **Slice plans** — individual implementation plans (V1-plan.md, V2-plan.md, etc.)
 
 ## Example

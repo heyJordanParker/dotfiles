@@ -1,11 +1,11 @@
 ---
-name: breadboard-review
-description: Find design smells in a breadboard and fix them. Works on existing breadboards built with the /breadboarding skill.
+name: model-review
+description: Find design smells in a model and fix them. Works on existing models built with the /modeling skill.
 ---
 
-# Breadboard Review
+# Model Review
 
-Find design smells in a breadboard and fix them. Works on existing breadboards built with the `/breadboarding` skill.
+Find design smells in a model and fix them. Works on existing models built with the `/modeling` skill.
 
 ---
 
@@ -13,7 +13,7 @@ Find design smells in a breadboard and fix them. Works on existing breadboards b
 
 ### Entry Point: Trace User Stories Through the Wiring
 
-Take a user story from the requirements or frame. Trace it through the breadboard wiring. Ask: does the path tell a coherent story that produces the expected effect?
+Take a user story from the requirements or frame. Trace it through the model wiring. Ask: does the path tell a coherent story that produces the expected effect?
 
 Example: "User says 'add Tokyo after Detroit' → Tokyo appears after Detroit in the table, and persists across restarts."
 
@@ -29,11 +29,11 @@ At each link, ask: does this step logically lead to the next? Does the wiring ma
 | **Missing path** | The user story requires an effect, but no wiring path produces it |
 | **Diagram-only nodes** | Nodes in the diagram that aren't in the affordance tables — decoration, not real affordances |
 | **Naming resistance** | You can't name an affordance with one idiomatic verb (see Naming Test below) |
-| **Stale affordances** | The breadboard shows something that no longer exists in the code |
+| **Stale affordances** | The model shows something that no longer exists in the code |
 | **Wrong causality** | The wiring shows A calls B, but the code shows C calls B |
-| **Implementation mismatch** | The code has logic paths, functions, or call chains that aren't represented in the breadboard |
+| **Implementation mismatch** | The code has logic paths, functions, or call chains that aren't represented in the model |
 
-The first three are visible from the breadboard and requirements alone. The last four require comparing to the implementation — read the actual code and check each affordance: does it exist? Does the wiring match what the code actually calls and returns? Is anything missing?
+The first three are visible from the model and requirements alone. The last four require comparing to the implementation — read the actual code and check each affordance: does it exist? Does the wiring match what the code actually calls and returns? Is anything missing?
 
 ---
 

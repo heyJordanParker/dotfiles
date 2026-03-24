@@ -1,17 +1,17 @@
 ---
-name: breadboarding
-description: Transform a workflow description into affordance tables showing UI and Code affordances with their wiring. Use to map existing systems or design new ones from shaped parts.
+name: modeling
+description: Transform shaped parts into a concrete model — DB schema, UX flows, and architecture. The modeling step between shaping and planning.
 ---
 
-# Breadboarding
+# Modeling
 
-Breadboarding transforms a workflow description into a complete map of affordances and their relationships. The output is always a set of tables showing numbered UI and Code affordances with their Wires Out and Returns To relationships. The tables are the truth. Mermaid diagrams are optional visualizations for humans.
+Modeling transforms shaped parts into a concrete, reviewable model of the system. Internally, the agent builds affordance tables (UI and Code affordances with wiring). Externally, results are presented in three sections optimized for architect review: DB Schema, UX flows, and Architecture. The affordance tables are written to `~/.claude/shaping/[feature]/affordances.md` as the persistent source of truth.
 
 ---
 
 ## Use Cases
 
-Breadboarding serves two functions:
+Modeling serves two functions:
 
 ### 1. Mapping an Existing System
 
@@ -22,11 +22,11 @@ You don't understand how an existing system works in its concrete details. You h
 - Workflow description (always from the perspective of an operator trying to make an effect happen — through UI or as a caller)
 
 **Output:**
-- UI Affordances table
-- Code Affordances table
+- Three-section presentation: DB Schema, UX, Architecture
+- `affordances.md` written to shaping dir (persistent source of truth)
 - (Optional) Mermaid visualization
 
-**Note:** If the workflow spans multiple applications (frontend + backend), create ONE breadboard that tells the full story. Label places to show which system they belong to.
+**Note:** If the workflow spans multiple applications (frontend + backend), create ONE model that tells the full story. Label places to show which system they belong to.
 
 ### 2. Designing from Shaped Parts
 
@@ -38,13 +38,13 @@ You have a new system sketched as an assembly of parts (mechanisms) per shaping.
 - Existing system (optional) — if the new parts must interoperate with existing code
 
 **Output:**
-- UI Affordances table
-- Code Affordances table
+- Three-section presentation: DB Schema, UX, Architecture
+- `affordances.md` written to shaping dir (persistent source of truth)
 - (Optional) Mermaid visualization
 
 ### Mixtures
 
-Often you have both: an existing system that must remain as-is, plus new pieces or changes defined in a shape. In this case, breadboard both together — the existing affordances and the new ones — showing how they connect.
+Often you have both: an existing system that must remain as-is, plus new pieces or changes defined in a shape. In this case, model both together — the existing affordances and the new ones — showing how they connect.
 
 ### 3. Reading a Whiteboard Breadboard
 
@@ -348,7 +348,9 @@ This separation makes data flow explicit. Wires Out show control flow (what trig
 
 ## The Output: Affordance Tables
 
-The tables are the truth. Every breadboard produces these:
+The affordance tables are the internal working format — the agent builds these during analysis. They are written to `~/.claude/shaping/[feature]/affordances.md` (with `modeling: true` frontmatter) as the persistent source of truth. The tables are then transformed into the three-section **Presentation Format** (see below) for architect review.
+
+Every model produces these internal tables:
 
 ### Places Table
 
@@ -396,6 +398,100 @@ The tables are the truth. Every breadboard produces these:
 | **Control** | The triggering event: click, type, call, observe, write, render |
 | **Wires Out** | What this triggers: `→ N4`, `→ P2` (control flow, including navigation) |
 | **Returns To** | Where output flows: `→ N3` or `→ U2, U3` (data flow) |
+
+---
+
+## Presentation Format
+
+After building the affordance tables internally and writing them to `affordances.md`, present results to the user in three sections. Every affordance from the tables must appear in exactly one section.
+
+### 1. DB Schema
+
+Annotated file trees for every model, type, or migration being modified:
+
+```
+app/Models/
+├── Account.php*                 <- + generateSetupToken(): string
+│   ├── id: int
+│   ├── email: string
+│   ├── password: ?string        <- nullable (new accounts have no password)
+│   └── tenants(): HasMany       <- existing
+├── Domain.php*                  <- + emailActivated: bool
+│   ├── id: int
+│   ├── tenant_id: int
+│   └── verified_at: ?timestamp  <- existing
+```
+
+**Rules:**
+- File path as tree root, fields/relations indented underneath
+- `*` suffix on modified files
+- `<- + methodName(): returnType` for new methods
+- `<- existing` for unchanged fields shown for context
+- Group by directory (e.g., `app/Models/`)
+
+### 2. UX
+
+Pages and components broken down by user flow, connected by interactions:
+
+```
+## Password Setup Flow
+
+SetPassword (NEW page)
+├── password input
+├── confirm input
+└── submit → AuthController::setPassword
+    └── success → redirect Dashboard (EXISTING)
+
+Login (EXISTING page, MODIFIED)
+├── email input
+├── password input
+├── submit → AuthController::login (EXISTING)
+└── "Forgot password?" (NEW toggle)
+    ├── email input (REUSED from above)
+    └── submit → AuthController::sendResetLink (NEW)
+        └── success → "Check your email" message
+```
+
+**Rules:**
+- Group by flow (e.g., "## Password Setup Flow")
+- Each page/component is a tree root with `(NEW page)`, `(EXISTING page)`, `(EXISTING page, MODIFIED)` annotation
+- Child nodes are affordances (inputs, buttons, displays)
+- `submit →` / `click →` show wiring to handlers inline
+- Indented `└── success →` / `└── error →` show outcomes
+- `(REUSED from above)` annotations for shared components
+- Flow connections between pages shown via `→ redirect PageName (EXISTING)`
+
+### 3. Architecture
+
+Summary of big changes followed by affordances broken down by component:
+
+```
+## Big Changes
+- EmailService extracted from tenant to shared app/Services/
+- AuthController split: Platform + Tenant (shared pattern)
+
+## EmailService (NEW shared service)
+- send(to, subject, body) → dispatches Platform\SendEmail job
+- Uses: Postmark client (existing)
+- Registered: PlatformServicesProvider + TenantServicesProvider
+
+## Platform\AuthController (NEW)
+- setPassword(Request) → validates token, sets password, auto-login
+- sendResetLink(Request) → generates token, dispatches email
+- Uses: Account model, EmailService
+```
+
+**Rules:**
+- Opens with `## Big Changes` bullet list — 1-3 sentence summaries of architectural shifts
+- Then one `## ComponentName (NEW/MODIFIED)` subsection per component
+- Each subsection: bullet list of methods with signatures and wiring
+- `Uses:` line listing dependencies
+- `Registered:` line for service providers / DI
+- Keep to interface-level detail — no implementation specifics
+
+### Verification
+
+After presenting, verify: count affordances in `affordances.md` tables → count in three-section presentation → assert equal. Every affordance appears in exactly one section.
 
 ---
 
@@ -977,9 +1073,9 @@ flowchart TB
 
 ---
 
-## Slicing a Breadboard
+## Slicing a Model
 
-Slicing takes a breadboard and groups its affordances into **vertical implementation slices**. See **Example B** below for a complete slicing example.
+Slicing takes a model and groups its affordances into **vertical implementation slices**. See **Example B** below for a complete slicing example.
 
 **Input:**
 - Breadboard (affordance tables with wiring)
@@ -1135,7 +1231,7 @@ The Mechanism column references parts from the shape, showing which mechanisms e
 
 ## Example A: Mapping an Existing System
 
-This example shows breadboarding an existing system to understand how data flows through multiple entry points.
+This example shows modeling an existing system to understand how data flows through multiple entry points.
 
 ### Input
 
@@ -1294,17 +1390,84 @@ flowchart TB
     class S1,S2,S3 store
 ```
 
+**Presentation Format (rendered from affordance tables above)**
+
+### 1. DB Schema
+
+```
+admin tables (Django)
+├── role_profiles                <- M2M: which role profiles a user has (S1)
+├── admin_organisation_countries <- M2M: which countries a user administers (S2)
+└── organisations                <- user's home center(s) (S3)
+```
+
+### 2. UX
+
+```
+## SSO Admin — User Change Page
+
+Permissions fieldset
+├── role_profiles checkboxes (U1)
+└── "Country Admin" checkbox (U2) → click toggles selection
+
+User admin fieldset (superuser only, gated by N1: get_fieldsets)
+├── admin_countries filter_horizontal (U3)
+│   ├── Available countries list (U4) ← N2: get_administrable_user_countries()
+│   └── Selected countries list (U5) ← admin_organisation_countries (S2)
+├── Add → / Remove ← buttons (U6) → modifies selection
+└── Save button (U7) → N3: save_form()
+
+## DWConnect — Center Page
+
+"Country admins" section (U20) ← N30: findCenterAdmins() ← admin_organisation_countries (S2)
+
+## External
+
+System email "From" field (U21) ← admin_organisation_countries (S2)
+```
+
+### 3. Architecture
+
+```
+## Big Changes
+- Three entry points modify admin_organisation_countries: manual edit (SSO Admin), signal handler (sso-dwbn-theme), batch job (dwbn_cleanup)
+- Signal chain: save_form → _update_user_m2m → user_m2m_field_updated signal → sso-dwbn-theme handler
+
+## sso/accounts/admin (EXISTING)
+- get_fieldsets() → conditionally shows admin_countries for superusers
+- save_form() → N4: Form M2M save (→ S2) + N5: _update_user_m2m() (→ S1, → signal)
+- Uses: sso/forms/mixins, Django Admin
+
+## sso-dwbn-theme signal chain (EXISTING)
+- dwbn_user_m2m_field_updated() → receives signal from save_form
+- dwbn_user_m2m_field_updated_task() → checks: Country Admin added AND zero admin countries?
+  └── yes → get home center's country → admin_organisation_countries.add() → update_last_modified()
+
+## sso-dwbn-theme batch cleanup (EXISTING)
+- admin_changes() → for each Country Admin: home center country missing?
+  └── yes → get home center's country → admin_organisation_countries.add() → update_last_modified()
+- Triggered by: manage.py dwbn_cleanup (CLI/Scheduler)
+
+## dwconnect2-backend (EXISTING)
+- findCenterAdmins() → reads admin_organisation_countries → renders "Country admins" section
+
+## sso/api (EXISTING)
+- get_object_data() → reads admin_organisation_countries → serves external API
+```
+
+*Verification: 9 UI + 17 Code + 3 Data = 29 affordances in tables. 29 affordances in presentation (U1-U7, U20, U21; N1-N6, N7, N10-N12, N15-N16, N20-N22, N30-N31; S1-S3). ✅*
+
 ---
 
 ## Example B: Designing from Shaped Parts
 
 ---
 
-### Part 1: Shaping Context (Input to Breadboarding)
+### Part 1: Shaping Context (Input to Modeling)
 
-This section shows what comes FROM shaping — the requirements, existing patterns identified, and sketched parts. This is the INPUT that breadboarding receives.
+This section shows what comes FROM shaping — the requirements, existing patterns identified, and sketched parts. This is the INPUT that modeling receives.
 
-> **Note:** This example uses shaping terminology. In shaping, you define requirements (Rs), identify existing patterns to reuse, and sketch a solution as parts/mechanisms. Breadboarding takes this shaped solution and details out the concrete affordances and wiring.
+> **Note:** This example uses shaping terminology. In shaping, you define requirements (Rs), identify existing patterns to reuse, and sketch a solution as parts/mechanisms. Modeling takes this shaped solution and details out the concrete affordances and wiring.
 
 **The R (Requirements)**
 
@@ -1364,9 +1527,9 @@ The new solution's parts explicitly reference which S-CUR patterns they adapt:
 
 ---
 
-### Part 2: Breadboarding (Transform Parts → Affordances)
+### Part 2: Modeling (Transform Parts → Affordances)
 
-This is where breadboarding happens. The shaped parts become concrete affordances with explicit wiring. The output is the affordance tables and diagram.
+This is where modeling happens. The shaped parts become concrete affordances with explicit wiring. The output is the affordance tables, diagram, and three-section presentation.
 
 **UI Affordances**
 
@@ -1525,9 +1688,79 @@ flowchart TB
     class N1,N2,N3,N4,N5,N6,N7,N8,N9,N10,N11,N12,N13,N14,N15,N16,N17,N18 nonui
 ```
 
-**Slicing the Breadboard**
+**Presentation Format (rendered from affordance tables above)**
 
-With the full breadboard complete, slice it into vertical increments. Each slice demonstrates a mechanism working:
+### 1. DB Schema
+
+```
+(No persistent models in this example — data lives in component state)
+
+letter-browser state
+├── loading: boolean             <- loading indicator
+├── detailResult: SearchResult   <- search results from Typesense
+├── activeQuery: BehaviorSubject <- current search query
+├── compact: boolean (config)    <- widget vs full page mode
+├── parentId: string (config)    <- Typesense filter
+└── fullPageRoute: string (config) <- route for "See all" link
+```
+
+### 2. UX
+
+```
+## Letter Search Flow
+
+letter-browser (NEW component)
+├── search input (U1) → activeQuery.next() → debounce 90ms, min 3 chars → performSearch()
+├── loading spinner (U2) ← loading store
+├── no results message (U3) ← detailResult
+├── result count (U4) ← detailResult
+├── results list (U5) ← detailResult
+│   └── letter-row (NEW component, per result)
+│       ├── date (U7)
+│       ├── subject (U8)
+│       ├── teaser (U9)
+│       └── row click (U6) → navigate Letter Detail
+├── scroll (U10) → intercom subject → appendNextPage()
+└── "See all X results" (U12) → navigate Full Page (if compact + truncated)
+
+## Browser Integration
+
+back button (U11) → URL ?q= → initializeState() → restores search
+```
+
+### 3. Architecture
+
+```
+## Big Changes
+- New letter-browser component adapts existing global search patterns (S-CUR1-5)
+- Supports compact (widget) and full-page modes via config inputs
+
+## letter-browser (NEW)
+- activeQuery.next(value) → triggers search pipeline
+- activeQuery subscription → 90ms debounce, min 3 chars → performSearch()
+- performSearch() → rawSearch() + update loading/detailResult stores + detectChanges()
+- appendNextPage() → rawSearch(page+1) + concat results + sendMessage() to re-arm scroll
+- initializeState(params) → restore query from URL ?q=
+- Uses: typesense.service, intercom.service, Router
+- Config: parentId (filter), compact (mode), fullPageRoute (navigation target)
+
+## letter-row (NEW)
+- Renders date, subject, teaser from hit data
+- Row click → navigate to Letter Detail page
+
+## typesense.service (EXISTING)
+- rawSearch(query, filter, page) → Typesense API → {found, hits}
+
+## intercom.service (EXISTING)
+- Scroll subject → detects scroll-to-bottom
+- sendMessage() → re-arms scroll detection for next page
+```
+
+*Verification: 14 UI + 18 Code = 32 affordances in tables. 32 affordances in presentation. ✅*
+
+**Slicing the Model**
+
+With the full model complete, slice it into vertical increments. Each slice demonstrates a mechanism working:
 
 **Slice Summary**
 
