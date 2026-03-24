@@ -66,17 +66,6 @@
         ]
       }
     ],
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "prompt",
-            "prompt": "Stop guard. Evaluate the assistant's final response before allowing it to stop.\n\nReject if:\n\n1. Blames a 3rd party: Attributes failure or inability to an external library, API, service, or provider (\"this is a bug in X\", \"the API doesn't support\", \"X library can't\", \"this appears to be a limitation of\") instead of solving the problem. The agent must find workarounds, alternatives, or escalate — not stop with blame as the conclusion.\n\n2. Postpones requested or critical work: Defers work that was part of the original task to \"later\", \"a follow-up\", \"next steps\", \"a future PR\", \"another session\", or \"TODO\" — leaving the current task incomplete. If work was requested, it must be done now or explicitly flagged as blocked with the specific blocker.\n\n3. Defers simple work to the user: Pushes work back to the user (\"you can do X\", \"you'll need to\", \"you may want to\", \"remember to\") when the agent should just do it itself.\n\nExemptions (do NOT reject):\n- Genuinely completed work with no deferred items\n- Asking the user a question (stopping to wait for input is fine)\n- Reporting a blocker that truly cannot be worked around (missing credentials, requires user action, architectural decisions)\n- Mentioning a 3rd party factually while still providing a solution or workaround\n\nReturn JSON only:\n- Pass: {\"ok\": true}\n- Fail: {\"ok\": false, \"reason\": \"[Specific issue]. Fix: [What to do instead].\"}",
-            "timeout": 60
-          }
-        ]
-      }
-    ],
     "UserPromptSubmit": [
       {
         "hooks": [
