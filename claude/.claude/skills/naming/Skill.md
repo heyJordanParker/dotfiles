@@ -45,6 +45,28 @@ Always check the project first. Consistency within the project trumps external s
 
 **Transformers**: Method on the source object → `user.toJson()`, `order.toResponse()`
 
+## The Naming Test (Boundary Detection)
+
+Use when naming functions, services, or handlers. If you can't name it with one verb, the function is doing too many things.
+
+For each function:
+1. **Who is the caller?** Identify who uses this
+2. **What is the step-level effect?** What does THIS function do — not the downstream chain, just its direct effect
+3. **Name it with ONE idiomatic verb**
+
+| Signal | Meaning |
+|--------|---------|
+| One verb covers all code paths | Boundary is correct |
+| Need "or" to connect two verbs | Likely two operations bundled — split them |
+| Name doesn't feel idiomatic | Boundary is wrong |
+| Name matches a downstream effect, not this step | You're naming the chain, not the step |
+
+**Step-level vs chain-level:** Name what THIS function does, not what its callees achieve. An orchestrator that calls validate → find → extract → insert is a `handler`, not an `adder`. The adding happens downstream.
+
+**Caller perspective:** Names reflect what the caller achieves. A tool exposed externally: `placeLocale` (what the caller wants). The internal handler: `handlePlaceLocale` (what it does).
+
+**Naming resistance as a signal:** If `resolveLocale` either pops from a list OR creates a new dict — "take" fits one path, "create" fits the other, need "or" → split into `extractLocale` and `createLocale`.
+
 ## Checklist
 
 - [ ] Checked project conventions first
