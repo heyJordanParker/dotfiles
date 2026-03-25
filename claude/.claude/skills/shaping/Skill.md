@@ -16,7 +16,7 @@ Shaping produces documents at different levels of abstraction. **Truth must stay
 ### The Document Hierarchy (high to low)
 
 1. **Shaping doc** — ground truth for R's, shapes, parts, fit checks
-2. **Slices doc** — ground truth for slice definitions, models
+2. **Slices doc** — ground truth for slice definitions, acceptance criteria
 3. **Individual slice plans** (V1-plan, etc.) — ground truth for implementation details
 
 ### The Principle
@@ -157,27 +157,20 @@ Keep notation throughout as an audit trail. When finalizing, compose new options
 
 ## Phases
 
-Shaping moves through two phases:
-
 ```
-Shaping → Slicing
+Shaping → Modeling → Slicing
 ```
 
 | Phase | Purpose | Output |
 |-------|---------|--------|
-| **Shaping** | Explore the problem and solution space, select and detail a shape | Shaping doc with R, shapes, fit checks, model |
-| **Slicing** | Break down for implementation | Vertical slices with demo-able UI |
+| **Shaping** | Explore problem and solution space, select a shape | Shaping doc with R, X, shapes, fit checks |
+| **Modeling** | Detail the selected shape into concrete affordances | `affordances.md` + 3-section presentation |
+| **Slicing** | Break model into implementation slices with acceptance criteria and validation | `slices.md` + `V*-plan.md` files |
 
-### Phase Transition
+### Phase Transitions
 
-**Shaping → Slicing** happens when:
-- A shape is selected (passes fit check, feels right)
-- The shape has been modeled into concrete affordances
-- We need to plan implementation order
-
-When a shape is selected, invoke `/modeling` to produce the concrete model (DB Schema, UX flows, Architecture).
-
-You can't slice without a modeled shape.
+- **Shaping → Modeling:** Shape is selected (passes fit check). Invoke `/modeling`.
+- **Modeling → Slicing:** Model is complete (affordances documented). Invoke `/slicing`.
 
 ---
 
@@ -265,9 +258,9 @@ These can happen in any order:
 - **Check fit** - Build a fit check (decision matrix) playing options against R
 - **Extract Rs** - When fit checks reveal implicit requirements, add them to R as standalone items
 - **Model** - Map the system to understand where changes happen and make the shape more concrete
-- **Spike** - Investigate unknowns to identify concrete steps needed
+- **Research** - Dispatch researcher subagent to learn how the existing system works or clarify a mechanism
 - **Decide** - Pick alternatives, compose final solution
-- **Slice** - Break a modeled shape into vertical slices for implementation
+- **Slice** - Invoke `/slicing` to break the model into implementation slices
 
 ## Communication
 
@@ -293,13 +286,13 @@ Summaries hide detail and shift control away from the user.
 
 When re-rendering a requirements table or shape table after making changes, mark every changed or added line with a 🟡 so the user can instantly spot what's different. Place the 🟡 at the start of the changed cell content. This makes iterative refinement easy to follow — the user should never have to diff the table mentally.
 
-## Spikes
+## Research
 
-A spike is an investigation task to learn how the existing system works and what concrete steps are needed to implement a component. Use spikes when there's uncertainty about mechanics or feasibility.
+A research task learns how the existing system works and identifies concrete steps needed to implement a component. Dispatch a `researcher` subagent when there's uncertainty about mechanics or feasibility. Research is automatic and concurrent — dispatch multiple researchers in parallel when multiple unknowns exist.
 
 ### File Management
 
-**Always create spikes in the feature's shaping directory** (e.g., `~/.claude/shaping/[feature]/spike-[topic].md`). Spikes are standalone investigation documents that may be shared or worked on independently from the shaping doc.
+**Always create research docs in the feature's shaping directory** (e.g., `~/.claude/shaping/[feature]/research-[topic].md`). Research docs are standalone investigation documents that may be shared or worked on independently from the shaping doc.
 
 ### Purpose
 
@@ -307,12 +300,12 @@ A spike is an investigation task to learn how the existing system works and what
 - Identify **what we would need to do** to achieve a result
 - Enable informed decisions about whether to proceed
 - Not about effort — effort is implicit in the steps themselves
-- **Investigate before proposing** — discover what already exists; you may find the system already satisfies requirements
+- **Research before proposing** — discover what already exists; you may find the system already satisfies requirements
 
 ### Structure
 
 ```markdown
-## [Component] Spike: [Title]
+## [Component] Research: [Title]
 
 ### Context
 Why we need this investigation. What problem we're solving.
@@ -328,7 +321,7 @@ What we're trying to learn or identify.
 | **X1-Q2** | Another specific question |
 
 ### Acceptance
-Spike is complete when all questions are answered and we can describe [the understanding we'll have].
+Research is complete when all questions are answered and we can describe [the understanding we'll have].
 ```
 
 ### Acceptance Guidelines
@@ -338,13 +331,13 @@ Acceptance describes the **information/understanding** we'll have, not a conclus
 - ✅ "...we can describe how users set their language and where non-English titles appear"
 - ✅ "...we can describe the steps to implement [component]"
 - ❌ "...we can answer whether this is a blocker" (that's a decision, not information)
-- ❌ "...we can decide if we should proceed" (decision comes after the spike)
+- ❌ "...we can decide if we should proceed" (decision comes after the research)
 
-The spike gathers information; decisions are made afterward based on that information.
+Research gathers information; decisions are made afterward based on that information. Research informs architectural decisions — the decision clears the ⚠️ flag, not the research itself.
 
 ### Question Guidelines
 
-Good spike questions ask about mechanics:
+Good research questions ask about mechanics:
 - "Where is the [X] logic?"
 - "What changes are needed to [achieve Y]?"
 - "How do we [perform Z]?"
@@ -369,9 +362,9 @@ Invoke modeling when you need to:
 
 ### Tables Are the Source of Truth
 
-The affordance tables (UI and Non-UI) define the breadboard. The Mermaid diagram renders them.
+The affordance tables (UI and Non-UI) define the model. The Mermaid diagram renders them.
 
-When receiving feedback on a breadboard:
+When receiving feedback on a model:
 1. **First** — update the affordance tables (add/remove/modify affordances, update Wires Out)
 2. **Then** — update the Mermaid diagram to reflect those changes
 
@@ -404,7 +397,7 @@ A mechanism can be described at a high level without being concretely understood
 
 Fit check is always binary — ✅ or ❌ only. There is no third state. A flagged unknown is a failure until resolved.
 
-This distinguishes "we have a sketch" from "we actually know how to do this." Early shapes (A, B, C) often have many flagged parts — that's fine for exploration. But a selected shape should have no flags (all ❌ resolved), or explicit spikes to resolve them.
+This distinguishes "we have a sketch" from "we actually know how to do this." Early shapes (A, B, C) often have many flagged parts — that's fine for exploration. But a selected shape should have no flags (all ❌ resolved), or researched and resolved with the user before proceeding.
 
 ### Parts Must Be Mechanisms
 
@@ -516,9 +509,10 @@ Shaping produces up to four documents. Each has a distinct role:
 | Document | Contains | Purpose |
 |----------|----------|---------|
 | **Frame** | Source, Problem, Outcome | The "why" — concise, stakeholder-level |
-| **Shaping doc** | Appetite, Requirements, Boundaries, Shapes (CURRENT/A/B/...), Affordances, Model, Fit Check | The working document — exploration and iteration happen here |
-| **Slices doc** | Slice details, affordance tables per slice, wiring diagrams | The implementation plan — how to build incrementally |
-| **Slice plans** | V1-plan.md, V2-plan.md, etc. | Individual implementation plans for each slice |
+| **Shaping doc** | Appetite, Requirements, Boundaries, Shapes (CURRENT/A/B/...), Fit Check | The working document — exploration and iteration happen here |
+| **Affordances** | UI/Code affordance tables, data stores, wiring | The model's source of truth — written by `/modeling`, read by `/slicing` |
+| **Slices doc** | Slice definitions with acceptance criteria and validation requirements | The implementation plan — produced by `/slicing` |
+| **Slice plans** | V1-plan.md, V2-plan.md, etc. | Individual implementation plans — self-contained with WHY from frame |
 
 ### Document Lifecycle
 
@@ -569,21 +563,22 @@ When the user provides source material during framing (user requests, quotes, em
 
 **Shaping doc** is where active work happens. All exploration, requirements gathering, shape comparison, modeling, and fit checking happens here. This is the working document and ground truth for R, shapes, parts, and fit checks.
 
-**Slices doc** is created when the selected shape is modeled and ready to build. It contains the slice breakdown, affordance tables per slice, and detailed wiring.
+**Slices doc** is created with the `/slicing` skill when the selected shape is modeled and ready to build. It contains slice definitions with acceptance criteria and validation requirements.
 
 ### File Management
 
 All shaping documents live in `~/.claude/shaping/[feature]/` — one subdirectory per feature. Create the directory if it doesn't exist.
 
-- **Frame**: `frame.md`
-- **Shaping doc**: `shaping.md` — update freely as you iterate, this is the ground truth
-- **Slices doc**: `slices.md` — created when ready to slice, updated as slice scope clarifies
-- **Slice plans**: `V1-plan.md`, `V2-plan.md`, etc.
-- **Spikes**: `spike-[topic].md`
+- **Frame**: `frame.md` — the WHY (problem + outcome)
+- **Shaping doc**: `shaping.md` — ground truth for R, X, shapes, appetite, fit checks
+- **Affordances**: `affordances.md` — model's source of truth, written by `/modeling` (has `modeling: true` frontmatter)
+- **Slices doc**: `slices.md` — produced by `/slicing`, references R and X from shaping.md
+- **Slice plans**: `V1-plan.md`, `V2-plan.md`, etc. — produced by `/slicing`, each self-contained with WHY from frame
+- **Research**: `research-[topic].md` — findings from researcher subagents, inform architectural decisions
 
 ### Frontmatter
 
-Every shaping document (shaping doc, frame, slices doc) must include `shaping: true` in its YAML frontmatter. This enables tooling hooks (e.g., ripple-check reminders) that help maintain consistency across documents.
+Every shaping document (shaping doc, frame, slices doc) must include `shaping: true` in its YAML frontmatter. Modeling artifacts (`affordances.md`) use `modeling: true` instead. Both frontmatter keys trigger propagation hooks that help maintain consistency across documents.
 
 ```markdown
 ---
@@ -600,18 +595,18 @@ See **Multi-Level Consistency** at the top of this document. Changes at any leve
 
 ## Slicing
 
-After a shape is modeled, slice it into vertical implementation increments. Use the `/modeling` skill for the slicing process — it defines what vertical slices are, the procedure for creating them, and visualization formats.
+After a shape is modeled, invoke `/slicing` to break it into implementation slices.
 
 **The flow:**
 1. **Parts** → high-level mechanisms in the shape
 2. **Model** → concrete affordances with wiring (use `/modeling`)
-3. **Slices** → vertical increments that can each be demoed (use `/modeling` slicing section)
+3. **Slices** → vertical slices with acceptance criteria, validation requirements, and plan contract (use `/slicing`)
 
-**Key principle:** Every slice must end in demo-able UI. A slice without visible output is a horizontal layer, not a vertical slice.
+**Key principle:** Every slice must end in demo-able functionality. A slice without visible output is a horizontal layer, not a vertical slice.
 
 **Document outputs:**
-- **Slices doc** — slice definitions, per-slice affordance tables, sliced model
-- **Slice plans** — individual implementation plans (V1-plan.md, V2-plan.md, etc.)
+- **Slices doc** — slice definitions with acceptance criteria and validation requirements
+- **Slice plans** — individual V*-plan.md files, symlinked into Claude Code plan mode
 
 ## Example
 

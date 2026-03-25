@@ -46,9 +46,9 @@ You have a new system sketched as an assembly of parts (mechanisms) per shaping.
 
 Often you have both: an existing system that must remain as-is, plus new pieces or changes defined in a shape. In this case, model both together — the existing affordances and the new ones — showing how they connect.
 
-### 3. Reading a Whiteboard Breadboard
+### 3. Reading a Whiteboard Model
 
-Hand-drawn or whiteboard breadboards use a visual stacking format rather than tables. The same concepts apply (Places, affordances, wiring) but the layout conventions differ.
+Hand-drawn or whiteboard models use a visual stacking format rather than tables. The same concepts apply (Places, affordances, wiring) but the layout conventions differ.
 
 **Visual conventions:**
 
@@ -66,7 +66,7 @@ Hand-drawn or whiteboard breadboards use a visual stacking format rather than ta
 | **Containing box** | A large boundary drawn around multiple stacks — groups affordances by system or responsibility boundary (e.g., "HireEZ" box) |
 | **Notes/annotations** | Freeform text near elements — context, open questions, or rationale |
 
-**How to read a whiteboard breadboard:**
+**How to read a whiteboard model:**
 
 1. **Identify places** — Find the colored header blocks at the top of each stack
 2. **Read each stack top-to-bottom** — Everything stacked under a place belongs to that place
@@ -76,7 +76,7 @@ Hand-drawn or whiteboard breadboards use a visual stacking format rather than ta
 6. **Check containing boxes** — Large boundaries indicate system/responsibility boundaries
 7. **Flag speculative items** — `?` and `~` prefixed items are uncertain and may not survive shaping
 
-**Translating to tables:** When converting a whiteboard breadboard to standard affordance tables, map each stack to its Place, enumerate the affordances top-to-bottom, and capture the arrows as Wires Out / Returns To relationships. Loaders become code affordances with Returns To pointing at the UI affordances they feed.
+**Translating to tables:** When converting a whiteboard model to standard affordance tables, map each stack to its Place, enumerate the affordances top-to-bottom, and capture the arrows as Wires Out / Returns To relationships. Loaders become code affordances with Returns To pointing at the UI affordances they feed.
 
 ---
 
@@ -556,7 +556,7 @@ Read the code again. Confirm every affordance exists and the wiring matches real
 
 ### For Designing from Shaped Parts
 
-See **Example B** below for a complete worked example including slicing.
+See **Example B** below for a complete worked example.
 
 **Step 1: List each part from the shape**
 
@@ -650,7 +650,7 @@ The handler navigates to P3. The callback writes to the store. The modal IS P3. 
 
 ### Two flows: Navigation and Data
 
-A breadboard captures two distinct flows:
+A model captures two distinct flows:
 
 | Flow | What it tracks | Wiring |
 |------|----------------|--------|
@@ -659,7 +659,7 @@ A breadboard captures two distinct flows:
 
 These are orthogonal. You can have navigation without data changes, and data changes without navigation.
 
-**When reviewing a breadboard, trace both flows:**
+**When reviewing a model, trace both flows:**
 
 1. **Navigation flow:** Can you follow the user's journey from Place to Place?
 2. **Data flow:** For every U that displays data, can you trace where that data comes from?
@@ -675,7 +675,7 @@ A UI affordance that displays data must have something feeding it — either a d
 ```
 
 If a display U has no data source wiring into it, either:
-1. The source is missing from the breadboard
+1. The source is missing from the model
 2. The U isn't real
 
 This is easy to miss when focused on navigation. Always ask: "This U shows data — where does that data come from?"
@@ -749,7 +749,7 @@ The database and resolvers aren't floating infrastructure — they're a Place wi
 
 ## Catalog of Parts and Relationships
 
-This section provides a complete reference of everything that can appear in a breadboard.
+This section provides a complete reference of everything that can appear in a model.
 
 ### Elements
 
@@ -827,7 +827,7 @@ Wiring is control flow: `U1 → N1` means U1 triggers N1.
 
 ## Chunking
 
-Chunking collapses a subsystem into a single node in the main diagram, with details shown separately. Use chunking to manage complexity when a section of the breadboard has:
+Chunking collapses a subsystem into a single node in the main diagram, with details shown separately. Use chunking to manage complexity when a section of the model has:
 
 - **One wire in** (single entry point)
 - **One wire out** (single output)
@@ -939,7 +939,7 @@ flowchart TB
 
 #### Abbreviating Out-of-Scope Flows
 
-When a data flow has intermediate steps that aren't relevant to the breadboard's scope, abbreviate by wiring directly from source to destination with a `...` label:
+When a data flow has intermediate steps that aren't relevant to the model's scope, abbreviate by wiring directly from source to destination with a `...` label:
 
 ```
 S4 -.->|...| U6
@@ -948,7 +948,7 @@ S4 -.->|...| U6
 This says "data flows from S4 to U6, with intermediate steps omitted." Use this when:
 - The flow exists but its internals are out of scope
 - You need to show where data originates without detailing the query chain
-- The breadboard focuses on one workflow (e.g., editing) but needs to acknowledge another (e.g., viewing)
+- The model focuses on one workflow (e.g., editing) but needs to acknowledge another (e.g., viewing)
 
 ### ID Prefixes
 
@@ -1028,10 +1028,10 @@ flowchart TB
 
 ### Workflow Step Annotations (Optional)
 
-When breadboarding a specific workflow, you can optionally add numbered step markers to help readers follow the sequence visually. This is useful when:
+When modeling a specific workflow, you can optionally add numbered step markers to help readers follow the sequence visually. This is useful when:
 - The diagram is complex and the workflow path isn't obvious
 - You want to guide someone through a specific user journey
-- The breadboard will be used as a walkthrough or teaching tool
+- The model will be used as a walkthrough or teaching tool
 
 **Format:**
 
@@ -1073,158 +1073,10 @@ flowchart TB
 
 ---
 
-## Slicing a Model
+## Planning
 
-Slicing takes a model and groups its affordances into **vertical implementation slices**. See **Example B** below for a complete slicing example.
+After modeling is complete, invoke `/slicing` to break the model into implementation slices. The `/slicing` skill takes the affordances from `affordances.md` and produces vertical slices with acceptance criteria, validation requirements, and a plan contract. See the `/slicing` skill for the full procedure.
 
-**Input:**
-- Breadboard (affordance tables with wiring)
-- Shape (R + mechanisms) — guides what demos matter
-
-**Output:**
-- Breadboard with affordances assigned to slices V1–V9 (max 9 slices)
-
-### What is a Vertical Slice?
-
-A vertical slice is a group of UI and Code affordances that does something demo-able. It cuts through all layers (UI, logic, data) to deliver a working increment.
-
-The opposite is a horizontal slice — doing work on one layer (e.g., "set up all the data models") that isn't clickable from the interface.
-
-### The Key Constraint
-
-**Every slice must have visible UI that can be demoed.** A slice without UI is a horizontal layer, not a vertical slice.
-
-- ✅ "Self-serve Signing Path" (demo: checkout → sign → see signature)
-- ❌ "Database Schema" (no demo possible)
-
-**Demo-able means:**
-- Has an entry point (UI interaction or trigger)
-- Has an observable output (UI renders, effect occurs)
-- Shows meaningful progress toward the R
-
-The shape guides what counts as "meaningful progress" — you're not just grouping affordances arbitrarily, you're grouping them to demonstrate mechanisms working.
-
-### Slice Size
-
-- **Too small:** Only 1-2 UI affordances, no meaningful demo → merge with related slice
-- **Too big:** 15+ affordances or multiple unrelated journeys → split
-- **Right size:** A coherent journey with a clear "watch me do this" demo
-
-Aim for ≤9 slices. If you need more, the shape may be too large for one cycle.
-
-### Wires to Future Slices
-
-A slice may contain affordances with Wires Out pointing to affordances in later slices. These wires exist in the breadboard but aren't implemented yet — they're stubs or no-ops until that later slice is built.
-
-This is normal. The breadboard shows the complete system; slicing shows the order of implementation.
-
-### Procedure
-
-**Step 1: Identify the minimal demo-able increment**
-
-Look at your breadboard and shape. Ask: "What's the smallest subset that demonstrates the core mechanism working?"
-
-Usually this is:
-- The core data fetch
-- Basic rendering
-- No search, no pagination, no state persistence yet
-
-This becomes V1.
-
-**Step 2: Layer additional capabilities as slices**
-
-Look at the mechanisms in your shape. Each slice should demonstrate a mechanism working:
-- V2: Search input (demonstrates the search mechanism)
-- V3: Pagination/infinite scroll (demonstrates the pagination mechanism)
-- V4: URL state persistence (demonstrates the state preservation mechanism)
-- etc.
-
-**Max 9 slices.** If you have more, combine related mechanisms. Features that don't make sense alone should be in the same slice.
-
-**Step 3: Assign affordances to slices**
-
-Go through every affordance and assign it to the slice where it's first needed to demo that slice's mechanism:
-
-| Slice | Mechanism | Affordances |
-|-------|-----------|-------------|
-| V1 | Core display | U2, U3, N3, N4, N5, N6, N7 |
-| V2 | Search | U1, N1, N2 |
-| V3 | Pagination | U10, N11, N12, N13 |
-
-Some affordances may have Wires Out to later slices — that's fine. They're implemented in their assigned slice; the wires just don't do anything yet.
-
-**Step 4: Create per-slice affordance tables**
-
-For each slice, extract just the affordances being added:
-
-**V2: Search Works**
-
-| # | Component | Affordance | Control | Wires Out | Returns To |
-|---|-----------|------------|---------|-----------|------------|
-| U1 | search-detail | search input | type | → N1 | — |
-| N1 | search-detail | `activeQuery.next()` | call | → N2 | — |
-| N2 | search-detail | `activeQuery` subscription | observe | → N3 | — |
-
-**Step 5: Write a demo statement for each slice**
-
-Each slice needs a concrete demo that shows its mechanism working toward the R:
-- V1: "Widget shows real data from the API"
-- V2: "Type 'dharma', results filter live"
-- V3: "Scroll down, more items load"
-
-The demo should be something you can show a stakeholder that demonstrates progress.
-
-### Visualizing Slices in Mermaid
-
-Show the complete breadboard in every slice diagram, but use styling to distinguish scope:
-
-| Category | Style | Description |
-|----------|-------|-------------|
-| **This slice** | Bright color | Affordances being added |
-| **Already built** | Solid grey | Previous slices |
-| **Future** | Transparent, dashed border | Not yet built |
-
-```mermaid
-flowchart TB
-    U1["U1: search input"]
-    U2["U2: loading spinner"]
-    N1["N1: activeQuery.next()"]
-    N2["N2: subscription"]
-    N3["N3: performSearch"]
-
-    U1 --> N1
-    N1 --> N2
-    N2 --> N3
-    N3 --> U2
-
-    %% V2 scope (this slice) = green
-    classDef thisSlice fill:#90EE90,stroke:#228B22,color:#000
-    %% Already built (V1) = grey
-    classDef built fill:#d3d3d3,stroke:#808080,color:#000
-    %% Future = transparent dashed
-    classDef future fill:none,stroke:#ddd,color:#bbb,stroke-dasharray:3 3
-
-    class U1,N1,N2 thisSlice
-    class U2,N3 built
-```
-
-This lets stakeholders see:
-- What's being built now (highlighted)
-- What already exists (grey)
-- What's coming later (faded)
-
-### Slice Summary Format
-
-| # | Slice | Mechanism | Demo |
-|---|-------|-----------|------|
-| V1 | Widget with real data | F1, F4, F6 | "Widget shows letters from API" |
-| V2 | Search works | F3 | "Type to filter results" |
-| V3 | Infinite scroll | F5 | "Scroll down, more load" |
-| V4 | URL state | F2 | "Refresh preserves search" |
-
-The Mechanism column references parts from the shape, showing which mechanisms each slice demonstrates.
-
----
 ---
 
 # Examples
@@ -1758,130 +1610,4 @@ back button (U11) → URL ?q= → initializeState() → restores search
 
 *Verification: 14 UI + 18 Code = 32 affordances in tables. 32 affordances in presentation. ✅*
 
-**Slicing the Model**
-
-With the full model complete, slice it into vertical increments. Each slice demonstrates a mechanism working:
-
-**Slice Summary**
-
-| # | Slice | Mechanism | Affordances | Demo |
-|---|-------|-----------|-------------|------|
-| V1 | Widget with real data | F1, F4, F6 | U2-U9, N3-N8, LD | "Widget shows real data" |
-| V2 | Search works | F3 | U1, N1, N2 | "Type 'dharma', results filter" |
-| V3 | Infinite scroll | F5 | U10, N11-N13 | "Scroll down, more load" |
-| V4 | URL state | F2 | U11, N9, N10, N14 | "Refresh preserves search" |
-| V5 | Compact mode | — | U12, N15-N18, LP | "Shows 'See all' link" |
-
-**Slice Diagram**
-
-```mermaid
-flowchart TB
-    subgraph slice1["V1: WIDGET WITH REAL DATA"]
-        U2["U2: loading spinner"]
-        U3["U3: no results msg"]
-        U4["U4: result count"]
-        U5["U5: results list"]
-        U6["U6: row click"]
-        U7["U7: date"]
-        U8["U8: subject"]
-        U9["U9: teaser"]
-
-        N3["N3: performSearch"]
-        N4["N4: rawSearch"]
-        N5["N5: parentId (config)"]
-        N6["N6: loading store"]
-        N7["N7: detailResult store"]
-        N8["N8: detectChanges"]
-        LD["Letter Detail"]
-    end
-
-    subgraph slice2["V2: SEARCH WORKS"]
-        U1["U1: search input"]
-        N1["N1: activeQuery.next"]
-        N2["N2: activeQuery sub"]
-    end
-
-    subgraph slice3["V3: INFINITE SCROLL"]
-        U10["U10: scroll"]
-        N11["N11: intercom subject"]
-        N12["N12: appendNextPage"]
-        N13["N13: sendMessage"]
-    end
-
-    subgraph slice4["V4: URL STATE"]
-        U11["U11: back button"]
-        N9["N9: URL ?q="]
-        N10["N10: initializeState"]
-        N14["N14: Router.navigate"]
-    end
-
-    subgraph slice5["V5: COMPACT MODE"]
-        U12["U12: See all X results"]
-        N15["N15: if !compact subscribe"]
-        N16["N16: if truncated show link"]
-        N17["N17: compact (config)"]
-        N18["N18: fullPageRoute (config)"]
-        LP["Full Page"]
-    end
-
-    U1 -->|type| N1
-    N1 --> N2
-    N2 -->|debounce| N3
-
-    N3 --> N4
-    N3 --> N6
-    N3 --> N7
-    N3 --> N8
-    N4 -.-> N3
-    N5 -.->|filter| N4
-
-    N6 -.-> N8
-    N7 -.-> N8
-    N8 --> U2
-    N8 --> U3
-    N8 --> U4
-    N8 --> U5
-    U5 --> U6
-    U5 --> U7
-    U5 --> U8
-    U5 --> U9
-    U6 -->|navigate| LD
-
-    U11 -->|restore| N9
-    N9 --> N10
-    N10 --> N1
-    N10 --> N3
-
-    U10 --> N11
-    N11 --> N12
-    N12 --> N4
-    N12 --> N7
-    N12 --> N8
-    N12 --> N13
-    N12 --> N14
-    N13 -->|re-arm| N11
-    N4 -.-> N12
-    N14 -.->|URL| N9
-
-    N15 -->|if !compact| N11
-    N17 -.-> N4
-    N17 -.-> N15
-    N17 -.-> N16
-    N18 -.-> U12
-    N1 -.-> U12
-    N7 -.-> N16
-    N16 -->|if truncated| U12
-    U12 -->|navigate with ?q| LP
-
-    style slice1 fill:#e8f5e9,stroke:#4caf50,stroke-width:2px
-    style slice2 fill:#e3f2fd,stroke:#2196f3,stroke-width:2px
-    style slice3 fill:#fff3e0,stroke:#ff9800,stroke-width:2px
-    style slice4 fill:#f3e5f5,stroke:#9c27b0,stroke-width:2px
-    style slice5 fill:#fff8e1,stroke:#ffc107,stroke-width:2px
-
-    classDef ui fill:#ffb6c1,stroke:#d87093,color:#000
-    classDef nonui fill:#d3d3d3,stroke:#808080,color:#000
-
-    class U1,U2,U3,U4,U5,U6,U7,U8,U9,U10,U11,U12,LD,LP ui
-    class N1,N2,N3,N4,N5,N6,N7,N8,N9,N10,N11,N12,N13,N14,N15,N16,N17,N18 nonui
-```
+After modeling is complete, invoke `/slicing` to break this model into implementation slices with acceptance criteria and validation requirements.

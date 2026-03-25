@@ -109,7 +109,7 @@ Never split only in the diagram (e.g., adding unnamed sub-nodes in a subgraph). 
 
 ### Fixing Wiring
 
-When the causality is wrong (A → B in the breadboard but C → B in the code):
+When the causality is wrong (A → B in the model but C → B in the code):
 
 1. Read the code to understand the actual call chain.
 2. Update the table first — move the wire to the correct source.
