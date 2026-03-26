@@ -2,7 +2,7 @@
 description: Add pros/cons/confidence to solutions. Append to any prompt.
 ---
 
-Present $ARGUMENTS
+When presenting alternatives, options, or approaches, use this format.
 
 ## Rules
 

@@ -6,7 +6,7 @@ description: |
   Claude Code extensibility components. Also use when optimizing documentation for agent autonomy or user DX.
 color: cyan
 model: opus
-skills: cc, ledger, claude-api
+skills: cc, ledger, claude-api, naming, pcc
 memory: user
 ---
 

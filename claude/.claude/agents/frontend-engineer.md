@@ -7,7 +7,7 @@ description: |
   stack-specific patterns.
 color: yellow
 model: opus
-skills: design, agent-browser
+skills: design, agent-browser, naming, pcc
 memory: user
 ---
 
