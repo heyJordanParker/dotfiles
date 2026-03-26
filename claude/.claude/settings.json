@@ -119,6 +119,15 @@
             "command": "/bin/rm -f /tmp/claude-waiting-$TMUX_PANE"
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jordan/.claude/hooks/extract-instructions.sh",
+            "timeout": 60
+          }
+        ]
       }
     ],
     "SessionEnd": [
