@@ -26,12 +26,20 @@ Invoked as `/talents:<name>`:
 - **design** — UI components, styling, and interaction decisions
 - **diagram** — Generate Excalidraw diagrams on a live canvas (requires [drawbridge](https://github.com/alexknowshtml/drawbridge))
 - **naming** — Consistent naming for variables, files, classes, everything
+- **debate** — N independent architects debate architectural options through structured rounds with cross-pollination
+- **execute-plan** — Orchestrate implementation plans with persistent team, validation gates per slice
+- **independent-review** — N identical parallel agents for consensus through redundancy
+- **ledger** — Review and update Claude.md files for template compliance
+- **modeling** — Transform shaped parts into concrete models (DB schema, UX flows, architecture)
+- **pcc** — Add pros/cons/confidence to any prompt
 - **personas** — 5 parallel persona agents for diverse perspectives
 - **plan** — Plan features using structured format
 - **pragmatic-engineering** — KISS-driven planning and review
+- **review-plan** — Review planning artifacts with 5 parallel specialized agents
 - **review** — Parallel code reviewers on uncommitted changes
 - **shaping** — Collaborate on problem definition and solution options
 - **show-architecture** — Annotated file trees inline
+- **slicing** — Break modeled features into vertical implementation slices with acceptance criteria
 - **subagents** — Framework for dispatching and managing subagents
 - **user-testing** — Trace real user flows through code changes, find gaps
 - **using-git-worktrees** — Isolated git worktrees for feature work
