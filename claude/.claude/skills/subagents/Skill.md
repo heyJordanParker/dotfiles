@@ -1,18 +1,18 @@
 ---
 name: subagents
-description: Framework for dispatching, resuming, and managing subagents. Covers prompting (WHAT/WHY, never HOW), validation via DoD, and two operating modes.
+description: Framework for creating persistent teams and dispatching subagents. Teams are the default for complex tasks — teammates persist, accept new work via messages, and run indefinitely. Covers prompting (WHAT/WHY, never HOW) and validation via DoD.
 ---
 
 # Subagents
 
-Framework for dispatching, resuming, and managing subagents.
+Framework for creating persistent teams, dispatching subagents, and coordinating multi-agent work.
 
 ## Triggers
 
 - Dispatching any subagent (implementation, research, review)
-- Choosing between doing work yourself vs delegating
-- Resuming a previous subagent
 - Managing multiple concurrent agents
+- Resuming a previous subagent
+- Coordinating a team of teammates
 
 ## Prompting
 
@@ -25,6 +25,8 @@ When you know HOW to solve something, you instinctively dump that into the promp
 - Wastes tokens on instructions they'd figure out by reading code
 - Prevents them from finding a better solution
 - Creates fragile prompts that break when code changes
+
+**Exception:** Mechanical tasks (bulk renames, format conversions) are fine with specific instructions since they're not architectural.
 
 ### Scope agents to their reasoning unit, not your diff.
 
@@ -141,26 +143,6 @@ DoD:
 - Failed retry after 3 attempts shows "Unable to process payment"
 ```
 
-## Operating Modes
-
-Select based on task complexity and context window needs.
-
-### Lead Engineer
-
-**When:** Task fits in a single context window without compaction.
-
-You read code, write code, make decisions. Subagents handle side work — research, parallel investigations, fetching inputs. Results feed back to you.
-
-See [lead-engineer.md](references/lead-engineer.md) for patterns.
-
-### Project Manager
-
-**When:** Task requires multiple compactions, touches many systems, or has 3+ independent subtasks.
-
-Create a team with persistent teammates. Coordinate via messages and shared task list. **You do NOT write code. You do NOT read implementation details. You do NOT use Edit, Write, or NotebookEdit tools.** Every line of code is written by a teammate.
-
-See [project-manager.md](references/project-manager.md) for lifecycle and patterns.
-
 ## Prompt Structure
 
 Every subagent dispatch uses these sections:
@@ -188,7 +170,7 @@ Workflow:
 
 ### Architecture Block
 
-After the prompt, include an annotated file tree + 1 paragraph of context:
+Before the Workflow section, include an annotated file tree + 1 paragraph of context:
 
 ```
 Payment timeout errors silently swallow failures. The payment service
@@ -202,29 +184,127 @@ backend/
     └── PaymentServiceTest.php*         <- add timeout test coverage
 ```
 
-## Persistence
+## Hard Rules
 
-Choose based on coordination needs:
+- **You do NOT use Edit, Write, or NotebookEdit.** When you create a team, you become the coordinator. Every line of code is written by a teammate. You preserve your context window for coordination, not implementation
+- **Never close teams.** Never use TeamDelete or send shutdown requests. Teams run indefinitely. The user decides when a team is done — not the agent. Closing a team destroys accumulated context that costs real money to rebuild
+- **Never spawn replacements for failed teammates.** When a teammate fails DoD, send feedback via SendMessage — the teammate iterates with full context. That's the whole point of persistence
 
-- **Teams** — PM mode default. Persistent teammates with shared task list and messaging. Survive between turns, iterate without losing context
-- **Background + resume** — Lead Engineer feed-forward. `run_in_background: true` for non-blocking side work. Resume with new direction
-- **Fresh spawn** — One-shot tasks. Research, reviews, validation. No state between invocations
+## Team Lifecycle
+
+### When to Create a Team
+
+- **3+ subtasks** → create a team
+- **Fewer** → one-shot agent — use the Agent tool directly with the same prompt structure (Story/Business/Goal/DoD/Workflow). No TeamCreate, no TaskCreate. Skip TaskUpdate steps in the Workflow template
+
+### 1. Create Team
+
+```
+TeamCreate(team_name: "feature-name", description: "What we're building")
+```
+
+You may use: Read, Glob, Grep, Bash (read-only), AskUserQuestion, TeamCreate, SendMessage, TaskCreate/Update/List/Get.
+
+### 2. Decompose
+
+Break work into independent tasks with `TaskCreate`. Set `activeForm` to present-continuous (e.g., "Fixing payment timeout") — this drives the user's progress spinner. Each task completable by a teammate with no knowledge of other tasks.
+
+### 3. Spawn Teammates
+
+Use specialized `subagent_type` matched to the task domain — code-reviewer, architect, backend-engineer, frontend-engineer, researcher, tester, etc. Not general-purpose.
+
+2-4 active teammates max. Reuse existing teammates via SendMessage for new work rather than spawning more.
+
+```
+Agent(
+  subagent_type: "backend-engineer",
+  team_name: "feature-name",
+  name: "worker-name",
+  prompt: "Story, Business, Goal, DoD + Architecture + Workflow"
+)
+```
+
+Teammates persist between turns — send messages, assign new tasks, iterate on feedback without losing context.
+
+Use `run_in_background: true` for non-blocking dispatch when you don't need results immediately.
+
+### 4. Coordinate
+
+- Teammates message you via SendMessage when they complete tasks or hit blockers
+- Messages deliver automatically — no polling needed
+- Respond via SendMessage to provide direction
+- Track progress via TaskList
+- **Idle is normal** — teammates go idle between turns. SendMessage wakes them. Don't spawn replacements
+
+### 5. Review
+
+After each teammate returns results:
+
+1. **Read the summary** — does it match DoD?
+2. **Spot check** — read 1-2 changed files (use Read, not Edit)
+3. **Dispatch reviewer** — code-reviewer subagent against DoD
+4. **Decide** — accept, or send feedback for iteration via SendMessage
+
+When a teammate fails DoD: SendMessage with specific feedback. The teammate iterates with full context. Never spawn a new agent to fix another agent's work.
+
+### 6. Integrate
+
+After all tasks complete:
+- Verify no conflicts between teammate outputs
+- Run full verification (tests, build, lint)
+- Dispatch final review subagent across entire changeset
+
+## Dispatch Patterns
+
+### Sequential (dependent tasks)
+
+```
+Teammate A completes → review → message Teammate B → review → ...
+```
+
+Use TaskUpdate blockedBy to express dependencies. Resume teammates with new direction via SendMessage.
+
+### Parallel (independent tasks)
+
+```
+Teammate A ─┐
+Teammate B ─┼→ review all → integrate
+Teammate C ─┘
+```
+
+Spawn all at once. Each works independently. Watch for file conflicts.
+
+### Pipeline (research → implement)
+
+```
+Research teammate → you digest findings → implementation teammate
+```
+
+Research teammate messages you with findings. Weave into implementation prompt's Story/Business sections.
+
+## Common Mistakes
+
+- **Writing "just a small fix" yourself** — delegate it. Your context is for coordination
+- **Reading full implementation files** — read summaries. Spot check selectively
+- **Spawning new agents instead of messaging teammates** — teammates persist. Send them new work
+- **Spawning replacements for failed agents** — SendMessage feedback instead. That's the whole value of persistence
+- **Skipping review** — every implementation task gets reviewed
 
 ## Quick Reference
 
-- **Fits in one context window?** → Lead Engineer
-- **3+ independent subtasks?** → Project Manager (create a team)
-- **Need non-blocking side work?** → Background agent (`run_in_background: true`)
-- **Same problem, new info?** → Resume agent
-- **Different problem?** → Spawn new agent
-- **Want to give step-by-step?** → Stop. Give WHAT/WHY instead.
-- **Scoping to one method for review?** → Stop. Give the full module/feature.
+- **3+ subtasks?** → Create a team
+- **Fewer subtasks?** → One-shot agent
+- **Need non-blocking work?** → `run_in_background: true`
+- **Same problem, new info?** → SendMessage to existing teammate
+- **Teammate failed?** → SendMessage feedback, never spawn replacement
+- **Want to give step-by-step?** → Stop. Give WHAT/WHY instead
+- **Scoping to one method?** → Stop. Give the full module/feature
 
 ## Process
 
-1. **Select mode** — Lead Engineer or Project Manager
-2. **Create tasks** — `TaskCreate` for each piece of work. Set `activeForm` to present-continuous (e.g., "Fixing payment timeout"). This gives the user real-time visual progress via spinners and checkmarks
+1. **Assess** — 3+ subtasks? Create a team. Fewer? One-shot agent
+2. **Create tasks** — `TaskCreate` for each piece of work. Set `activeForm` to present-continuous
 3. **Write prompts** — Story, Business, Goal, DoD, Workflow
 4. **Add architecture** — annotated file tree before Workflow section
-5. **Dispatch** — every prompt includes the Workflow section as its final block
-6. **Review output** — against DoD criteria
+5. **Dispatch** — specialized `subagent_type`, every prompt includes Workflow as final block
+6. **Review output** — against DoD criteria. Send feedback via SendMessage if needed
