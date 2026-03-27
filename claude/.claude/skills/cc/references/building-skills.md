@@ -65,6 +65,25 @@ Structure skill execution in phases:
 - Name after what you're DOING: `building-skills.md` — not what the topic IS: `context-engineering.md`
 - **Litmus test:** verb phrase = process. "building skills" ✓. "context engineering" ✗.
 
+**Route by usecase, not component** — Agents open references when solving a specific problem. Structure routing to match the agent's mental state, not the API surface.
+
+Bad — routes by component (agent must already know the answer):
+```markdown
+- [hooks.md](references/hooks.md) — hook system
+- [rules.md](references/rules.md) — rules system
+```
+
+Good — routes by problem (agent finds their situation):
+```markdown
+- Optimizing a query → optimizing-queries.md
+- Preventing agent mistakes → enforcing-guardrails.md
+- Deciding whether to use an effect → effects.md
+```
+
+Why: component routing requires the agent to translate "I need to prevent X" → "that sounds like hooks." Usecase routing eliminates that translation step. Reference filenames stay as verb phrases (`optimizing-queries.md`), but routing sentences describe the problem, not the tool.
+
+Apply this to Skill.md Topics, rules files that route to references, and any section pointing agents to further reading.
+
 **Signs structure is wrong:**
 - Agent produces wrong output despite rules existing → rules are in a reference instead of Skill.md
 - Agent always reads files A and B together → merge into one file
@@ -147,7 +166,7 @@ allowed-tools:  # Optional - restricts available tools
 - **model:** Override model for skill execution (e.g., `model: sonnet`)
 - **agent:** Specify agent type for execution (e.g., `agent: code-reviewer`)
 - **user-invocable:** `false` hides from slash command menu (default: `true` for skills in `/skills/`)
-- **hooks:** Define scoped PreToolUse/PostToolUse/Stop hooks (see hooks.md)
+- **hooks:** Define scoped PreToolUse/PostToolUse/Stop hooks (see automating-with-hooks.md)
 
 **Optional:**
 - **compatibility:** ≤500 chars — environment requirements (intended product, system packages, network access)

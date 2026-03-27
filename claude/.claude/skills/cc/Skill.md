@@ -33,17 +33,16 @@ Apply to all topics below:
 
 ## Topics
 
-Based on what you need, read the relevant reference:
+Read the reference that matches the problem you're solving:
 
-- **Building agents:** [writing-agents.md](references/writing-agents.md) — creating custom agents, agent-only skills, subagent types
-- **Building skills:** [building-skills.md](references/building-skills.md) — creating, editing, moving skills
-- **Testing skills:** [testing-skills.md](references/testing-skills.md) — TDD for skills, pressure testing
-- **Claude.md files:** [claude-md.md](references/claude-md.md) — template, structure, style guide, and update process for Claude.md files
-- **Hooks:** [hooks.md](references/hooks.md) — creating event-driven automation
-- **Rules:** [rules.md](references/rules.md) — modular project instructions via .claude/rules/
-- **Plugins & marketplace:** [plugins-marketplace.md](references/plugins-marketplace.md) — distributing skills/hooks/commands via plugin system
-- **User commands:** [user-commands.md](references/user-commands.md) — built-in slash commands
-- **Updating this skill:** [updating-cc-skill.md](references/updating-cc-skill.md) — syncing with new Claude Code releases
+- Teach agents a reusable process → [building-skills.md](references/building-skills.md)
+- Verify a skill works under pressure → [testing-skills.md](references/testing-skills.md)
+- Document project context for agents → [claude-md.md](references/claude-md.md)
+- Automate reactions to events → [automating-with-hooks.md](references/automating-with-hooks.md)
+- Create a specialized agent → [writing-agents.md](references/writing-agents.md)
+- Share setup with other projects → [plugins-marketplace.md](references/plugins-marketplace.md)
+- Find a built-in command → [user-commands.md](references/user-commands.md)
+- Update this skill for a new release → [updating-cc-skill.md](references/updating-cc-skill.md)
 
 ## Quick Reference
 
@@ -61,6 +60,17 @@ Skills with empty description frontmatter won't appear in available_skills conte
 
 - `Skill.md` (PascalCase, not SKILL.md)
 - `Claude.md` (PascalCase, not CLAUDE.md)
+
+### Rules
+
+Modular project instructions in `.claude/rules/`. Alternative to Claude.md for scoped guidance.
+
+- **User:** `~/.claude/rules/` — all projects
+- **Project:** `.claude/rules/` — current project (higher priority)
+- Files discovered recursively. Symlinks supported
+- `paths:` frontmatter scopes rules to file globs (e.g. `paths: **/*.ts`). Without it, rules apply unconditionally
+- Load order: user rules → project rules → Claude.md hierarchy (all coexist)
+- One topic per file, descriptive filenames, subdirectories to organize
 
 ### Style
 
