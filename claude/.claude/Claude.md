@@ -1,5 +1,5 @@
 # Agent Configuration
-v2.3 | Updated: 2026-03-26
+v2.4 | Updated: 2026-03-28
 
 ## Why
 
@@ -144,8 +144,22 @@ Use `/ledger` to manually review and update Claude.md files on demand.
 
 ### Hooks
 
-- block-git-revert.sh — blocks destructive git: `git reset`, `git restore`, `git checkout -- <file>`. Forces manual execution
+Safety hooks (PreToolUse, Bash matcher):
+- block-git-revert.sh — blocks `git reset`, `git restore`, `git checkout -- <file>`. Forces manual execution
 - block-unsafe-delete.sh — whitelist rm (e.g. ~/dotfiles, ~/Developer, /tmp). See script for full list
+- block-unauthorized-commits.sh — blocks `git commit` unless finalize flag is set in session state
+
+Enforcement hooks (PreToolUse, Agent matcher):
+- enforce-solo-mode.sh — blocks Agent tool when approach = solo in session state
+- enforce-background-agents.sh — blocks foreground agent dispatches (all agents must use run_in_background: true)
+
+Intent classifier (UserPromptSubmit):
+- classify-intent.sh — classifies user messages (question/approval/instructions), manages session state (`/tmp/claude-session-state-{session_id}`), detects surprise moments, tracks execution modes (solo/default/team), defaults to proposal when intent is ambiguous
+
+Completion validation (Stop):
+- validate-completion.sh — two-phase gate before agent stops. Only triggers when a plan exists AND the current turn has file edits. Phase 1: requirements + plan validation tables. Phase 2 (3+ edits): scope-appropriate review (architect, tester, ux-tester)
+
+All hooks gracefully allow on errors (missing files, parse failures). No hook should ever block due to infrastructure failure.
 
 ### Settings
 
@@ -169,6 +183,7 @@ Use `/ledger` to manually review and update Claude.md files on demand.
 
 ## Ledger
 
+- v2.4: Added intent classifier, session state, enforcement hooks (solo mode, background agents, commit gate), and completion validation stop hook
 - v2.3: Restructured to counter agent laziness and instruction-ignoring
 - v2.2: Added core mission — save Jordan time. Both failure modes (bad autonomous architecture, unnecessary escalation) waste time equally
 - v2.1: Ledger entries keyed by file version instead of dates — dates live in git

@@ -23,6 +23,9 @@ fi
 # Read hook event data
 EVENT=$(cat)
 
+# DEBUG: capture event payload for analysis (temporary)
+echo "$EVENT" | jq '.' >> /tmp/claude-hook-userpromptsubmit-events.jsonl 2>/dev/null || true
+
 # Skip agent sessions
 SESSION_ID=$(echo "$EVENT" | jq -r '.session_id // ""')
 [[ -z "$SESSION_ID" || "$SESSION_ID" == agent-* ]] && exit 0

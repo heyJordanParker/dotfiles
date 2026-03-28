@@ -80,7 +80,58 @@ hooks:
 - **2:** Block (stderr shown to Claude/user)
 - **Other:** Non-blocking error
 
-PreToolUse hooks can return `additionalContext` to inject context into the model.
+**Event-specific behavior:**
+- **PreToolUse:** exit 2 blocks the tool call. Stderr shown to agent
+- **UserPromptSubmit:** exit 2 blocks message submission, stderr shown to user. Any non-zero exit also blocks (not graceful like other events)
+- **Stop:** exit 2 blocks the stop. Stderr becomes instructions to the agent, which acts on them and tries to stop again (re-triggering the hook). Can fire multiple times per turn
+
+## Event Input Schemas
+
+Each hook event receives a JSON object on stdin. Fields vary by event.
+
+**PreToolUse / PostToolUse:**
+- `session_id` — session UUID (prefixed `agent-` for subagent sessions)
+- `tool_name` — the tool being called (e.g. `"Write"`, `"Bash"`, `"Agent"`)
+- `tool_input` — tool-specific parameters (e.g. `{file_path, content}` for Write, `{command}` for Bash, `{prompt, run_in_background}` for Agent)
+- `cwd` — working directory
+
+**UserPromptSubmit:**
+- `session_id` — session UUID
+- `prompt` — the user's message text
+- `transcript_path` — path to the session's JSONL file
+
+**Stop:**
+- `session_id` — session UUID
+- `transcript_path` — path to the session's JSONL file
+- `cwd` — working directory
+- `last_assistant_message` — the agent's final text before stopping
+- `stop_hook_active` — boolean (behavior under investigation)
+- `permission_mode` — e.g. `"default"`, `"bypassPermissions"`
+- `hook_event_name` — `"Stop"`
+
+**PermissionRequest:**
+- `session_id` — session UUID
+- `tool_name` — the tool requesting permission
+
+### Transcript Path
+
+`transcript_path` points to project JSONL files at `~/.claude/projects/<project-path>/<session-uuid>.jsonl`. These are NOT the files in `~/.claude/transcripts/`.
+
+JSONL entry types: `"assistant"`, `"user"`, `"system"`, `"file-history-snapshot"`, `"queue-operation"`
+
+`"type":"user"` entries include both real user messages AND tool results. To filter for real user messages only, exclude entries containing `tool_use_id`.
+
+## Hook Output Format
+
+**UserPromptSubmit** hooks inject context into the agent by outputting JSON to stdout:
+
+```json
+{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"text injected as system-reminder"}}
+```
+
+The `additionalContext` string appears in the agent's context before it processes the user's message.
+
+**PreToolUse** hooks can also return `additionalContext` to inject context.
 
 ## Environment Variables
 
