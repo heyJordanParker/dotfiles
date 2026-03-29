@@ -5,7 +5,7 @@ description: Use for code review - runs all reviewers in parallel on uncommitted
 
 # Review
 
-Full code review gate. Runs 1 parallel subagent + 6 agents on uncommitted changes.
+Full code review gate. Runs 7 agents in parallel on uncommitted changes.
 
 ## Current Changes
 
@@ -17,9 +17,9 @@ Full code review gate. Runs 1 parallel subagent + 6 agents on uncommitted change
 
 ## Instructions
 
-Include the "Current Changes" and "Full Diff" sections above in each subagent prompt instead of telling them to run `git diff HEAD`.
+Include the "Current Changes" and "Full Diff" sections above in each agent prompt instead of telling them to run `git diff HEAD`.
 
-Launch 7 reviewers in parallel: 1 subagent using the Task tool + 6 agents using the Agent tool (`subagent_type: "code-reviewer"`, `subagent_type: "architect"`, `subagent_type: "backend-engineer"`, `subagent_type: "frontend-engineer"`, `subagent_type: "context-engineer"`, and `subagent_type: "ux-tester"`).
+Launch 7 reviewers in parallel using the Agent tool: `subagent_type: "code-reviewer"`, `subagent_type: "architect"`, general-purpose (naming), `subagent_type: "backend-engineer"`, `subagent_type: "frontend-engineer"`, `subagent_type: "context-engineer"`, and `subagent_type: "ux-tester"`.
 
 ### Code-Reviewer Agent: Anti-Slop
 
@@ -37,20 +37,12 @@ Dispatch using `subagent_type: "architect"` via the Agent tool (not Task tool). 
 Review uncommitted changes. Review the diff provided and apply your full review protocol. Report using Critical/Important/Minor format.
 ```
 
-### Subagent 3: Naming
+### Naming Agent
+
+Dispatch using the Agent tool (not Task tool). Prompt:
 
 ```
-You are a naming reviewer. Read references/naming.md for guidance.
-
-1. Review the diff provided
-2. Check: misleading names, generic names, convention violations, abbreviation abuse
-3. Report:
-
-**Critical:** (naming that causes confusion or bugs)
-**Important:** (naming that hurts readability)
-**Minor:** (naming suggestions)
-
-If clean: "No naming issues found."
+Apply the /naming skill. Review uncommitted changes. Review the diff provided and check all changed identifiers for naming issues. Report using Critical/Important/Minor format. If clean: "No naming issues found."
 ```
 
 ### Backend-Engineer Agent: Simplicity & Elegance
