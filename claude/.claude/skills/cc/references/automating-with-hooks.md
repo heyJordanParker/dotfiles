@@ -100,6 +100,8 @@ Each hook event receives a JSON object on stdin. Fields vary by event.
 - `prompt` — the user's message text
 - `transcript_path` — path to the session's JSONL file
 
+**Caveat:** System-generated messages (background agent completions, skill content injections, interrupt notifications) enter conversations as `type: "user"` and trigger UserPromptSubmit. Guard against these structurally — see [Skip System-Generated Messages](#skip-system-generated-messages) pattern.
+
 **Stop:**
 - `session_id` — session UUID
 - `transcript_path` — path to the session's JSONL file
@@ -120,6 +122,8 @@ Each hook event receives a JSON object on stdin. Fields vary by event.
 JSONL entry types: `"assistant"`, `"user"`, `"system"`, `"file-history-snapshot"`, `"queue-operation"`
 
 `"type":"user"` entries include both real user messages AND tool results. To filter for real user messages only, exclude entries containing `tool_use_id`.
+
+Not every `type: "user"` transcript entry fires a UserPromptSubmit hook. The transcript stores message format; the hook system decides independently when to fire.
 
 ## Hook Output Format
 
@@ -174,6 +178,32 @@ FLAG="$CLAUDE_PROJECT_DIR/.strict-mode"
 input=$(cat)
 # ... validation logic ...
 ```
+
+### Skip System-Generated Messages
+
+UserPromptSubmit hooks fire on system-generated pseudo-user messages. Detect structurally instead of enumerating tags:
+
+```bash
+#!/bin/bash
+PROMPT=$(echo "$EVENT" | jq -r '.prompt // ""')
+
+# XML-tagged: starts with <tag>, contains matching </tag>
+if [[ "$PROMPT" == "<"* ]]; then
+    TAG_REST="${PROMPT#<}"
+    TAG_NAME="${TAG_REST%%[> ]*}"
+    [[ -n "$TAG_NAME" && "$PROMPT" == *"</${TAG_NAME}>"* ]] && exit 0
+fi
+# Bracket-enclosed: entire message is a single [...] line
+if [[ "$PROMPT" == "["* ]]; then
+    FIRST_LINE="${PROMPT%%$'\n'*}"
+    [[ "$FIRST_LINE" == *"]" && "$PROMPT" == "$FIRST_LINE" ]] && exit 0
+fi
+# Raw text system messages (rare, no structural signal)
+[[ "$PROMPT" == "This session is being continued"* ]] && exit 0
+[[ "$PROMPT" == "Base directory for this skill:"* ]] && exit 0
+```
+
+Covers `<task-notification>`, `<teammate-message>`, `<command-name>`, `<local-command-*>`, `<system-reminder>`, `[Request interrupted by user]`, `[Image: source: ...]`, and any future tagged system messages automatically.
 
 ### SessionStart Context Loading
 
