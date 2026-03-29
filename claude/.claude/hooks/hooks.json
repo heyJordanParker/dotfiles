@@ -15,6 +15,38 @@
             "timeout": 5
           }
         ]
+      },
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/validate-planning-docs.sh",
+            "timeout": 60
+          },
+          {
+            "type": "command",
+            "if": "Write(**/Claude.md)",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/validate-ledger-entries.sh",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "if": "Edit(**/Claude.md)",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/validate-ledger-entries.sh",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "ExitPlanMode",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/validate-plan-quality.sh",
+            "timeout": 180
+          }
+        ]
       }
     ],
     "PostToolUse": [

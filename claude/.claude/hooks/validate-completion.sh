@@ -93,12 +93,30 @@ if [ -n "$TRANSCRIPT_PATH" ] && [ -f "$TRANSCRIPT_PATH" ]; then
     fi
 fi
 
+# Extract requirements table from plan (if it has one)
+REQUIREMENTS_TABLE=""
+HAS_REQUIREMENTS_TABLE=false
+if [ -n "$PLAN_CONTENT" ]; then
+    # Extract markdown table starting with | ID or | # header
+    REQUIREMENTS_TABLE=$(echo "$PLAN_CONTENT" | sed -n '/^|.*[#ID].*Requirement.*Status/,/^[^|]/p' | grep '^|' 2>/dev/null) || true
+    [ -n "$REQUIREMENTS_TABLE" ] && HAS_REQUIREMENTS_TABLE=true
+fi
+
 # Build classifier prompt based on phase
 PLAN_CONTEXT=""
 if [ -n "$PLAN_CONTENT" ]; then
     PLAN_CONTEXT="
 Plan for this session:
 ${PLAN_CONTENT}
+---
+"
+fi
+
+REQUIREMENTS_CONTEXT=""
+if [ "$HAS_REQUIREMENTS_TABLE" = true ]; then
+    REQUIREMENTS_CONTEXT="
+Requirements table from plan:
+${REQUIREMENTS_TABLE}
 ---
 "
 fi
@@ -117,13 +135,23 @@ fi
 if [ "$VALIDATION_PHASE" -eq 0 ] 2>/dev/null; then
     # Phase 0 → 1: Requirements checklist + lint/build
 
-    JSON_SCHEMA='{"type":"object","properties":{"requirements":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string"},"requirement":{"type":"string"},"status":{"type":"string","enum":["done","partial","missing","not_applicable"]},"notes":{"type":"string"}},"required":["id","requirement","status"]}},"plan_validations":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string"},"validation":{"type":"string"},"status":{"type":"string","enum":["done","partial","missing","not_applicable"]},"notes":{"type":"string"}},"required":["id","validation","status"]}},"risk_level":{"type":"string","enum":["low","medium","high"]},"risk_reason":{"type":"string"}},"required":["requirements","risk_level"]}'
+    JSON_SCHEMA='{"type":"object","properties":{"requirements":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string"},"requirement":{"type":"string"},"status":{"type":"string","enum":["done","partial","missing","not_applicable"]}},"required":["id","requirement","status"]}},"plan_validations":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string"},"validation":{"type":"string"},"status":{"type":"string","enum":["done","partial","missing","not_applicable"]}},"required":["id","validation","status"]}},"risk_level":{"type":"string","enum":["low","medium","high"]},"risk_reason":{"type":"string"}},"required":["requirements","risk_level"]}'
 
     SYSTEM_PROMPT="You are a completion validator. Analyze conversation context and extract requirements with completion status. Output structured JSON only."
 
-    EVAL_PROMPT="Analyze this session and extract all user requirements with their completion status.
+    # Build prompt conditionally based on whether plan has a requirements table
+    REQUIREMENTS_INSTRUCTIONS=""
+    if [ "$HAS_REQUIREMENTS_TABLE" = true ]; then
+        REQUIREMENTS_INSTRUCTIONS="1. Use the requirements table from the plan as the definitive checklist. For each requirement, assess completion status based on the agent's work. Use recent user messages only to identify requirements added or changed after the plan.
+2. Also extract the plan's validation steps separately into \"plan_validations\". If no validation steps exist, return an empty array."
+    else
+        REQUIREMENTS_INSTRUCTIONS="1. Return an empty \"requirements\" array — this plan has no requirements table.
+2. Extract the plan's validation steps into \"plan_validations\". If no validation steps exist, return an empty array."
+    fi
 
-${PLAN_CONTEXT}${NOTES_CONTEXT}First user message (original direction):
+    EVAL_PROMPT="Analyze this session and validate completion.
+
+${PLAN_CONTEXT}${REQUIREMENTS_CONTEXT}${NOTES_CONTEXT}First user message (original direction):
 ${FIRST_USER_MSG}
 
 Recent user messages:
@@ -133,14 +161,13 @@ Last agent message:
 ${LAST_ASSISTANT_MSG}
 
 Tasks:
-1. Extract every requirement the user stated (explicitly or implicitly). For each, assess if the agent's work completed it based on the last agent message and conversation flow.
-2. If a plan exists, also extract the plan's validation requirements separately into \"plan_validations\". If no plan exists, return an empty array.
+${REQUIREMENTS_INSTRUCTIONS}
 3. Assess overall risk level:
    - \"low\": typos, formatting, config changes, documentation
    - \"medium\": features within existing patterns, refactoring, adding hooks/skills
    - \"high\": database schema changes, money/payment logic, core UI deletion, authentication/authorization, data migration
 
-Return JSON with requirements, plan_validations (if plan exists), risk_level, and risk_reason."
+Return JSON with requirements, plan_validations, risk_level, and risk_reason."
 
     # Run classifier
     RESULT=""
@@ -161,15 +188,15 @@ Return JSON with requirements, plan_validations (if plan exists), risk_level, an
     fi
 
     # Format requirements table
-    REQ_TABLE=$(echo "$RESULT" | jq -r '.requirements // [] | map("| \(.id) | \(.requirement) | \(.status) | \(.notes // "-") |") | join("\n")' 2>/dev/null) || REQ_TABLE=""
+    REQ_TABLE=$(echo "$RESULT" | jq -r '.requirements // [] | map("| \(.id) | \(.requirement) | \(.status) |") | join("\n")' 2>/dev/null) || REQ_TABLE=""
     RISK_LEVEL=$(echo "$RESULT" | jq -r '.risk_level // "medium"' 2>/dev/null) || RISK_LEVEL="medium"
     RISK_REASON=$(echo "$RESULT" | jq -r '.risk_reason // ""' 2>/dev/null) || RISK_REASON=""
 
-    # Format plan validations table (if any)
+    # Format plan validations table
     PLAN_VAL_TABLE=""
     PLAN_VAL_COUNT=$(echo "$RESULT" | jq '.plan_validations // [] | length' 2>/dev/null) || PLAN_VAL_COUNT=0
     if [ "$PLAN_VAL_COUNT" -gt 0 ]; then
-        PLAN_VAL_TABLE=$(echo "$RESULT" | jq -r '.plan_validations // [] | map("| \(.id) | \(.validation) | \(.status) | \(.notes // "-") |") | join("\n")' 2>/dev/null) || PLAN_VAL_TABLE=""
+        PLAN_VAL_TABLE=$(echo "$RESULT" | jq -r '.plan_validations // [] | map("| \(.id) | \(.validation) | \(.status) |") | join("\n")' 2>/dev/null) || PLAN_VAL_TABLE=""
     fi
 
     # Update phase (create state file if it doesn't exist)
@@ -182,27 +209,31 @@ Return JSON with requirements, plan_validations (if plan exists), risk_level, an
     # Build block message
     BLOCK_MSG="Before stopping, verify your work.
 
-1. Lint and build the project — fix any obvious issues found.
+1. Lint and build the project — fix any obvious issues found."
+
+    if [ -n "$REQ_TABLE" ]; then
+        BLOCK_MSG="${BLOCK_MSG}
 
 2. Requirements checklist:
 
-| # | Requirement | Status | Notes |
-|---|-------------|--------|-------|
+| # | Requirement | Status |
+|---|-------------|--------|
 ${REQ_TABLE}"
+    fi
 
     if [ -n "$PLAN_VAL_TABLE" ]; then
         BLOCK_MSG="${BLOCK_MSG}
 
 3. Plan validation requirements:
 
-| # | Validation | Status | Notes |
-|---|------------|--------|-------|
+| # | Validation | Status |
+|---|------------|--------|
 ${PLAN_VAL_TABLE}"
     fi
 
     BLOCK_MSG="${BLOCK_MSG}
 
-Risk level: ${RISK_LEVEL} (${RISK_REASON})
+Risk: ${RISK_LEVEL} (${RISK_REASON})
 
 Complete all items marked partial or missing, then stop again for deeper validation."
 

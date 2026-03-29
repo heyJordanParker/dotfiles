@@ -1,5 +1,5 @@
 # Agent Configuration
-v2.4 | Updated: 2026-03-28
+v2.5 | Updated: 2026-03-29
 
 ## Why
 
@@ -153,6 +153,10 @@ Enforcement hooks (PreToolUse, Agent matcher):
 - enforce-solo-mode.sh — blocks Agent tool when approach = solo in session state
 - enforce-background-agents.sh — blocks foreground agent dispatches (all agents must use run_in_background: true)
 
+Planning quality hooks (PreToolUse, Write|Edit and ExitPlanMode matchers):
+- validate-planning-docs.sh — LLM-based gate on Write|Edit. Blocks deferred work, optionality, and unresolved choices in planning docs (identified by path under `~/.claude/shaping/` or frontmatter markers)
+- validate-plan-quality.sh — LLM-based gate on ExitPlanMode. Validates requirements tables, step specificity, traceability, validation steps, and bans deferral/optionality in plans
+
 Intent classifier (UserPromptSubmit):
 - classify-intent.sh — classifies user messages (question/approval/instructions), manages session state (`/tmp/claude-session-state-{session_id}`), detects surprise moments, tracks execution modes (solo/default/team), defaults to proposal when intent is ambiguous
 
@@ -183,9 +187,10 @@ All hooks gracefully allow on errors (missing files, parse failures). No hook sh
 
 ## Ledger
 
-- v2.4: Added intent classifier, session state, enforcement hooks (solo mode, background agents, commit gate), and completion validation stop hook
+- v2.5: Banned deferred/optional work in plans via LLM hooks because agents kept deferring despite instructions
+- v2.4: Programmatic enforcement of agent behavior via hooks because instructions alone failed 82% of the time
 - v2.3: Restructured to counter agent laziness and instruction-ignoring
-- v2.2: Added core mission — save Jordan time. Both failure modes (bad autonomous architecture, unnecessary escalation) waste time equally
-- v2.1: Ledger entries keyed by file version instead of dates — dates live in git
-- v2.0: Adopted Why/What/How template with Requirements/Boundaries/Ledger for all Claude.md files
+- v2.2: Added core mission to save Jordan time because both failure modes waste time equally
+- v2.1: Keyed ledger entries by file version instead of dates because dates live in git
+- v2.0: Standardized Claude.md template because agents couldn't find context without consistent structure
 - v1.2: Baseline before template adoption

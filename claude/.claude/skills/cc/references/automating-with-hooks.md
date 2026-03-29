@@ -51,6 +51,24 @@ Event-driven automation for Claude Code.
 ## Hook Options
 
 - `once: true` — run hook only once per session
+- `if: "ToolName(pattern)"` — only spawn this handler when the tool call matches the pattern. Uses permission rule syntax (gitignore-style globs for file paths). Avoids process overhead for non-matching calls. Requires v2.1.85+
+
+**`if` patterns:**
+- Bash: `"if": "Bash(git *)"` — matches commands starting with `git`
+- File tools: `"if": "Edit(**/Claude.md)"` — matches Claude.md at any depth
+- Path prefixes: `//` (filesystem root), `~/` (home), `/` (project root), bare (cwd-relative)
+- `*` matches within one directory, `**` matches recursively
+- No pipe alternation inside `if` — use separate handler entries for Write vs Edit
+
+```json
+{
+  "matcher": "Write|Edit",
+  "hooks": [
+    { "type": "command", "if": "Write(**/Claude.md)", "command": "./validate.sh" },
+    { "type": "command", "if": "Edit(**/Claude.md)", "command": "./validate.sh" }
+  ]
+}
+```
 
 ## Frontmatter Hooks
 
