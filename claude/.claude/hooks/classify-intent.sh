@@ -23,9 +23,6 @@ fi
 # Read hook event data
 EVENT=$(cat)
 
-# DEBUG: capture event payload for analysis (temporary)
-echo "$EVENT" | jq '.' >> /tmp/claude-hook-userpromptsubmit-events.jsonl 2>/dev/null || true
-
 # Skip agent sessions
 SESSION_ID=$(echo "$EVENT" | jq -r '.session_id // ""')
 [[ -z "$SESSION_ID" || "$SESSION_ID" == agent-* ]] && exit 0
@@ -33,6 +30,22 @@ SESSION_ID=$(echo "$EVENT" | jq -r '.session_id // ""')
 # Extract user message and transcript path
 PROMPT=$(echo "$EVENT" | jq -r '.prompt // ""')
 [[ -z "$PROMPT" ]] && exit 0
+
+# Skip system-generated messages (structural detection)
+# XML-tagged: starts with <tag>, contains matching </tag>
+if [[ "$PROMPT" == "<"* ]]; then
+    TAG_REST="${PROMPT#<}"
+    TAG_NAME="${TAG_REST%%[> ]*}"
+    [[ -n "$TAG_NAME" && "$PROMPT" == *"</${TAG_NAME}>"* ]] && exit 0
+fi
+# Bracket-enclosed: entire message is a single [...] line (no content after)
+if [[ "$PROMPT" == "["* ]]; then
+    FIRST_LINE="${PROMPT%%$'\n'*}"
+    [[ "$FIRST_LINE" == *"]" && "$PROMPT" == "$FIRST_LINE" ]] && exit 0
+fi
+# Raw text system messages (rare, no structural signal)
+[[ "$PROMPT" == "This session is being continued"* ]] && exit 0
+[[ "$PROMPT" == "Base directory for this skill:"* ]] && exit 0
 
 TRANSCRIPT_PATH=$(echo "$EVENT" | jq -r '.transcript_path // ""')
 STATE_FILE="/tmp/claude-session-state-${SESSION_ID}"
