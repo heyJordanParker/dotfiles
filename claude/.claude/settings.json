@@ -179,7 +179,7 @@
     ],
     "PermissionRequest": [
       {
-        "matcher": "Read|Glob|Grep|Write|Edit|NotebookEdit",
+        "matcher": "Read|Glob|Grep|Write|Edit|NotebookEdit|Bash",
         "hooks": [
           {
             "type": "command",
