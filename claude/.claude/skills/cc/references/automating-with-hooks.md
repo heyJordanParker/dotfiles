@@ -23,7 +23,7 @@ Event-driven automation for Claude Code.
 - **PreCompact:** Preserve critical context — matcher: manual|auto
 - **PostCompact:** React after compaction completes (e.g., log, notify, refresh state)
 - **Notification:** React to user notifications — matcher: notification types
-- **PermissionRequest:** Auto-allow/deny permissions — matcher: tool names
+- **PermissionRequest:** Auto-allow/deny user-facing approval prompts (file access, tool confirmation, user interaction) — matcher: tool names
 - **Elicitation:** Intercept MCP elicitation requests before showing to user — matcher: MCP server names
 - **ElicitationResult:** Override/modify elicitation responses before sending back to MCP server — matcher: MCP server names
 
@@ -113,7 +113,7 @@ Each hook event receives a JSON object on stdin. Fields vary by event.
 
 **PermissionRequest:**
 - `session_id` — session UUID
-- `tool_name` — the tool requesting permission
+- `tool_name` — the tool that triggered the approval prompt (file tools, Bash, AskUserQuestion, ExitPlanMode, etc.)
 
 ### Transcript Path
 
