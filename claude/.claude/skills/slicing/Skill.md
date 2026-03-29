@@ -303,6 +303,16 @@ Before presenting the plan to the user, verify:
 - [ ] Symlinks created
 - [ ] Every slice passes the demo test (can a user see this working?)
 
+### 9b. Present Requirements & Decisions
+
+Before announcing the contract, present to the user:
+- **Full requirements table** — which slice satisfies each R
+- **Boundaries (X)** — confirm all respected
+- **Outstanding decisions** — anything that emerged during slicing
+- **Coverage gaps** — any R without a satisfying slice
+
+The user reviews the plan through conversation output, not by opening slices.md.
+
 ### 10. Announce the Contract
 
 After all plan files are written, state:

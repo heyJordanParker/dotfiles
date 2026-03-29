@@ -41,6 +41,19 @@ The system only works if the levels are consistent with each other.
 
 ---
 
+## Surfacing Decisions (Critical)
+
+The shaping documents are the agent's persistent reference. The user sees only what appears in conversation output. At every checkpoint — after any iteration that changes R, X, shapes, fit checks, or models — present to the user:
+
+- **Requirements (R)** and their current status
+- **Boundaries (X)**
+- **Outstanding decisions** — anything Undecided, flagged (⚠️), or needing user input
+- **What changed** since last presentation (🟡 markers)
+
+The user should never need to open a document to know what needs their attention. This applies across all three phases — shaping, modeling, and slicing.
+
+---
+
 ## Starting a Session
 
 When kicking off a new shaping session, offer the user both entry points:

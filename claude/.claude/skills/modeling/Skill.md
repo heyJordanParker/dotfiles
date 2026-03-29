@@ -493,6 +493,15 @@ Summary of big changes followed by affordances broken down by component:
 
 After presenting, verify: count affordances in `affordances.md` tables → count in three-section presentation → assert equal. Every affordance appears in exactly one section.
 
+### Requirements & Decisions
+
+After presenting the three sections, also present:
+- **Requirements (R)** from shaping.md — which are now addressed by the model, which remain open
+- **Outstanding decisions** — any new questions the modeling process revealed
+- **Boundaries (X)** — confirm none were violated
+
+The model presentation is incomplete until the user can see requirements status alongside it.
+
 ---
 
 ## Procedures
