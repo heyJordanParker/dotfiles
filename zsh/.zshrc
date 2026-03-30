@@ -72,7 +72,7 @@ alias vim='nvim'
 alias nvim-lazy='NVIM_APPNAME=nvim-lazy nvim'
 alias nvim-astro='NVIM_APPNAME=nvim-astro nvim'
 alias nvim-chad='NVIM_APPNAME=nvim-chad nvim'
-alias cld="CLAUDE_CODE_ENABLE_TASKS=true EDITOR=prompt-editor claude --dangerously-skip-permissions --teammate-mode in-process --rc"
+alias cld="CLAUDE_CODE_ENABLE_TASKS=true EDITOR=prompt-editor claude --dangerously-skip-permissions --teammate-mode in-process"
 alias python='python3'
 alias pip='pip3'
 f() { find . -iname "*$1*" }

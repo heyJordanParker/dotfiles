@@ -28,9 +28,10 @@
       "Bash(git changes:*)",
       "Bash(brew install:*)",
       "Bash(ls:*)",
-      "mcp__pencil"
+      "mcp__pencil",
+      "Bash(stow:*)"
     ],
-    "defaultMode": "default"
+    "defaultMode": "dontAsk"
   },
   "model": "opus[1m]",
   "hooks": {
@@ -108,14 +109,14 @@
           },
           {
             "type": "command",
-            "if": "Write(**/Claude.md)",
             "command": "/Users/jordan/.claude/hooks/validate-ledger-entries.sh",
+            "if": "Write(**/Claude.md)",
             "timeout": 5
           },
           {
             "type": "command",
-            "if": "Edit(**/Claude.md)",
             "command": "/Users/jordan/.claude/hooks/validate-ledger-entries.sh",
+            "if": "Edit(**/Claude.md)",
             "timeout": 5
           }
         ]

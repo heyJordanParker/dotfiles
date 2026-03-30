@@ -26,6 +26,8 @@ Event-driven automation for Claude Code.
 - **PermissionRequest:** Auto-allow/deny user-facing approval prompts (file access, tool confirmation, user interaction) — matcher: tool names
 - **Elicitation:** Intercept MCP elicitation requests before showing to user — matcher: MCP server names
 - **ElicitationResult:** Override/modify elicitation responses before sending back to MCP server — matcher: MCP server names
+- **WorktreeCreate:** Replace default git worktree behavior (e.g. for non-git VCS). Must return worktree path (stdout for command hooks, `hookSpecificOutput.worktreePath` for HTTP). `.worktreeinclude` NOT processed when custom hook is configured — copy config files in your hook script instead
+- **WorktreeRemove:** Cleanup companion for WorktreeCreate
 
 ## Configuration
 
@@ -154,6 +156,10 @@ Not every `type: "user"` transcript entry fires a UserPromptSubmit hook. The tra
 The `additionalContext` string appears in the agent's context before it processes the user's message.
 
 **PreToolUse** hooks can also return `additionalContext` to inject context.
+
+## Related Settings
+
+- `permissions.additionalDirectories` — Array of paths in settings.json. Equivalent to `--add-dir` on CLI. Relative paths supported. Example: `{ "permissions": { "additionalDirectories": ["../docs/"] } }`
 
 ## Environment Variables
 

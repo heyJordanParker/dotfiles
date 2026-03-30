@@ -25,6 +25,13 @@ model: sonnet
 System prompt here. Agent sees only this — not the full Claude Code prompt.
 ```
 
+## Using Agents
+
+- `claude --agent <name>` — Start session with agent as the main thread. Agent's system prompt **replaces** the default Claude Code system prompt. Tool restrictions, model, and permission mode apply. Persists on resume. Header shows `@<name>`
+- `--agent <plugin>:<agent>` — Use agent from a specific plugin
+- `"agent": "name"` in settings.json — Set default agent for all sessions. CLI flag overrides
+- `--agents <json>` (plural) — Define ephemeral subagents for the session. Different from `--agent` (singular) which sets the main agent
+
 ## Locations
 
 Priority order (highest wins on name collision):
