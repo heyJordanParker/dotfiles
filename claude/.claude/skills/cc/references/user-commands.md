@@ -82,6 +82,12 @@ Built-in slash commands for Claude Code.
 - **/sandbox** — Enable sandboxed bash
 - **/voice** — Toggle voice input mode (shows dictation language on enable, warns if `language` setting is unsupported for voice input)
 
+## Keyboard Shortcuts
+
+- `Ctrl+O` — Enter transcript mode; press `/` to search, `n`/`N` to step through matches
+- `Ctrl+X Ctrl+E` — Open external editor (alias for `Ctrl+G`)
+- `Ctrl+X Ctrl+K` — Stop all background agents
+
 ## Session Transfer
 
 For claude.ai subscribers:
@@ -98,6 +104,7 @@ For claude.ai subscribers:
 ## Utilities
 
 - **/bug** — Report bugs (sends conversation to Anthropic)
+- **/copy [N]** — Copy last assistant response (optional index N copies Nth-latest)
 - **/feedback** — Generate GitHub issue URL
 - **/export [filename]** — Export conversation
 - **/tag** — Tag sessions
@@ -111,6 +118,7 @@ Noteworthy flags not covered elsewhere:
 - `--add-dir <dirs...>` — Add working directories (space-separated). Skills in added dirs' `.claude/skills/` auto-discovered. CLAUDE.md from added dirs NOT loaded by default (set `CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD=1` to enable)
 - `--rc [name]` — Start session with remote control enabled. Different from `claude remote-control` (server mode, no local REPL)
 - `--fork-session` — Use with `--resume` or `--continue` to create a new session ID instead of appending to original. CLI equivalent of `/branch`
+- `--channels` — Allow MCP servers to push messages into session (research preview)
 - `--chrome` — Enable Chrome extension integration for frontend work (beta, Chrome/Edge only, requires v2.0.73+)
 - `-w, --worktree [name]` — Create a new git worktree for this session
 

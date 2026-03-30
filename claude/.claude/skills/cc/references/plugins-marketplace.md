@@ -54,6 +54,7 @@ Location: `.claude-plugin/marketplace.json` at repo root
 - **GitHub** — `{"source": "github", "repo": "owner/repo", "ref": "v1.0", "sha": "..."}`
 - **Git URL** — `{"source": "url", "url": "https://gitlab.com/team/plugin.git"}`
 - **npm** — `{"source": "npm", "package": "@scope/pkg", "version": "^1.0"}`
+- **Settings inline** — `{"source": "settings"}` — declare plugin entries directly in settings.json
 
 ## Hooks in Plugins
 
@@ -81,6 +82,7 @@ Plugin hooks live in `hooks/hooks.json` (auto-discovered) or inline in manifest.
 - **Private repos**: works if user has git credentials; set `GITHUB_TOKEN` for auto-updates
 - **Team defaults**: add to `.claude/settings.json` `extraKnownMarketplaces` + `enabledPlugins`
 - **CLI:** `--plugin-dir` accepts one path per flag. Repeat for multiple directories: `--plugin-dir ./a --plugin-dir ./b`
+- **Seed dir:** `CLAUDE_CODE_PLUGIN_SEED_DIR` supports multiple directories separated by platform path delimiter (`:` on Unix, `;` on Windows)
 
 ## Version Management
 
@@ -88,10 +90,14 @@ Plugin hooks live in `hooks/hooks.json` (auto-discovered) or inline in manifest.
 - Without version bump, users don't get updates (cached)
 - Use `ref`/`sha` pinning for release channels (stable vs latest)
 
+## Persistent State
+
+`${CLAUDE_PLUGIN_DATA}` — directory for plugin state that survives updates. `/plugin uninstall` prompts before deleting it. Use for caches, user preferences, or other data that should persist across plugin versions.
+
 ## Validation & Testing
 
 ```bash
-# Validate marketplace
+# Validate marketplace (checks skill/agent/command frontmatter + hooks/hooks.json)
 claude plugin validate .
 
 # Test locally

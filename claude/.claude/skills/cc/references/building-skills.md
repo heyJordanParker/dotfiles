@@ -49,7 +49,7 @@ Structure skill execution in phases:
 **Avoid Stale Content** - You love hardcoding file lists. Don't. They go stale immediately.
 
 - Mention only critical components by name
-- Instruct the skill to use `codebase-exploration` to derive lists dynamically
+- Instruct the skill to use codebase exploration (Glob, Grep, git ls-files) to derive lists dynamically
 - Never enumerate files, dependencies, or structure inline
 
 **Bad:** "This project has: src/auth.ts, src/api.ts, src/utils.ts"
@@ -164,6 +164,7 @@ allowed-tools:  # Optional - restricts available tools
 - **allowed-tools:** Array of tool names — optional, restricts which tools Claude can use
 - **context:** `fork` runs skill in forked sub-agent context
 - **model:** Override model for skill execution (e.g., `model: sonnet`)
+- **effort:** Override model effort level when invoked (e.g., `effort: high`)
 - **agent:** Specify agent type for execution (e.g., `agent: code-reviewer`)
 - **user-invocable:** `false` hides from slash command menu (default: `true` for skills in `/skills/`)
 - **hooks:** Define scoped PreToolUse/PostToolUse/Stop hooks (see automating-with-hooks.md)
@@ -237,8 +238,9 @@ description: Creates sophisticated multi-page documentation systems.
 ## Related Skills
 
 - [claude-md.md](claude-md.md) - Template, structure, and update process for Claude.md files
-- `codebase-exploration` skill - Commands for exploring codebases
 
 ## References
 
 - [building-examples.md](building-examples.md) - Good/bad examples with rationale
+
+**Note:** `paths:` frontmatter (for rules and skills) accepts a single glob string or a YAML list of globs.

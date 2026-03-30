@@ -310,5 +310,5 @@ Claude.md files are hierarchical. When opening any file, Claude automatically re
 
 ## References
 
-- `.claude/rules/` - Alternative to Claude.md; files auto-loaded (2.0.64+)
+- `.claude/rules/` - Alternative to Claude.md; files auto-loaded
 - [Claude Code Changelog](https://github.com/anthropics/claude-code/blob/main/CHANGELOG.md) - Check for new features affecting documentation

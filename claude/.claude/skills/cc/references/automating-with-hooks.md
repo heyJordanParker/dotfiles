@@ -20,6 +20,10 @@ Event-driven automation for Claude Code.
 - **SessionStart:** Load context, set env vars — matcher: startup|resume|clear|compact
 - **SessionEnd:** Cleanup
 - **Setup:** Repository setup/maintenance — trigger: --init, --init-only, --maintenance
+- **StopFailure:** Fires when turn ends due to API error (rate limit, auth failure, etc.) — not the same as Stop
+- **TaskCreated:** Fires when a task is created via TaskCreate
+- **CwdChanged:** Fires when working directory changes — use for reactive environment management (e.g. direnv)
+- **FileChanged:** Fires when a watched file changes
 - **PreCompact:** Preserve critical context — matcher: manual|auto
 - **PostCompact:** React after compaction completes (e.g., log, notify, refresh state)
 - **Notification:** React to user notifications — matcher: notification types
@@ -101,7 +105,8 @@ hooks:
 - **Other:** Non-blocking error
 
 **Event-specific behavior:**
-- **PreToolUse:** exit 2 blocks the tool call. Stderr shown to agent
+- **PreToolUse:** exit 2 blocks the tool call. Stderr shown to agent. Can also satisfy `AskUserQuestion` by returning `updatedInput` alongside `permissionDecision: "allow"` — enables headless integrations that collect answers via their own UI
+- **PreToolUse security note:** hooks returning `"allow"` do NOT bypass `deny` permission rules (including enterprise managed settings). Deny rules always win
 - **UserPromptSubmit:** exit 2 blocks message submission, stderr shown to user. Any non-zero exit also blocks (not graceful like other events)
 - **Stop:** exit 2 blocks the stop. Stderr becomes instructions to the agent, which acts on them and tries to stop again (re-triggering the hook). Can fire multiple times per turn
 
@@ -165,6 +170,7 @@ The `additionalContext` string appears in the agent's context before it processe
 
 - `$CLAUDE_PROJECT_DIR` — project root
 - `$CLAUDE_ENV_FILE` — SessionStart only: persist env vars here
+- `$CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1` — strips Anthropic/cloud credentials from subprocess environments (Bash tool, hooks, MCP stdio servers)
 
 ## Lifecycle
 
@@ -278,7 +284,7 @@ For complex logic, use LLM evaluation (single turn, no tools):
 }
 ```
 
-**Supported events:** PreToolUse, PostToolUse, Stop, SubagentStop, UserPromptSubmit, PermissionRequest, TaskCompleted, Elicitation, ElicitationResult
+**Supported events:** PreToolUse, PostToolUse, Stop, StopFailure, SubagentStop, UserPromptSubmit, PermissionRequest, TaskCompleted, TaskCreated, CwdChanged, FileChanged, Elicitation, ElicitationResult
 
 ## Agent Hooks
 
@@ -302,7 +308,7 @@ Spawns a full subagent with tool access (Read, Grep, Glob, Bash, etc.). Use when
 - `statusMessage: string` (optional) — custom spinner text
 - `once: boolean` (optional) — run once per session
 
-**Supported events:** Same as prompt hooks — PreToolUse, PostToolUse, Stop, SubagentStop, UserPromptSubmit, PermissionRequest, TaskCompleted, Elicitation, ElicitationResult
+**Supported events:** Same as prompt hooks.
 
 **Output format:** Same JSON decision format as prompt hooks (event-dependent).
 

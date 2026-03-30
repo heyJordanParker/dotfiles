@@ -5,7 +5,7 @@ description: Use when working with Claude Code itself - skills, agents, hooks, s
 
 # Claude Code
 
-Last synced with Claude Code **v2.1.76** (2026-03-14).
+Last synced with Claude Code **v2.1.87** (2026-03-29).
 
 Guide for working with Claude Code's extensibility system.
 
@@ -68,7 +68,7 @@ Modular project instructions in `.claude/rules/`. Alternative to Claude.md for s
 - **User:** `~/.claude/rules/` — all projects
 - **Project:** `.claude/rules/` — current project (higher priority)
 - Files discovered recursively. Symlinks supported
-- `paths:` frontmatter scopes rules to file globs (e.g. `paths: **/*.ts`). Without it, rules apply unconditionally
+- `paths:` frontmatter scopes rules to file globs (e.g. `paths: **/*.ts` or a YAML list of globs). Without it, rules apply unconditionally
 - Load order: user rules → project rules → Claude.md hierarchy (all coexist)
 - One topic per file, descriptive filenames, subdirectories to organize
 

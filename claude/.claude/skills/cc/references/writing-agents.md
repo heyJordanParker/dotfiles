@@ -51,11 +51,13 @@ Priority order (highest wins on name collision):
 - `tools` — tool allowlist. Inherits all if omitted
 - `disallowedTools` — tool denylist
 - `model` — `opus`, `sonnet`, `haiku`, or `inherit` (default)
+- `effort` — override model effort level (e.g. `high`, `max`)
 - `skills` — skills injected into agent context at startup
 - `permissionMode` — `default`, `acceptEdits`, `dontAsk`, `bypassPermissions`, `plan`
 
 **Advanced:**
 - `maxTurns` — max agentic turns
+- `initialPrompt` — auto-submit a first turn when agent starts
 - `mcpServers` — MCP servers for this agent
 - `hooks` — lifecycle hooks scoped to this agent
 - `memory` — persistent memory: `user`, `project`, or `local`
@@ -72,6 +74,12 @@ Available via Task tool's `subagent_type`:
 - **Bash** — Inherits model. Terminal commands in separate context
 
 Custom agents defined in `.claude/agents/` or `~/.claude/agents/` are also available as subagent types.
+
+## Interacting With Running Agents
+
+- Agent tool no longer accepts a `resume` parameter. Use `SendMessage({to: agentId})` to continue a previously spawned agent
+- `SendMessage` auto-resumes stopped agents in the background — no error on stopped agents
+- `TaskOutput` is deprecated. Use `Read` on the background task's output file path instead
 
 ## Agent-Only Skills
 
