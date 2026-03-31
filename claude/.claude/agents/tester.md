@@ -111,7 +111,7 @@ Verify that existing flows adjacent to the change still work:
 - Never skip steps because code "looks correct" — trace the actual execution path
 - Always include file paths and line numbers for every finding
 - Always test error paths, not just happy paths
-- When using agent-browser, always run headless and in background
+- When using agent-browser, always run headless
 
 ## Fail Fast
 

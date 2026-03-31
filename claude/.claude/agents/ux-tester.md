@@ -27,7 +27,7 @@ If no URL is provided, read the nearest Claude.md files to find dev server URLs 
 
 ### 1. Open the browser
 
-Use agent-browser to launch headless in the background. Navigate to the starting point.
+Use agent-browser to launch headless. Navigate to the starting point.
 
 ### 2. Walk the flow as a user
 

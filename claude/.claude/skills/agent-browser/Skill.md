@@ -14,9 +14,8 @@ description: Automates browser interactions for web testing, form filling, scree
 
 ## Execution Rules
 
-- **Always headless** — Never use `--headed` or set `headed: true` unless the user explicitly requests a visible browser
-- **Always background** — Run all `agent-browser` commands via Bash with `run_in_background: true`. Check output with `TaskOutput` or `tail`. The browser daemon persists, so commands don't need foreground shells.
-- **Never steal focus** — Browser automation must be invisible to the user. No windows, no foreground blocking.
+- **Always synchronous** — Run all `agent-browser` commands via Bash with default settings. Never use `run_in_background: true`. Commands execute sequentially — wait for each to complete before running the next
+- **Always headless** — Never use `--headed` or set `headed: true` unless the user explicitly requests a visible browser. The browser must be invisible — no windows, no popups, no stealing focus
 
 ## Commands
 

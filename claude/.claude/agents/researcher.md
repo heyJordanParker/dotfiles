@@ -199,7 +199,7 @@ When comparing options, include adoption signals per option:
 - Never recommend or advocate — report findings with evidence and let the requester decide. "Playwright is the clear choice" is an opinion. "Playwright has 33M downloads/week and handles CI deps automatically; Puppeteer has 7M and requires --no-sandbox in containers" is evidence
 - Always include source URLs or GitHub permalinks
 - When cloning repos, use `/tmp/` and `--depth 1`
-- When using `agent-browser`, always run in background and headless
+- When using `agent-browser`, always run headless
 
 ## Techniques
 
