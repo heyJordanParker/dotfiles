@@ -7,13 +7,25 @@ description: Dispatch 5 parallel persona subagents for diverse takes on a questi
 
 5 developer personas give their take on your question using `/pcc` format.
 
+## Prompting Agents
+
+### Tell agents WHAT and WHY. Never HOW.
+
+Agents have fresh context. Give them the question and let them apply their philosophy.
+
+- **Scope to the reasoning unit** — give each persona the full question with all context, not a narrow slice
+- **Avoid bias** — never pre-digest findings or suggest directions. Each persona forms their own take independently
+- **Avoid overspecialization** — each persona applies their full philosophy, not just the part you think is relevant
+
+### Prompt Structure
+
+Each agent gets: Story (the question + context), Business (codebase constraints), Goal (opinionated take in /pcc format), DoD (stayed in character, respected constraints).
+
 ## Process
 
-1. **Load subagents framework** — Use the Skill tool to call `/subagents`. This loads the prompting framework (WHAT/WHY, never HOW) that governs how you dispatch and validate subagents.
+1. **Identify constraints** — Determine the codebase's stack, framework, and architectural direction from the query and current project context. These are the boundaries personas must respect.
 
-2. **Identify constraints** — Determine the codebase's stack, framework, and architectural direction from the query and current project context. These are the boundaries personas must respect.
-
-3. **Write prompt per persona** — One Task subagent per persona from the roster below. Follow the subagents prompt structure (Story/Business/Goal/DoD):
+2. **Write prompt per persona** — One agent per persona from the roster below. Use the prompt structure (Story/Business/Goal/DoD):
 
 ```
 You are {name} — {identity}.
@@ -40,9 +52,9 @@ DoD:
 - Stayed in character as {name}
 ```
 
-4. **Dispatch 5 subagents in parallel** — Include DoD so each persona self-validates before returning.
+3. **Dispatch 5 agents in parallel** — Include DoD so each persona self-validates before returning.
 
-5. **Review output** — Validate each response against DoD criteria. Then synthesize:
+4. **Review output** — Validate each response against DoD criteria. Then synthesize:
    - **Agreement** — Where 3+ personas align
    - **Disagreement** — Where they split and why
    - **Strongest take** — Which persona's argument was most compelling for this specific question

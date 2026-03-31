@@ -114,10 +114,12 @@ For each slice, generate as sane defaults. Present to user for confirmation.
 
 ### 5. Generate Validation Requirements
 
-For each slice, specify HOW validation happens:
+For each slice, specify HOW validation happens. Use the /subagents skill to dispatch validation agents.
 
-- Dispatch independent testing subagents — never self-validate (the implementing agent is biased)
-- Subagent prompts include WHY (what user problem this solves), may include WHAT (what changed), never HOW (implementation details)
+**Prompting:** Tell agents WHAT and WHY, never HOW. Scope to the reasoning unit — give each agent the full slice context, not individual files. Avoid bias — don't highlight specific areas of concern.
+
+- Dispatch independent testing agents — never self-validate (the implementing agent is biased)
+- Agent prompts include WHY (what user problem this solves), may include WHAT (what changed), never HOW (implementation details)
 - Trace every code path touched to verify correctness
 - Validate code serves real user scenarios end-to-end
 - Browser testing via tester agent + `/agent-browser` when UI is involved
@@ -198,7 +200,7 @@ For each slice, write an individual plan file: `~/.claude/shaping/[feature]/V*-p
 
 > **Plan contract:** This is an immutable contract. Architectural deviations require explicit approval. Tactical code-level adjustments are fine.
 
-> **For Claude:** Use the subagents skill to dispatch implementation.
+> **For Claude:** Use the /team skill to dispatch implementation.
 
 **WHY:** [What user problem this slice solves]
 
@@ -244,8 +246,8 @@ Verification can be: test command, API call, browser check via /agent-browser, C
 
 ### Task N: Validation (fulfills all R's)
 
-Dispatch independent testing subagents — never self-validate:
-- Subagent prompts include WHY, may include WHAT, never HOW
+Dispatch independent testing agents via /subagents — never self-validate:
+- Agent prompts include WHY, may include WHAT, never HOW
 - Trace every code path touched to verify correctness
 - Validate code serves real user scenarios end-to-end
 - Browser testing via tester agent + /agent-browser when UI is involved

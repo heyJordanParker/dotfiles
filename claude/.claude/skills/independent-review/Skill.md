@@ -21,16 +21,32 @@ N identical agents do the same work independently. Compare results for consensus
 - "run N agents on this", "get consensus", "replicate this analysis"
 - Any task where independent validation adds confidence
 
+## Prompting Agents
+
+### Tell agents WHAT and WHY. Never HOW.
+
+Agents have fresh context. Give them the problem and let them find what matters.
+
+- **Scope to the reasoning unit** — give each agent the full context, not a pre-filtered subset
+- **Avoid bias** — never pre-digest findings or highlight specific areas. Each agent forms its own conclusions independently
+- **Avoid overspecialization** — each agent applies its full analysis protocol. Don't narrow their scope
+
+### Prompt Structure
+
+Each agent gets:
+- **Story** — what needs to be analyzed/reviewed and why
+- **Business** — constraints, codebase context, what matters
+- **Goal** — what the agent delivers
+- **DoD** — evidence for every finding (not just assertions)
+
 ## Process
 
-1. **Load subagents framework** — Use the Skill tool to call `/subagents`. This loads the prompting framework (WHAT/WHY, never HOW) that governs how you dispatch and validate subagents.
-
-2. **Parse input** — Extract agent count and task from user input.
+1. **Parse input** — Extract agent count and task from user input.
    - `/independent-review "is this migration safe?"` — 3 agents (default)
    - `/independent-review 5 "review for security vulnerabilities"` — 5 agents
    - Count is always the first argument if numeric. Everything else is the task.
 
-3. **Build the prompt** — Write ONE prompt. Every agent gets this exact prompt with no variation. Follow the subagents prompt structure (Story/Business/Goal/DoD):
+2. **Build the prompt** — Write ONE prompt. Every agent gets this exact prompt with no variation. Follow the prompt structure (Story/Business/Goal/DoD):
 
 ```
 Story: {task — what the user wants analyzed/reviewed/tested and why}
@@ -47,9 +63,9 @@ DoD:
 - Output is structured with clear sections
 ```
 
-4. **Dispatch N identical agents in parallel** — Same `subagent_type`, same prompt, same tools. Use `run_in_background: false` so all results are collected. Name agents `reviewer-1`, `reviewer-2`, etc.
+3. **Dispatch N identical agents in parallel** — Same `subagent_type`, same prompt, same tools. Use `run_in_background: false` so all results are collected. Name agents `reviewer-1`, `reviewer-2`, etc.
 
-5. **Synthesize** — After all agents return, compare results:
+4. **Synthesize** — After all agents return, compare results:
 
    - **Consensus** — Findings that 2+ agents independently identified. These are high-confidence. List each finding and which agents found it.
    - **Unique finds** — Things only 1 agent caught. These need human judgment — could be an insight others missed, or a false positive.

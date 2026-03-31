@@ -16,7 +16,7 @@ N independent architect agents propose solutions, then debate through cross-poll
 
 ## Process
 
-1. **Load subagents framework** — Use the Skill tool to call `/subagents`. This loads the prompting framework (WHAT/WHY, never HOW).
+1. **Load team framework** — Use the Skill tool to call `/team`. This loads the team lifecycle framework for persistent teams.
 
 2. **Parse input** — Extract agent count and problem from user input.
    - `/debate "how should we organize media by content type?"` — 3 agents (default), 5 rounds (default)
@@ -79,7 +79,7 @@ Your instinct: {trait seed — one sentence}. This is a starting lens, not a con
 4. Then WAIT — the facilitator will send you other architects' proposals for debate rounds.
 ```
 
-6. **Create team and dispatch** — Use TeamCreate. Spawn N architect agents as persistent teammates (subagent_type: `architect`). Name them `architect-a`, `architect-b`, etc. Dispatch all in parallel.
+6. **Create team and dispatch** — Use the /team skill. Use TeamCreate. Spawn N architect agents as persistent teammates (subagent_type: `architect`). Name them `architect-a`, `architect-b`, etc. Dispatch all in parallel.
 
 7. **Collect proposals** — Wait for all architects to return their proposals + user stories.
 
@@ -91,7 +91,7 @@ Your instinct: {trait seed — one sentence}. This is a starting lens, not a con
 
 9. **Early termination** — If all architects converge within 10% confidence on the same approach after any round, skip remaining rounds.
 
-10. **Synthesize and report** — After final round, shut down team and present:
+10. **Synthesize and report** — After final round, present:
     - **Consensus** — items all architects agreed on
     - **Winner** — name, description, averaged confidence, pros/cons
     - **Runner-up** — name, key difference from winner

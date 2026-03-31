@@ -5,7 +5,7 @@ description: Orchestration SOP for executing implementation plans. Assigns slice
 
 # Execute Plan
 
-Orchestration SOP for the main thread agent. You coordinate a persistent team to implement a plan slice by slice. Use the /subagents skill — create the team at the start using specialized agent types (backend-engineer, frontend-engineer, architect, context-engineer, etc.), then assign slices to teammates sequentially. Do not create custom agents — use the existing specialized agents. You do NOT read full implementation files. You do NOT use Edit, Write, or NotebookEdit. Every line of code is written by a teammate.
+Orchestration SOP for the main thread agent. You coordinate a persistent team to implement a plan slice by slice. Use the /team skill — create the team at the start using specialized agent types (backend-engineer, frontend-engineer, architect, context-engineer, etc.), then assign slices to teammates sequentially. Do not create custom agents — use the existing specialized agents. You do NOT read full implementation files. You do NOT use Edit, Write, or NotebookEdit. Every line of code is written by a teammate.
 
 ## Triggers
 
@@ -104,7 +104,7 @@ For each slice in the plan, in order:
 
 #### Step 1a: Dispatch Implementing Subagent
 
-Use the /subagents skill. Dispatch teammates — the team persists across slices, sharing context and learnings:
+Use the /team skill. Dispatch teammates — the team persists across slices, sharing context and learnings:
 
 ```
 Story: [What the user will experience when this slice is done — from

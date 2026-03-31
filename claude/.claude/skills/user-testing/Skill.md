@@ -35,11 +35,17 @@ For each flow:
 - **Steps** — numbered sequence of user actions
 - **Exit** — expected end state
 
-Present the flow list to the user. Wait for approval before dispatching subagents. The user may add, remove, or modify flows.
+Present the flow list to the user. Wait for approval before dispatching agents. The user may add, remove, or modify flows.
 
 ### 3. Dispatch Subagents
 
-Use the /subagents skill. Spawn one subagent per approved flow, all in parallel. Each subagent works independently — no shared state or cross-referencing between them.
+Spawn one subagent per approved flow using the /subagents skill, all in parallel. Each subagent works independently — no shared state or cross-referencing between them.
+
+**Prompting:**
+- Tell subagents WHAT and WHY, never HOW — give them the flow steps and let them trace the code themselves
+- Scope to the reasoning unit — each subagent gets the full flow, not individual steps
+- Avoid bias — don't highlight specific areas of concern. Let the subagent find what matters
+- Each subagent prompt uses Story/Business/Goal/DoD structure
 
 #### Code Tracing (default)
 
@@ -140,7 +146,7 @@ Output format:
 ## Boundaries
 
 - Never modify code — this skill only evaluates. Report findings, don't fix them
-- Never skip the approval gate — always show flows and wait before dispatching
+- Never skip the approval gate — always show flows and wait before dispatching subagents
 - Never guess at code behavior — subagents must read the actual code, not infer from names
 - Never save files inside the repo — browser screenshots go in /tmp/
 - Browser testing only when explicitly requested — default is code tracing only

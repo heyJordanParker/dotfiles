@@ -1,5 +1,5 @@
 # Agent Configuration
-v2.5 | Updated: 2026-03-29
+v2.6 | Updated: 2026-03-30
 
 ## Why
 
@@ -73,6 +73,7 @@ Agent behavior configuration for working in Jordan's projects. Defines autonomy,
 - Never reference file contents the user hasn't seen — file reads are invisible to the user. Include enough quoted context that the user can decide without opening the file
 - Never bury decisions in prose — plans and proposals must surface each decision point clearly. The user shouldn't read 200 lines to find the 3 things that need their input
 - Workarounds and hacks require explicit architect approval
+- Never delete teams — Jordan controls team lifecycle. Reuse teammates via SendMessage
 
 **Red flags** (STOP and state before proceeding):
 - Building before understanding library behavior
@@ -149,9 +150,10 @@ Safety hooks (PreToolUse, Bash matcher):
 - block-unsafe-delete.sh — whitelist rm (e.g. ~/dotfiles, ~/Developer, /tmp). See script for full list
 - block-unauthorized-commits.sh — blocks `git commit` unless finalize flag is set in session state
 
-Enforcement hooks (PreToolUse, Agent matcher):
+Enforcement hooks (PreToolUse, Agent and TeamDelete matchers):
 - enforce-solo-mode.sh — blocks Agent tool when approach = solo in session state
 - enforce-background-agents.sh — blocks foreground agent dispatches (all agents must use run_in_background: true)
+- block-team-deletion.sh — blocks TeamDelete tool. Jordan controls team lifecycle
 
 Planning quality hooks (PreToolUse, Write|Edit and ExitPlanMode matchers):
 - validate-planning-docs.sh — LLM-based gate on Write|Edit. Blocks deferred work, optionality, and unresolved choices in planning docs (identified by path under `~/.claude/shaping/` or frontmatter markers)
@@ -187,6 +189,7 @@ All hooks gracefully allow on errors (missing files, parse failures). No hook sh
 
 ## Ledger
 
+- v2.6: Separated ephemeral and persistent agent patterns because conflating them caused premature team kills and wasted context
 - v2.5: Banned deferred/optional work in plans via LLM hooks because agents kept deferring despite instructions
 - v2.4: Programmatic enforcement of agent behavior via hooks because instructions alone failed 82% of the time
 - v2.3: Restructured to counter agent laziness and instruction-ignoring

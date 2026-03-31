@@ -90,6 +90,16 @@
         ]
       },
       {
+        "matcher": "TeamDelete",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jordan/.claude/hooks/block-team-deletion.sh",
+            "timeout": 5
+          }
+        ]
+      },
+      {
         "matcher": "AskUserQuestion",
         "hooks": [
           {

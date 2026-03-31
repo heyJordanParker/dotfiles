@@ -1,27 +1,26 @@
 ---
 name: subagents
-description: Framework for creating persistent teams and dispatching subagents. Teams are the default for complex tasks — teammates persist, accept new work via messages, and run indefinitely. Covers prompting (WHAT/WHY, never HOW) and validation via DoD.
+description: Framework for dispatching one-shot subagents that complete a task and return. Covers prompting (WHAT/WHY, never HOW), prompt structure (Story/Business/Goal/DoD/Workflow), and validation via DoD. For persistent teams, use /team.
 ---
 
 # Subagents
 
-Framework for creating persistent teams, dispatching subagents, and coordinating multi-agent work.
+Framework for dispatching one-shot subagents — agents that complete a single task and return results. For persistent teams that coordinate across multiple tasks and slices, use the /team skill.
 
 ## Triggers
 
 - Dispatching any subagent (implementation, research, review)
-- Managing multiple concurrent agents
-- Resuming a previous subagent
-- Coordinating a team of teammates
+- Running parallel independent agents
+- One-shot validation or analysis tasks
 
 ## Prompting
 
-### Tell subagents WHAT and WHY. Never HOW.
+### Tell agents WHAT and WHY. Never HOW.
 
-Subagents have fresh context. Detailed implementation instructions bias them toward your assumptions instead of letting them find the right solution.
+Agents have fresh context. Detailed implementation instructions bias them toward your assumptions instead of letting them find the right solution.
 
 When you know HOW to solve something, you instinctively dump that into the prompt. This:
-- Locks the subagent into your approach (which may be wrong)
+- Locks the agent into your approach (which may be wrong)
 - Wastes tokens on instructions they'd figure out by reading code
 - Prevents them from finding a better solution
 - Creates fragile prompts that break when code changes
@@ -55,7 +54,7 @@ Fix the payment timeout bug:
 10. Verify retry behavior
 ```
 
-Problems: Assumes the solution. Dictates file structure. Specifies implementation details the subagent should discover.
+Problems: Assumes the solution. Dictates file structure. Specifies implementation details the agent should discover.
 
 **Good: WHAT and WHY**
 
@@ -114,11 +113,11 @@ Previous findings go into the section where they belong — not a separate "gotc
 
 **Bad:** Dumping findings into a "Notes" or "Gotchas" section at the end.
 
-**Good:** JWT bug goes in Story (user impact). CORS ordering goes in Business (debugging constraint). The subagent gets context where it matters.
+**Good:** JWT bug goes in Story (user impact). CORS ordering goes in Business (debugging constraint). The agent gets context where it matters.
 
 ### DoD Guidelines
 
-DoD is how the subagent validates its own work before returning. Make it:
+DoD is how the agent validates its own work before returning. Make it:
 
 - **Observable** — can be verified by running something or checking output
 - **Specific** — "tests pass" not "code works"
@@ -145,12 +144,12 @@ DoD:
 
 ## Prompt Structure
 
-Every subagent dispatch uses these sections:
+Every agent dispatch uses these sections:
 
 - **Story** — What the user experiences and needs
 - **Business** — Why this matters, constraints, limitations
-- **Goal** — What the subagent delivers, expected output
-- **DoD** — How the subagent validates its own work
+- **Goal** — What the agent delivers, expected output
+- **DoD** — How the agent validates its own work
 - **Workflow** — Task state transitions that frame the work (see below)
 
 ### Workflow Section
@@ -159,13 +158,11 @@ Every prompt ends with a Workflow section. This is the agent's operating procedu
 
 ```
 Workflow:
-1. TaskUpdate task #N to in_progress
-2. Read every file marked * in the architecture block above
-3. Implement against the Goal
-4. For EACH DoD item: run verification, paste relevant output
-5. If any DoD item fails → fix and re-verify (loop step 4)
-6. Post a completion summary: what changed, what was verified, what was tricky
-7. TaskUpdate task #N to completed
+1. Read every file marked * in the architecture block above
+2. Implement against the Goal
+3. For EACH DoD item: run verification, paste relevant output
+4. If any DoD item fails → fix and re-verify (loop step 3)
+5. Post a completion summary: what changed, what was verified, what was tricky
 ```
 
 ### Architecture Block
@@ -186,125 +183,43 @@ backend/
 
 ## Hard Rules
 
-- **You do NOT use Edit, Write, or NotebookEdit.** When you create a team, you become the coordinator. Every line of code is written by a teammate. You preserve your context window for coordination, not implementation
-- **Never close teams.** Never use TeamDelete or send shutdown requests. Teams run indefinitely. The user decides when a team is done — not the agent. Closing a team destroys accumulated context that costs real money to rebuild
-- **Never spawn replacements for failed teammates.** When a teammate fails DoD, send feedback via SendMessage — the teammate iterates with full context. That's the whole point of persistence
+- **You do NOT use Edit, Write, or NotebookEdit** when coordinating multiple agents. Every line of code is written by a subagent. You preserve your context window for coordination, not implementation
+- **One-shot agents return and die.** They don't persist. For work that needs iteration, feedback loops, or multi-slice coordination, use the /team skill instead
 
-## Team Lifecycle
+## Dispatching
 
-### When to Create a Team
+### Parallel (independent tasks)
 
-- **3+ subtasks** → create a team
-- **Fewer** → one-shot agent — use the Agent tool directly with the same prompt structure (Story/Business/Goal/DoD/Workflow). No TeamCreate, no TaskCreate. Skip TaskUpdate steps in the Workflow template
-
-### 1. Create Team
-
-```
-TeamCreate(team_name: "feature-name", description: "What we're building")
-```
-
-You may use: Read, Glob, Grep, Bash (read-only), AskUserQuestion, TeamCreate, SendMessage, TaskCreate/Update/List/Get.
-
-### 2. Decompose
-
-Break work into independent tasks with `TaskCreate`. Set `activeForm` to present-continuous (e.g., "Fixing payment timeout") — this drives the user's progress spinner. Each task completable by a teammate with no knowledge of other tasks.
-
-### 3. Spawn Teammates
-
-Use specialized `subagent_type` matched to the task domain — code-reviewer, architect, backend-engineer, frontend-engineer, researcher, tester, etc. Not general-purpose.
-
-2-4 active teammates max. Reuse existing teammates via SendMessage for new work rather than spawning more.
+Spawn all agents at once using the Agent tool. Each works independently with `run_in_background: true`.
 
 ```
 Agent(
   subagent_type: "backend-engineer",
-  team_name: "feature-name",
   name: "worker-name",
-  prompt: "Story, Business, Goal, DoD + Architecture + Workflow"
+  prompt: "Story, Business, Goal, DoD + Architecture + Workflow",
+  run_in_background: true
 )
 ```
 
-Teammates persist between turns — send messages, assign new tasks, iterate on feedback without losing context.
+### Reviewing Results
 
-Use `run_in_background: true` for non-blocking dispatch when you don't need results immediately.
-
-### 4. Coordinate
-
-- Teammates message you via SendMessage when they complete tasks or hit blockers
-- Messages deliver automatically — no polling needed
-- Respond via SendMessage to provide direction
-- Track progress via TaskList
-- **Idle is normal** — teammates go idle between turns. SendMessage wakes them. Don't spawn replacements
-
-### 5. Review
-
-After each teammate returns results:
+After each agent returns:
 
 1. **Read the summary** — does it match DoD?
 2. **Spot check** — read 1-2 changed files (use Read, not Edit)
-3. **Dispatch reviewer** — code-reviewer subagent against DoD
-4. **Decide** — accept, or send feedback for iteration via SendMessage
-
-When a teammate fails DoD: SendMessage with specific feedback. The teammate iterates with full context. Never spawn a new agent to fix another agent's work.
-
-### 6. Integrate
-
-After all tasks complete:
-- Verify no conflicts between teammate outputs
-- Run full verification (tests, build, lint)
-- Dispatch final review subagent across entire changeset
-
-## Dispatch Patterns
-
-### Sequential (dependent tasks)
-
-```
-Teammate A completes → review → message Teammate B → review → ...
-```
-
-Use TaskUpdate blockedBy to express dependencies. Resume teammates with new direction via SendMessage.
-
-### Parallel (independent tasks)
-
-```
-Teammate A ─┐
-Teammate B ─┼→ review all → integrate
-Teammate C ─┘
-```
-
-Spawn all at once. Each works independently. Watch for file conflicts.
-
-### Pipeline (research → implement)
-
-```
-Research teammate → you digest findings → implementation teammate
-```
-
-Research teammate messages you with findings. Weave into implementation prompt's Story/Business sections.
-
-## Common Mistakes
-
-- **Writing "just a small fix" yourself** — delegate it. Your context is for coordination
-- **Reading full implementation files** — read summaries. Spot check selectively
-- **Spawning new agents instead of messaging teammates** — teammates persist. Send them new work
-- **Spawning replacements for failed agents** — SendMessage feedback instead. That's the whole value of persistence
-- **Skipping review** — every implementation task gets reviewed
+3. **Decide** — accept, or dispatch a new agent with feedback
 
 ## Quick Reference
 
-- **3+ subtasks?** → Create a team
-- **Fewer subtasks?** → One-shot agent
+- **Need persistent workers?** → Use /team skill
 - **Need non-blocking work?** → `run_in_background: true`
-- **Same problem, new info?** → SendMessage to existing teammate
-- **Teammate failed?** → SendMessage feedback, never spawn replacement
 - **Want to give step-by-step?** → Stop. Give WHAT/WHY instead
 - **Scoping to one method?** → Stop. Give the full module/feature
 
 ## Process
 
-1. **Assess** — 3+ subtasks? Create a team. Fewer? One-shot agent
-2. **Create tasks** — `TaskCreate` for each piece of work. Set `activeForm` to present-continuous
-3. **Write prompts** — Story, Business, Goal, DoD, Workflow
-4. **Add architecture** — annotated file tree before Workflow section
-5. **Dispatch** — specialized `subagent_type`, every prompt includes Workflow as final block
-6. **Review output** — against DoD criteria. Send feedback via SendMessage if needed
+1. **Assess** — is this one-shot work or does it need iteration? One-shot → here. Iteration → /team
+2. **Write prompts** — Story, Business, Goal, DoD, Workflow
+3. **Add architecture** — annotated file tree before Workflow section
+4. **Dispatch** — specialized `subagent_type`, every prompt includes Workflow as final block
+5. **Review output** — against DoD criteria
