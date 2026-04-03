@@ -162,9 +162,6 @@ Planning quality hooks (PreToolUse, Write|Edit and ExitPlanMode matchers):
 Intent classifier (UserPromptSubmit):
 - classify-intent.sh — classifies user messages (question/approval/instructions), manages session state (`/tmp/claude-session-state-{session_id}`), detects surprise moments, tracks execution modes (solo/default/team), defaults to proposal when intent is ambiguous
 
-Completion validation (Stop):
-- validate-completion.sh — two-phase gate before agent stops. Only triggers when a plan exists AND the current turn has file edits. Phase 1: requirements + plan validation tables. Phase 2 (3+ edits): scope-appropriate review (architect, tester, ux-tester)
-
 All hooks gracefully allow on errors (missing files, parse failures). No hook should ever block due to infrastructure failure.
 
 ### Settings
