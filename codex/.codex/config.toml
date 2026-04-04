@@ -11,3 +11,6 @@ args = [ "--app", "desktop" ]
 
 [features]
 multi_agent = true
+
+[plugins."github@openai-curated"]
+enabled = true
