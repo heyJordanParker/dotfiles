@@ -18,9 +18,6 @@ SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // ""' 2>/dev/null) || exit 0
 PLAN=$(echo "$INPUT" | jq -r '.tool_input.plan // ""' 2>/dev/null) || exit 0
 [[ -z "$PLAN" ]] && exit 0
 
-# Truncate for LLM evaluation
-PLAN=$(echo "$PLAN" | head -c 15000 2>/dev/null) || exit 0
-
 # LLM evaluation
 JSON_SCHEMA='{"type":"object","properties":{"ok":{"type":"boolean"},"reason":{"type":"string"}},"required":["ok"]}'
 

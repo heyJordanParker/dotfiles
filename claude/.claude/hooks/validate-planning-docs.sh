@@ -54,9 +54,6 @@ fi
 # Not a planning doc — pass
 [ "$IS_PLANNING_DOC" = "false" ] && exit 0
 
-# Truncate content for LLM evaluation
-CONTENT=$(echo "$CONTENT" | head -c 10000 2>/dev/null) || exit 0
-
 # LLM evaluation for deferral
 JSON_SCHEMA='{"type":"object","properties":{"ok":{"type":"boolean"},"reason":{"type":"string"}},"required":["ok"]}'
 

@@ -85,10 +85,10 @@ fi
 CONVERSATION_CONTEXT=""
 if [ -n "$TRANSCRIPT_PATH" ] && [ -f "$TRANSCRIPT_PATH" ]; then
     # Last 10 user messages with timestamps
-    USER_MESSAGES=$(jq -r 'select(.type == "human") | "\(.timestamp // "?"): \(.message.content // "" | if type == "array" then map(select(.type == "text") | .text) | join(" ") else . end)"' "$TRANSCRIPT_PATH" 2>/dev/null | tail -n 10 | head -c 8000) || true
+    USER_MESSAGES=$(jq -r 'select(.type == "human") | "\(.timestamp // "?"): \(.message.content // "" | if type == "array" then map(select(.type == "text") | .text) | join(" ") else . end)"' "$TRANSCRIPT_PATH" 2>/dev/null | tail -n 10) || true
 
     # Last agent response with timestamp
-    AGENT_RESPONSE=$(jq -r 'select(.type == "assistant") | "\(.timestamp // "?"): \(.message.content // "" | if type == "array" then map(select(.type == "text") | .text) | join(" ") else . end)"' "$TRANSCRIPT_PATH" 2>/dev/null | tail -n 1 | head -c 4000) || true
+    AGENT_RESPONSE=$(jq -r 'select(.type == "assistant") | "\(.timestamp // "?"): \(.message.content // "" | if type == "array" then map(select(.type == "text") | .text) | join(" ") else . end)"' "$TRANSCRIPT_PATH" 2>/dev/null | tail -n 1) || true
 
     if [ -n "$USER_MESSAGES" ] || [ -n "$AGENT_RESPONSE" ]; then
         CONVERSATION_CONTEXT="Recent user messages (for context on the user's direction and intent):
