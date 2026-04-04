@@ -18,7 +18,7 @@ Apply to all topics below:
 - **Split along tasks, not topics** — will different tasks need different parts? Split. Will every task need everything? Don't
 - **One job per file** — focused files > fewer files
 - **Trace actual flows** — follow how agents use skills to find gaps
-- **The rule** — every instruction prevents a specific mistake. Can't name the mistake? Delete the instruction
+- **The rule** — instructions exist exclusively to correct default behavior. If Claude Code would already do it without being told, the instruction doesn't belong. This is the #1 litmus test for any line in any Claude Code configuration — Claude.md, skills, agents, hooks, rules. Can't name the default behavior it overrides? Delete it
 - **Direct language** — "Use X" not "consider using X". Never: consider, might, should, could, maybe, perhaps
 - **Signs of bloat** — decorative formatting, examples repeating what the rule said, process sections duplicated across files, tables instead of bullets
 

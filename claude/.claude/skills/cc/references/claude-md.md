@@ -96,10 +96,14 @@ Amend while iterating so the ledger matches what git shows.
 
 **What** — min 1 sentence, with Requirements and/or Boundaries.
 
+Every requirement and boundary must correct default Claude Code behavior — not restate it. If Claude Code would already do it without being told, it doesn't belong. This is the same litmus test from the /cc principles applied specifically to documentation.
+
 Requirements prevent plausible future mistakes. If the code makes it obvious, skip it.
-- Good: "Account is source of truth for admin auth — WP users created on demand"
+- Good: "Account is source of truth for admin auth — WP users created on demand" — agent can't derive this from code
 - Bad: "Move billing from UserController to BillingService" — that's the commit
-- Bad: "No coupon CRUD in admin" — no agent builds unplanned UI unprompted
+- Bad: "No coupon CRUD in admin" — no agent builds unplanned UI unprompted. This is default behavior, not a correction
+- Bad: "Always read files before editing" — Claude Code already does this
+- Bad: "Use descriptive variable names" — default behavior, not a correction
 
 Boundaries define encapsulation. Use domain language, not library names.
 - Good: "Domain models never import plugin code — service providers own integrations"
