@@ -103,7 +103,7 @@ ${AGENT_RESPONSE}
     fi
 fi
 
-JSON_SCHEMA='{"type":"object","properties":{"type":{"type":"string","enum":["question","approval","instructions"]},"instructions":{"type":"array","items":{"type":"object","properties":{"text":{"type":"string"},"mode":{"type":"string","enum":["question","execute","correction"]}},"required":["text","mode"]}},"skills":{"type":"array","items":{"type":"string"}},"proposal_expected":{"type":"boolean"},"approach":{"type":"string","enum":["solo","default","team"]},"sequential":{"type":"boolean"},"finalize":{"type":"boolean"},"session_notes":{"type":"array","items":{"type":"string"}}},"required":["type"]}'
+JSON_SCHEMA='{"type":"object","properties":{"type":{"type":"string","enum":["question","approval","instructions"]},"instructions":{"type":"array","items":{"type":"object","properties":{"text":{"type":"string"},"mode":{"type":"string","enum":["question","execute","correction"]}},"required":["text","mode"]}},"skills":{"type":"array","items":{"type":"string"}},"proposal_expected":{"type":"boolean"},"approach":{"type":"string","enum":["solo","default","team"]},"sequential":{"type":"boolean"},"finalize":{"type":"boolean"},"session_notes":{"type":"array","items":{"type":"string"}},"recommended_agents":{"type":"array","items":{"type":"object","properties":{"agent":{"type":"string"},"reason":{"type":"string"}},"required":["agent","reason"]}}},"required":["type"]}'
 
 SYSTEM_PROMPT="You are a classifier. Extract instructions from user messages. Manage session state. Output structured JSON only."
 
@@ -124,10 +124,23 @@ Rules:
 9. Set \"finalize\" to true when the user is asking for a commit, to wrap up, ship it, or finalize work. Otherwise false.
 10. Add to \"session_notes\" ONLY when this message reveals a surprise — the agent did something illogical that confused the user, the user explicitly forbids something with always/never language, the user corrects the same behavior twice, or the user's emotional state (frustration, anger, exasperation) indicates the agent surprised them. Maximum 10 notes total (including existing). If adding would exceed 10, drop the least critical existing note. Return the FULL list of notes (existing + new) in session_notes, or an empty array if no changes.
 11. Corrections to previous analysis (\"no, X is actually Y\", \"that's not the issue\", \"this is a non-issue\", \"this is fine\") maintain the current type (${CURRENT_TYPE}). The user is providing feedback within the current mode, not changing direction. Return the previous type unchanged.
+12. Set \"recommended_agents\" when the user's intent clearly matches a specialized agent. Only include agents that clearly match — empty array when no match is obvious. Multiple recommendations are fine when the task spans domains.
 
-If the message is a question with no actionable instructions, return: {\"type\": \"question\", \"instructions\": [], \"skills\": [], \"proposal_expected\": false, \"approach\": \"${CURRENT_APPROACH}\", \"sequential\": false, \"finalize\": false, \"session_notes\": []}
-If the message is a short approval (e.g. 'yes', 'ok', 'do it'), return: {\"type\": \"approval\", \"instructions\": [], \"skills\": [], \"proposal_expected\": false, \"approach\": \"${CURRENT_APPROACH}\", \"sequential\": false, \"finalize\": false, \"session_notes\": []}
-Otherwise return: {\"type\": \"instructions\", \"instructions\": [{\"text\": \"instruction text\", \"mode\": \"execute|question|correction\"}], \"skills\": [\"/detected-skills-being-invoked\"], \"proposal_expected\": true/false, \"approach\": \"solo/default/team\", \"sequential\": true/false, \"finalize\": true/false, \"session_notes\": [\"full updated list if changes, empty if no changes\"]}
+Agent routing — recommend when user intent matches:
+- Claude.md, skills, hooks, plugins, context engineering, documentation → context-engineer
+- Architecture, system design, encapsulation, dependency direction → architect
+- Bugs, test failures, errors, stack traces, \"doesn't work\" → debugger
+- Code quality, diff review, PR review → code-reviewer
+- UI components, CSS, styling, layouts, visual design → designer
+- Frontend features, React, user flows, UX implementation → frontend-engineer
+- Backend features, API, database, services → backend-engineer
+- UX testing, \"test the flow\", browser testing → ux-tester
+- Feature verification, API testing, \"does this work\" → tester
+- External docs, library research, \"how does X work\" → researcher
+
+If the message is a question with no actionable instructions, return: {\"type\": \"question\", \"instructions\": [], \"skills\": [], \"proposal_expected\": false, \"approach\": \"${CURRENT_APPROACH}\", \"sequential\": false, \"finalize\": false, \"session_notes\": [], \"recommended_agents\": []}
+If the message is a short approval (e.g. 'yes', 'ok', 'do it'), return: {\"type\": \"approval\", \"instructions\": [], \"skills\": [], \"proposal_expected\": false, \"approach\": \"${CURRENT_APPROACH}\", \"sequential\": false, \"finalize\": false, \"session_notes\": [], \"recommended_agents\": []}
+Otherwise return: {\"type\": \"instructions\", \"instructions\": [{\"text\": \"instruction text\", \"mode\": \"execute|question|correction\"}], \"skills\": [\"/detected-skills-being-invoked\"], \"proposal_expected\": true/false, \"approach\": \"solo/default/team\", \"sequential\": true/false, \"finalize\": true/false, \"session_notes\": [\"full updated list if changes, empty if no changes\"], \"recommended_agents\": [{\"agent\": \"agent-name\", \"reason\": \"brief reason\"}]}
 
 Detect /skill references (slash followed by a name, e.g. /commit, /review, /ask) — only include if being invoked, not discussed."
 
@@ -188,6 +201,7 @@ SEQUENTIAL=$(echo "$RESULT" | jq -r '.sequential // false' 2>/dev/null) || SEQUE
 FINALIZE=$(echo "$RESULT" | jq -r '.finalize // false' 2>/dev/null) || FINALIZE="false"
 NEW_NOTES=$(echo "$RESULT" | jq -c '.session_notes // []' 2>/dev/null) || NEW_NOTES="[]"
 NEW_NOTES_COUNT=$(echo "$NEW_NOTES" | jq 'length' 2>/dev/null) || NEW_NOTES_COUNT=0
+RECOMMENDED_AGENTS=$(echo "$RESULT" | jq -r '.recommended_agents // [] | map("- @\(.agent) — \(.reason)") | join("\n")' 2>/dev/null) || RECOMMENDED_AGENTS=""
 
 # Update session state file
 SAVE_NOTES="$CURRENT_NOTES"
@@ -256,7 +270,12 @@ fi
 
 # Standing rules (always injected for instructions)
 if [ "$MSG_TYPE" = "instructions" ]; then
-    CONTEXT="${CONTEXT}\n\nAny architectural changes to any plan are a hard blocker — require user approval before proceeding.\n\nBefore acting, verify you have sufficient context — read relevant files, check existing patterns, and research unknowns. Do not rush to implement."
+    CONTEXT="${CONTEXT}\n\nAny architectural changes to any plan are a hard blocker — require user approval before proceeding.\n\nBefore acting, verify you have sufficient context — read relevant files, check existing patterns, and research unknowns. Do not rush to implement.\n\nWhen dispatching subagents: communicate WHY and WHAT only — not HOW (unless the HOW is a unique finding the subagent won't realistically discover reading the code). Do not pre-research, pre-read files, or run commands to \"prepare\" for a subagent. Do not include information the subagent can find in the codebase. The value of subagents is fresh, unbiased context — over-instruction destroys this."
+fi
+
+# Recommended agents (injected when classifier identifies matching specialists)
+if [ -n "$RECOMMENDED_AGENTS" ]; then
+    CONTEXT="${CONTEXT}\n\nRecommended agents for this task:\n${RECOMMENDED_AGENTS}"
 fi
 
 ESCAPED_CONTEXT=$(echo -e "$CONTEXT" | jq -Rs .) || { exit 0; }

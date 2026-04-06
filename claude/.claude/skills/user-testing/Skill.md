@@ -41,12 +41,6 @@ Present the flow list to the user. Wait for approval before dispatching agents. 
 
 Spawn one subagent per approved flow using the /subagents skill, all in parallel. Each subagent works independently — no shared state or cross-referencing between them.
 
-**Prompting:**
-- Tell subagents WHAT and WHY, never HOW — give them the flow steps and let them trace the code themselves
-- Scope to the reasoning unit — each subagent gets the full flow, not individual steps
-- Avoid bias — don't highlight specific areas of concern. Let the subagent find what matters
-- Each subagent prompt uses Story/Business/Goal/DoD structure
-
 #### Code Tracing (default)
 
 Each subagent's prompt:

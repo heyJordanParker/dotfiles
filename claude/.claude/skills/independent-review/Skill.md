@@ -21,24 +21,6 @@ N identical agents do the same work independently. Compare results for consensus
 - "run N agents on this", "get consensus", "replicate this analysis"
 - Any task where independent validation adds confidence
 
-## Prompting Agents
-
-### Tell agents WHAT and WHY. Never HOW.
-
-Agents have fresh context. Give them the problem and let them find what matters.
-
-- **Scope to the reasoning unit** — give each agent the full context, not a pre-filtered subset
-- **Avoid bias** — never pre-digest findings or highlight specific areas. Each agent forms its own conclusions independently
-- **Avoid overspecialization** — each agent applies its full analysis protocol. Don't narrow their scope
-
-### Prompt Structure
-
-Each agent gets:
-- **Story** — what needs to be analyzed/reviewed and why
-- **Business** — constraints, codebase context, what matters
-- **Goal** — what the agent delivers
-- **DoD** — evidence for every finding (not just assertions)
-
 ## Process
 
 1. **Parse input** — Extract agent count and task from user input.
@@ -75,6 +57,5 @@ DoD:
 ## Key Rules
 
 - **Identical agents** — same prompt, same tools, same model. No differentiation. Temperature and reasoning variation provide natural diversity.
-- **WHAT/WHY only** — the prompt describes what to analyze and why it matters. Never how to do it.
 - **No use-case limits** — this skill wraps any task. Code review, bug analysis, architecture assessment, test adequacy, migration risk — whatever the user provides.
 - **Evidence required** — every finding must include concrete evidence. "Might be a problem" is not a finding.

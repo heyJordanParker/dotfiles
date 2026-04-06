@@ -152,7 +152,6 @@ Final answer. State your position and confidence.
 
 - **Agents are independent** — each reads code themselves. No pre-digested findings from you.
 - **Frame leads with the USER** — not the technical mechanism. Solutions that don't serve the user are wrong regardless of elegance.
-- **WHAT/WHY only in prompts** — never suggest approaches. Never mention solutions you've considered.
 - **Route, don't interpret** — cross-pollination messages contain other architects' FULL positions, not your summary. Your interpretation biases them.
 - **Force engagement** — "Which proposal threatens yours?" not "What do you think?" Vague questions get vague answers.
 - **Narrow progressively** — Round 1: all proposals. Round 2: top 3. Round 3+: finalists.

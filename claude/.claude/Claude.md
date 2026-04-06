@@ -1,5 +1,5 @@
 # Agent Configuration
-v2.6 | Updated: 2026-03-30
+v2.7 | Updated: 2026-04-06
 
 ## Why
 
@@ -153,6 +153,7 @@ Safety hooks (PreToolUse, Bash matcher):
 Enforcement hooks (PreToolUse, Agent and TeamDelete matchers):
 - enforce-solo-mode.sh — blocks Agent tool when approach = solo in session state
 - enforce-background-agents.sh — blocks foreground agent dispatches (all agents must use run_in_background: true)
+- validate-subagent-prompt (prompt-hook) — LLM-based gate on Agent dispatches. Blocks over-instructed prompts (pre-researched content, HOW instructions, narrow scoping). Quality principles centralized here; skills reference /subagents for structure only
 - block-team-deletion.sh — blocks TeamDelete tool. Jordan controls team lifecycle
 
 Planning quality hooks (PreToolUse, Write|Edit and ExitPlanMode matchers):
@@ -160,7 +161,7 @@ Planning quality hooks (PreToolUse, Write|Edit and ExitPlanMode matchers):
 - validate-plan-quality.sh — LLM-based gate on ExitPlanMode. Validates requirements tables, step specificity, traceability, validation steps, and bans deferral/optionality in plans
 
 Intent classifier (UserPromptSubmit):
-- classify-intent.sh — classifies user messages (question/approval/instructions), manages session state (`/tmp/claude-session-state-{session_id}`), detects surprise moments, tracks execution modes (solo/default/team), defaults to proposal when intent is ambiguous
+- classify-intent.sh — classifies user messages (question/approval/instructions), manages session state (`/tmp/claude-session-state-{session_id}`), detects surprise moments, tracks execution modes (solo/default/team), defaults to proposal when intent is ambiguous, recommends specialized agents based on user intent, injects subagent prompting quality standing rule
 
 All hooks gracefully allow on errors (missing files, parse failures). No hook should ever block due to infrastructure failure.
 
@@ -186,6 +187,7 @@ All hooks gracefully allow on errors (missing files, parse failures). No hook sh
 
 ## Ledger
 
+- v2.7: Centralized subagent prompting quality in intent classifier + PreToolUse hook because WHAT/WHY instructions duplicated across 10+ skills failed to prevent over-instruction
 - v2.6: Separated ephemeral and persistent agent patterns because conflating them caused premature team kills and wasted context
 - v2.5: Banned deferred/optional work in plans via LLM hooks because agents kept deferring despite instructions
 - v2.4: Programmatic enforcement of agent behavior via hooks because instructions alone failed 82% of the time

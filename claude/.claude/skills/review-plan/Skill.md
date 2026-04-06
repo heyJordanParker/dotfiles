@@ -7,24 +7,6 @@ description: Reviews planning artifacts — shapes, models, slices, and plans. D
 
 Full review gate for planning artifacts. Runs 5 parallel agents against shapes, models, slices, or plans from the `~/.claude/shaping/[feature]/` directory.
 
-## Prompting Agents
-
-### Tell agents WHAT and WHY. Never HOW.
-
-Agents have fresh context. Give them the artifacts and let them find what matters.
-
-- **Scope to the reasoning unit** — each agent gets ALL available artifacts, not a filtered subset. The completeness agent needs slices to check requirement tracing. The architect needs the shaping doc to check boundary compliance. Don't pre-filter
-- **Avoid bias** — never pre-digest findings or highlight specific concerns. Include artifact content verbatim. Telling an agent "watch for missing acceptance criteria in V2" makes it tunnel-vision on V2 and miss structural issues in V1
-- **Avoid overspecialization** — each agent applies its FULL review protocol. The completeness agent checks all 17 items, not just the ones you think are relevant. The architect reviews all patterns, not just the one you're worried about
-
-### Prompt Structure
-
-Each agent gets:
-- **Story** — what artifacts are being reviewed and what phase they represent
-- **Business** — why this review matters (catching issues before implementation saves 10x the cost)
-- **Goal** — what the agent delivers (structured findings)
-- **DoD** — evidence for every finding (file paths, line numbers, concrete examples)
-
 ## Input
 
 The user provides a feature name or file path. Determine which artifacts exist:

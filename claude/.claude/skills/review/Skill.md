@@ -15,24 +15,6 @@ Full code review gate. Runs 7 agents in parallel on uncommitted changes.
 
 !`git diff HEAD`
 
-## Prompting Agents
-
-### Tell agents WHAT and WHY. Never HOW.
-
-Agents have fresh context. Give them the problem and let them find what matters.
-
-- **Scope to the reasoning unit** — an architect reviewing one method can't assess encapsulation. Give review agents the full diff + surrounding context, not individual hunks
-- **Avoid bias** — never pre-digest findings or highlight specific areas. The agent reads the diff and forms its own conclusions. Telling it "look at the error handling in PaymentService" makes it tunnel-vision on that file and miss regressions elsewhere
-- **Avoid overspecialization** — each agent applies its FULL protocol, not a narrow slice. A code-reviewer checks all 12 slop categories, not just the ones you think are relevant. An architect reviews all boundaries, not just the one you're worried about
-
-### Prompt Structure
-
-Each agent gets:
-- **Story** — what changed and why (from the diff context)
-- **Business** — constraints, what matters for this review
-- **Goal** — what the agent delivers
-- **DoD** — how the agent validates its own review (evidence for every finding)
-
 ## Instructions
 
 Include the "Current Changes" and "Full Diff" sections above in each agent prompt instead of telling them to run `git diff HEAD`.

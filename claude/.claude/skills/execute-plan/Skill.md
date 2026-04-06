@@ -88,6 +88,7 @@ DoD:
 - Requirements and boundaries from the plan reflected in docs
 - Architectural patterns and conventions documented
 - No fabricated WHY — only what the plan and shaping docs establish
+- No pre-researched content — let the subagent read files itself
 
 [Annotated file tree of Claude.md files relevant to this plan's scope]
 ```

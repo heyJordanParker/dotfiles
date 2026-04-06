@@ -116,10 +116,7 @@ For each slice, generate as sane defaults. Present to user for confirmation.
 
 For each slice, specify HOW validation happens. Use the /subagents skill to dispatch validation agents.
 
-**Prompting:** Tell agents WHAT and WHY, never HOW. Scope to the reasoning unit — give each agent the full slice context, not individual files. Avoid bias — don't highlight specific areas of concern.
-
 - Dispatch independent testing agents — never self-validate (the implementing agent is biased)
-- Agent prompts include WHY (what user problem this solves), may include WHAT (what changed), never HOW (implementation details)
 - Trace every code path touched to verify correctness
 - Validate code serves real user scenarios end-to-end
 - Browser testing via tester agent + `/agent-browser` when UI is involved
@@ -247,7 +244,6 @@ Verification can be: test command, API call, browser check via /agent-browser, C
 ### Task N: Validation (fulfills all R's)
 
 Dispatch independent testing agents via /subagents — never self-validate:
-- Agent prompts include WHY, may include WHAT, never HOW
 - Trace every code path touched to verify correctness
 - Validate code serves real user scenarios end-to-end
 - Browser testing via tester agent + /agent-browser when UI is involved

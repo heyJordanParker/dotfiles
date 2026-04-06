@@ -7,20 +7,6 @@ description: Dispatch 5 parallel persona subagents for diverse takes on a questi
 
 5 developer personas give their take on your question using `/pcc` format.
 
-## Prompting Agents
-
-### Tell agents WHAT and WHY. Never HOW.
-
-Agents have fresh context. Give them the question and let them apply their philosophy.
-
-- **Scope to the reasoning unit** — give each persona the full question with all context, not a narrow slice
-- **Avoid bias** — never pre-digest findings or suggest directions. Each persona forms their own take independently
-- **Avoid overspecialization** — each persona applies their full philosophy, not just the part you think is relevant
-
-### Prompt Structure
-
-Each agent gets: Story (the question + context), Business (codebase constraints), Goal (opinionated take in /pcc format), DoD (stayed in character, respected constraints).
-
 ## Process
 
 1. **Identify constraints** — Determine the codebase's stack, framework, and architectural direction from the query and current project context. These are the boundaries personas must respect.
