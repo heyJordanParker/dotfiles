@@ -42,8 +42,8 @@
   "linked_edits": true,
   "soft_wrap": "none",
   "theme": {
-    "mode": "light",
-    "light": "Gruvbox Light",
+    "mode": "dark",
+    "light": "Glass Light",
     "dark": "Gruvbox Dark"
   },
   "use_system_window_tabs": true
