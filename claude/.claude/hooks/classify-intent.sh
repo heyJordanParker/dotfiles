@@ -246,7 +246,7 @@ fi
 
 # Proposal context
 if [ "$PROPOSAL_EXPECTED" = "true" ]; then
-    CONTEXT="${CONTEXT}\n\nPresent a full, complete proposal before executing anything — do not make the user piece together context from prior messages.\n\nWhen presenting options in proposals, use /pcc skill: architecturally distinct options, each with pros, cons, and confidence percentage. Explore both sides of every tradeoff."
+    CONTEXT="${CONTEXT}\n\nPresent a full, complete proposal before executing anything — do not make the user piece together context from prior messages.\n\nWhen presenting options in proposals, use /pcc skill: architecturally distinct options, each with pros, cons, and confidence percentage. Explore both sides of every tradeoff.\n\nBefore proposing, identify every element you're uncertain about and research each one — read full files, not grep fragments. Never propose from general knowledge when the code can answer definitively.\n\nIn proposals, never:\n- Hedge (\"may\", \"probably\", \"likely\", \"might\") — if you'd hedge, you haven't read enough code yet\n- Echo requirements back as proposals — include concrete HOW (mechanisms, code paths, data flow), not reworded WHAT\n- Present options below 80% confidence — low confidence means research more, not label and ship"
 fi
 
 # Finalize context
