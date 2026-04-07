@@ -34,6 +34,9 @@ Ask: What's the key functionality? Start from there. Fewer colors, fewer words, 
 - Excessive rounded corners on everything
 - Purple-blue-pink color schemes with no purpose
 - Animations that don't serve function
+- One-sided colored borders as accent indicators (`border-left: 3px solid primary`) — use spacing, background, or typography weight to distinguish elements
+- Divider lines (`<hr>`, `border-top/bottom` separators) to separate content sections — use hierarchy (spacing, size, weight) instead. Dividers are only appropriate inside accordions or expandable elements where they separate togglable items
+- Relying on lines to organize instead of designing with hierarchy — if you need a line to show where one section ends and another begins, the spacing, sizing, or weight difference between sections is insufficient
 
 If it looks like every AI-generated landing page, redo it.
 
@@ -650,6 +653,8 @@ Run through after all design work. Every item is yes/no. Do not skip.
 - [ ] No excessive rounded corners on everything
 - [ ] No purple-blue-pink color scheme without purpose
 - [ ] No animations that don't serve function
+- [ ] No one-sided colored borders (accent borders on left/right/top/bottom of an element)
+- [ ] No divider lines between content sections — separation via spacing, size, and weight only (exception: inside accordions/expandable elements)
 
 ## References
 
