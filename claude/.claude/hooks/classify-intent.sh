@@ -120,7 +120,7 @@ Rules:
 5. Set \"sequential\" to true when the user's instructions have explicit ordering (\"after that\", \"then\", \"finally\", numbered steps with dependencies). Default to false.
 6. All user instructions contain subtleties and nuance — preserve ordering language, execution context, autonomy cues, and boundary conditions verbatim. Never flatten, summarize, or strip nuance from extracted instructions. Each instruction is an object with \"text\" (the instruction) and \"mode\" (one of: \"execute\" for approved actions, \"question\" for things the user wants answered, \"correction\" for feedback on previous analysis that doesn't require new action).
 7. Only include a skill in \"skills\" if the user is invoking it — telling the agent to use or execute it NOW. If the skill is discussed, referenced, or mentioned as context, do not include it. \"use /commit\" → include. \"the /subagents skill handles this\" → exclude. When in doubt, include it — a false positive is cheaper than a false negative.
-8. Set \"approach\" based on user signals. \"solo\" when user wants the agent to work alone (\"do this yourself\", \"don't spawn agents\", \"read it yourself\"). \"team\" when user wants persistent teammates (\"get a team\", \"dispatch agents\", uses /team). \"default\" when neither signal is present. Only change from the current approach (${CURRENT_APPROACH}) on clear intent shift.
+8. Set \"approach\" based on user signals. \"solo\" when user wants the agent to work alone (\"do this yourself\", \"don't spawn agents\", \"read it yourself\"). \"team\" when user wants persistent teammates (\"get a team\", \"dispatch agents\", uses /team). \"default\" when neither signal is present. Direct mode-change requests (\"enter solo mode\", \"go solo\", \"switch to team\", \"exit solo\", \"work alone\", \"use a team\") are clear approach signals — apply immediately. Only change from the current approach (${CURRENT_APPROACH}) on clear intent shift.
 9. Set \"finalize\" to true when the user is asking for a commit, to wrap up, ship it, or finalize work. Otherwise false.
 10. Add to \"session_notes\" ONLY when this message reveals a surprise — the agent did something illogical that confused the user, the user explicitly forbids something with always/never language, the user corrects the same behavior twice, or the user's emotional state (frustration, anger, exasperation) indicates the agent surprised them. Maximum 10 notes total (including existing). If adding would exceed 10, drop the least critical existing note. Return the FULL list of notes (existing + new) in session_notes, or an empty array if no changes.
 11. Corrections to previous analysis (\"no, X is actually Y\", \"that's not the issue\", \"this is a non-issue\", \"this is fine\") maintain the current type (${CURRENT_TYPE}). The user is providing feedback within the current mode, not changing direction. Return the previous type unchanged.
@@ -203,6 +203,15 @@ NEW_NOTES=$(echo "$RESULT" | jq -c '.session_notes // []' 2>/dev/null) || NEW_NO
 NEW_NOTES_COUNT=$(echo "$NEW_NOTES" | jq 'length' 2>/dev/null) || NEW_NOTES_COUNT=0
 RECOMMENDED_AGENTS=$(echo "$RESULT" | jq -r '.recommended_agents // [] | map("- @\(.agent) — \(.reason)") | join("\n")' 2>/dev/null) || RECOMMENDED_AGENTS=""
 
+# Detect state transitions for agent notification
+STATE_NOTIFICATIONS=""
+[ "$APPROACH" != "$CURRENT_APPROACH" ] && \
+    STATE_NOTIFICATIONS="${STATE_NOTIFICATIONS}Session state updated: approach changed from '${CURRENT_APPROACH}' to '${APPROACH}'.\n"
+[ "$MSG_TYPE" != "$CURRENT_TYPE" ] && \
+    STATE_NOTIFICATIONS="${STATE_NOTIFICATIONS}Session state updated: type changed from '${CURRENT_TYPE}' to '${MSG_TYPE}'.\n"
+[ "$FINALIZE" = "true" ] && \
+    STATE_NOTIFICATIONS="${STATE_NOTIFICATIONS}Session state updated: finalize authorized.\n"
+
 # Update session state file
 SAVE_NOTES="$CURRENT_NOTES"
 if [ "$NEW_NOTES_COUNT" -gt 0 ]; then
@@ -277,6 +286,10 @@ fi
 if [ -n "$RECOMMENDED_AGENTS" ]; then
     CONTEXT="${CONTEXT}\n\nRecommended agents for this task:\n${RECOMMENDED_AGENTS}"
 fi
+
+# Prepend state change notifications
+[ -n "$STATE_NOTIFICATIONS" ] && \
+    CONTEXT="State changes (applied by classifier, no action needed):\n${STATE_NOTIFICATIONS}\n${CONTEXT}"
 
 ESCAPED_CONTEXT=$(echo -e "$CONTEXT" | jq -Rs .) || { exit 0; }
 

@@ -145,10 +145,11 @@ Use `/ledger` to manually review and update Claude.md files on demand.
 
 ### Hooks
 
-Safety hooks (PreToolUse, Bash matcher):
+Safety hooks (PreToolUse, Bash and Write|Edit matchers):
 - block-git-revert.sh — blocks `git reset`, `git restore`, `git checkout -- <file>`. Forces manual execution
 - block-unsafe-delete.sh — whitelist rm (e.g. ~/dotfiles, ~/Developer, /tmp). See script for full list
 - block-unauthorized-commits.sh — blocks `git commit` unless finalize flag is set in session state
+- protect-session-state.sh — blocks Write/Edit/Bash modifications to session state files (`/tmp/claude-session-state-*`). Only the intent classifier (running with `CLAUDE_CLASSIFY_INTENT=true`) can write these files
 
 Enforcement hooks (PreToolUse, Agent and TeamDelete matchers):
 - enforce-solo-mode.sh — blocks Agent tool when approach = solo in session state

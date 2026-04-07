@@ -70,6 +70,11 @@
             "type": "command",
             "command": "/Users/jordan/.claude/hooks/block-unauthorized-commits.sh",
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "/Users/jordan/.claude/hooks/protect-session-state.sh",
+            "timeout": 5
           }
         ]
       },
@@ -117,6 +122,11 @@
       {
         "matcher": "Write|Edit",
         "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jordan/.claude/hooks/protect-session-state.sh",
+            "timeout": 5
+          },
           {
             "type": "command",
             "command": "/Users/jordan/.claude/hooks/validate-planning-docs.sh",
@@ -182,7 +192,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/Users/jordan/.claude/hooks/classify-intent.sh",
+            "command": "CLAUDE_CLASSIFY_INTENT=true /Users/jordan/.claude/hooks/classify-intent.sh",
             "timeout": 60
           }
         ]
