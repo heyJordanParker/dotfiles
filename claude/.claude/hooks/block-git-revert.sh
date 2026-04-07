@@ -56,4 +56,16 @@ EOF
   exit 2
 fi
 
+# Pattern 4: git stash (hides working state)
+# Allow read-only: stash list, stash show
+if [[ "$normalized" =~ git[[:space:]]+stash ]] && ! [[ "$normalized" =~ git[[:space:]]+stash[[:space:]]+(list|show) ]]; then
+  cat << 'EOF' >&2
+BLOCKED: git stash can disrupt other agents working in the same codebase.
+
+Stashing or popping changes the working tree state for all agents sharing this worktree.
+If you truly need to stash, ask the user to run it manually.
+EOF
+  exit 2
+fi
+
 exit 0
