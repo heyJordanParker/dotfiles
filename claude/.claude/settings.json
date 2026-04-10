@@ -192,7 +192,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "CLAUDE_CLASSIFY_INTENT=true /Users/jordan/.claude/hooks/classify-intent.sh",
+            "command": "/Users/jordan/.claude/hooks/classify-intent.sh",
             "timeout": 60
           }
         ]
