@@ -5,6 +5,12 @@ approval_policy = "never"
 [projects."/Users/jordan/Products"]
 trust_level = "trusted"
 
+[projects."/Users/jordan/Downloads/src"]
+trust_level = "trusted"
+
+[projects."/Users/jordan/Developer/creator-income-blueprint"]
+trust_level = "trusted"
+
 [mcp_servers.pencil]
 command = "/Applications/Pencil.app/Contents/Resources/app.asar.unpacked/out/mcp-server-darwin-arm64"
 args = [ "--app", "desktop" ]
