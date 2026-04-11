@@ -6,8 +6,9 @@ read -r input
 
 command=$(echo "$input" | jq -r '.tool_input.command // ""' 2>/dev/null) || exit 0
 
-# Only check commands containing git commit
-if ! echo "$command" | grep -qE '(^|[;&|[:space:]])git[[:space:]]+commit([[:space:]]|$)'; then
+# Only check commands containing git commit (strip quoted strings first to avoid matching echo/printf content)
+stripped=$(echo "$command" | sed -E "s/(['\"])[^'\"]*\\1//g")
+if ! echo "$stripped" | grep -qE '(^|[;&|[:space:]])git[[:space:]]+commit([[:space:]]|$)'; then
     exit 0
 fi
 

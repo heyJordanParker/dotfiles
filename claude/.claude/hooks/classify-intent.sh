@@ -84,8 +84,8 @@ fi
 # Extract conversation context from transcript
 CONVERSATION_CONTEXT=""
 if [ -n "$TRANSCRIPT_PATH" ] && [ -f "$TRANSCRIPT_PATH" ]; then
-    # Last 10 user messages with timestamps
-    USER_MESSAGES=$(jq -r 'select(.type == "human") | "\(.timestamp // "?"): \(.message.content // "" | if type == "array" then map(select(.type == "text") | .text) | join(" ") else . end)"' "$TRANSCRIPT_PATH" 2>/dev/null | tail -n 10) || true
+    # Last 10 user messages with timestamps (type is "user" in transcripts, filter out tool_result entries)
+    USER_MESSAGES=$(jq -r 'select(.type == "user" and (.message.content | type != "array" or any(.[]; .type == "text" and .text != ""))) | "\(.timestamp // "?"): \(.message.content // "" | if type == "array" then map(select(.type == "text") | .text) | join(" ") else . end)"' "$TRANSCRIPT_PATH" 2>/dev/null | tail -n 10) || true
 
     # Last agent response with timestamp
     AGENT_RESPONSE=$(jq -r 'select(.type == "assistant") | "\(.timestamp // "?"): \(.message.content // "" | if type == "array" then map(select(.type == "text") | .text) | join(" ") else . end)"' "$TRANSCRIPT_PATH" 2>/dev/null | tail -n 1) || true
@@ -120,7 +120,7 @@ Rules:
 5. Set \"sequential\" to true when the user's instructions have explicit ordering (\"after that\", \"then\", \"finally\", numbered steps with dependencies). Default to false.
 6. All user instructions contain subtleties and nuance — preserve ordering language, execution context, autonomy cues, and boundary conditions verbatim. Never flatten, summarize, or strip nuance from extracted instructions. Each instruction is an object with \"text\" (the instruction) and \"mode\" (one of: \"execute\" for approved actions, \"question\" for things the user wants answered, \"correction\" for feedback on previous analysis that doesn't require new action).
 7. Only include a skill in \"skills\" if the user is invoking it — telling the agent to use or execute it NOW. If the skill is discussed, referenced, or mentioned as context, do not include it. \"use /commit\" → include. \"the /subagents skill handles this\" → exclude. When in doubt, include it — a false positive is cheaper than a false negative.
-8. Set \"approach\" based on user signals. \"solo\" when user wants the agent to work alone (\"do this yourself\", \"don't spawn agents\", \"read it yourself\"). \"team\" when user wants persistent teammates (\"get a team\", \"dispatch agents\", uses /team). \"default\" when neither signal is present. Direct mode-change requests (\"enter solo mode\", \"go solo\", \"switch to team\", \"exit solo\", \"work alone\", \"use a team\") are clear approach signals — apply immediately. Only change from the current approach (${CURRENT_APPROACH}) on clear intent shift.
+8. Set \"approach\" based on user signals. \"solo\" when user wants the agent to work alone (\"do this yourself\", \"don't spawn agents\", \"read it yourself\"). \"team\" when user wants persistent teammates (\"get a team\", \"dispatch agents\", uses /team). \"default\" when neither signal is present. Direct mode-change requests (\"enter solo mode\", \"go solo\", \"switch to team\", \"exit solo\", \"work alone\", \"use a team\") are clear approach signals — apply immediately. Only change from the current approach (${CURRENT_APPROACH}) on clear intent shift. Single-action directives (\"run the tests\", \"fix the bug\", \"add a guard\", \"commit this\") are NOT solo signals — they are normal instructions. Solo requires the user to explicitly address HOW the agent should work, not WHAT it should do.
 9. Set \"finalize\" to true when the user is asking for a commit, to wrap up, ship it, or finalize work. Otherwise false.
 10. Add to \"session_notes\" ONLY when this message reveals a surprise — the agent did something illogical that confused the user, the user explicitly forbids something with always/never language, the user corrects the same behavior twice, or the user's emotional state (frustration, anger, exasperation) indicates the agent surprised them. Maximum 10 notes total (including existing). If adding would exceed 10, drop the least critical existing note. Return the FULL list of notes (existing + new) in session_notes, or an empty array if no changes.
 11. Corrections to previous analysis (\"no, X is actually Y\", \"that's not the issue\", \"this is a non-issue\", \"this is fine\") maintain the current type (${CURRENT_TYPE}). The user is providing feedback within the current mode, not changing direction. Return the previous type unchanged.
@@ -187,18 +187,21 @@ fi
 if [ "$CORRECTION_COUNT" -gt "$MAX_COUNT" ] 2>/dev/null; then
     DOMINANT_MODE="correction"
 fi
-# Corrections maintain previous type
-if [ "$DOMINANT_MODE" = "correction" ]; then
-    MSG_TYPE="$CURRENT_TYPE"
-elif [ "$DOMINANT_MODE" = "question" ]; then
-    MSG_TYPE="question"
+# Only apply dominant mode override for instruction-type messages
+# Approval and question types are set directly by the classifier — don't override
+if [ "$MSG_TYPE" = "instructions" ]; then
+    if [ "$DOMINANT_MODE" = "correction" ]; then
+        MSG_TYPE="$CURRENT_TYPE"
+    elif [ "$DOMINANT_MODE" = "question" ]; then
+        MSG_TYPE="question"
+    fi
 fi
 
 SKILLS=$(echo "$RESULT" | jq -r '.skills // [] | join(", ")' 2>/dev/null) || SKILLS=""
-PROPOSAL_EXPECTED=$(echo "$RESULT" | jq -r '.proposal_expected // true' 2>/dev/null) || PROPOSAL_EXPECTED="true"
+PROPOSAL_EXPECTED=$(echo "$RESULT" | jq -r 'if .proposal_expected == null then true else .proposal_expected end' 2>/dev/null) || PROPOSAL_EXPECTED="true"
 APPROACH=$(echo "$RESULT" | jq -r '.approach // "default"' 2>/dev/null) || APPROACH="default"
 SEQUENTIAL=$(echo "$RESULT" | jq -r '.sequential // false' 2>/dev/null) || SEQUENTIAL="false"
-FINALIZE=$(echo "$RESULT" | jq -r '.finalize // false' 2>/dev/null) || FINALIZE="false"
+FINALIZE=$(echo "$RESULT" | jq -r 'if .finalize == null then false else .finalize end' 2>/dev/null) || FINALIZE="false"
 NEW_NOTES=$(echo "$RESULT" | jq -c '.session_notes // []' 2>/dev/null) || NEW_NOTES="[]"
 NEW_NOTES_COUNT=$(echo "$NEW_NOTES" | jq 'length' 2>/dev/null) || NEW_NOTES_COUNT=0
 RECOMMENDED_AGENTS=$(echo "$RESULT" | jq -r '.recommended_agents // [] | map("- @\(.agent) — \(.reason)") | join("\n")' 2>/dev/null) || RECOMMENDED_AGENTS=""
