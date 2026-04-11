@@ -31,20 +31,11 @@ fi
 # Only check Claude.md files (belt & suspenders — if condition handles this too)
 [[ "$(basename "$FILE_PATH")" != "Claude.md" && "$(basename "$FILE_PATH")" != "CLAUDE.md" ]] && exit 0
 
-# Extract ledger entries (lines starting with "- v" after a Ledger heading)
+# Extract ledger entries (lines matching "- vN.N:" pattern)
+# No heading search needed — pattern is unique to ledger sections in Claude.md files
 LEDGER_ENTRIES=""
-IN_LEDGER=false
 while IFS= read -r line; do
-    if [[ "$line" =~ ^##[[:space:]]+Ledger ]]; then
-        IN_LEDGER=true
-        continue
-    fi
-    if [ "$IN_LEDGER" = true ]; then
-        # Stop at next heading
-        [[ "$line" =~ ^## ]] && break
-        # Capture ledger entries
-        [[ "$line" =~ ^-[[:space:]]+v[0-9] ]] && LEDGER_ENTRIES="${LEDGER_ENTRIES}${line}"$'\n'
-    fi
+    [[ "$line" =~ ^-[[:space:]]+v[0-9] ]] && LEDGER_ENTRIES="${LEDGER_ENTRIES}${line}"$'\n'
 done <<< "$CONTENT"
 
 # No ledger entries found — pass
