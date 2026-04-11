@@ -1,6 +1,7 @@
 model = "gpt-5.4"
 model_reasoning_effort = "high"
 approval_policy = "never"
+personality = "pragmatic"
 
 [projects."/Users/jordan/Products"]
 trust_level = "trusted"
@@ -9,6 +10,9 @@ trust_level = "trusted"
 trust_level = "trusted"
 
 [projects."/Users/jordan/Developer/creator-income-blueprint"]
+trust_level = "trusted"
+
+[projects."/Users/jordan/Developer/cc-prompt-extractor"]
 trust_level = "trusted"
 
 [mcp_servers.pencil]
