@@ -221,8 +221,9 @@ jq -n \
     --arg approach "$APPROACH" \
     --arg type "$MSG_TYPE" \
     --argjson finalize "$FINALIZE" \
+    --argjson proposal_expected "$PROPOSAL_EXPECTED" \
     --argjson notes "$SAVE_NOTES" \
-    '{approach: $approach, type: $type, finalize: $finalize, notes: $notes, validation_phase: 0}' \
+    '{approach: $approach, type: $type, finalize: $finalize, proposal_expected: $proposal_expected, notes: $notes, validation_phase: 0}' \
     > "$STATE_FILE" 2>/dev/null || true
 
 # Build context based on message type

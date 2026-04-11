@@ -147,6 +147,16 @@
         ]
       },
       {
+        "matcher": "Write|Edit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jordan/.claude/hooks/block-edits-during-proposal.sh",
+            "timeout": 5
+          }
+        ]
+      },
+      {
         "matcher": "ExitPlanMode",
         "hooks": [
           {
