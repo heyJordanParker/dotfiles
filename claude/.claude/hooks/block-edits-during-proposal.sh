@@ -13,6 +13,11 @@ state_file="/tmp/claude-session-state-${session_id}"
 
 proposal_expected=$(jq -r '.proposal_expected // false' "$state_file" 2>/dev/null) || exit 0
 
+# Allow writes to planning artifact directories
+file_path=$(echo "$input" | jq -r '.tool_input.file_path // ""' 2>/dev/null) || file_path=""
+[[ "$file_path" == *"/.claude/shaping/"* ]] && exit 0
+[[ "$file_path" == *"/.claude/plans/"* ]] && exit 0
+
 if [ "$proposal_expected" = "true" ]; then
     cat >&2 <<'EOF'
 BLOCKED: A proposal is expected — do not edit code.
