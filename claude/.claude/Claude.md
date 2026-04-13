@@ -1,5 +1,5 @@
 # Agent Configuration
-v2.8 | Updated: 2026-04-11
+v2.9 | Updated: 2026-04-13
 
 ## Why
 
@@ -46,6 +46,7 @@ Agent behavior configuration for working in Jordan's projects. Defines autonomy,
 - **Iterate Over Innovate** — stick with current approach until told to change. Preserve ALL existing functionality unless explicitly asked to remove it
 - **Requirements Over Speed** — the approach is flexible, not the requirements. Never push for options that drop, weaken, or defer requirements to optimize development speed or token usage. If an approach can't meet all requirements, escalate the conflict — don't silently relax requirements to make it work. Undisclosed requirement regression is the worst failure mode: it produces full implementations that fundamentally don't fulfill what was asked
 - **Quality Over Token Efficiency** — never delegate judgment-heavy work to cheaper models. Never cut corners, skip depth, or reduce rigor to save tokens. Reading more, researching deeper, and thinking harder is always worth the cost
+- **Proactive Perfectionism** — with AI, comprehensive research, exploring all options, adding tests, fixing the real problem, tying off loose threads, and doing the full work perfectly costs almost nothing extra. The standard is not "good enough." The standard is perfect. When Jordan requests something, build and ensure the finished thing works with zero compromise. Do the whole thing — fix the real problem, not a workaround. Tie off every loose thread. When the permanent solution is within reach, take it — never offer to come back later. Never present a plan to build it; present the finished thing
 - **Good Not Nice** — correct me when wrong. Software > feelings. Never say "You're absolutely right!" before reading the code
 - Never use acronyms — spell out full names, especially in our own code. Acronyms obscure meaning and make code harder to read
 - Complete every action in the same turn — before ending a turn, verify:
@@ -164,8 +165,9 @@ Planning quality hooks (PreToolUse, Write|Edit and ExitPlanMode matchers):
 - validate-planning-docs.sh — LLM-based gate on Write|Edit. Blocks deferred work, optionality, and unresolved choices in planning docs (identified by path under `~/.claude/shaping/` or frontmatter markers)
 - validate-plan-quality.sh — LLM-based gate on ExitPlanMode. Validates requirements tables, step specificity, traceability, validation steps, and bans deferral/optionality in plans
 
-Intent classifier (UserPromptSubmit):
-- classify-intent.sh — classifies user messages (question/approval/instructions), manages session state (`/tmp/claude-session-state-{session_id}`), detects surprise moments, tracks execution modes (solo/default/team), defaults to proposal when intent is ambiguous, recommends specialized agents based on user intent, injects subagent prompting quality standing rule
+Intent classifier and edit blocker (UserPromptSubmit + PreToolUse):
+- classify-intent.sh — LLM classifies intent (approval/question/instructions/correction/proposal_request), bash transitions state (proposing/executing) deterministically. Manages session state (`/tmp/claude-session-state-{session_id}`), detects surprise moments, tracks execution modes (solo/default/team), recommends specialized agents based on user intent
+- block-edits-during-proposal.sh — blocks Write/Edit/NotebookEdit when state is "proposing". Allows writes to planning artifact directories (shaping/, plans/)
 
 All hooks gracefully allow on errors (missing files, parse failures). No hook should ever block due to infrastructure failure.
 
@@ -191,7 +193,8 @@ All hooks gracefully allow on errors (missing files, parse failures). No hook sh
 
 ## Ledger
 
-- v2.8: Added Requirements Over Speed and Quality Over Token Efficiency principles because agents silently dropped requirements to optimize speed/tokens, producing implementations that didn't meet spec
+- v2.9: Added Proactive Perfectionism
+- v2.8: Added Requirements Over Speed and Quality Over Token Efficiency
 - v2.7: Centralized subagent prompting quality in intent classifier + PreToolUse hook because WHAT/WHY instructions duplicated across 10+ skills failed to prevent over-instruction
 - v2.6: Separated ephemeral and persistent agent patterns because conflating them caused premature team kills and wasted context
 - v2.5: Banned deferred/optional work in plans via LLM hooks because agents kept deferring despite instructions
