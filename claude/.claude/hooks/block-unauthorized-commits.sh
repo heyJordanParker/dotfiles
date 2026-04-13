@@ -1,5 +1,5 @@
 #!/bin/bash
-# Block git commit unless finalize flag is set in session state
+# Block git commit unless commit_requested flag is set in session state
 # Gracefully allows on any error (file missing, parse error)
 
 read -r input
@@ -18,13 +18,13 @@ session_id=$(echo "$input" | jq -r '.session_id // ""' 2>/dev/null) || exit 0
 state_file="/tmp/claude-session-state-${session_id}"
 [ ! -f "$state_file" ] && exit 0
 
-finalize=$(jq -r '.finalize // false' "$state_file" 2>/dev/null) || exit 0
+commit_requested=$(jq -r '.commit_requested // false' "$state_file" 2>/dev/null) || exit 0
 
-if [ "$finalize" != "true" ]; then
+if [ "$commit_requested" != "true" ]; then
     cat >&2 <<'EOF'
 BLOCKED: Commits require user authorization.
 
-The user must explicitly ask for a commit. Use /commit when the user is ready to finalize.
+The user must explicitly ask for a commit. Use /commit when the user is ready to commit.
 Do not commit without being asked.
 EOF
     exit 2

@@ -13,7 +13,7 @@ command=$(echo "$input" | jq -r '.tool_input.command // ""' 2>/dev/null) || true
 
 # Check for protected patterns
 [[ "$file_path" == *"claude-session-state"* ]] || \
-echo "$command" | grep -qE '(cat|rm|mv|cp|jq|>|>>|tee|chmod|chown|ls|stat|head|tail|sed|awk)\b.*claude-session-state' 2>/dev/null || exit 0
+echo "$command" | grep -qE '(echo|printf|cat|rm|mv|cp|jq|tee|chmod|chown|ls|stat|head|tail|sed|awk)\b.*claude-session-state|[>].*claude-session-state' 2>/dev/null || exit 0
 
 cat >&2 <<'EOF'
 BLOCKED: Session state files are managed by the intent classifier.
