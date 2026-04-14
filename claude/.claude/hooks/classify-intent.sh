@@ -275,14 +275,14 @@ case "$INTENT" in
         ;;
     approval)         NEW_STATE="executing" ;;
     question)
-        # Mixed intent: question + execute instructions → auto
-        if [ "$EXECUTE_COUNT" -gt 0 ]; then
+        # Mixed intent: question + execute instructions → auto (but not from proposing)
+        if [ "$EXECUTE_COUNT" -gt 0 ] && [ "$CURRENT_STATE" != "proposing" ]; then
             NEW_STATE="auto"
         fi
         ;;
     correction)
-        # Mixed intent: correction + execute instructions → auto
-        if [ "$EXECUTE_COUNT" -gt 0 ]; then
+        # Mixed intent: correction + execute instructions → auto (but not from proposing)
+        if [ "$EXECUTE_COUNT" -gt 0 ] && [ "$CURRENT_STATE" != "proposing" ]; then
             NEW_STATE="auto"
         fi
         ;;

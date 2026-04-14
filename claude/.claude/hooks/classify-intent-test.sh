@@ -393,7 +393,7 @@ SID=$(next_session)
 setup_state "$SID" "$PROPOSING_STATE"
 export MOCK_CLAUDE_RESPONSE=$(mock "correction" "no_change" false '[{"text":"wrong","mode":"correction"},{"text":"fix typo","mode":"execute"}]')
 run "$SID" "wrong, fix the typo" > /dev/null
-assert_state  "proposing + correction+exec → auto" "$SID" "state" "auto"
+assert_state  "proposing + correction+exec → proposing" "$SID" "state" "proposing"
 
 # --- 9. Approach transitions ---
 echo ""
@@ -789,13 +789,12 @@ assert_state  "instructions during proposing: stays proposing" "$SID" "state" "p
 echo ""
 echo "── 24. Auto State (Mixed Intents) ──"
 
-# Correction with execute instructions → auto
+# Correction with execute instructions from proposing → stays proposing (approval is the only exit)
 SID=$(next_session)
 setup_state "$SID" "$PROPOSING_STATE"
 export MOCK_CLAUDE_RESPONSE=$(mock "correction" "no_change" false '[{"text":"use X instead","mode":"correction"},{"text":"fix the typo in line 12","mode":"execute"}]')
 output=$(run "$SID" "that's wrong, use X instead. Also fix the typo in line 12 right now")
-assert_state  "correction+execute → auto"          "$SID" "state" "auto"
-has           "auto: has mixed intent context"      "$output" "mixed intents"
+assert_state  "correction+execute from proposing → proposing" "$SID" "state" "proposing"
 has           "auto: has correction context"        "$output" "corrected your previous output"
 
 # Correction without execute → stays current state
@@ -805,12 +804,12 @@ export MOCK_CLAUDE_RESPONSE=$(mock "correction" "no_change" false '[{"text":"use
 output=$(run "$SID" "that's wrong, use X instead")
 assert_state  "correction without execute → stays" "$SID" "state" "proposing"
 
-# Question with execute instructions → auto
+# Question with execute instructions from proposing → stays proposing
 SID=$(next_session)
 setup_state "$SID" "$PROPOSING_STATE"
 export MOCK_CLAUDE_RESPONSE=$(mock "question" "no_change" false '[{"text":"why this approach","mode":"question"},{"text":"also run the tests","mode":"execute"}]')
 output=$(run "$SID" "why this approach? also run the tests")
-assert_state  "question+execute → auto"            "$SID" "state" "auto"
+assert_state  "question+execute from proposing → proposing" "$SID" "state" "proposing"
 
 # Question without execute → stays current state
 SID=$(next_session)
@@ -818,6 +817,20 @@ setup_state "$SID" "$PROPOSING_STATE"
 export MOCK_CLAUDE_RESPONSE=$(mock "question")
 output=$(run "$SID" "why this approach?")
 assert_state  "question without execute → stays"   "$SID" "state" "proposing"
+
+# Correction+execute from EXECUTING → auto (still works outside proposing)
+SID=$(next_session)
+setup_state "$SID" "$DEFAULT_STATE"
+export MOCK_CLAUDE_RESPONSE=$(mock "correction" "no_change" false '[{"text":"wrong","mode":"correction"},{"text":"fix it","mode":"execute"}]')
+run "$SID" "wrong, fix it" > /dev/null
+assert_state  "correction+execute from executing → auto" "$SID" "state" "auto"
+
+# Question+execute from EXECUTING → auto (still works outside proposing)
+SID=$(next_session)
+setup_state "$SID" "$DEFAULT_STATE"
+export MOCK_CLAUDE_RESPONSE=$(mock "question" "no_change" false '[{"text":"why","mode":"question"},{"text":"run tests","mode":"execute"}]')
+run "$SID" "why? also run tests" > /dev/null
+assert_state  "question+execute from executing → auto" "$SID" "state" "auto"
 
 # Auto state allows edits (edit blocker integration)
 if [[ -f "$EDIT_BLOCKER" ]]; then
@@ -832,7 +845,7 @@ if [[ -f "$EDIT_BLOCKER" ]]; then
     fi
 fi
 
-# Round-trip: correction+execute during proposing → auto → blocker allows
+# Round-trip: correction+execute during proposing → stays proposing → blocker blocks
 SID=$(next_session)
 setup_state "$SID" "$PROPOSING_STATE"
 export MOCK_CLAUDE_RESPONSE=$(mock "correction" "no_change" false '[{"text":"wrong","mode":"correction"},{"text":"fix typo","mode":"execute"}]')
@@ -840,10 +853,10 @@ run "$SID" "wrong, also fix the typo" > /dev/null
 if [[ -f "$EDIT_BLOCKER" ]]; then
     blocker_exit=0
     echo "{\"session_id\":\"$SID\",\"tool_input\":{\"file_path\":\"/tmp/test.js\"}}" | bash "$EDIT_BLOCKER" 2>/dev/null || blocker_exit=$?
-    if [[ "$blocker_exit" -eq 0 ]]; then
-        printf "  PASS  round-trip: correction+execute → auto → edits allowed\n"; PASS=$((PASS+1))
+    if [[ "$blocker_exit" -eq 2 ]]; then
+        printf "  PASS  round-trip: correction+execute from proposing → blocker blocks\n"; PASS=$((PASS+1))
     else
-        printf "  FAIL  round-trip: correction+execute → auto → edits allowed (exit=%d, want 0)\n" "$blocker_exit"; FAIL=$((FAIL+1))
+        printf "  FAIL  round-trip: correction+execute from proposing → blocker blocks (exit=%d, want 2)\n" "$blocker_exit"; FAIL=$((FAIL+1))
     fi
 fi
 
