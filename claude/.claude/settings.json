@@ -177,6 +177,16 @@
             "timeout": 5
           }
         ]
+      },
+      {
+        "matcher": "ExitPlanMode",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jordan/.claude/hooks/transition-state-after-plan.sh",
+            "timeout": 5
+          }
+        ]
       }
     ],
     "Stop": [
@@ -185,6 +195,15 @@
           {
             "type": "command",
             "command": "if [ \"$(tmux display-message -t \"$TMUX_PANE\" -p '#{window_active}')\" = \"0\" ]; then touch /tmp/claude-waiting-$TMUX_PANE; fi"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/jordan/.claude/hooks/validate-completion.sh",
+            "timeout": 90
           }
         ]
       }

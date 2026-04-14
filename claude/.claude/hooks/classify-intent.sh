@@ -21,7 +21,7 @@ cleanup() {
 trap cleanup EXIT TERM INT HUP
 
 # Guard against recursion
-if [ "${CLAUDE_CLASSIFY_INTENT:-}" = "true" ]; then
+if [ "${CLAUDE_SESSION_HOOK:-}" = "true" ]; then
     exit 0
 fi
 
@@ -209,7 +209,7 @@ Detect /skill references (slash followed by a name, e.g. /commit, /review, /ask)
 
 # Run classifier — if ANYTHING fails, pass through silently
 RESULT=""
-if CLAUDE_RESPONSE=$(CLAUDE_CLASSIFY_INTENT=true timeout 30 claude -p \
+if CLAUDE_RESPONSE=$(CLAUDE_SESSION_HOOK=true timeout 30 claude -p \
     --model opus \
     --effort low \
     --output-format json \

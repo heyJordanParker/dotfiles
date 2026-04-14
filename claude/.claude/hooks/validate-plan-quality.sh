@@ -55,7 +55,7 @@ Return JSON:
 - Fail: {\"ok\": false, \"reason\": \"[Specific issue]. Fix: [What to do].\"}"
 
 RESULT=""
-if CLAUDE_RESPONSE=$(CLAUDE_CLASSIFY_INTENT=true timeout 120 claude -p \
+if CLAUDE_RESPONSE=$(CLAUDE_SESSION_HOOK=true timeout 120 claude -p \
     --model opus \
     --effort low \
     --output-format json \

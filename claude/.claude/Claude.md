@@ -169,7 +169,7 @@ Safety hooks (PreToolUse, Bash and Write|Edit matchers):
 - block-git-revert.sh — blocks `git reset`, `git restore`, `git checkout -- <file>`. Forces manual execution
 - block-unsafe-delete.sh — whitelist rm (e.g. ~/dotfiles, ~/Developer, /tmp). See script for full list
 - block-unauthorized-commits.sh — blocks `git commit` unless commit_requested flag is set in session state
-- protect-session-state.sh — blocks Write/Edit/Bash modifications to session state files (`/tmp/claude-session-state-*`). Only the intent classifier (running with `CLAUDE_CLASSIFY_INTENT=true`) can write these files
+- protect-session-state.sh — blocks Write/Edit/Bash modifications to session state files (`/tmp/claude-session-state-*`). Only session hooks (running with `CLAUDE_SESSION_HOOK=true`) can write these files
 
 Enforcement hooks (PreToolUse, Agent and TeamDelete matchers):
 - enforce-solo-mode.sh — blocks Agent tool when approach = solo in session state
@@ -184,6 +184,10 @@ Planning quality hooks (PreToolUse, Write|Edit and ExitPlanMode matchers):
 Intent classifier and edit blocker (UserPromptSubmit + PreToolUse):
 - classify-intent.sh — LLM classifies intent (approval/question/instructions/correction/proposal_request), bash transitions state (proposing/executing) deterministically. Manages session state (`/tmp/claude-session-state-{session_id}`), detects surprise moments, tracks execution modes (solo/default/team), recommends specialized agents based on user intent
 - block-edits-during-proposal.sh — blocks Write/Edit/NotebookEdit when state is "proposing". Allows writes to planning artifact directories (shaping/, plans/)
+
+Completion validation (Stop + PostToolUse):
+- validate-completion.sh — two-layer stop gate. Layer 1 (deterministic): blocks when ExitPlanMode was called in current turn AND agent uses permission-seeking phrases. Layer 2 (LLM): fires when phrases detected OR 3+ file mutations, checks for premature stops, deferral, incomplete work, context pressure excuses. Max 3 blocks per turn via validation_phase
+- transition-state-after-plan.sh — PostToolUse on ExitPlanMode. Sets state to "executing" after plan approval, fixing stale "proposing" state when approval bypasses UserPromptSubmit
 
 All hooks gracefully allow on errors (missing files, parse failures). No hook should ever block due to infrastructure failure.
 

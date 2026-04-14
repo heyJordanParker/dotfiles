@@ -78,7 +78,7 @@ Return JSON:
 - Deferral found: {\"ok\": false, \"reason\": \"[what was deferred and where]\"}"
 
 RESULT=""
-if CLAUDE_RESPONSE=$(CLAUDE_CLASSIFY_INTENT=true timeout 45 claude -p \
+if CLAUDE_RESPONSE=$(CLAUDE_SESSION_HOOK=true timeout 45 claude -p \
     --model opus \
     --effort low \
     --output-format json \
