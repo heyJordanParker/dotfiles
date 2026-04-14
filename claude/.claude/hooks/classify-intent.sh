@@ -57,12 +57,12 @@ STATE_FILE="/tmp/claude-session-state-${SESSION_ID}"
 
 # Read existing session state (graceful if missing)
 CURRENT_APPROACH="subagents"
-CURRENT_STATE="executing"
+CURRENT_STATE="proposing"
 CURRENT_INTENT="instructions"
 CURRENT_NOTES="[]"
 if [ -f "$STATE_FILE" ]; then
     CURRENT_APPROACH=$(jq -r '.approach // "subagents"' "$STATE_FILE" 2>/dev/null) || CURRENT_APPROACH="subagents"
-    CURRENT_STATE=$(jq -r '.state // "executing"' "$STATE_FILE" 2>/dev/null) || CURRENT_STATE="executing"
+    CURRENT_STATE=$(jq -r '.state // "proposing"' "$STATE_FILE" 2>/dev/null) || CURRENT_STATE="proposing"
     CURRENT_INTENT=$(jq -r '.intent // "instructions"' "$STATE_FILE" 2>/dev/null) || CURRENT_INTENT="instructions"
     CURRENT_NOTES=$(jq -c '.notes // []' "$STATE_FILE" 2>/dev/null) || CURRENT_NOTES="[]"
 fi
@@ -171,6 +171,7 @@ Rules:
 4. When uncertain between \"instructions\" and \"proposal_request\", prefer \"proposal_request\". The conservative default is to propose before executing.\n4b. When a correction also redirects to a fundamentally new direction (\"that won't work, propose something with Redis instead\", \"scrap this, try a different approach\"), classify as \"proposal_request\" — the user wants a fresh proposal, not a patched version of the rejected one.\n4c. When the user answers questions from a proposal (\"yes\", \"Option A\", \"obviously\"), classify as \"correction\" — the user is refining the proposal with their answers, not approving execution. Only classify as \"approval\" when the user explicitly signals the proposal is complete and ready for execution.
 5. Set \"sequential\" to true when the user's instructions have explicit ordering (\"after that\", \"then\", \"finally\", numbered steps with dependencies). Default to false.
 6. All user instructions contain subtleties and nuance — preserve ordering language, execution context, autonomy cues, and boundary conditions verbatim. Never flatten, summarize, or strip nuance from extracted instructions. Each instruction is an object with \"text\" (the instruction) and \"mode\" (one of: \"execute\" for actions, \"question\" for things the user wants answered, \"correction\" for feedback on previous analysis). When a message contains BOTH a question AND an action directive, extract both with their respective modes — never absorb an action into a question or vice versa. Example: \"how does X work? also change Y to Z\" → [{\"text\": \"how does X work\", \"mode\": \"question\"}, {\"text\": \"change Y to Z\", \"mode\": \"execute\"}].
+6b. Questions in the user's message require direct answers. Extract every question as a separate mode: \"question\" instruction, even when embedded in corrections, emotional language, or rhetorical framing. \"What is this about?\" is a question. \"Do we have this elsewhere?\" is a research question. \"Did you read X?\" is a question requiring an honest answer. Do not dismiss questions as decorative or rhetorical.
 7. Only include a skill in \"skills\" if the user is invoking it — telling the agent to use or execute it NOW. If the skill is discussed, referenced, or mentioned as context, do not include it. \"use /commit\" → include. \"the /subagents skill handles this\" → exclude. When in doubt, include it — a false positive is cheaper than a false negative.
 8. Set \"approach_change\" to \"no_change\" unless the user explicitly signals a shift. \"solo\" when user wants the agent to work alone (\"do this yourself\", \"don't spawn agents\", \"read it yourself\"). \"subagents\" when user wants to exit solo mode or use agents without persistent teams (\"use agents\", \"exit solo\"). \"team\" when user wants persistent teammates (\"get a team\", uses /team). Only output a value other than \"no_change\" on clear intent shift — direct mode-change requests (\"enter solo mode\", \"go solo\", \"switch to team\", \"exit solo\"). Single-action directives (\"run the tests\", \"fix the bug\", \"add a guard\", \"commit this\") are NOT approach signals. Mentioning a specific agent (\"get a @debugger\") is NOT a team signal — it's a dispatch instruction within the current approach. Current approach: ${CURRENT_APPROACH}.
 9. Set \"commit_requested\" to true when the user explicitly asks for a git commit — \"commit this\", \"/commit\", \"create a commit\". Approving work, applying changes, deploying, replacing files, shipping — none of these are commit requests. If the user doesn't say \"commit\", commit_requested is false.
@@ -242,6 +243,12 @@ if [ "$APPROACH_CHANGE" != "no_change" ]; then
     APPROACH="$APPROACH_CHANGE"
 else
     APPROACH="$CURRENT_APPROACH"
+fi
+# Auto-invoke /solo skill on approach transition to solo
+if [ "$APPROACH" = "solo" ] && [ "$CURRENT_APPROACH" != "solo" ]; then
+    if [[ ! "$SKILLS" == *"/solo"* ]]; then
+        SKILLS="${SKILLS:+${SKILLS}, }/solo"
+    fi
 fi
 SEQUENTIAL=$(echo "$RESULT" | jq -r 'if .sequential == null then false else .sequential end' 2>/dev/null) || SEQUENTIAL="false"
 COMMIT_REQUESTED=$(echo "$RESULT" | jq -r 'if .commit_requested == null then false else .commit_requested end' 2>/dev/null) || COMMIT_REQUESTED="false"
@@ -347,19 +354,23 @@ case "$INTENT" in
         CONTEXT="${CONTEXT}\n\nThe user corrected your previous output. Incorporate the correction and deliver a complete response in the same format as the original — not prose diffs. Any unresolved questions from the previous proposal must be re-surfaced until answered."
         ;;
     instructions|proposal_request)
-        RESTATEMENT_TARGET="these instructions"
-        # Grouped format: corrections first (context), instructions second (action), questions last (discussion)
+        if [ -n "$QUESTION_INSTRUCTIONS" ]; then
+            RESTATEMENT_TARGET="the questions and instructions"
+        else
+            RESTATEMENT_TARGET="these instructions"
+        fi
+        # Grouped format: questions first (must be answered), corrections second (context), instructions last (action)
         CONTEXT=""
+        if [ -n "$QUESTION_INSTRUCTIONS" ]; then
+            CONTEXT="The user asked questions that must be answered. Answer them directly:\n${QUESTION_INSTRUCTIONS}"
+        fi
         if [ -n "$CORRECTION_INSTRUCTIONS" ]; then
-            CONTEXT="Corrections from user (acknowledge, do not change direction):\n${CORRECTION_INSTRUCTIONS}"
+            [ -n "$CONTEXT" ] && CONTEXT="${CONTEXT}\n\n"
+            CONTEXT="${CONTEXT}Corrections from user (acknowledge, do not change direction):\n${CORRECTION_INSTRUCTIONS}"
         fi
         if [ -n "$EXECUTE_INSTRUCTIONS" ]; then
             [ -n "$CONTEXT" ] && CONTEXT="${CONTEXT}\n\n"
             CONTEXT="${CONTEXT}Instructions from user:\n${EXECUTE_INSTRUCTIONS}"
-        fi
-        if [ -n "$QUESTION_INSTRUCTIONS" ]; then
-            [ -n "$CONTEXT" ] && CONTEXT="${CONTEXT}\n\n"
-            CONTEXT="${CONTEXT}Questions from user (answer these, do not act on them):\n${QUESTION_INSTRUCTIONS}"
         fi
         # Fallback if no grouped instructions extracted
         if [ -z "$CONTEXT" ]; then

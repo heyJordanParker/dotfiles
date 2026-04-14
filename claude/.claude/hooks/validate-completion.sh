@@ -26,12 +26,12 @@ LAST_ASSISTANT_MSG=$(echo "$EVENT" | jq -r '.last_assistant_message // ""' 2>/de
 STATE_FILE="/tmp/claude-session-state-${SESSION_ID}"
 
 # Read session state (graceful if missing)
-CURRENT_STATE="executing"
+CURRENT_STATE="proposing"
 CURRENT_INTENT="instructions"
 COMMIT_REQUESTED="false"
 VALIDATION_PHASE=0
 if [ -f "$STATE_FILE" ]; then
-    CURRENT_STATE=$(jq -r '.state // "executing"' "$STATE_FILE" 2>/dev/null) || CURRENT_STATE="executing"
+    CURRENT_STATE=$(jq -r '.state // "proposing"' "$STATE_FILE" 2>/dev/null) || CURRENT_STATE="proposing"
     CURRENT_INTENT=$(jq -r '.intent // "instructions"' "$STATE_FILE" 2>/dev/null) || CURRENT_INTENT="instructions"
     COMMIT_REQUESTED=$(jq -r '.commit_requested // false' "$STATE_FILE" 2>/dev/null) || COMMIT_REQUESTED="false"
     VALIDATION_PHASE=$(jq -r '.validation_phase // 0' "$STATE_FILE" 2>/dev/null) || VALIDATION_PHASE=0

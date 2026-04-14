@@ -641,10 +641,11 @@ echo ""
 echo "── 19. Fresh Session (no state file) ──"
 
 SID=$(next_session)
+rm -f "/tmp/claude-session-state-${SID}" 2>/dev/null || true
 export MOCK_CLAUDE_RESPONSE=$(mock "instructions" "no_change" false '[{"text":"fix this","mode":"execute"}]')
 output=$(run "$SID" "fix this bug")
 assert_state  "creates state file"                 "$SID" "intent" "instructions"
-assert_state  "defaults to executing"              "$SID" "state" "executing"
+assert_state  "defaults to proposing"              "$SID" "state" "proposing"
 assert_state  "defaults approach"                  "$SID" "approach" "subagents"
 has_output    "produces output"                    "$output"
 

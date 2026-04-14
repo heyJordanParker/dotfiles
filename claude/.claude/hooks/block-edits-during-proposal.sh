@@ -11,7 +11,7 @@ session_id=$(echo "$input" | jq -r '.session_id // ""' 2>/dev/null) || exit 0
 state_file="/tmp/claude-session-state-${session_id}"
 [ ! -f "$state_file" ] && exit 0
 
-state=$(jq -r '.state // "executing"' "$state_file" 2>/dev/null) || exit 0
+state=$(jq -r '.state // "proposing"' "$state_file" 2>/dev/null) || exit 0
 
 # Allow writes to planning artifact directories
 file_path=$(echo "$input" | jq -r '.tool_input.file_path // ""' 2>/dev/null) || file_path=""
