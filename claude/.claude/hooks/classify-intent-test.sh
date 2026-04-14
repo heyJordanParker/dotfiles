@@ -592,13 +592,13 @@ setup_state "$SID" "$PROPOSING_STATE"
 export MOCK_CLAUDE_RESPONSE=$(mock "question")
 output=$(run "$SID" "why this approach?")
 has           "question: has question context"       "$output" "This is a question. Answer it"
-has           "question in proposing: has proposal block" "$output" "Present a full, complete proposal"
+excludes      "question in proposing: no proposal block" "$output" "Present a full, complete proposal"
 
 SID=$(next_session)
 setup_state "$SID" "$DEFAULT_STATE"
 export MOCK_CLAUDE_RESPONSE=$(mock "question")
 output=$(run "$SID" "what is this?")
-has           "question in executing: has exec rules" "$output" "Research the codebase before editing"
+excludes      "question in executing: no exec rules"  "$output" "Research the codebase before editing"
 
 # Approval injects start-work + execution rules
 SID=$(next_session)

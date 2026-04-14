@@ -314,21 +314,23 @@ jq -n \
 CONTEXT=""
 case "$INTENT" in
     approval)
+        RESTATEMENT_TARGET="what was discussed"
         CONTEXT="Approval. Start work on what was just discussed."
         if [ -n "$EXECUTE_INSTRUCTIONS" ]; then
             CONTEXT="${CONTEXT}\n\nAdditional scope from user:\n${EXECUTE_INSTRUCTIONS}"
         fi
-        CONTEXT="${CONTEXT}\n\nOpen your response with a conversational restatement of what was discussed — in your own words, proving you understood. Follow the restatement examples in Claude.md. Do not take any action before restating."
         ;;
     question)
+        RESTATEMENT_TARGET="the question"
         if [ "$EXECUTE_COUNT" -gt 0 ]; then
             CONTEXT="This is a question with action items. Answer the question AND execute the action items."
         else
             CONTEXT="This is a question. Answer it.\n\n- Don't edit the code. Don't make decisions based on a question. Don't assume intent."
         fi
-        CONTEXT="${CONTEXT}\n- Don't be a sycophant. No hedging. No \"you're right, the problem is…\" after a question. No reframing, validating, or characterizing the question — just answer it.\n- Don't guess what the user wants or means. Don't infer feedback from questions. A question is not a complaint or a critique — never respond with \"you're right to question this.\"\n- Don't exit plan mode.\n- Don't update the plan.\n- Never bias and direct the user with your reply. Objectively report the facts & only the facts.\n- Directly answer with the root cause and the architectural decisions that led here.\n- Never ask questions the code can answer — read the code first, then answer.\n- Focus – answer EXACTLY what was asked & provide the necessary context.\n- Stay consistent – Jordan's word is gospel; don't forget.\n\nOpen your response with a conversational restatement of the question — in your own words, proving you understood. Follow the restatement examples in Claude.md. Do not take any action before restating.\n\nWhen presenting options or answering questions, use /pcc skill: architecturally distinct options, each with pros, cons, and confidence percentage. For yes/no questions, present the case for both sides. No hedging — state confidence as a percentage."
+        CONTEXT="${CONTEXT}\n- Don't be a sycophant. No hedging. No \"you're right, the problem is…\" after a question. No reframing, validating, or characterizing the question — just answer it.\n- Don't guess what the user wants or means. Don't infer feedback from questions. A question is not a complaint or a critique — never respond with \"you're right to question this.\"\n- Don't exit plan mode.\n- Don't update the plan.\n- Never bias and direct the user with your reply. Objectively report the facts & only the facts.\n- Directly answer with the root cause and the architectural decisions that led here.\n- Never ask questions the code can answer — read the code first, then answer.\n- Focus – answer EXACTLY what was asked & provide the necessary context.\n- Stay consistent – Jordan's word is gospel; don't forget.\n\nWhen presenting options or answering questions, use /pcc skill: architecturally distinct options, each with pros, cons, and confidence percentage. For yes/no questions, present the case for both sides. No hedging — state confidence as a percentage."
         ;;
     correction)
+        RESTATEMENT_TARGET="these corrections"
         CONTEXT=""
         if [ -n "$CORRECTION_INSTRUCTIONS" ]; then
             CONTEXT="Corrections from user (acknowledge, do not change direction):\n${CORRECTION_INSTRUCTIONS}"
@@ -343,9 +345,9 @@ case "$INTENT" in
         fi
         [ -z "$CONTEXT" ] && CONTEXT="Corrections from user:\n${INSTRUCTIONS}"
         CONTEXT="${CONTEXT}\n\nThe user corrected your previous output. Incorporate the correction and deliver a complete response in the same format as the original — not prose diffs. Any unresolved questions from the previous proposal must be re-surfaced until answered."
-        CONTEXT="${CONTEXT}\n\nOpen your response with a conversational restatement of these corrections — in your own words, proving you understood. Follow the restatement examples in Claude.md. Do not take any action before restating."
         ;;
     instructions|proposal_request)
+        RESTATEMENT_TARGET="these instructions"
         # Grouped format: corrections first (context), instructions second (action), questions last (discussion)
         CONTEXT=""
         if [ -n "$CORRECTION_INSTRUCTIONS" ]; then
@@ -366,7 +368,6 @@ case "$INTENT" in
         if [ -n "$SKILLS" ]; then
             CONTEXT="${CONTEXT}\n\nSkills to execute: ${SKILLS}"
         fi
-        CONTEXT="${CONTEXT}\n\nOpen your response with a conversational restatement of these instructions — in your own words, proving you understood. Follow the restatement examples in Claude.md. Do not take any action before restating. Execute detected /skills immediately after restating."
         ;;
 esac
 
@@ -375,20 +376,26 @@ if [ "$SEQUENTIAL" = "true" ]; then
     CONTEXT="${CONTEXT}\n\nThese steps are strictly sequential — launch each only after the previous completes. Do not parallelize."
 fi
 
-# Shared rules (always injected regardless of state)
-CONTEXT="${CONTEXT}\n\nAny architectural changes to any plan are a hard blocker — require user approval before proceeding.\n\nNever change the scope of the user's requirements without approval. No adding features, removing requirements, reinterpreting terminology, creating files outside the stated scope, or hacking infrastructure as a workaround. If scope needs to change, state what and why, then wait for approval before proceeding.\n\nWhen the user gives feedback on a decision, evaluate the options and present findings — never conclude with a decision. The user is the decision maker."
+# Shared rules and state-specific context (only for intents where the agent may take action)
+ACTION_INTENT=false
+case "$INTENT" in
+    instructions|proposal_request|approval|correction) ACTION_INTENT=true ;;
+    question) [ "$EXECUTE_COUNT" -gt 0 ] && ACTION_INTENT=true ;;
+esac
 
-# Shared subagent rules (only in subagents/team approach)
-if [ "$APPROACH" = "subagents" ] || [ "$APPROACH" = "team" ]; then
-    CONTEXT="${CONTEXT}\n\nWhen dispatching subagents: communicate WHY and WHAT only — not HOW (unless the HOW is a unique finding the subagent won't realistically discover reading the code). Do not pre-research, pre-read files, or run commands to \"prepare\" for a subagent. Do not include information the subagent can find in the codebase. The value of subagents is fresh, unbiased context — over-instruction destroys this.\n\nWhen told to do something N times in parallel, run all N in parallel — never serialize. Use a single message with multiple Agent tool calls."
+if [ "$ACTION_INTENT" = true ]; then
+    CONTEXT="${CONTEXT}\n\nAny architectural changes to any plan are a hard blocker — require user approval before proceeding.\n\nNever change the scope of the user's requirements without approval. No adding features, removing requirements, reinterpreting terminology, creating files outside the stated scope, or hacking infrastructure as a workaround. If scope needs to change, state what and why, then wait for approval before proceeding.\n\nWhen the user gives feedback on a decision, evaluate the options and present findings — never conclude with a decision. The user is the decision maker."
+
+    if [ "$APPROACH" = "subagents" ] || [ "$APPROACH" = "team" ]; then
+        CONTEXT="${CONTEXT}\n\nWhen dispatching subagents: communicate WHY and WHAT only — not HOW (unless the HOW is a unique finding the subagent won't realistically discover reading the code). Do not pre-research, pre-read files, or run commands to \"prepare\" for a subagent. Do not include information the subagent can find in the codebase. The value of subagents is fresh, unbiased context — over-instruction destroys this.\n\nWhen told to do something N times in parallel, run all N in parallel — never serialize. Use a single message with multiple Agent tool calls."
+    fi
 fi
 
-# State-specific context
-if [ "$NEW_STATE" = "proposing" ]; then
+if [ "$ACTION_INTENT" = true ] && [ "$NEW_STATE" = "proposing" ]; then
     CONTEXT="${CONTEXT}\n\nResearch the codebase before proposing. Never propose changes to code you haven't read.\n\nPresent a full, complete proposal before executing anything — do not make the user piece together context from prior messages.\n\nWhen presenting options in proposals, use /pcc skill: architecturally distinct options, each with pros, cons, and confidence percentage. Explore both sides of every tradeoff. Every decision point presents architecturally distinct options — never advocate for a single approach without alternatives.\n\nResearch every option and deliver a complete proposal in one response. Do not use progressive disclosure — the user is an architect who corrects direction, not a student who needs guided discovery.\n\nBefore proposing, identify every element you're uncertain about and research each one — read full files, not grep fragments. Never propose from general knowledge when the code can answer definitively.\n\nIn proposals, never:\n- Hedge (\"may\", \"probably\", \"likely\", \"might\") — if you'd hedge, you haven't read enough code yet\n- Echo requirements back as proposals — include concrete HOW (mechanisms, code paths, data flow), not reworded WHAT\n- Present options below 80% confidence — low confidence means research more, not label and ship\n\nYour proposal must address exactly the requirements stated — nothing added, nothing removed, nothing reframed. Present options within the stated scope, not options that change it. If you believe the scope should be different, say so explicitly as a separate decision point before proposing.\n\nInclude the full, complete proposal at the end of every response. The user should never need to scroll back or remember a prior message to see the current proposal. Proposals are appended to and updated — never shortened, summarized, or replaced with diffs.\n\nEnd every proposal with a numbered list of open questions for the user. If there are no open questions, state that explicitly.\n\nIf your previous proposal contained unresolved questions, re-surface every unanswered question in your response. Unresolved questions must appear in every agent response until the user answers them — never silently drop a question when revising a proposal."
-elif [ "$NEW_STATE" = "executing" ]; then
+elif [ "$ACTION_INTENT" = true ] && [ "$NEW_STATE" = "executing" ]; then
     CONTEXT="${CONTEXT}\n\nResearch the codebase before editing. Never change code you haven't read.\n\nBefore acting, verify you have sufficient context — read relevant files, check existing patterns, and research unknowns. Do not rush to implement."
-elif [ "$NEW_STATE" = "auto" ]; then
+elif [ "$ACTION_INTENT" = true ] && [ "$NEW_STATE" = "auto" ]; then
     CONTEXT="${CONTEXT}\n\nThis message contains mixed intents. Execute action items first, then answer questions. The user expects actions completed before discussion. Research the codebase before editing. Never change code you haven't read."
 fi
 
@@ -405,6 +412,13 @@ fi
 # Prepend state change notifications
 [ -n "$STATE_NOTIFICATIONS" ] && \
     CONTEXT="State changes (applied by classifier, no action needed):\n${STATE_NOTIFICATIONS}\n${CONTEXT}"
+
+# Head-anchor restatement instruction (must be first for primacy)
+RESTATEMENT="Open your response with a conversational restatement of ${RESTATEMENT_TARGET} — in your own words, proving you understood. Follow the restatement examples in Claude.md. Do not take any action before restating."
+if [ "$INTENT" = "instructions" ] || [ "$INTENT" = "proposal_request" ]; then
+    RESTATEMENT="${RESTATEMENT} Execute detected /skills immediately after restating."
+fi
+CONTEXT="${RESTATEMENT}\n\n${CONTEXT}"
 
 ESCAPED_CONTEXT=$(printf '%b' "$CONTEXT" | jq -Rs .) || { exit 0; }
 
