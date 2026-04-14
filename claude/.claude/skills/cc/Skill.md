@@ -13,12 +13,12 @@ Guide for working with Claude Code's extensibility system.
 
 Apply to all topics below:
 
-- **Context is finite** — every token loaded competes with reasoning. No "nice to have" context — everything loaded is necessary or harmful
+- **The rule** — instructions exist exclusively to correct default behavior. If Claude Code would already do it without being told, the instruction doesn't belong. This is the #1 litmus test for any line in any Claude Code configuration — Claude.md, skills, agents, hooks, rules. Can't name the default behavior it overrides? Delete it
+- **Context is finite** — every token loaded biases the agent's output. More context doesn't mean better output — irrelevant content dilutes the signal and steers the agent toward wrong concerns. Everything loaded is necessary or harmful
 - **Progressive disclosure** — load minimum, drill deeper when required. Three tiers: entry points (routing + principles) → topic files (one complete workflow) → deep dives (specs, examples, edge cases)
 - **Split along tasks, not topics** — will different tasks need different parts? Split. Will every task need everything? Don't
 - **One job per file** — focused files > fewer files
 - **Trace actual flows** — follow how agents use skills to find gaps
-- **The rule** — instructions exist exclusively to correct default behavior. If Claude Code would already do it without being told, the instruction doesn't belong. This is the #1 litmus test for any line in any Claude Code configuration — Claude.md, skills, agents, hooks, rules. Can't name the default behavior it overrides? Delete it
 - **Direct language** — "Use X" not "consider using X". Never: consider, might, should, could, maybe, perhaps
 - **Signs of bloat** — decorative formatting, examples repeating what the rule said, process sections duplicated across files, tables instead of bullets
 

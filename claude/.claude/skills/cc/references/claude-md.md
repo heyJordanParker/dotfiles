@@ -237,8 +237,8 @@ Claude.md files are hierarchical. When opening any file, Claude automatically re
 **Core Principles:**
 
 - **Push context as deep as possible while keeping it discoverable.** Root stays navigable, details live where they're needed.
-- **Write minimum documentation that provides full context.** AI context is limited and precious. Too little → agents can't complete tasks. Too much → agents overflow and forget critical details. Every line must earn its place. No fluff.
-- **Never duplicate parent content in child files.** Claude reads every Claude.md from root to the working directory automatically. Restating parent content wastes tokens and creates staleness risk.
+- **Write minimum documentation that provides full context.** Irrelevant context doesn't just waste space — it dilutes the signal and biases agent output away from what matters. Too little → agents can't complete tasks. Too much → agents drift toward wrong priorities. Every line must earn its place.
+- **Never duplicate parent content in child files.** Claude reads every Claude.md from root to the working directory automatically. Duplication biases the model — repeated content gets treated as higher priority — and creates staleness risk.
 - **Never put scope-specific content in parent files.** A frontend agent doesn't need backend details. If content only applies to one subdirectory, it belongs there — not in the parent.
 
 **What Goes Where:**
@@ -310,7 +310,7 @@ Claude.md files are hierarchical. When opening any file, Claude automatically re
 - **Explicit over implicit** - State rules directly; AI won't infer from examples
 - **Firm, specific, declarative** - "Use X for Y" beats "potentially consider X"
 - **Front-load critical info** - First lines of sections get highest weight
-- **Structured data** - Markdown with bullets/annotated file trees to compact info per character. Avoid tables & gaudy ASCII displays that waste tokens.
+- **Structured data** - Markdown with bullets/annotated file trees — scannable and dense. Avoid tables & gaudy ASCII displays that add noise without information.
 
 ## References
 

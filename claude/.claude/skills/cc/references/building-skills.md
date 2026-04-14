@@ -56,7 +56,13 @@ Structure skill execution in phases:
 
 **Good:** "Run `git ls-files 'src/*.ts'` to see current source files"
 
-**Write Direct** - Name the failures each instruction prevents. Keep files under 100 lines — split or trim if longer. "Use X" not "consider using X."
+**Write Direct** — skill content tells the agent what to do differently. Never explain capabilities the agent already has (what tools do, how they work, why one is generally better). If the agent already knows it, the line wastes tokens.
+
+**Bad:** "Grep finds where something is. Reading tells you what it does, why it exists, and what breaks if you change it."
+**Good:** "Use Read for research, not Grep."
+**Why:** The agent knows what Grep and Read do. The skill tells it which to use, not what they are.
+
+Keep files under 100 lines — split or trim if longer. "Use X" not "consider using X."
 
 **Structure References** - References are opt-in. The agent may never open them. Never put mission-critical information in a reference — if the agent produces wrong output without it, it belongs in Skill.md.
 
