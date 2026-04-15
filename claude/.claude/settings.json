@@ -39,6 +39,14 @@
         "hooks": [
           {
             "type": "command",
+            "command": "INPUT=$(cat); SESSION_ID=$(echo \"$INPUT\" | jq -r '.session_id'); [[ \"$SESSION_ID\" != agent-* ]] && /Users/jordan/.claude/hooks/initialize-session-state.sh \"$SESSION_ID\" || true"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
             "command": "INPUT=$(cat); SESSION_ID=$(echo \"$INPUT\" | jq -r '.session_id'); [[ \"$SESSION_ID\" != agent-* ]] && echo \"$INPUT\" | jq -r '.transcript_path' > /tmp/claude-transcript-$TMUX_PANE || true"
           }
         ]
@@ -134,14 +142,14 @@
           },
           {
             "type": "command",
-            "if": "Write(**/Claude.md)",
             "command": "/Users/jordan/.claude/hooks/validate-ledger-entries.sh",
+            "if": "Write(**/Claude.md)",
             "timeout": 5
           },
           {
             "type": "command",
-            "if": "Edit(**/Claude.md)",
             "command": "/Users/jordan/.claude/hooks/validate-ledger-entries.sh",
+            "if": "Edit(**/Claude.md)",
             "timeout": 5
           }
         ]
@@ -276,12 +284,11 @@
     "php-lsp@claude-plugins-official": true,
     "typescript-lsp@claude-plugins-official": true,
     "dev-browser@dev-browser-marketplace": false,
-    "ralph-wiggum@claude-code-plugins": true,
     "skill-creator@claude-plugins-official": true
   },
   "alwaysThinkingEnabled": true,
   "effortLevel": "high",
   "autoUpdatesChannel": "latest",
-  "voiceEnabled": true,
-  "skipDangerousModePermissionPrompt": true
+  "skipDangerousModePermissionPrompt": true,
+  "voiceEnabled": true
 }

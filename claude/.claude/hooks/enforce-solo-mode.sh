@@ -9,9 +9,9 @@ session_id=$(echo "$input" | jq -r '.session_id // ""' 2>/dev/null) || exit 0
 [ -z "$session_id" ] && exit 0
 
 state_file="/tmp/claude-session-state-${session_id}"
-[ ! -f "$state_file" ] && exit 0
+[ ! -f "$state_file" ] && /Users/jordan/.claude/hooks/initialize-session-state.sh "$session_id"
 
-approach=$(jq -r '.approach // "subagents"' "$state_file" 2>/dev/null) || exit 0
+approach=$(jq -r '.approach // "solo"' "$state_file" 2>/dev/null) || exit 0
 
 if [ "$approach" = "solo" ]; then
     cat >&2 <<'EOF'

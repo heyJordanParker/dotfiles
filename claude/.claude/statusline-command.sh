@@ -8,7 +8,6 @@ style=$(echo "$input" | jq -r '.output_style.name')
 short_dir="${cwd/#$HOME/~}"
 
 git_info=""
-git_file_status=""
 
 if git -C "$cwd" rev-parse --git-dir >/dev/null 2>&1; then
   branch=$(git -C "$cwd" --no-optional-locks branch --show-current 2>/dev/null || git -C "$cwd" --no-optional-locks rev-parse --short HEAD 2>/dev/null)
@@ -26,46 +25,17 @@ if git -C "$cwd" rev-parse --git-dir >/dev/null 2>&1; then
       [ -n "$branch_status" ] && git_info="${git_info} [${branch_status}]"
     fi
 
-    # File status (for line 2)
-    status=$(git -C "$cwd" --no-optional-locks status --porcelain 2>/dev/null)
-    if [ -n "$status" ]; then
-      added=$(echo "$status" | grep -c -E '^A|^\?\?')
-      modified=$(echo "$status" | grep -c -E '^.?M')
-      deleted=$(echo "$status" | grep -c -E '^.?D')
-      dim=$'\033[90m'
-      reset=$'\033[0m'
-      [ "$added" -gt 0 ] && git_file_status="${git_file_status}${dim}󰐕${added}${reset} "
-      [ "$modified" -gt 0 ] && git_file_status="${git_file_status}${dim}󰏫${modified}${reset} "
-      [ "$deleted" -gt 0 ] && git_file_status="${git_file_status}${dim}󰍴${deleted}${reset} "
-    fi
   fi
 fi
 
 model_info=""
-[ "$model" != "null" ] && model_info="󰧑 $model"
+if [ "$model" != "null" ]; then
+  clean_model="${model%% (*}"
+  model_info=" 󰧑 $clean_model"
+fi
 
 style_info=""
 [ "$style" != "default" ] && [ "$style" != "null" ] && style_info=" [$style]"
-
-# Extract usage metrics
-duration_ms=$(echo "$input" | jq -r '.cost.total_duration_ms // 0')
-
-# Format duration
-if [ "$duration_ms" -gt 0 ]; then
-  duration_s=$((duration_ms / 1000))
-  if [ $duration_s -lt 60 ]; then
-    duration="<1m"
-  elif [ $duration_s -lt 3600 ]; then
-    minutes=$((duration_s / 60))
-    duration="${minutes}m"
-  else
-    hours=$((duration_s / 3600))
-    minutes=$(((duration_s % 3600) / 60))
-    duration="${hours}h${minutes}m"
-  fi
-else
-  duration="<1m"
-fi
 
 # Context usage progress bar (approximates /context output)
 context_size=$(echo "$input" | jq -r '.context_window.context_window_size // 200000')
@@ -88,8 +58,44 @@ for ((i=0; i<empty; i++)); do bar="${bar}┄"; done
 
 progress_bar=$(printf "\033[90m%s %d%%\033[0m" "$bar" "$percentage")
 
-# Line 1: directory + git branch
-printf "\033[97m%s\033[0m\033[35m%s\033[0m\n" "$short_dir" "$git_info"
+# Intent classifier state
+session_id=$(echo "$input" | jq -r '.session_id // ""')
+classifier_status=""
+if [ -n "$session_id" ]; then
+  state_file="/tmp/claude-session-state-${session_id}"
+  [ ! -f "$state_file" ] && /Users/jordan/.claude/hooks/initialize-session-state.sh "$session_id"
+  if [ -f "$state_file" ]; then
+    raw_state=$(jq -r '.state // "proposing"' "$state_file" 2>/dev/null) || raw_state="proposing"
+    raw_approach=$(jq -r '.approach // "solo"' "$state_file" 2>/dev/null) || raw_approach="solo"
 
-# Line 2: model + style + duration + git file status + progress bar
-printf "\033[34m%s\033[0m\033[32m%s\033[0m \033[90m%s\033[0m %b%s\n" "$model_info" "$style_info" "$duration" "$git_file_status" "$progress_bar"
+    # Capitalize first letter
+    state_label="$(tr '[:lower:]' '[:upper:]' <<< "${raw_state:0:1}")${raw_state:1}"
+    approach_label="$(tr '[:lower:]' '[:upper:]' <<< "${raw_approach:0:1}")${raw_approach:1}"
+
+    # State colors: proposing=yellow, executing=green, auto=cyan
+    case "$raw_state" in
+      proposing) state_color="\033[33m" ;;
+      executing) state_color="\033[32m" ;;
+      auto)      state_color="\033[36m" ;;
+      *)         state_color="\033[90m" ;;
+    esac
+
+    # Approach colors: solo=magenta, subagents=blue, team=bright cyan
+    case "$raw_approach" in
+      solo)      approach_color="\033[35m" ;;
+      subagents) approach_color="\033[34m" ;;
+      team)      approach_color="\033[96m" ;;
+      *)         approach_color="\033[90m" ;;
+    esac
+
+    reset=$'\033[0m'
+    dim=$'\033[90m'
+    classifier_status=$(printf "%b%s%s %b->%s %b%s%s " "$state_color" "$state_label" "$reset" "$dim" "$reset" "$approach_color" "$approach_label" "$reset")
+  fi
+fi
+
+# Line 1: directory + git branch + model
+printf "\033[97m%s\033[0m\033[35m%s\033[0m\033[34m%s\033[0m\n" "$short_dir" "$git_info" "$model_info"
+
+# Line 2: classifier state + style + progress bar
+printf "%b\033[32m%s\033[0m %s\n" "$classifier_status" "$style_info" "$progress_bar"

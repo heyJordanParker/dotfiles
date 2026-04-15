@@ -55,17 +55,14 @@ fi
 TRANSCRIPT_PATH=$(echo "$EVENT" | jq -r '.transcript_path // ""')
 STATE_FILE="/tmp/claude-session-state-${SESSION_ID}"
 
-# Read existing session state (graceful if missing)
-CURRENT_APPROACH="subagents"
-CURRENT_STATE="proposing"
-CURRENT_INTENT="instructions"
-CURRENT_NOTES="[]"
-if [ -f "$STATE_FILE" ]; then
-    CURRENT_APPROACH=$(jq -r '.approach // "subagents"' "$STATE_FILE" 2>/dev/null) || CURRENT_APPROACH="subagents"
-    CURRENT_STATE=$(jq -r '.state // "proposing"' "$STATE_FILE" 2>/dev/null) || CURRENT_STATE="proposing"
-    CURRENT_INTENT=$(jq -r '.intent // "instructions"' "$STATE_FILE" 2>/dev/null) || CURRENT_INTENT="instructions"
-    CURRENT_NOTES=$(jq -c '.notes // []' "$STATE_FILE" 2>/dev/null) || CURRENT_NOTES="[]"
-fi
+# Ensure session state file exists (creates with defaults if missing)
+[ ! -f "$STATE_FILE" ] && /Users/jordan/.claude/hooks/initialize-session-state.sh "$SESSION_ID"
+
+# Read existing session state
+CURRENT_APPROACH=$(jq -r '.approach // "solo"' "$STATE_FILE" 2>/dev/null) || CURRENT_APPROACH="solo"
+CURRENT_STATE=$(jq -r '.state // "proposing"' "$STATE_FILE" 2>/dev/null) || CURRENT_STATE="proposing"
+CURRENT_INTENT=$(jq -r '.intent // "instructions"' "$STATE_FILE" 2>/dev/null) || CURRENT_INTENT="instructions"
+CURRENT_NOTES=$(jq -c '.notes // []' "$STATE_FILE" 2>/dev/null) || CURRENT_NOTES="[]"
 
 # Reset validation phase on new user message (new validation cycle)
 if [ -f "$STATE_FILE" ]; then
