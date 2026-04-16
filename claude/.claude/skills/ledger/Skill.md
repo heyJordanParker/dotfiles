@@ -55,6 +55,8 @@ Read `/cc` reference `claude-md.md` for the full template before making any chan
 - Boundaries use **never**
 - Ledger entries are keyed by the file's version number: `- v1.1: Description of decision`. Adding a ledger entry requires bumping the version; bumping the version requires a ledger entry. They enforce each other
 - One entry per architectural decision in the commit — not per iteration step
+- Short WHAT, then WHY when not obvious (for/because). Most entries under 10 words
+- Never include HOW details — name the decision and motivation, not the implementation mechanics
 - Amend existing entries when iterating before committing — the ledger matches what git shows (A→C, not A→B→C)
 - Ledger records facts ("Replaced Nginx with Caddy"), not ongoing constraints — those go in Requirements or Boundaries
 - One concept per change — don't restructure entire files in a single diff

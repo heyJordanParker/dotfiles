@@ -52,10 +52,16 @@ while IFS= read -r entry; do
     # Strip version prefix to get entry text
     TEXT_AFTER_VERSION=$(echo "$entry" | sed 's/^- v[0-9][0-9.]*: //' 2>/dev/null) || true
 
-    # Check length (> 180 chars)
+    # Check length (> 120 chars)
     LENGTH=${#entry}
-    if [ "$LENGTH" -gt 180 ]; then
-        ERRORS="${ERRORS}${VERSION}: ${LENGTH} chars (max 180). Shorten to a single clear sentence.\n"
+    if [ "$LENGTH" -gt 120 ]; then
+        ERRORS="${ERRORS}${VERSION}: ${LENGTH} chars (max 120). Shorten to: short WHAT, then WHY when not obvious.\n"
+    fi
+
+    # Check word count (> 15 words after version prefix)
+    WORD_COUNT=$(echo "$TEXT_AFTER_VERSION" | wc -w | tr -d ' ')
+    if [ "$WORD_COUNT" -gt 15 ]; then
+        ERRORS="${ERRORS}${VERSION}: ${WORD_COUNT} words (max 15). Most entries should be under 10 words.\n"
     fi
 
     # Check for periods (full stops, file paths, multi-sentence)

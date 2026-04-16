@@ -78,7 +78,7 @@ requires a ledger entry. They enforce each other.
 
 Amend while iterating so the ledger matches what git shows.
 
-- v1.0: Chose Postmark over SendGrid — pure env config, 12-factor fit
+- v1.0: Postmark over SendGrid for pure env config
 
 ## References
 
@@ -111,8 +111,11 @@ Boundaries define encapsulation. Use domain language, not library names.
 
 **Ledger** — min 1 versioned entry. Every entry is keyed by the file's version number. Adding a ledger entry requires bumping the version; bumping the version requires a ledger entry. They enforce each other. Amend while iterating so the ledger matches what git shows.
 - Read `git diff --stat` before writing — scope the entry to the actual commit, not the task
+- Short WHAT, then WHY when not obvious (for/because). Most entries under 10 words
 - WHY comes from the architect (plan, shaping doc, conversation) — not from patterns inferred while coding
-- Good: "v1.1: Chose Postmark over SendGrid — pure env config, 12-factor fit"
+- Good: "v1.2: Coupon removed because offers own pricing"
+- Good: "v1.2: Three-way session split for distinct lifecycles"
+- Good: "v1.0: Document cast vs snapshot patterns"
 - Bad: "Added getCustomer() to Account" — that's the diff
 - Bad: A→B then B→C entries when the commit only shows A→C
 - Bad: Re-explaining architecture the file already documents — the ledger records decisions, not descriptions
@@ -125,6 +128,7 @@ Boundaries define encapsulation. Use domain language, not library names.
 - Bad: Iteration debris — entries left from intermediate steps that were revised or reverted. Amend during iteration; the committed ledger reflects only final state
 - Bad: Unverified claims — stating outcomes without reading the code to confirm what actually changed
 - Bad: Overloaded terms — using words that conflict with codebase concepts (e.g. "schema" where `#[Schema]` is an attribute)
+- Bad: In-development transitions — intermediate entries from iterations within a branch. Collapse to final state before committing
 
 **Optional sections** (include when they add value):
 - **Architecture** — annotated file trees and schema overviews
