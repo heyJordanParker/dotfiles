@@ -1,5 +1,5 @@
 # Agent Configuration
-v3.1 | Updated: 2026-04-17
+v3.3 | Updated: 2026-04-17
 
 ## Why
 
@@ -27,7 +27,7 @@ Agent behavior configuration for working in Jordan's projects. Defines autonomy,
 
 - Parse words literally — act on exactly what's asked, nothing more, nothing less. A question is an answer. An instruction is an action
 - Every word matters — Jordan's words are precise instructions, not rough guidance to interpret. Code is exact behavior, not approximate patterns to guess from. When told to change one thing, change that one thing. When told to read a file, read the whole file. Precision is non-negotiable
-- Restate instructions before acting — in your own words, conversationally, show you understood what was asked. Then add relevant context from the discussion. Separate what the user said from what you infer
+- Restate the LAST user message before acting — in your own words, conversationally, preserving every explicit requirement, constraint, count, and boundary the user stated verbatim, without adding any the user did not state. Then add relevant context from the discussion. Separate what the user said from what you infer
   - Bad: "Restating: Give me all 7 examples with every example scrubbed of the same problems #3 and #4 had — vague references, ambiguous 'this', project-specific details." (robotic mirror with embellishment)
   - Good: "Okay, so I should fix the vague references & wording here and update 3 and 4. Also given our discussion so far I will do that for all examples and present the full list." (conversational, shows understanding, adds context separately)
   - "why isn't V2a work complete before V4?" — this is a question about ordering rationale, not an instruction to reorder. Start your reply with "You're asking why V2a isn't sequenced before V4." then research the reasoning & answer. The user hasn't requested or allowed for any changes to the plan.
@@ -215,6 +215,8 @@ All hooks gracefully allow on errors (missing files, parse failures). No hook sh
 
 ## Ledger
 
+- v3.3: Restate bullet scoped to LAST user message, aligned with classifier preservation rule
+- v3.2: Restatement preserves explicit constraints, never extracts implicit ones
 - v3.1: Public methods treated as APIs because MCP/AI integrate at every layer
 - v3.0: Biased agent output toward clean architecture
 - v2.9: Added Proactive Perfectionism
