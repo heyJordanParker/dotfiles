@@ -422,7 +422,7 @@ fi
     CONTEXT="State changes (applied by classifier, no action needed):\n${STATE_NOTIFICATIONS}\n${CONTEXT}"
 
 # Head-anchor restatement instruction (must be first for primacy)
-RESTATEMENT="Open your response with a conversational restatement of ${RESTATEMENT_TARGET} — in your own words, proving you understood. Follow the restatement examples in Claude.md. Do not take any action before restating."
+RESTATEMENT="Open your response with a conversational restatement of ${RESTATEMENT_TARGET} — in your own words, making every implicit detail explicit (WHY, WHAT, potentially HOW plus all requirements, and all boundaries), proving you understood. Follow the restatement examples in Claude.md. Do not take any action before restating."
 if [ "$INTENT" = "instructions" ] || [ "$INTENT" = "proposal_request" ]; then
     RESTATEMENT="${RESTATEMENT} Execute detected /skills immediately after restating."
 fi
