@@ -131,3 +131,7 @@ export function validatePhone(phone: string): boolean {
 - Binary options (yes/no) — always provide 4+
 - Context that requires reading the full plan or other documents
 - Asking about trivial decisions you should just make
+- Rephrasing a ranked option as a question (the /pcc ranking is already the recommendation)
+- Motivation probes asking the user to explain themselves so the agent can pick
+- References the user doesn't have memorized (file paths, line numbers)
+- Scope decisions the agent should propose and let the user override

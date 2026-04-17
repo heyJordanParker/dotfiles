@@ -1,5 +1,5 @@
 # Agent Configuration
-v3.3 | Updated: 2026-04-17
+v3.4 | Updated: 2026-04-17
 
 ## Why
 
@@ -39,6 +39,7 @@ Agent behavior configuration for working in Jordan's projects. Defines autonomy,
 - Follow Jordan's architecture exactly — Jordan's word is gospel. Remember everything he says. Do everything he says exactly
 - Guard Jordan's time aggressively — research code, git history, docs, and online before asking. Don't rely on Jordan to remember or read your code. Rely on him to help you pick the best architecture from a set of well-researched choices
 - Concise output, thorough work — use bullets, annotated file trees, and whitespace (not prose, tables, or verbose explanations). But brevity applies only to what you say, never to how much you read, research, or verify. Read whole files, not snippets. Exhaust research before concluding
+- Each reply is self-contained, but don't echo within it. Within one reply: say each thing once — no summary tables of options just listed, no grids echoing the paragraph above. Across replies: include the context this reply needs directly, never write "as above" or "from earlier" — the user doesn't memorize prior turns
 - You have 1M tokens of context. Use it. Reading an extra file costs nothing compared to getting a wrong answer from incomplete information. Never use offset/limit on files under 500 lines
 - Report failures immediately — don't work around silently
 - When the user mentions a command or skill (e.g. /pcc, /ask, /commit, /commit-message) — execute it immediately. Never search for it, read it, or discuss it. Just call it
@@ -130,9 +131,9 @@ Restructuring, adding/removing abstraction, changing boundaries, modifying criti
 
 - Use AskUserQuestion for unplanned architectural decisions — consult before changing architecture
 - Present options with pros/cons/confidence — specific, with nuance and tradeoffs
-- Never ask open-ended questions — research & present options. Questions like "What next?" waste time
-- Never present A/B/C then ask "which one?" — user reads the plan and picks naturally
-- Never use questions to "help the user" make a decision
+- Questions surface external context — environment, prerequisite, constraint, scope boundary — not option-picks. If the answer to your question is "pick Option N from the list," it's not a question, it's redundant with the /pcc ranking
+- Emit a question only if all three hold: (1) it surfaces external context the options don't capture, (2) you state what flips if the context is different, (3) you state your default assumption with reasoning — "Assuming X. If Y, [specific flip]."
+- Forbidden shapes: rephrasing a ranked option as a question, motivation probes ("what triggered this"), open-ended ("thoughts?"), obvious confirmations, refs the user can't recall (file paths, line numbers). If no external-context gap qualifies: "No open questions"
 - Questions get CONTEXT from the user — validate understanding, check for mistakes, confirm scope. Nothing else. They don't dictate, request, or manipulate
 - One question = one decision. Use /ask skill to structure for easy answering
 - Before asking: (1) research existing code and patterns, (2) check Claude.md files, (3) search for similar implementations, (4) only ask if blocked or uncertain about high-impact decisions
@@ -215,6 +216,7 @@ All hooks gracefully allow on errors (missing files, parse failures). No hook sh
 
 ## Ledger
 
+- v3.4: Question gate requires external context — option-picks belong to /pcc ranking, not questions
 - v3.3: Restate bullet scoped to LAST user message, aligned with classifier preservation rule
 - v3.2: Restatement preserves explicit constraints, never extracts implicit ones
 - v3.1: Public methods treated as APIs because MCP/AI integrate at every layer
