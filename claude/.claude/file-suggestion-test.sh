@@ -218,7 +218,32 @@ has         "app/Tenant local nav unaffected"       "app/Tenant" "$CIB" "Tenant"
 count_check "config/ local nav unaffected"          "config/" "$CIB" ">" 5
 
 echo ""
-echo "── 13. Performance (< 90ms) ──"
+echo "── 13. Prefix Scope — Local Directory Prefixes (Scope A) ──"
+# Prefix scopes results to the resolved local directory
+first       "local prefix leads: .claude/md → .claude/Claude.md"  ".claude/md" "$DOT" ".claude/Claude.md"
+first       "local prefix leads: .claude/ → inside .claude/"       ".claude/" "$DOT" ".claude/"
+first       "CIB .claude/md leads from project's .claude"          ".claude/md" "$CIB" ".claude/"
+# Recursive: deep files under a local prefix show up
+has         "CIB recursive: .claude/md finds nested agents/"       ".claude/md" "$CIB" "agents/frontend"
+has         "recursive browse: claude/.claude/ finds agents/"      "claude/.claude/" "$DOT" "agents/architect"
+has         "recursive browse: claude/.claude/ finds rules dir"    "claude/.claude/" "$DOT" "claude/.claude/rules"
+# Depth ordering: top-level entries appear before nested entries
+count_check "CIB .claude/md returns ≥10 results"                   ".claude/md" "$CIB" ">=" 10
+# Filter applies within the prefix scope
+has         "filter in prefix: database/migrations/ finds 0001"    "database/migrations/" "$CIB" "0001"
+has         "filter in prefix: admin/comp finds components"        "admin/comp" "$CIB" "components"
+# Files AND directories included
+has         "includes directories: .claude/ shows subdirs in CIB"  ".claude/" "$CIB" "agents"
+# Nonexistent local prefix returns 0 (falls through, nothing to fall back to)
+count_check "nonexistent local prefix: app/zzznope/"               "app/zzznope/" "$CIB" "=" 0
+# Non-local prefixes unchanged
+has         "workspace prefix unaffected: references/mago"         "references/mago" "$CIB" "mago"
+has         "home prefix unaffected: ~/Dev"                        "~/Dev" "$CIB" "Developer"
+# Dedupe and cap still work
+count_check "cap enforced with prefix + fallback: app/"            "app/" "$CIB" "<" 16
+
+echo ""
+echo "── 14. Performance (< 90ms) ──"
 fast "empty browse"          "" "$CIB" 90
 fast "controller"            "controller" "$CIB" 90
 fast "single char a"         "a" "$CIB" 90
@@ -231,6 +256,9 @@ fast "browse: app/"          "app/" "$CIB" 90
 fast "ws browse: references/" "references/" "$CIB" 90
 fast "ws deep: references/mago" "references/mago" "$CIB" 90
 fast "empty browse dotfiles" "" "$DOT" 90
+fast "prefix scope: .claude/md"  ".claude/md" "$DOT" 90
+fast "prefix scope: CIB .claude/md" ".claude/md" "$CIB" 90
+fast "recursive browse: claude/.claude/" "claude/.claude/" "$DOT" 90
 
 echo ""
 echo "================================================================"

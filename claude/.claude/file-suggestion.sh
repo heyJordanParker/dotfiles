@@ -211,6 +211,40 @@ browse_rank() {
 }
 
 # ==============================================================================
+# Prefix search — Scope A: project-local directory prefixes
+# Recursive fd under resolved local dir, depth-ranked shallowest-first,
+# alphabetical tiebreak. Optional fzf filter on post-slash text.
+# ==============================================================================
+
+prefix_search() {
+  local base_dir="$1"
+  local pat="$2"
+  local display_prefix="$3"
+
+  [[ ! -d "$base_dir" ]] && return
+
+  local candidates
+  candidates=$(fd --hidden "${FD_EXCLUDES[@]}" "" "$base_dir" 2>/dev/null)
+  [[ -z "$candidates" ]] && return
+
+  if [[ -n "$pat" ]]; then
+    candidates=$(echo "$candidates" | fzf -i --filter="$pat" 2>/dev/null)
+    [[ -z "$candidates" ]] && return
+  fi
+
+  echo "$candidates" | awk -v base="$base_dir" -v prefix="$display_prefix" '
+  {
+    rel = $0
+    sub("^" base, "", rel)
+    gsub(/^\/+/, "", rel)
+    if (rel == "") next
+    clean = rel; sub(/\/$/, "", clean)
+    n = split(clean, parts, "/"); depth = n - 1
+    printf "%d\t%s\t%s%s\n", depth, tolower(clean), prefix, rel
+  }' | sort -t$'\t' -k1,1n -k2,2 | cut -f3- | head -15
+}
+
+# ==============================================================================
 # Smart search — project first, workspace fills gaps
 # ==============================================================================
 
@@ -335,28 +369,36 @@ else
     pattern="$query"
   fi
 
-  # Workspace fallback: resolve first path segment against workspace dirs
-  if [[ ! -d "$search_dir" && "$query" == */* ]]; then
-    first_seg="${query%%/*}"
-    rest="${query#*/}"
-    resolved=$(resolve_workspace_segment "$first_seg")
-    if [[ -n "$resolved" ]]; then
-      if [[ -z "$rest" || "$rest" == */ ]]; then
-        search_dir="${resolved}/${rest}"
-        local_prefix=""
-      elif [[ "$rest" == */* ]]; then
-        search_dir="${resolved}/$(dirname "$rest")/"
-        pattern="$(basename "$rest")"
-        local_prefix="${resolved}/$(dirname "$rest")/"
-      else
-        search_dir="${resolved}/"
-        pattern="$rest"
-        local_prefix="${resolved}/"
+  # Scope A: local directory prefix → scoped results first, fallback fills
+  if [[ "$query" == */* ]] && [[ -d "$search_dir" ]] && [[ "$search_dir" == "${ABS_PROJECT}"/* ]]; then
+    {
+      prefix_search "$search_dir" "$pattern" "$local_prefix"
+      smart_search "$search_dir" "$pattern" "$local_prefix"
+    } | finalize 15
+  else
+    # Workspace fallback: resolve first path segment against workspace dirs
+    if [[ ! -d "$search_dir" && "$query" == */* ]]; then
+      first_seg="${query%%/*}"
+      rest="${query#*/}"
+      resolved=$(resolve_workspace_segment "$first_seg")
+      if [[ -n "$resolved" ]]; then
+        if [[ -z "$rest" || "$rest" == */ ]]; then
+          search_dir="${resolved}/${rest}"
+          local_prefix=""
+        elif [[ "$rest" == */* ]]; then
+          search_dir="${resolved}/$(dirname "$rest")/"
+          pattern="$(basename "$rest")"
+          local_prefix="${resolved}/$(dirname "$rest")/"
+        else
+          search_dir="${resolved}/"
+          pattern="$rest"
+          local_prefix="${resolved}/"
+        fi
       fi
     fi
-  fi
 
-  smart_search "$search_dir" "$pattern" "$local_prefix"
+    smart_search "$search_dir" "$pattern" "$local_prefix"
+  fi
 fi
 
 # Cleanup
