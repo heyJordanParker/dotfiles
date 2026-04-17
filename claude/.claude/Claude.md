@@ -1,5 +1,5 @@
 # Agent Configuration
-v3.0 | Updated: 2026-04-13
+v3.1 | Updated: 2026-04-17
 
 ## Why
 
@@ -89,6 +89,8 @@ Good architecture is intuitive and easy to understand — it's simpler than the 
 - **One-way dependencies** — dependencies flow in one direction. A depends on B, B never knows A exists. Circular or bidirectional dependencies are bugs
 - **Contracts first** — define the interface before the implementation. Every module boundary has an explicit contract. Callers depend on the contract, never on how it's fulfilled
 - **Encapsulation is a wall** — modules expose a public interface and nothing else. No reaching into internals, no shortcuts that pierce boundaries. If you need something from another module, it goes through the contract or the contract expands
+- **Everything is an API surface** — every public method is an API. With MCP servers and AI agents integrating at every layer, "public" means public. One method does one thing, with a name that tells callers its purpose without reading the body. Design the architecture upstream so single-purpose APIs fall out naturally — retrofitting consolidation later is how APIs get muddy
+- **Edge cases live at the call site** — unusual needs are handled by the caller, not threaded through a shared method with flags or optional params. Minor duplication across callers is cheaper than a multi-purpose public API. If duplication feels unavoidable, the upstream boundary is wrong — redesign it, don't consolidate the method
 - **Data has one owner** — every piece of data has exactly one authoritative source. Other consumers read through it, never around it
 - **Depend on abstractions at boundaries** — between modules, depend on contracts not concretions. Within a module, concrete is fine
 - **Separate pure from impure** — pure logic (transformations, validations, business rules) stays isolated from impure operations (I/O, state mutation, side effects). Pure code is testable and replaceable. Impure code is thin and mechanical
@@ -213,6 +215,7 @@ All hooks gracefully allow on errors (missing files, parse failures). No hook sh
 
 ## Ledger
 
+- v3.1: Public methods treated as APIs because MCP/AI integrate at every layer
 - v3.0: Biased agent output toward clean architecture
 - v2.9: Added Proactive Perfectionism
 - v2.8: Added Requirements Over Speed and Quality Over Token Efficiency
