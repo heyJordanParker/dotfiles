@@ -10,6 +10,8 @@
 - **Toast appear:** 200ms — Quick entrance
 - **Toast dismiss:** 150ms — Faster exit
 
+**Scale duration with size.** Bigger elements travel farther and read slower. Small elements (buttons, toasts, icons ≤ 20rem) use base durations. Medium containers (panels, cards 20–30rem) × 1.2. Large surfaces (drawers, full-screen sheets ≥ 30rem) × 1.3–1.5.
+
 **Rule:** Exits roughly half the duration of entrances (e.g., 150ms exit vs 300ms enter). Exit animations should also be more subtle — use fixed small movement (`-12px`) instead of full element height (`calc(-100% - 4px)`). Exiting elements don't need the same attention as entering ones; full-height exit movement is jarring and competes with incoming content. Never remove exit animation entirely — keep some motion to indicate direction.
 
 ## Easing
@@ -18,12 +20,14 @@
 --ease: cubic-bezier(0.4, 0, 0.2, 1);  /* Material standard */
 ```
 
-Use for most transitions. Starts fast, ends smooth.
+Use `var(--ease)` as the default for most transitions. Starts fast, ends smooth.
 
-**Alternatives:**
-- `ease-out` for entrances (elements appearing)
-- `ease-in` for exits (elements leaving)
-- `linear` only for continuous animations (spinners, progress)
+**Specialize by intent:**
+- **Entering or exiting** → `ease-out` (elements appearing or leaving)
+- **On-screen element moving** → `ease-in-out` (position change, size change, any in-place motion)
+- **Hover or color transition** → `ease` (native CSS default, right for small state changes)
+- **Drag or interruptible gesture** → spring (physics-based; see Interruptibility)
+- **Continuous animation** → `linear` (spinners, progress bars)
 
 ## States
 
@@ -75,6 +79,21 @@ Users change intent mid-interaction (open a dropdown, then immediately want to d
   transform: translateY(0);
 }
 ```
+
+**Springs for drag and interruptible gestures.** Timed curves look mechanical on direct manipulation — dragging a card, swiping a sheet, pulling to refresh. A 300ms transition on a drag release ignores the user's release velocity. Springs model physical momentum: velocity at release carries through to the resting state.
+
+**With Framer Motion:**
+
+```tsx
+<motion.div
+  drag
+  dragConstraints={{ left: 0, right: 0 }}
+  dragElastic={0.2}
+  transition={{ type: "spring", stiffness: 400, damping: 30 }}
+/>
+```
+
+**Without Framer Motion:** CSS has no native spring. Use `linear()` easing with spring-like stops (Chrome 113+), or reach for Motion One / a dedicated gesture library. Don't fake it with a long cubic-bezier — it can't respond to release velocity.
 
 ## Keyframe Patterns
 
@@ -248,6 +267,8 @@ Small delights that feel intentional:
   ```
 - **Success checkmark** with draw animation
 - **Skip animation on page load** — use `initial={false}` on `AnimatePresence` to prevent enter animations on first render. Elements in their default state (toggles, tabs, icon swaps) shouldn't animate in on mount — only on subsequent state changes. Don't use on staggered heroes or intentional entrance animations where the initial animation IS the entrance.
+
+**Don't animate high-frequency interactions.** If users see an interaction 100+ times daily (tab switches, list row toggles, feedback on keystrokes), don't animate it. Animation draws attention; attention is expensive when renewed constantly.
 
 Don't overdo it. One or two per view maximum.
 

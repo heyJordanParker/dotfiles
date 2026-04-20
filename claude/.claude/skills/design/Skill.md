@@ -625,6 +625,10 @@ Run through after all design work. Every item is yes/no. Do not skip.
 - [ ] Icon swaps animated with opacity + scale(0.25) + blur(4px)
 - [ ] View Transitions API used for page/state changes
 - [ ] Micro-interactions limited to 1-2 per view
+- [ ] Easing chosen by intent — default `var(--ease)`, `ease-out` for enter/exit, `ease-in-out` for on-screen motion, `ease` for hover/color, spring for drag
+- [ ] High-frequency interactions (seen 100+/day) not animated
+- [ ] Drag or interruptible gestures use spring, not timed transitions
+- [ ] Duration scales with element size (drawers, modals ≥ 30rem use 1.3–1.5× base)
 
 #### Responsive & Accessibility
 - [ ] Container queries over media queries for component adaptation
