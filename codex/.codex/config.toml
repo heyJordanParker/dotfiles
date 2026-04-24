@@ -1,5 +1,5 @@
-model = "gpt-5.4"
-model_reasoning_effort = "high"
+model = "gpt-5.5"
+model_reasoning_effort = "medium"
 approval_policy = "never"
 personality = "pragmatic"
 
@@ -24,3 +24,14 @@ multi_agent = true
 
 [plugins."github@openai-curated"]
 enabled = true
+
+[plugins."computer-use@openai-bundled"]
+enabled = true
+
+[plugins."browser-use@openai-bundled"]
+enabled = true
+
+[marketplaces.openai-bundled]
+last_updated = "2026-04-24T05:31:20Z"
+source_type = "local"
+source = "/Users/jordan/.codex/.tmp/bundled-marketplaces/openai-bundled"
