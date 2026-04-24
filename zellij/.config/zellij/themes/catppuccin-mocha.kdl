@@ -1,0 +1,127 @@
+// Catppuccin Mocha theme — Jordan's variant
+//
+// Lives in $CONFIG_DIR/themes/ so zellij's theme-merge precedence applies:
+//   user config.kdl themes → OVERRIDDEN BY built-in themes → OVERRIDDEN BY $CONFIG_DIR/themes/*.kdl
+// This file overrides the built-in catppuccin-mocha (which uses green for
+// frame_selected and peach for frame_highlight — tints green through
+// Ghostty transparency over the forest wallpaper).
+//
+// Pane borders use two dim-gray shades (no green, no peach):
+//   frame_unselected.base = Surface0  #313244 (inactive panes)
+//   frame_selected.base   = Surface2  #585b70 (focused pane)
+//   frame_highlight.base  = Surface2  #585b70 (focused pane in non-base modes)
+
+themes {
+    catppuccin-mocha {
+        frame_unselected {
+            base 49 50 68
+            emphasis_0 243 139 168
+            emphasis_1 166 227 161
+            emphasis_2 249 226 175
+            emphasis_3 137 180 250
+        }
+        frame_selected {
+            base 88 91 112
+            emphasis_0 243 139 168
+            emphasis_1 166 227 161
+            emphasis_2 249 226 175
+            emphasis_3 137 180 250
+        }
+        frame_highlight {
+            base 88 91 112
+            emphasis_0 243 139 168
+            emphasis_1 166 227 161
+            emphasis_2 249 226 175
+            emphasis_3 137 180 250
+        }
+        text_unselected {
+            base 205 214 244
+            background 30 30 46
+            emphasis_0 243 139 168
+            emphasis_1 166 227 161
+            emphasis_2 249 226 175
+            emphasis_3 137 180 250
+        }
+        text_selected {
+            base 205 214 244
+            background 69 71 90
+            emphasis_0 243 139 168
+            emphasis_1 166 227 161
+            emphasis_2 249 226 175
+            emphasis_3 137 180 250
+        }
+        ribbon_unselected {
+            base 186 194 222
+            background 49 50 68
+            emphasis_0 243 139 168
+            emphasis_1 166 227 161
+            emphasis_2 249 226 175
+            emphasis_3 137 180 250
+        }
+        ribbon_selected {
+            base 30 30 46
+            background 250 179 135
+            emphasis_0 243 139 168
+            emphasis_1 166 227 161
+            emphasis_2 249 226 175
+            emphasis_3 137 180 250
+        }
+        table_cell_unselected {
+            base 205 214 244
+            background 30 30 46
+            emphasis_0 243 139 168
+            emphasis_1 166 227 161
+            emphasis_2 249 226 175
+            emphasis_3 137 180 250
+        }
+        table_cell_selected {
+            base 205 214 244
+            background 69 71 90
+            emphasis_0 243 139 168
+            emphasis_1 166 227 161
+            emphasis_2 249 226 175
+            emphasis_3 137 180 250
+        }
+        list_unselected {
+            base 205 214 244
+            emphasis_0 243 139 168
+            emphasis_1 166 227 161
+            emphasis_2 249 226 175
+            emphasis_3 137 180 250
+        }
+        list_selected {
+            base 205 214 244
+            background 69 71 90
+            emphasis_0 243 139 168
+            emphasis_1 166 227 161
+            emphasis_2 249 226 175
+            emphasis_3 137 180 250
+        }
+        exit_code_success {
+            base 166 227 161
+            emphasis_0 243 139 168
+            emphasis_1 166 227 161
+            emphasis_2 249 226 175
+            emphasis_3 137 180 250
+        }
+        exit_code_error {
+            base 243 139 168
+            emphasis_0 243 139 168
+            emphasis_1 166 227 161
+            emphasis_2 249 226 175
+            emphasis_3 137 180 250
+        }
+        multiplayer_user_colors {
+            player_1 250 179 135
+            player_2 203 166 247
+            player_3 137 220 235
+            player_4 166 227 161
+            player_5 245 194 231
+            player_6 249 226 175
+            player_7 242 205 205
+            player_8 148 226 213
+            player_9 116 199 236
+            player_10 180 190 254
+        }
+    }
+}

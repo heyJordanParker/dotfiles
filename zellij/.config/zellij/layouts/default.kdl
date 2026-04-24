@@ -1,0 +1,127 @@
+// Default layout — zjstatus bar matching tmux exactly
+//
+// tmux status-left (from tmux.conf lines 340-346):
+//   (on prefix)  red bg + dark fg + bold, "  SESSION "
+//   (normal)     transparent bg, green fg, "  SESSION "
+//   overlay0 "│"
+//   blue fg, "  PATH "
+//   overlay0 "│"
+//   maroon fg, "  COMMAND "
+//   (if zoomed) overlay0 "│", yellow "  zoom "
+//
+// tmux status-right:
+//   blue fg, " 󰭦 YYYY-MM-DD 󰅐 HH:MM "
+//
+// tmux tabs (center, absolute-centre):
+//   active:   peach bg, dark fg, bold, " INDEX: NAME "
+//   inactive: transparent bg, rosewater fg, " INDEX: NAME "
+//   separator: overlay0 "│"
+//
+// Catppuccin Mocha palette (as used in tmux):
+//   rosewater #f5e0dc | flamingo #f2cdcd | pink #f5c2e7 | mauve #cba6f7
+//   red #f38ba8      | maroon #eba0ac   | peach #fab387 | yellow #f9e2af
+//   green #a6e3a1    | teal #94e2d5    | sky #89dceb   | sapphire #74c7ec
+//   blue #89b4fa    | lavender #b4befe
+//   text #cdd6f4     | subtext1 #bac2de | subtext0 #a6adc8
+//   overlay2 #9399b2 | overlay1 #7f849c | overlay0 #6c7086
+//   surface2 #585b70 | surface1 #45475a | surface0 #313244
+//   base #1e1e2e    | mantle #181825   | crust #11111b
+
+layout {
+    default_tab_template {
+        // Top status bar — borderless so it blends with transparent background
+        pane size=1 borderless=true {
+            plugin location="zjstatus" {
+                // ========== Layout ==========
+                // Left:   mode indicator + session + cwd + command
+                // Center: tabs
+                // Right:  datetime
+                format_left   "{mode}#[fg=#a6e3a1,bold]  {session} #[fg=#6c7086]│#[fg=#89b4fa]  {pipe_cwd} #[fg=#6c7086]│#[fg=#eba0ac]  {pipe_cmd} {pipe_zoom}"
+                format_center "{tabs}"
+                format_right  "#[fg=#89b4fa] 󰭦 {datetime} "
+                format_space  ""
+
+                // Transparent-like background (Catppuccin Mocha base)
+                background "#1e1e2e"
+
+                // ========== Mode indicator ==========
+                // tmux doesn't show a mode indicator in normal state — leave blank.
+                // Prefix mode: red bg + dark text, matching tmux `client_prefix` highlight
+                // Other modes: yellow text to indicate we're in a special mode
+                mode_normal        ""
+                mode_locked        "#[fg=#f38ba8,bold] 󰌾 LOCKED #[fg=#6c7086]│"
+                mode_tmux          "#[bg=#f38ba8,fg=#1e1e2e,bold]   PREFIX #[bg=default,fg=#6c7086]│"
+                mode_scroll        "#[fg=#f9e2af,bold]  COPY #[fg=#6c7086]│"
+                mode_enter_search  "#[fg=#f9e2af,bold]  SEARCH #[fg=#6c7086]│"
+                mode_search        "#[fg=#f9e2af,bold]  SEARCH #[fg=#6c7086]│"
+                mode_rename_tab    "#[fg=#f9e2af,bold]  RENAME #[fg=#6c7086]│"
+                mode_rename_pane   "#[fg=#f9e2af,bold]  RENAME #[fg=#6c7086]│"
+                mode_resize        "#[fg=#f9e2af,bold]  RESIZE #[fg=#6c7086]│"
+                mode_move          "#[fg=#f9e2af,bold]  MOVE #[fg=#6c7086]│"
+                mode_pane          "#[fg=#f9e2af,bold]  PANE #[fg=#6c7086]│"
+                mode_tab           "#[fg=#f9e2af,bold]  TAB #[fg=#6c7086]│"
+                mode_session       "#[fg=#f9e2af,bold]  SESSION #[fg=#6c7086]│"
+
+                // ========== Tabs (match tmux window-status exactly) ==========
+                // Inactive: rosewater fg, transparent bg (tmux window-status-style)
+                // Active:   peach bg, dark fg, bold (tmux window-status-current-style)
+                // Fullscreen: tabs render identically to non-fullscreen; the
+                // zoom indicator lives in the left status segment alongside
+                // session/cwd/cmd (tmux parity — `#{?window_zoomed_flag,…}`).
+                // Separator: overlay0 │ (tmux window-status-separator)
+                // Shows `{index} {name}` — waiting daemon appends `*` to tab name
+                // Matches tmux ` #I#{?#{!=:#{window_name},Window},: #W,} ` behavior:
+                // default tabs show just number; renamed tabs show name too.
+                // tab-bar-jordan plugin normalizes {name}:
+                //   default "Tab #N" → ""     → displays as " 1 "
+                //   user-set "Dev"   → ": Dev" → displays as " 1: Dev "
+                //   attention pipe sets suffix → " 1: Dev ⏳ "
+                tab_normal              "#[fg=#f5e0dc] {index}{name} "
+                tab_normal_fullscreen   "#[fg=#f5e0dc] {index}{name} "
+                tab_normal_sync         "#[fg=#f5e0dc] {index}{name}  "
+                tab_active              "#[fg=#1e1e2e,bg=#fab387,bold] {index}{name} "
+                tab_active_fullscreen   "#[fg=#1e1e2e,bg=#fab387,bold] {index}{name} "
+                tab_active_sync         "#[fg=#1e1e2e,bg=#fab387,bold] {index}{name}  "
+                tab_separator           "#[fg=#6c7086]│"
+
+                // ========== Pipe widgets ==========
+                // CWD / CMD / ZOOM are pushed into zjstatus via
+                // `pipe_message_to_plugin` by the tab-bar-jordan Indicator
+                // plugin on every focus / cwd / title / fullscreen change.
+                // Pipe widgets update synchronously in zjstatus's pipe
+                // handler (src/pipe.rs:parse_protocol sets
+                // should_render=true), so fresh content lands in the very
+                // next render — no shell spawning, no env-var dependency,
+                // no async race between widget and render.
+                //
+                // Zoom uses `dynamic` rendermode because its payload carries
+                // embedded `#[fg=…]` codes that need re-parsing (matches
+                // tmux's `#{?window_zoomed_flag,…}` with independent yellow
+                // coloring). CWD/CMD ship plain text so `static` is fine —
+                // the outer format_left color wraps them (blue for cwd,
+                // maroon for cmd).
+                pipe_cwd_format     "{output}"
+                pipe_cwd_rendermode "static"
+
+                pipe_cmd_format     "{output}"
+                pipe_cmd_rendermode "static"
+
+                pipe_zoom_format     "{output}"
+                pipe_zoom_rendermode "dynamic"
+
+                // Per-tab waiting indicator: the `zellij-waiting-daemon`
+                // renames tabs to append `*` when any pane in them has a
+                // waiting marker. Visible via {name} in the tab format above.
+
+                // ========== Datetime (matches tmux status-right) ==========
+                datetime          "#[fg=#89b4fa]{format}"
+                datetime_format   "%Y-%m-%d 󰅐 %H:%M"
+                datetime_timezone "Europe/Sofia"
+            }
+        }
+        children
+    }
+
+    // Explicit first tab — ensures tab bar renders on startup
+    tab focus=true
+}

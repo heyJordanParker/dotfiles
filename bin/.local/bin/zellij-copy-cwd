@@ -1,0 +1,9 @@
+#!/bin/bash
+# Copy focused pane's CWD to clipboard (mirrors tmux Alt+Shift+C)
+# Reads from zsh-written state file, falls back to $HOME
+CWD=""
+if [ -n "$ZELLIJ_SESSION_NAME" ] && [ -f "/tmp/zellij-pwd-${ZELLIJ_SESSION_NAME}" ]; then
+    CWD=$(cat "/tmp/zellij-pwd-${ZELLIJ_SESSION_NAME}")
+fi
+[ -z "$CWD" ] && CWD="$HOME"
+printf "%s" "$CWD" | pbcopy

@@ -4,13 +4,9 @@ export HOMEBREW_NO_ENV_HINTS=1
 # Prefer Homebrew Ruby over system Ruby (more modern)
 export PATH="/opt/homebrew/opt/ruby/bin:$PATH"
 
-# Initialize zoxide for all shell types
-eval "$(zoxide init --cmd cd zsh)"
-
-# Suppress zoxide noise in Claude Code sessions
-if [[ -n "$CLAUDE_CODE_ENTRYPOINT" ]]; then
-    cd() { __zoxide_z "$@" 2>/dev/null; }
-fi
+# zoxide init lives in .zshrc (not here) because .zprofile is sourced only for
+# LOGIN shells; zellij spawns non-login interactive shells, so .zshrc is the
+# right place for interactive-command setup like zoxide's `cd` override.
 
 # Start persistent nvim server if not running (async)
 (

@@ -1,0 +1,16 @@
+[package]
+name = "tab-bar-jordan"
+version = "0.1.0"
+edition = "2021"
+description = "Custom zellij tab bar — name normalization, waiting/completed icons via pipe signals, and interactive rename modal. Background (Indicator) mode is invisible; RenameTab mode is an on-demand floating input pane."
+license = "MIT"
+
+[dependencies]
+zellij-tile = "0.44.1"
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

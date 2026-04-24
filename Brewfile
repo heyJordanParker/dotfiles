@@ -33,6 +33,7 @@ brew "oven-sh/bun/bun"
 brew "hcloud"
 brew "opencode"
 brew "rust"
+brew "rustup"                   # needed for wasm32-wasip1 target (zellij plugin build)
 brew "git-delta"
 brew "ast-grep"
 brew "lazygit"

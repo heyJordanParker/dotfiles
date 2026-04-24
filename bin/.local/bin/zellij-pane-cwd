@@ -1,0 +1,4 @@
+#!/bin/bash
+# Read CWD from temp file written by zsh precmd hook
+# Avoids zellij action deadlock when called from zjstatus
+cat "/tmp/zellij-cwd-${ZELLIJ_SESSION_NAME}" 2>/dev/null || echo "~"

@@ -1,0 +1,76 @@
+#!/bin/bash
+# zellij-toggle-term — persistent, toggle-able, reference-able floating pane manager
+# Mirrors the tmux-toggle-term script but for zellij floating panes.
+#
+# Args:
+#   $1 PANE_NAME    — unique pane identifier (used as title)
+#   $2 COMMAND      — command to run (defaults to zsh)
+#   $3 RESET_MODE   — 0=persistent, 1=reset on dir change, 2=always reset
+#
+# Behavior:
+#   - Creates a floating pane if none exists with that name
+#   - Mode 0: toggle visibility (show/hide), keep process state
+#   - Mode 1: if CWD differs from saved CWD, kill & recreate; else toggle
+#   - Mode 2: always kill & recreate a fresh pane
+
+PANE_NAME="$1"
+COMMAND="${2:-zsh}"
+RESET_MODE="${3:-0}"
+
+# Read the caller's CWD (written by zsh precmd hook)
+CALLER_CWD=""
+if [ -n "$ZELLIJ_SESSION_NAME" ] && [ -f "/tmp/zellij-pwd-${ZELLIJ_SESSION_NAME}" ]; then
+    CALLER_CWD=$(cat "/tmp/zellij-pwd-${ZELLIJ_SESSION_NAME}")
+fi
+[ -z "$CALLER_CWD" ] && CALLER_CWD="$HOME"
+
+# Per-pane CWD tracking for mode 1 (reset on dir change)
+CWD_STATE_FILE="/tmp/zellij-popup-cwd-${PANE_NAME}"
+
+# Find existing pane by title
+PANE_JSON=$(zellij action list-panes --json 2>/dev/null)
+PANE_INFO=$(echo "$PANE_JSON" | jq -r ".[] | select(.title == \"$PANE_NAME\" and .is_floating == true)" 2>/dev/null | head -1)
+PANE_ID=$(echo "$PANE_INFO" | jq -r '.id // empty' 2>/dev/null | head -1)
+
+# Mode 1: Reset if CWD changed since popup was created
+if [ "$RESET_MODE" -eq 1 ] && [ -n "$PANE_ID" ]; then
+    SAVED_CWD=""
+    [ -f "$CWD_STATE_FILE" ] && SAVED_CWD=$(cat "$CWD_STATE_FILE")
+    if [ "$SAVED_CWD" != "$CALLER_CWD" ]; then
+        zellij action close-pane --pane-id "terminal_$PANE_ID" 2>/dev/null
+        PANE_ID=""
+    fi
+fi
+
+# Mode 2: Always reset
+if [ "$RESET_MODE" -eq 2 ] && [ -n "$PANE_ID" ]; then
+    zellij action close-pane --pane-id "terminal_$PANE_ID" 2>/dev/null
+    PANE_ID=""
+fi
+
+if [ -n "$PANE_ID" ]; then
+    # Pane exists — toggle visibility or focus it
+    FLOATING_VISIBLE=$(zellij action are-floating-panes-visible 2>/dev/null && echo "yes" || echo "no")
+    IS_FOCUSED=$(echo "$PANE_INFO" | jq -r '.is_focused // false' 2>/dev/null | head -1)
+
+    if [ "$FLOATING_VISIBLE" = "yes" ] && [ "$IS_FOCUSED" = "true" ]; then
+        # Already visible and focused → hide
+        zellij action hide-floating-panes
+    elif [ "$FLOATING_VISIBLE" = "yes" ]; then
+        # Visible but focused on different pane → focus this one
+        zellij action focus-pane-id "terminal_$PANE_ID" 2>/dev/null
+    else
+        # Hidden → show and focus
+        zellij action show-floating-panes 2>/dev/null
+        zellij action focus-pane-id "terminal_$PANE_ID" 2>/dev/null
+    fi
+else
+    # No pane exists → create new floating pane at caller's CWD
+    echo -n "$CALLER_CWD" > "$CWD_STATE_FILE"
+    zellij action new-pane \
+        --floating \
+        --name "$PANE_NAME" \
+        --cwd "$CALLER_CWD" \
+        --x 10% --y 10% --width 80% --height 80% \
+        -- $COMMAND 2>/dev/null
+fi

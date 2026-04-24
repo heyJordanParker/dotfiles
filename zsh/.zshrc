@@ -49,6 +49,13 @@ eval "$(starship init zsh)"
 # FZF
 eval "$(fzf --zsh)"
 
+# Zoxide (smart cd) — overrides `cd` with directory-frecency jumping.
+# Lives in .zshrc (not .zprofile) because zellij spawns non-login shells.
+eval "$(zoxide init --cmd cd zsh)"
+if [[ -n "$CLAUDE_CODE_ENTRYPOINT" ]]; then
+    cd() { __zoxide_z "$@" 2>/dev/null; }
+fi
+
 # Atuin (history)
 eval "$(atuin init zsh --disable-up-arrow)"
 _zsh_autosuggest_strategy_atuin() {
@@ -109,9 +116,13 @@ v() {
         fi
     fi
 
-    # 3. Open the Popup (Executes the dumb script)
-    tmux display-popup -d '#{pane_current_path}' -xC -yC -w 80% -h 80% \
-        -E "$HOME/.local/bin/tmux-nvim"
+    # 3. Open the Popup
+    if [ -n "$ZELLIJ" ]; then
+        "$HOME/.local/bin/zellij-toggle-term" nvim-scratch "$HOME/.local/bin/tmux-nvim" 0
+    elif [ -n "$TMUX" ]; then
+        tmux display-popup -d '#{pane_current_path}' -xC -yC -w 80% -h 80% \
+            -E "$HOME/.local/bin/tmux-nvim"
+    fi
 }
 
 # Load local secrets last
@@ -120,15 +131,24 @@ v() {
 # Completions (bun, npm, etc.)
 source ~/.zsh_completions.zsh
 
-# Tmux Waiting Indicator Hooks
+# Waiting Indicator Hooks
 precmd() {
   if [ -n "$TMUX" ]; then
-    # Check if window is active (1 = active, 0 = inactive)
-    # Explicitly target the current pane to be safe
     is_active=$(tmux display-message -t "$TMUX_PANE" -p '#{window_active}' 2>/dev/null)
     if [ "$is_active" = "0" ]; then
        touch "/tmp/zsh-waiting-${TMUX_PANE}"
     fi
+  fi
+  if [ -n "$ZELLIJ" ]; then
+    # Drive the status bar directly via pipe messages to tab-bar-jordan.
+    # This is faster than zellij's internal CwdChanged polling (~1s
+    # interval), so `cd` reflects in the top bar in one prompt-tick.
+    # - cwd: publish $PWD so the plugin's formatter shows basename / ~.
+    # - cmd: reset to "zsh" now that the prompt is back.
+    # - completed: clear any attention indicator set while busy.
+    zellij pipe --name "tab-bar-jordan::cwd::$ZELLIJ_PANE_ID" --payload "$PWD" >/dev/null 2>&1
+    zellij pipe --name "tab-bar-jordan::cmd::$ZELLIJ_PANE_ID" --payload "zsh" >/dev/null 2>&1
+    zellij pipe --name "tab-bar-jordan::completed::$ZELLIJ_PANE_ID" >/dev/null 2>&1
   fi
 }
 
@@ -136,6 +156,24 @@ preexec() {
   if [ -n "$TMUX" ]; then
     /bin/rm -f "/tmp/zsh-waiting-${TMUX_PANE}"
   fi
+  if [ -n "$ZELLIJ" ]; then
+    # $1 is the command line as typed. Pipe its first token as the
+    # active command (matches tmux's `pane_current_command`).
+    local cmd_name="${1%% *}"
+    [ -n "$cmd_name" ] && zellij pipe --name "tab-bar-jordan::cmd::$ZELLIJ_PANE_ID" --payload "$cmd_name" >/dev/null 2>&1
+  fi
 }
+
+# Zellij: Claude session auto-resume after resurrection
+__zellij_claude_resume() {
+    add-zsh-hook -d precmd __zellij_claude_resume
+    [ -z "$ZELLIJ" ] && return
+    local mf="$HOME/.claude/zellij-sessions/${ZELLIJ_SESSION_NAME}--${ZELLIJ_PANE_ID}"
+    [ ! -f "$mf" ] && return
+    local sid=$(cat "$mf"); rm -f "$mf"
+    [ -z "$sid" ] && return
+    (sleep 0.5 && zellij action paste --pane-id "$ZELLIJ_PANE_ID" "cld --resume '$sid'" && zellij action send-keys --pane-id "$ZELLIJ_PANE_ID" "Enter") &!
+}
+add-zsh-hook precmd __zellij_claude_resume
 
 alias claude-mem='bun "/Users/jordan/.claude/plugins/marketplaces/thedotmack/plugin/scripts/worker-service.cjs"'

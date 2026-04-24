@@ -1,0 +1,21 @@
+// Canonical plugin permissions file — copied into
+// ~/Library/Caches/org.Zellij-Contributors.Zellij/permissions.kdl by setup.sh
+// on fresh machines. Pre-grants permissions so plugins render without the
+// user being prompted.
+
+"https://github.com/dj95/zjstatus/releases/download/v0.22.0/zjstatus.wasm" {
+    ReadApplicationState
+    ChangeApplicationState
+    RunCommands
+}
+"https://github.com/fresh2dev/zellij-autolock/releases/download/0.2.2/zellij-autolock.wasm" {
+    ReadApplicationState
+    ChangeApplicationState
+}
+"file:~/.config/zellij/plugins/tab-bar-jordan.wasm" {
+    ReadApplicationState
+    ChangeApplicationState
+    ReadCliPipes
+    RunCommands
+    MessageAndLaunchOtherPlugins
+}

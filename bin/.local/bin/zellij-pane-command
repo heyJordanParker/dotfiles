@@ -1,0 +1,4 @@
+#!/bin/bash
+# Read command from temp file written by zsh preexec hook
+# Avoids zellij action deadlock when called from zjstatus
+cat "/tmp/zellij-cmd-${ZELLIJ_SESSION_NAME}" 2>/dev/null || echo "zsh"
