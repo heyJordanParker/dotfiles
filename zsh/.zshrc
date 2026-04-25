@@ -140,15 +140,15 @@ precmd() {
     fi
   fi
   if [ -n "$ZELLIJ" ]; then
-    # Drive the status bar directly via pipe messages to tab-bar-jordan.
+    # Drive the status bar directly via pipe messages to muxline.
     # This is faster than zellij's internal CwdChanged polling (~1s
     # interval), so `cd` reflects in the top bar in one prompt-tick.
     # - cwd: publish $PWD so the plugin's formatter shows basename / ~.
     # - cmd: reset to "zsh" now that the prompt is back.
     # - completed: clear any attention indicator set while busy.
-    zellij pipe --name "tab-bar-jordan::cwd::$ZELLIJ_PANE_ID" --payload "$PWD" >/dev/null 2>&1
-    zellij pipe --name "tab-bar-jordan::cmd::$ZELLIJ_PANE_ID" --payload "zsh" >/dev/null 2>&1
-    zellij pipe --name "tab-bar-jordan::completed::$ZELLIJ_PANE_ID" >/dev/null 2>&1
+    zellij pipe --name "muxline::cwd::$ZELLIJ_PANE_ID" --payload "$PWD" >/dev/null 2>&1
+    zellij pipe --name "muxline::cmd::$ZELLIJ_PANE_ID" --payload "zsh" >/dev/null 2>&1
+    zellij pipe --name "muxline::completed::$ZELLIJ_PANE_ID" >/dev/null 2>&1
   fi
 }
 
@@ -160,7 +160,7 @@ preexec() {
     # $1 is the command line as typed. Pipe its first token as the
     # active command (matches tmux's `pane_current_command`).
     local cmd_name="${1%% *}"
-    [ -n "$cmd_name" ] && zellij pipe --name "tab-bar-jordan::cmd::$ZELLIJ_PANE_ID" --payload "$cmd_name" >/dev/null 2>&1
+    [ -n "$cmd_name" ] && zellij pipe --name "muxline::cmd::$ZELLIJ_PANE_ID" --payload "$cmd_name" >/dev/null 2>&1
   fi
 }
 

@@ -1,5 +1,5 @@
 [package]
-name = "tab-bar-jordan"
+name = "muxline"
 version = "0.1.0"
 edition = "2021"
 description = "Custom zellij tab bar — name normalization, waiting/completed icons via pipe signals, and interactive rename modal. Background (Indicator) mode is invisible; RenameTab mode is an on-demand floating input pane."

@@ -76,16 +76,16 @@ ZELLIJ_CACHE="$HOME/Library/Caches/org.Zellij-Contributors.Zellij"
 mkdir -p "$ZELLIJ_CACHE"
 cp "$DOTFILES_DIR/zellij/.config/zellij/permissions.kdl" "$ZELLIJ_CACHE/permissions.kdl"
 
-# Build and install custom tab-bar-jordan zellij plugin
-echo "==> Building tab-bar-jordan zellij plugin..."
+# Build and install custom muxline zellij plugin
+echo "==> Building muxline zellij plugin..."
 export PATH="/opt/homebrew/opt/rustup/bin:$HOME/.cargo/bin:$PATH"
 if [ ! -x "$HOME/.cargo/bin/rustup" ]; then
     rustup-init -y --no-modify-path --default-toolchain stable >/dev/null 2>&1
 fi
 rustup target add wasm32-wasip1 >/dev/null 2>&1
 mkdir -p "$HOME/.config/zellij/plugins"
-(cd "$DOTFILES_DIR/zellij/plugins/tab-bar-jordan" && cargo build --target wasm32-wasip1 --release >/dev/null)
-cp "$DOTFILES_DIR/zellij/plugins/tab-bar-jordan/target/wasm32-wasip1/release/tab-bar-jordan.wasm" "$HOME/.config/zellij/plugins/"
+(cd "$DOTFILES_DIR/zellij/plugins/muxline" && cargo build --target wasm32-wasip1 --release >/dev/null)
+cp "$DOTFILES_DIR/zellij/plugins/muxline/target/wasm32-wasip1/release/muxline.wasm" "$HOME/.config/zellij/plugins/"
 
 # Build bat theme cache
 bat cache --build 2>/dev/null || true

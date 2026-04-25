@@ -1,11 +1,11 @@
-//! tab-bar-jordan — zellij plugin for custom tab-bar behavior.
+//! muxline — zellij plugin for custom tab-bar behavior.
 //!
 //! The same binary runs in two modes, selected by the `mode` key in plugin
 //! configuration:
 //!
 //! ### Indicator mode (default, invisible background plugin)
 //!
-//! Loaded once at session start via `load_plugins { tab-bar-jordan }`.
+//! Loaded once at session start via `load_plugins { muxline }`.
 //! Responsibilities:
 //!
 //! 1. **Tab name normalization** — make zjstatus tab display match tmux exactly:
@@ -13,7 +13,7 @@
 //!    - User-set name "Dev" → `: Dev`, so `{index}{name}` shows `"1: Dev"`.
 //!
 //! 2. **Attention indicators** (replacement for shell-daemon polling):
-//!    - Listens for `zellij pipe --name "tab-bar-jordan::waiting::$ZELLIJ_PANE_ID"` (or `completed::`).
+//!    - Listens for `zellij pipe --name "muxline::waiting::$ZELLIJ_PANE_ID"` (or `completed::`).
 //!    - Appends ⏳ or ✅ to the tab name containing that pane.
 //!    - Auto-clears on focus — switching to the tab removes the icon.
 //!    - Tab-level aggregation: any pane in the tab with a notification → tab shows the icon.
@@ -23,7 +23,7 @@
 //! Launched via keybinding:
 //!
 //!     bind "r" {
-//!         LaunchOrFocusPlugin "tab-bar-jordan" {
+//!         LaunchOrFocusPlugin "muxline" {
 //!             floating true
 //!             move_to_focused_tab true
 //!             skip_plugin_cache true
@@ -258,12 +258,12 @@ struct ActivePaneState {
     /// Last-written CWD (already formatted for display). Drives `.cwd`.
     cwd_display: Option<String>,
     /// pane_id → cwd string. Populated by two sources:
-    ///   1. `tab-bar-jordan::cwd::<pid>` pipe messages from zsh precmd
+    ///   1. `muxline::cwd::<pid>` pipe messages from zsh precmd
     ///      (near-instant, updates on every prompt / `cd`).
     ///   2. `Event::CwdChanged` as a slower fallback for non-zsh panes.
     cwds: HashMap<u32, String>,
     /// pane_id → foreground command name. Populated by
-    /// `tab-bar-jordan::cmd::<pid>` pipe messages from zsh preexec/precmd —
+    /// `muxline::cmd::<pid>` pipe messages from zsh preexec/precmd —
     /// tmux-style `pane_current_command` equivalent without requiring a
     /// `get_pane_running_command` shim call (which blocks the plugin worker
     /// and was the root cause of the original pane-open cascade). Falls
@@ -512,7 +512,7 @@ impl State {
         let payload = format!("zjstatus::pipe::{}::{}", pipe_name, content);
         for &zj_id in &self.active.zjstatus_plugin_ids {
             pipe_message_to_plugin(
-                MessageToPlugin::new("tab-bar-jordan-update")
+                MessageToPlugin::new("muxline-update")
                     .with_destination_plugin_id(zj_id)
                     .with_payload(payload.clone()),
             );
@@ -801,7 +801,7 @@ impl ZellijPlugin for State {
         };
         subscribe(&events);
         eprintln!(
-            "tab-bar-jordan: v{} loaded (mode={:?})",
+            "muxline: v{} loaded (mode={:?})",
             env!("CARGO_PKG_VERSION"),
             self.mode
         );
@@ -852,7 +852,7 @@ impl ZellijPlugin for State {
                     }
                 } else {
                     eprintln!(
-                        "tab-bar-jordan: reload_config cat failed (exit={:?})",
+                        "muxline: reload_config cat failed (exit={:?})",
                         exit
                     );
                 }
@@ -1020,10 +1020,10 @@ impl ZellijPlugin for State {
         if self.mode != Mode::Indicator {
             return false;
         }
-        let message = if pipe_message.name.starts_with("tab-bar-jordan::") {
+        let message = if pipe_message.name.starts_with("muxline::") {
             pipe_message.name.clone()
         } else if let Some(ref payload) = pipe_message.payload {
-            if payload.starts_with("tab-bar-jordan::") {
+            if payload.starts_with("muxline::") {
                 payload.clone()
             } else {
                 return false;
@@ -1035,7 +1035,7 @@ impl ZellijPlugin for State {
         let parts: Vec<&str> = message.split("::").collect();
         if parts.len() < 3 {
             eprintln!(
-                "tab-bar-jordan: Invalid message format (expect tab-bar-jordan::EVENT::PANE_ID): {}",
+                "muxline: Invalid message format (expect muxline::EVENT::PANE_ID): {}",
                 message
             );
             unblock_cli_pipe_input(&pipe_message.name);
@@ -1046,7 +1046,7 @@ impl ZellijPlugin for State {
         let pane_id: u32 = match parts[2].parse() {
             Ok(n) => n,
             Err(_) => {
-                eprintln!("tab-bar-jordan: Invalid pane_id '{}'", parts[2]);
+                eprintln!("muxline: Invalid pane_id '{}'", parts[2]);
                 unblock_cli_pipe_input(&pipe_message.name);
                 return false;
             },
@@ -1069,7 +1069,7 @@ impl ZellijPlugin for State {
                 self.notification_state.insert(pane_id, ns);
                 self.reconcile_tab_names();
             },
-            // Zsh precmd → `zellij pipe --name tab-bar-jordan::cwd::<pid> --payload $PWD`.
+            // Zsh precmd → `zellij pipe --name muxline::cwd::<pid> --payload $PWD`.
             // Fires at every prompt so `cd` reflects in the status bar in
             // one prompt-tick (no dependency on zellij's CwdChanged polling
             // which has a ~1s interval).
@@ -1081,7 +1081,7 @@ impl ZellijPlugin for State {
                     }
                 }
             },
-            // Zsh preexec → `zellij pipe --name tab-bar-jordan::cmd::<pid> --payload <cmd>`
+            // Zsh preexec → `zellij pipe --name muxline::cmd::<pid> --payload <cmd>`
             // with the first token of the command being run. Zsh precmd
             // emits `zsh` again to reset at the next prompt. Matches
             // tmux's `pane_current_command` behavior.
@@ -1099,7 +1099,7 @@ impl ZellijPlugin for State {
                 }
             },
             other => {
-                eprintln!("tab-bar-jordan: Unknown event type '{}'", other);
+                eprintln!("muxline: Unknown event type '{}'", other);
             },
         }
         false

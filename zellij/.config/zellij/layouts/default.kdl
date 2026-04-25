@@ -72,7 +72,7 @@ layout {
                 // Shows `{index} {name}` — waiting daemon appends `*` to tab name
                 // Matches tmux ` #I#{?#{!=:#{window_name},Window},: #W,} ` behavior:
                 // default tabs show just number; renamed tabs show name too.
-                // tab-bar-jordan plugin normalizes {name}:
+                // muxline plugin normalizes {name}:
                 //   default "Tab #N" → ""     → displays as " 1 "
                 //   user-set "Dev"   → ": Dev" → displays as " 1: Dev "
                 //   attention pipe sets suffix → " 1: Dev ⏳ "
@@ -86,7 +86,7 @@ layout {
 
                 // ========== Pipe widgets ==========
                 // CWD / CMD / ZOOM are pushed into zjstatus via
-                // `pipe_message_to_plugin` by the tab-bar-jordan Indicator
+                // `pipe_message_to_plugin` by the muxline Indicator
                 // plugin on every focus / cwd / title / fullscreen change.
                 // Pipe widgets update synchronously in zjstatus's pipe
                 // handler (src/pipe.rs:parse_protocol sets

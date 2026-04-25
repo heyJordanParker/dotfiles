@@ -37,14 +37,14 @@ plugins {
     }
     session-manager location="zellij:session-manager"
     // Invisible plugin: normalizes tab names + manages attention indicators
-    // via `zellij pipe --name "tab-bar-jordan::waiting::$ZELLIJ_PANE_ID"`.
-    // Built by setup.sh from dotfiles/zellij/plugins/tab-bar-jordan/.
-    tab-bar-jordan location="file:~/.config/zellij/plugins/tab-bar-jordan.wasm"
+    // via `zellij pipe --name "muxline::waiting::$ZELLIJ_PANE_ID"`.
+    // Built by setup.sh from dotfiles/zellij/plugins/muxline/.
+    muxline location="file:~/.config/zellij/plugins/muxline.wasm"
 }
 
 load_plugins {
     autolock
-    tab-bar-jordan
+    muxline
 }
 
 theme "catppuccin-mocha"
@@ -261,12 +261,12 @@ keybinds clear-defaults=true {
 
         // ========== Rename (tmux lines 151-152) ==========
         // Terminology: tmux "window" = zellij "tab"; tmux "session" = zellij "session"
-        // tmux prefix+r rename-window → our own tab-bar-jordan plugin launched
+        // tmux prefix+r rename-window → our own muxline plugin launched
         // in RenameTab mode: purpose-built input modal, no external shell.
         // The plugin pre-populates the input with the current tab's stripped
         // name, renames via `rename_tab_with_id` on Enter, and closes itself.
         bind "r" {
-            LaunchOrFocusPlugin "tab-bar-jordan" {
+            LaunchOrFocusPlugin "muxline" {
                 floating true
                 move_to_focused_tab true
                 skip_plugin_cache true
@@ -274,12 +274,12 @@ keybinds clear-defaults=true {
             }
             SwitchToMode "Normal";
         }
-        // prefix+R rename-session — same tab-bar-jordan plugin, launched in
+        // prefix+R rename-session — same muxline plugin, launched in
         // RenameSession mode. Captures the current session name from
         // SessionUpdate, pre-populates the input, and renames via
         // `rename_session` on Enter (mirrors the prefix+r tab rename flow).
         bind "R" {
-            LaunchOrFocusPlugin "tab-bar-jordan" {
+            LaunchOrFocusPlugin "muxline" {
                 floating true
                 move_to_focused_tab true
                 skip_plugin_cache true
@@ -334,12 +334,12 @@ keybinds clear-defaults=true {
 
         // ========== Reload config (tmux line 156) ==========
         // Zellij has no built-in keybind action for reloading config from
-        // disk — only a plugin-level `reconfigure` shim. Launch tab-bar-jordan
+        // disk — only a plugin-level `reconfigure` shim. Launch muxline
         // in reload_config mode: it shells out to `cat ~/.config/zellij/config.kdl`,
         // feeds the content to `reconfigure`, then calls `close_self`.
         // Launched floating + 1×1 so the plugin's brief lifetime is invisible.
         bind "C" {
-            LaunchPlugin "tab-bar-jordan" {
+            LaunchPlugin "muxline" {
                 floating true
                 skip_plugin_cache true
                 mode "reload_config"

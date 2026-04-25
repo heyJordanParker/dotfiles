@@ -12,7 +12,7 @@
     ReadApplicationState
     ChangeApplicationState
 }
-"file:~/.config/zellij/plugins/tab-bar-jordan.wasm" {
+"file:~/.config/zellij/plugins/muxline.wasm" {
     ReadApplicationState
     ChangeApplicationState
     ReadCliPipes
