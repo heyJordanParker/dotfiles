@@ -544,6 +544,27 @@ Best fix for icons: adjust the whitespace in the SVG itself so no extra CSS is n
 
 **Use rem for accessibility.** Users can adjust browser font size — rem respects this, px doesn't.
 
+#### Transitions
+
+State changes need motion. Without it, the user sees the *result* but misses the *change* — they don't track what moved, what appeared, what was theirs and what was the system's. Transitions communicate causality. A modal that pops into existence reads as broken. A dropdown that snaps closed instead of closing feels cheap. A counter that jumps from `12.34` to `15.67` looks like a bug.
+
+Three classes, each with a different mandate:
+
+- **Reactive** — element responds to user input (hover, press, focus). 100–200ms, interruptible (CSS transitions, never keyframes).
+- **State change** — element opens / closes / swaps / reveals. 200–400ms, scales with element size, asymmetric open/close. Open scales up from a pre-scale; close scales outward and fades. Mirroring enter/exit feels mechanical.
+- **Navigational** — view changes (route, page). View Transitions API; never JS-driven libraries.
+
+Transitions are mandatory for state changes. Skipping is a *design decision* (`prefers-reduced-motion`, high-frequency interactions seen 100+ times daily) — never the default and never the lazy answer.
+
+Two anti-defaults to watch for, both common agent reaches:
+
+- **JavaScript animation libraries** (Framer Motion `<motion.span key={value}>` for text swaps, `react-spring` counters, `useResizeObserver` + RAF for resize). Modern CSS handles all three with class toggles + intrinsic property transitions. Only reach for JS when the motion is genuinely physics-driven (drag, gestures with release velocity).
+- **`transform: scale()` for resize**. Distorts content. Animate intrinsic `width` / `height`.
+
+For timing tables, easing curves, interruptibility rules, micro-interactions, and the View Transitions API: see [motion.md](references/motion.md).
+
+For state-change recipes (reveals, content swaps, in-component page transitions, animated counters, origin-anchored menus): see [transitions.md](references/transitions.md).
+
 #### CSS File Structure
 
 ```
@@ -663,5 +684,6 @@ Run through after all design work. Every item is yes/no. Do not skip.
 ## References
 
 - [motion.md](references/motion.md) - Timing, easing, states, transitions, micro-interactions
+- [transitions.md](references/transitions.md) - State-change recipes: reveals, swaps, in-component page transitions, asymmetric open/close
 - [interactable.md](references/interactable.md) - Forms, navigation, feedback, accessibility, modals
 - [bold.md](references/bold.md) - Bold design mode

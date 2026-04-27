@@ -126,6 +126,8 @@ Users change intent mid-interaction (open a dropdown, then immediately want to d
 }
 ```
 
+These are primitives. For state-change recipes built on them (notification badges, panel reveals, dropdowns, modals, text content swaps, in-component page swaps, animated digit reveals), see [transitions.md](transitions.md).
+
 ## View Transitions
 
 Use the View Transitions API for visual state changes between views or significant UI updates. Universal browser support since 2025. Never use JavaScript-driven or CSS-class-based page transition patterns.
