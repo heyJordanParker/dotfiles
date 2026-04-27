@@ -1,0 +1,84 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+node - "$@" <<'NODE'
+const fs = require('fs')
+const os = require('os')
+const path = require('path')
+const cp = require('child_process')
+
+const home = process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude')
+const shapingRoot = path.join(home, 'shaping')
+const SHAPING_RE = new RegExp(`${shapingRoot.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/([^/"\\s]+)`)
+
+function readJson(file) {
+  try { return JSON.parse(fs.readFileSync(file, 'utf8')) } catch { return null }
+}
+
+function sessionForAncestor() {
+  let pid = process.ppid
+  for (let i = 0; i < 20 && pid > 1; i++) {
+    const session = readJson(path.join(home, 'sessions', `${pid}.json`))
+    if (session?.sessionId) return session
+    pid = Number(cp.execFileSync('ps', ['-o', 'ppid=', '-p', String(pid)], { encoding: 'utf8' }).trim())
+  }
+  return null
+}
+
+function sanitize(value) {
+  return value.replace(/[^a-zA-Z0-9]/g, '-')
+}
+
+function findTranscript(session) {
+  const direct = path.join(home, 'projects', sanitize(session.cwd), `${session.sessionId}.jsonl`)
+  if (fs.existsSync(direct)) return direct
+
+  const stack = [path.join(home, 'projects')]
+  while (stack.length) {
+    const dir = stack.pop()
+    for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
+      const p = path.join(dir, ent.name)
+      if (ent.isDirectory()) stack.push(p)
+      if (ent.isFile() && ent.name === `${session.sessionId}.jsonl`) return p
+    }
+  }
+
+  return null
+}
+
+function scanBack(file, pick) {
+  const lines = fs.readFileSync(file, 'utf8').trimEnd().split('\n')
+  for (let i = lines.length - 1; i >= 0; i--) {
+    try {
+      const value = pick(JSON.parse(lines[i]))
+      if (value) return value
+    } catch {}
+  }
+  return null
+}
+
+function shapingDirFromToolUse(message) {
+  const content = message?.message?.content
+  if (!Array.isArray(content)) return null
+  for (const block of content) {
+    if (block?.type !== 'tool_use') continue
+    const match = JSON.stringify(block.input ?? {}).match(SHAPING_RE)
+    if (match) return path.join(shapingRoot, match[1])
+  }
+  return null
+}
+
+const session = sessionForAncestor()
+const transcript = session ? findTranscript(session) : null
+const dir = transcript ? scanBack(transcript, shapingDirFromToolUse) : null
+
+if (!dir) {
+  console.log('No shaping directory referenced in this session yet')
+  process.exit(0)
+}
+
+if (process.argv.includes('--copy')) {
+  cp.spawnSync('pbcopy', { input: dir })
+}
+console.log(dir)
+NODE

@@ -1,0 +1,14 @@
+{
+  "$schema": "https://www.schemastore.org/claude-code-keybindings.json",
+  "$docs": "https://code.claude.com/docs/en/keybindings",
+  "bindings": [
+    {
+      "context": "Chat",
+      "bindings": {
+        "ctrl+x p": "command:copy-plan-path",
+        "ctrl+x s": "command:copy-shaping-dir",
+        "ctrl+x t": "command:copy-transcript-path"
+      }
+    }
+  ]
+}

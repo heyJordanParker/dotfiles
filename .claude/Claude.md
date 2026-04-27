@@ -1,5 +1,5 @@
 # Dotfiles
-v1.3 | Updated: 2026-03-12
+v1.4 | Updated: 2026-04-26
 
 ## Why
 
@@ -43,6 +43,7 @@ dotfiles/
 │   ├── commands/               #   plugin: auto-discovered
 │   ├── hooks/                  #   plugin: hooks.json wiring
 │   ├── settings.json           #   LOCAL ONLY — not distributed
+│   ├── keybindings.json        #   LOCAL ONLY — per-user shortcuts
 │   └── Claude.md               #   LOCAL ONLY — not distributed
 ├── codex/                      # OpenAI Codex
 ├── delta/                      # git diff pager
@@ -137,6 +138,7 @@ When adding/changing a non-tmux hook, update both files.
 
 ## Ledger
 
+- v1.4: Added keybindings.json as LOCAL ONLY — per-user shortcuts wire `command:*` to skills (e.g. copy-plan-path, copy-shaping-dir)
 - v1.3: Added agents/ to architecture tree and plugin exclusion list -- agents are local-only, not distributed
 - v1.2: Adopted Why/What/How template with Requirements/Boundaries/Ledger
 - v1.1: Added plugin marketplace with `strict: false` manifest

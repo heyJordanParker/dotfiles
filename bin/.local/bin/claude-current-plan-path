@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+node - "$@" <<'NODE'
+const fs = require('fs')
+const os = require('os')
+const path = require('path')
+const cp = require('child_process')
+
+const home = process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude')
+
+function readJson(file) {
+  try { return JSON.parse(fs.readFileSync(file, 'utf8')) } catch { return null }
+}
+
+function sessionForAncestor() {
+  let pid = process.ppid
+  for (let i = 0; i < 20 && pid > 1; i++) {
+    const session = readJson(path.join(home, 'sessions', `${pid}.json`))
+    if (session?.sessionId) return session
+    pid = Number(cp.execFileSync('ps', ['-o', 'ppid=', '-p', String(pid)], { encoding: 'utf8' }).trim())
+  }
+  return null
+}
+
+function sanitize(value) {
+  return value.replace(/[^a-zA-Z0-9]/g, '-')
+}
+
+function findTranscript(session) {
+  const direct = path.join(home, 'projects', sanitize(session.cwd), `${session.sessionId}.jsonl`)
+  if (fs.existsSync(direct)) return direct
+
+  const stack = [path.join(home, 'projects')]
+  while (stack.length) {
+    const dir = stack.pop()
+    for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
+      const p = path.join(dir, ent.name)
+      if (ent.isDirectory()) stack.push(p)
+      if (ent.isFile() && ent.name === `${session.sessionId}.jsonl`) return p
+    }
+  }
+
+  return null
+}
+
+function scanBack(file, pick) {
+  const lines = fs.readFileSync(file, 'utf8').trimEnd().split('\n')
+  for (let i = lines.length - 1; i >= 0; i--) {
+    try {
+      const value = pick(JSON.parse(lines[i]))
+      if (value) return value
+    } catch {}
+  }
+  return null
+}
+
+function plansDir() {
+  let custom
+  for (const file of [
+    path.join(home, 'settings.json'),
+    path.join(process.cwd(), '.claude/settings.json'),
+    path.join(process.cwd(), '.claude/settings.local.json'),
+  ]) {
+    const settings = readJson(file)
+    if (typeof settings?.plansDirectory === 'string') custom = settings.plansDirectory
+  }
+
+  if (!custom) return path.join(home, 'plans')
+
+  const resolved = path.resolve(process.cwd(), custom)
+  return resolved === process.cwd() || resolved.startsWith(process.cwd() + path.sep)
+    ? resolved
+    : path.join(home, 'plans')
+}
+
+const session = sessionForAncestor()
+const transcript = session ? findTranscript(session) : null
+
+let planPath = transcript ? scanBack(transcript, m => m?.attachment?.planFilePath) : null
+if (!planPath && transcript) {
+  const slug = scanBack(transcript, m => typeof m?.slug === 'string' ? m.slug : null)
+  if (slug) planPath = path.join(plansDir(), `${slug}.md`)
+}
+
+if (!planPath) {
+  console.log('No plan path recorded for this session yet')
+  process.exit(0)
+}
+
+if (process.argv.includes('--copy')) {
+  cp.spawnSync('pbcopy', { input: planPath })
+}
+console.log(planPath)
+NODE
