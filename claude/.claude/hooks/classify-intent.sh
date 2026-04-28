@@ -143,7 +143,7 @@ ${AGENT_RESPONSE}
     fi
 fi
 
-JSON_SCHEMA='{"type":"object","properties":{"intent":{"type":"string","enum":["approval","question","instructions","correction","proposal_request"]},"instructions":{"type":"array","items":{"type":"object","properties":{"text":{"type":"string"},"mode":{"type":"string","enum":["question","execute","correction"]}},"required":["text","mode"]}},"skills":{"type":"array","items":{"type":"string"}},"approach_change":{"type":"string","enum":["solo","subagents","team","no_change"]},"sequential":{"type":"boolean"},"commit_requested":{"type":"boolean"},"session_notes":{"type":"array","items":{"type":"string"}},"recommended_agents":{"type":"array","items":{"type":"object","properties":{"agent":{"type":"string"},"reason":{"type":"string"}},"required":["agent","reason"]}}},"required":["intent"]}'
+JSON_SCHEMA='{"type":"object","properties":{"intent":{"type":"string","enum":["approval","question","instructions","correction","proposal_request"]},"instructions":{"type":"array","items":{"type":"object","properties":{"text":{"type":"string"},"mode":{"type":"string","enum":["question","execute","correction"]}},"required":["text","mode"]}},"skills":{"type":"array","items":{"type":"string"}},"approach_change":{"type":"string","enum":["solo","subagents","team","no_change"]},"state_change":{"type":"string","enum":["proposing","executing","auto","no_change"]},"sequential":{"type":"boolean"},"commit_requested":{"type":"boolean"},"session_notes":{"type":"array","items":{"type":"string"}},"recommended_agents":{"type":"array","items":{"type":"object","properties":{"agent":{"type":"string"},"reason":{"type":"string"}},"required":["agent","reason"]}}},"required":["intent"]}'
 
 SYSTEM_PROMPT="You are a classifier. Classify user intent. Extract instructions. Output structured JSON only."
 
@@ -172,6 +172,7 @@ Rules:
 6b. Questions in the user's message require direct answers. Extract every question as a separate mode: \"question\" instruction, even when embedded in corrections, emotional language, or rhetorical framing. \"What is this about?\" is a question. \"Do we have this elsewhere?\" is a research question. \"Did you read X?\" is a question requiring an honest answer. Do not dismiss questions as decorative or rhetorical.
 7. Only include a skill in \"skills\" if the user is invoking it — telling the agent to use or execute it NOW. If the skill is discussed, referenced, or mentioned as context, do not include it. \"use /commit\" → include. \"the /subagents skill handles this\" → exclude. When in doubt, include it — a false positive is cheaper than a false negative.
 8. Set \"approach_change\" to \"no_change\" unless the user explicitly signals a shift. \"solo\" when user wants the agent to work alone (\"do this yourself\", \"don't spawn agents\", \"read it yourself\"). \"subagents\" when user wants to exit solo mode or use agents without persistent teams (\"use agents\", \"exit solo\"). \"team\" when user wants persistent teammates (\"get a team\", uses /team). Only output a value other than \"no_change\" on clear intent shift — direct mode-change requests (\"enter solo mode\", \"go solo\", \"switch to team\", \"exit solo\"). Single-action directives (\"run the tests\", \"fix the bug\", \"add a guard\", \"commit this\") are NOT approach signals. Mentioning a specific agent (\"get a @debugger\") is NOT a team signal — it's a dispatch instruction within the current approach. Current approach: ${CURRENT_APPROACH}.
+8b. Set \"state_change\" to \"no_change\" unless the user explicitly names the agent's state. \"executing\" when the user directly demands execute mode (\"enter execute mode\", \"go into execute mode\", \"execute mode\", \"stop proposing, just execute\", \"execute now\"). \"proposing\" when the user directly demands proposal mode (\"enter proposing mode\", \"go back to proposing\", \"propose first\"). \"auto\" when the user directly demands auto/mixed mode (\"auto mode\", \"mixed mode\"). This is a HARD OVERRIDE — when the user names a state, output it regardless of intent classification. The user's explicit declaration wins over any state-machine derivation. Single-action directives (\"fix the bug\", \"commit this\", \"deploy\") are NOT state signals — they're work instructions. Only output other than \"no_change\" when the message names the state itself. Current state: ${CURRENT_STATE}.
 9. Set \"commit_requested\" to true when the user explicitly asks for a git commit — \"commit this\", \"/commit\", \"create a commit\". Approving work, applying changes, deploying, replacing files, shipping — none of these are commit requests. If the user doesn't say \"commit\", commit_requested is false.
 10. Add to \"session_notes\" ONLY when this message reveals a surprise — the agent did something illogical that confused the user, the user explicitly forbids something with always/never language, the user corrects the same behavior twice, or the user's emotional state (frustration, anger, exasperation) indicates the agent surprised them. Maximum 10 notes total (including existing). If adding would exceed 10, drop the least critical existing note. Return the FULL list of notes (existing + new) in session_notes, or an empty array if no changes.
 11. Set \"recommended_agents\" when the user's intent clearly matches a specialized agent. Only include agents that clearly match — empty array when no match is obvious. Multiple recommendations are fine when the task spans domains.
@@ -294,6 +295,12 @@ case "$INTENT" in
         fi
         ;;
 esac
+
+# Hard override: explicit state declaration from user wins over state-machine derivation
+STATE_CHANGE=$(echo "$RESULT" | jq -r '.state_change // "no_change"' 2>/dev/null) || STATE_CHANGE="no_change"
+if [ "$STATE_CHANGE" != "no_change" ]; then
+    NEW_STATE="$STATE_CHANGE"
+fi
 
 # Detect state transitions for agent notification
 STATE_NOTIFICATIONS=""
