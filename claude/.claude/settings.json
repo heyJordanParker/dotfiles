@@ -143,13 +143,13 @@
           {
             "type": "command",
             "command": "/Users/jordan/.claude/hooks/validate-ledger-entries.sh",
-            "if": "Write(**/Claude.md)",
+            "if": "Write(**/*.md)",
             "timeout": 5
           },
           {
             "type": "command",
             "command": "/Users/jordan/.claude/hooks/validate-ledger-entries.sh",
-            "if": "Edit(**/Claude.md)",
+            "if": "Edit(**/*.md)",
             "timeout": 5
           }
         ]

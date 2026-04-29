@@ -26,13 +26,13 @@
           },
           {
             "type": "command",
-            "if": "Write(**/Claude.md)",
+            "if": "Write(**/*.md)",
             "command": "${CLAUDE_PLUGIN_ROOT}/hooks/validate-ledger-entries.sh",
             "timeout": 5
           },
           {
             "type": "command",
-            "if": "Edit(**/Claude.md)",
+            "if": "Edit(**/*.md)",
             "command": "${CLAUDE_PLUGIN_ROOT}/hooks/validate-ledger-entries.sh",
             "timeout": 5
           }
