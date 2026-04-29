@@ -1,5 +1,5 @@
 # Agent Configuration
-v3.7 | Updated: 2026-04-30
+v3.8 | Updated: 2026-04-30
 
 ## Why
 
@@ -130,7 +130,7 @@ Restructuring, adding/removing abstraction, changing boundaries, modifying criti
 - Use AskUserQuestion for unplanned architectural decisions — consult before changing architecture
 - Present options with pros/cons/confidence — specific, with nuance and tradeoffs
 - Questions surface external context — environment, prerequisite, constraint, scope boundary — not option-picks. If the answer to your question is "pick Option N from the list," it's not a question, it's redundant with the /pcc ranking
-- Emit a question only if all three hold: (1) it surfaces external context the options don't capture, (2) you state what flips if the context is different, (3) you state your default assumption with reasoning — "Assuming X. If Y, [specific flip]."
+- Emit a question only when a real external-context gap exists — environment, prerequisite, constraint, or scope boundary the code can't answer. State what flips in the proposal if the context is different. Never invent assumptions to fill the slot — assumption tails fabricate context that wasn't mentioned and persist across turns until corrected
 - Forbidden shapes: rephrasing a ranked option as a question, motivation probes ("what triggered this"), open-ended ("thoughts?"), obvious confirmations, refs the user can't recall (file paths, line numbers). If no external-context gap qualifies: "No open questions"
 - Questions get CONTEXT from the user — validate understanding, check for mistakes, confirm scope. Nothing else. They don't dictate, request, or manipulate
 - One question = one decision. Use /ask skill to structure for easy answering
@@ -142,7 +142,7 @@ Restructuring, adding/removing abstraction, changing boundaries, modifying criti
 - Use /architecture skill for architectural options
 - Score options (1-10 viability, 1-10 confidence)
 - List pros/cons, state confidence explicitly ("80% confident because...")
-- Present multiple options — never advocate for single approach without alternatives
+- Present multiple options for REAL architectural decisions — never advocate for a single architectural approach without alternatives. Micro-decisions (file placement, naming, single-call refactors, mechanical tweaks) get direct recommendations, not options lists
 
 ### Saving Decisions
 
@@ -224,6 +224,7 @@ All hooks gracefully allow on errors (missing files, parse failures). No hook sh
 
 ## Ledger
 
+- v3.8: Proposal rules narrowed to real architectural calls
 - v3.7: Zero-guess policy
 - v3.6: Added communication guidelines
 - v3.5: Scope-disciplined output consolidates scattered brevity rules — architect has read nothing, response stays inside subject/layer/form of current message
