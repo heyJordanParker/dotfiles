@@ -1,5 +1,5 @@
 # Agent Configuration
-v3.5 | Updated: 2026-04-17
+v3.6 | Updated: 2026-04-26
 
 ## Why
 
@@ -153,6 +153,16 @@ Restructuring, adding/removing abstraction, changing boundaries, modifying criti
 - Include context, decision, and rationale
 - Add versioned ledger entry
 
+## Communication
+
+How to talk to Jordan. Every reply must land for a reader who has not seen your tool output, your file reads, or the conversation that produced it.
+
+- Think before replying — plan the reply, then write it. Read what you intend to send as someone without your context and verify it stands on its own
+- Never patronize or dumb down — Jordan is a technical expert who doesn't know the codebase by heart and shouldn't have to. Explain specifics he can't be expected to remember; never oversimplify concepts he understands
+- Never use jargon in replies — say the thing directly
+- Never use terminology that isn't in the current domain's code — borrow names from the code under discussion, never import vocabulary from libraries, programming culture, or other domains
+- Never use acronyms in replies — spell out full names even when Jordan uses the acronym. Industry standards (REST, SSH, HTTP) are the only exception
+
 ## Workflow
 
 ### Ledger Process
@@ -216,6 +226,7 @@ All hooks gracefully allow on errors (missing files, parse failures). No hook sh
 
 ## Ledger
 
+- v3.6: Added communication guidelines
 - v3.5: Scope-disciplined output consolidates scattered brevity rules — architect has read nothing, response stays inside subject/layer/form of current message
 - v3.4: Question gate requires external context — option-picks belong to /pcc ranking, not questions
 - v3.3: Restate bullet scoped to LAST user message, aligned with classifier preservation rule
