@@ -9,8 +9,12 @@ For every code file in this session:
 - Describe what it does before modifying
 - List existing behavior that must be preserved
 
-Before claiming anything works:
+Before any code assertion (what code does, returns, calls, contains, causes):
+- Did you read the source?
 - Did you trace the actual code path?
+- Pattern matching is not validation — read it or say "I haven't checked"
+
+Before claiming code works:
 - Did you run tests or show evidence?
 
 When creating new files:
