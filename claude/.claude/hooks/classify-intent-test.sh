@@ -52,11 +52,12 @@ mock() {
     local intent="${1:-instructions}" approach_change="${2:-no_change}"
     local commit_requested="${3:-false}" instructions="${4:-[]}" skills="${5:-[]}"
     local sequential="${6:-false}" notes="${7:-[]}" agents="${8:-[]}"
+    local state_change="${9:-no_change}"
     jq -n \
-        --arg i "$intent" --arg ac "$approach_change" \
+        --arg i "$intent" --arg ac "$approach_change" --arg sc "$state_change" \
         --argjson cr "$commit_requested" --argjson ins "$instructions" --argjson sk "$skills" \
         --argjson sq "$sequential" --argjson n "$notes" --argjson ag "$agents" \
-        '{structured_output:{intent:$i,approach_change:$ac,commit_requested:$cr,instructions:$ins,skills:$sk,sequential:$sq,session_notes:$n,recommended_agents:$ag}}'
+        '{structured_output:{intent:$i,approach_change:$ac,state_change:$sc,commit_requested:$cr,instructions:$ins,skills:$sk,sequential:$sq,session_notes:$n,recommended_agents:$ag}}'
 }
 
 run() {
@@ -646,7 +647,7 @@ export MOCK_CLAUDE_RESPONSE=$(mock "instructions" "no_change" false '[{"text":"f
 output=$(run "$SID" "fix this bug")
 assert_state  "creates state file"                 "$SID" "intent" "instructions"
 assert_state  "defaults to proposing"              "$SID" "state" "proposing"
-assert_state  "defaults approach"                  "$SID" "approach" "subagents"
+assert_state  "defaults approach"                  "$SID" "approach" "solo"
 has_output    "produces output"                    "$output"
 
 # Fresh session with proposal request
@@ -916,6 +917,66 @@ setup_state "$SID" "$DEFAULT_STATE"
 export MOCK_CLAUDE_RESPONSE=$(mock "question" "no_change" false '[{"text":"why this","mode":"question"}]')
 output=$(run "$SID" "why this?")
 has           "pure question: has 'dont edit'"      "$output" "Don't edit the code"
+
+# --- 30. Dispatch-language approach signals ---
+echo ""
+echo "── 30. Dispatch-Language Approach Signals ──"
+
+# solo + spawn subagent → subagents (with execute override)
+SID=$(next_session)
+setup_state "$SID" '{"state":"proposing","intent":"proposal_request","approach":"solo","notes":[],"commit_requested":false,"validation_phase":0}'
+export MOCK_CLAUDE_RESPONSE=$(mock "instructions" "subagents" false '[{"text":"spawn a subagent to research X","mode":"execute"}]' "[]" false "[]" "[]" "executing")
+output=$(run "$SID" "spawn a subagent to research X")
+assert_state  "solo + spawn → subagents"           "$SID" "approach" "subagents"
+assert_state  "solo + spawn → state executing"     "$SID" "state" "executing"
+
+# solo + @agent dispatch → subagents
+SID=$(next_session)
+setup_state "$SID" '{"state":"executing","intent":"instructions","approach":"solo","notes":[],"commit_requested":false,"validation_phase":0}'
+export MOCK_CLAUDE_RESPONSE=$(mock "instructions" "subagents" false '[{"text":"@debugger investigate the test failure","mode":"execute"}]')
+output=$(run "$SID" "have a @debugger investigate the test failure")
+assert_state  "solo + @agent → subagents"          "$SID" "approach" "subagents"
+
+# subagents + dispatch language → no_change (already in subagents)
+SID=$(next_session)
+setup_state "$SID" "$DEFAULT_STATE"
+export MOCK_CLAUDE_RESPONSE=$(mock "instructions" "no_change" false '[{"text":"launch 3 agents in parallel","mode":"execute"}]')
+output=$(run "$SID" "launch 3 agents in parallel")
+assert_state  "subagents + dispatch → no_change"   "$SID" "approach" "subagents"
+excludes      "subagents + dispatch: no transition" "$output" "approach changed"
+
+# --- 31. Execution-intent state signals ---
+echo ""
+echo "── 31. Execution-Intent State Signals ──"
+
+# proposing + "execute this" → executing (state_change override)
+SID=$(next_session)
+setup_state "$SID" "$PROPOSING_STATE"
+export MOCK_CLAUDE_RESPONSE=$(mock "instructions" "no_change" false '[{"text":"execute this","mode":"execute"}]' "[]" false "[]" "[]" "executing")
+output=$(run "$SID" "execute this")
+assert_state  "proposing + execute mention → executing" "$SID" "state" "executing"
+
+# proposing + "implement this directly" → executing
+SID=$(next_session)
+setup_state "$SID" "$PROPOSING_STATE"
+export MOCK_CLAUDE_RESPONSE=$(mock "instructions" "no_change" false '[{"text":"implement this directly","mode":"execute"}]' "[]" false "[]" "[]" "executing")
+output=$(run "$SID" "implement this directly")
+assert_state  "proposing + implement directly → executing" "$SID" "state" "executing"
+
+# proposing + investigation language → still proposing (conservative default holds)
+SID=$(next_session)
+setup_state "$SID" "$PROPOSING_STATE"
+export MOCK_CLAUDE_RESPONSE=$(mock "proposal_request" "no_change" false '[{"text":"investigate X","mode":"execute"}]')
+output=$(run "$SID" "investigate X")
+assert_state  "proposing + investigate → proposing" "$SID" "state" "proposing"
+
+# solo + execute+dispatch combined → both transitions
+SID=$(next_session)
+setup_state "$SID" '{"state":"proposing","intent":"proposal_request","approach":"solo","notes":[],"commit_requested":false,"validation_phase":0}'
+export MOCK_CLAUDE_RESPONSE=$(mock "instructions" "subagents" false '[{"text":"spawn a subagent to implement X","mode":"execute"}]' "[]" false "[]" "[]" "executing")
+output=$(run "$SID" "spawn a subagent to implement X")
+assert_state  "solo + spawn+implement → subagents" "$SID" "approach" "subagents"
+assert_state  "solo + spawn+implement → executing" "$SID" "state" "executing"
 
 # ============================================================================
 # Summary
