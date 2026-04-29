@@ -685,5 +685,5 @@ Run through after all design work. Every item is yes/no. Do not skip.
 
 - [motion.md](references/motion.md) - Timing, easing, states, transitions, micro-interactions
 - [transitions.md](references/transitions.md) - State-change recipes: reveals, swaps, in-component page transitions, asymmetric open/close
-- [interactable.md](references/interactable.md) - Forms, navigation, feedback, accessibility, modals
+- [interactable.md](references/interactable.md) - Buttons, forms, navigation, feedback, empty states, confirmation, accessibility, modals
 - [bold.md](references/bold.md) - Bold design mode
