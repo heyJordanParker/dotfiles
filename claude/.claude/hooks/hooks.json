@@ -17,7 +17,7 @@
         ]
       },
       {
-        "matcher": "Write|Edit",
+        "matcher": "Write|Edit|MultiEdit",
         "hooks": [
           {
             "type": "command",
@@ -33,6 +33,12 @@
           {
             "type": "command",
             "if": "Edit(**/*.md)",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/validate-ledger-entries.sh",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "if": "MultiEdit(**/*.md)",
             "command": "${CLAUDE_PLUGIN_ROOT}/hooks/validate-ledger-entries.sh",
             "timeout": 5
           }

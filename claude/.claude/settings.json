@@ -128,7 +128,7 @@
         ]
       },
       {
-        "matcher": "Write|Edit",
+        "matcher": "Write|Edit|MultiEdit",
         "hooks": [
           {
             "type": "command",
@@ -150,6 +150,12 @@
             "type": "command",
             "command": "/Users/jordan/.claude/hooks/validate-ledger-entries.sh",
             "if": "Edit(**/*.md)",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "/Users/jordan/.claude/hooks/validate-ledger-entries.sh",
+            "if": "MultiEdit(**/*.md)",
             "timeout": 5
           }
         ]

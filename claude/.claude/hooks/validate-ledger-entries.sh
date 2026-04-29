@@ -1,8 +1,9 @@
 #!/bin/bash
 
 # Validate ledger entry format in Claude.md files
-# PreToolUse hook on Write|Edit — deterministic, no LLM
-# Checks: length (60 chars), word count (10), em dashes, periods, parentheticals
+# PreToolUse hook on Write|Edit|MultiEdit — deterministic, no LLM
+# Checks: length (60 chars), word count (10), em dashes, periods, parentheticals,
+#         duplicate version vs disk latest (Edit/MultiEdit), duplicate versions in payload
 # See /cc reference claude-md.md for the format spec
 
 set -uo pipefail
@@ -16,15 +17,23 @@ SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // ""' 2>/dev/null) || exit 0
 
 TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // ""' 2>/dev/null) || exit 0
 
-# Extract file path and content
+# Extract file path, new content, and pre-edit content
+# CONTENT       = what's being written/added (validated for format + duplicates)
+# OLD_CONTENT   = the old_string(s) being replaced (used for carve-out: in-place update of an existing version is not a duplicate)
 FILE_PATH=""
 CONTENT=""
+OLD_CONTENT=""
 if [ "$TOOL_NAME" = "Write" ]; then
     FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // ""' 2>/dev/null) || exit 0
     CONTENT=$(echo "$INPUT" | jq -r '.tool_input.content // ""' 2>/dev/null) || exit 0
 elif [ "$TOOL_NAME" = "Edit" ]; then
     FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // ""' 2>/dev/null) || exit 0
     CONTENT=$(echo "$INPUT" | jq -r '.tool_input.new_string // ""' 2>/dev/null) || exit 0
+    OLD_CONTENT=$(echo "$INPUT" | jq -r '.tool_input.old_string // ""' 2>/dev/null) || exit 0
+elif [ "$TOOL_NAME" = "MultiEdit" ]; then
+    FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // ""' 2>/dev/null) || exit 0
+    CONTENT=$(echo "$INPUT" | jq -r '[.tool_input.edits[]?.new_string // ""] | join("\n")' 2>/dev/null) || exit 0
+    OLD_CONTENT=$(echo "$INPUT" | jq -r '[.tool_input.edits[]?.old_string // ""] | join("\n")' 2>/dev/null) || exit 0
 else
     exit 0
 fi
@@ -86,17 +95,60 @@ while IFS= read -r entry; do
 
 done <<< "$LEDGER_ENTRIES"
 
+# Collect new entry versions (from the diff/payload)
+NEW_VERSIONS=""
+while IFS= read -r entry; do
+    [[ -z "$entry" ]] && continue
+    V=$(echo "$entry" | sed -n 's/^- \(v[0-9][0-9.]*\):.*/\1/p' 2>/dev/null) || V=""
+    [[ -n "$V" ]] && NEW_VERSIONS="${NEW_VERSIONS}${V}"$'\n'
+done <<< "$LEDGER_ENTRIES"
+
+# Find latest version on disk (first ledger entry under ## Ledger header)
+LATEST_DISK_VERSION=""
+if [ -f "$FILE_PATH" ]; then
+    LATEST_DISK_VERSION=$(awk '/^## Ledger/{f=1; next} f && /^-[[:space:]]+v[0-9]/{print; exit}' "$FILE_PATH" 2>/dev/null | sed -n 's/^- \(v[0-9][0-9.]*\):.*/\1/p') || LATEST_DISK_VERSION=""
+fi
+
+# Check 1: any new entry collides with latest disk version
+# Skipped for Write — its payload is the whole file, so existing entries always match disk latest;
+# sequential-Write cheese is still caught by check 2.
+# Carve-out: if old_content also has a "- vX.Y:" line for the same version, this is an in-place
+# update of the latest entry, not a duplicate.
+if { [ "$TOOL_NAME" = "Edit" ] || [ "$TOOL_NAME" = "MultiEdit" ]; } && [ -n "$LATEST_DISK_VERSION" ] && [ -n "$NEW_VERSIONS" ]; then
+    while IFS= read -r v; do
+        [[ -z "$v" ]] && continue
+        if [ "$v" = "$LATEST_DISK_VERSION" ]; then
+            # In-place update carve-out: old_content already had this version
+            if [[ "$OLD_CONTENT" == *"- ${v}:"* ]]; then
+                continue
+            fi
+            ERRORS="${ERRORS}${v}: already the latest version on disk — bump to next version or update the existing entry in place.\n"
+            break
+        fi
+    done <<< "$NEW_VERSIONS"
+fi
+
+# Check 2: duplicates among new entries
+if [ -n "$NEW_VERSIONS" ]; then
+    DUPES=$(echo "$NEW_VERSIONS" | sort | uniq -d)
+    while IFS= read -r v; do
+        [[ -z "$v" ]] && continue
+        ERRORS="${ERRORS}${v}: multiple new entries for the same version — collapse into one line.\n"
+    done <<< "$DUPES"
+fi
+
 # Report errors
 if [ -n "$ERRORS" ]; then
-    BLOCK_MSG="BLOCKED: ledger entry format violations
+    BLOCK_MSG="BLOCKED: ledger entry violations
 ${ERRORS}
-Ledger entries name the decision. One line. The diff and file body show what changed; the ledger records the decision.
+Ledger entries name the decision. One line per version. The diff and file body show what changed; the ledger records the decision.
 
 Format rules (see /cc reference claude-md.md):
 - Max 60 chars total, max 10 words after version prefix
 - Single sentence, no full stops, no em dashes, no parentheticals
 - No mechanics ('promoted', 'consolidates', 'extracted', 'refactored') — name the decision
 - No body-content repetition — the file already shows what changed
+- One entry per version — multiple changes in one bump collapse into a single line
 - Pattern: '- vX.Y: ACTION to/for/because REASONING'
 - Good: 'v1.2: Coupon removed because offers own pricing'
 - Good: 'v1.2: Three-way session split for distinct lifecycles'"
