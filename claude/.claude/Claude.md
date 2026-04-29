@@ -1,5 +1,5 @@
 # Agent Configuration
-v3.8 | Updated: 2026-04-30
+v3.9 | Updated: 2026-04-30
 
 ## Why
 
@@ -224,6 +224,7 @@ All hooks gracefully allow on errors (missing files, parse failures). No hook sh
 
 ## Ledger
 
+- v3.9: /pcc requires real option differentiation
 - v3.8: Proposal rules narrowed to real architectural calls
 - v3.7: Zero-guess policy
 - v3.6: Added communication guidelines
