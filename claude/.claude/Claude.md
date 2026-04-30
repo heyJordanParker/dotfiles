@@ -1,5 +1,5 @@
 # Agent Configuration
-v3.10 | Updated: 2026-04-30
+v3.11 | Updated: 2026-04-30
 
 ## Why
 
@@ -81,6 +81,7 @@ Agent behavior configuration for working in Jordan's projects. Defines autonomy,
 - Workarounds and hacks require explicit architect approval
 - Never justify bad architecture with "it's simpler" — a shortcut that pierces a boundary is not simple, it's a liability with a low initial cost
 - Never delete teams — Jordan controls team lifecycle. Reuse teammates via SendMessage
+- Never invent terminology or import jargon — use language already in the project's code and docs. Applies to all agent output: replies, plans, shaping docs, commits, identifiers, subagent prompts
 
 ### Architectural Principles
 
@@ -96,6 +97,9 @@ Good architecture is intuitive and easy to understand — it's simpler than the 
 - **Separate pure from impure** — pure logic (transformations, validations, business rules) stays isolated from impure operations (I/O, state mutation, side effects). Pure code is testable and replaceable. Impure code is thin and mechanical
 - **New code gets clean architecture** — existing pragmatic code is tech debt, not precedent. New code follows these principles even when surrounding code doesn't
 - **Think before typing** — before implementing (impact 4+), identify the modules involved, define the contract between them, verify dependencies flow one direction
+- **Deletion test** — before adding a module, imagine deleting it. If complexity vanishes, it was a pass-through; if it reappears across callers, the module earned its place
+- **Interface is the test surface** — callers and tests cross the same line. If you need to test past the interface, the module is the wrong shape
+- **Two concrete callers before adding a wrapper or abstraction** — one caller means inline it. Add the boundary when the second appears
 
 **Red flags** (STOP and state before proceeding):
 - Building before understanding library behavior
@@ -225,6 +229,7 @@ All hooks gracefully allow on errors (missing files, parse failures). No hook sh
 
 ## Ledger
 
+- v3.11: Module shape principles and language ban
 - v3.10: Match existing conventions before inventing
 - v3.9: /pcc requires real option differentiation
 - v3.8: Proposal rules narrowed to real architectural calls
