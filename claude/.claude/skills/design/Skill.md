@@ -243,7 +243,7 @@ Prefer `cqi`/`cqb` over viewport units (`vw`/`vh`).
 
 ```css
 @media (hover: hover) {
-  .card:hover { @apply shadow-md -translate-y-1; }
+  .card:hover { @apply shadow-elevated -translate-y-1; }
 }
 ```
 
@@ -419,69 +419,40 @@ Never gaudy. Use gradients to add texture and make UI feel less flat — keep su
 }
 ```
 
-#### Shadows & Elevation
+#### Surfaces & Elevation
 
-**Light source is at the top.** Top surfaces are lighter, bottom surfaces are darker.
+**Light source is at the top.** Top edges read lighter, bottom edges darker.
 
-- **Level 0:** Page base / no shadow — Content areas
-- **Level 1:** Slightly lifted / `shadow-xs` — Sidebar body, cards
-- **Level 2:** Floating / `shadow-sm` — Sticky headers, glass panels
-- **Level 3:** Overlay / `shadow-md` — Dropdowns, modals
+Four elevation tiers + one specialized variant. Pick by where the surface sits relative to the page, then apply the matching token:
 
-**Dual shadow system (soft + dark)** — combine two shadow types for realistic depth:
-1. Light edge on top — simulates light hitting elevated surface
-2. Dark shadow at bottom — the actual shadow cast
+- **None** — content areas, page base. No shadow.
+- **Subtle** — `var(--shadow-subtle)` — resting cards, sidebar bodies, list rows
+- **Elevated** — `var(--shadow-elevated)` — hover, dropdowns, sticky headers
+- **Floating** — `var(--shadow-floating)` — modals, popovers, command menus
+- **Extruded** — `var(--shadow-extruded)` — specialized neumorphic surfaces
 
+Every tier composes a `0 0 0 1px` ring (replaces the 1px border), an ambient shadow (elevation), and a contact shadow (definition near the surface). Shadow color stays constant across tiers; only opacity, offset, and blur change.
+
+**Hover transitions one tier up:**
 ```css
-box-shadow:
-  inset 0 1px 0 rgba(255,255,255,0.05),  /* Light edge top */
-  0 4px 12px rgba(0,0,0,0.03),            /* Soft ambient */
-  0 1px 3px rgba(0,0,0,0.06);             /* Sharp contact */
-```
-
-**Recessed elements** (inputs, wells): dark inset shadow on top + light inset shadow on bottom.
-
-**Shadows instead of borders** — solid border colors don't adapt to varied backgrounds (images, gradients). Use multi-layer `box-shadow` for border-like definition that works universally via transparency:
-
-```css
-/* Wrong — solid border breaks on non-white backgrounds */
-border: 1px solid #e5e7eb;
-
-/* Right — shadow adapts to any background */
-box-shadow:
-  0px 0px 0px 1px rgba(0,0,0,0.06),
-  0px 1px 2px -1px rgba(0,0,0,0.06),
-  0px 2px 4px 0px rgba(0,0,0,0.04);
-
-/* Hover — same shadows, slightly darker */
-box-shadow:
-  0px 0px 0px 1px rgba(0,0,0,0.08),
-  0px 1px 2px -1px rgba(0,0,0,0.08),
-  0px 2px 4px 0px rgba(0,0,0,0.06);
-
-/* Dark mode — simplify to a single white ring.
-   Layered depth shadows are invisible against dark backgrounds. */
---shadow-border: 0 0 0 1px rgba(255,255,255,0.08);
---shadow-border-hover: 0 0 0 1px rgba(255,255,255,0.13);
-```
-
-Transition between states with `transition-[box-shadow]`.
-
-**Image outlines** — images can blend into surrounding content when edge colors match background:
-```css
-.image-outline {
-  outline: 1px solid rgba(0,0,0,0.1);
-  outline-offset: -1px;
-}
-.dark .image-outline {
-  outline-color: rgba(255,255,255,0.1);
-}
+.card { box-shadow: var(--shadow-subtle); transition: box-shadow 200ms var(--ease); }
+.card:hover { box-shadow: var(--shadow-elevated); }
 ```
 
 **Rules:**
-- Elevated = lighter background + more shadow
-- Never use z-index without corresponding shadow
-- Glass effect: `backdrop-blur-md` + semi-transparent bg + layered shadow
+- Never use `z-index` without a corresponding shadow tier
+- Glass effect: `backdrop-blur-md` + semi-transparent bg + floating tier
+- Dark mode collapses layered shadows to a single white ring
+- Don't invent values — pick a tier, or extend the token set
+
+**Anti-defaults to watch for, common agent reaches:**
+
+- Generic blob shadows like `0 4px 6px rgba(0,0,0,0.1)` from training data — replace with the matching tier token
+- `border: 1px solid #e5e7eb` for surface boundaries — the ring is layer 1 of every tier; no separate border needed
+- Tailwind defaults `shadow-xs/sm/md/lg` — use `shadow-subtle/elevated/floating/extruded`
+- Inline `box-shadow:` arrays invented per-component — pick a tier, or extend the token set
+
+For tier recipes (X/Y/Blur/Spread/Opacity), ring-as-border replacement, recessed inputs, glass surfaces, image outlines, and dark-mode token overrides, see [surfaces.md](references/surfaces.md).
 
 #### Radius
 
@@ -593,11 +564,11 @@ Specificity order: base < components < utilities < wordpress-fixes
 @theme inline {
   --color-primary: var(--primary);
   --color-background: var(--background);
-  --shadow-sm: var(--shadow-sm);
+  --shadow-elevated: var(--shadow-elevated);
 }
 ```
 
-This lets you use `bg-primary`, `shadow-sm` in @apply and TSX.
+This lets you use `bg-primary`, `shadow-elevated` in @apply and TSX.
 
 ### Step 3: Review (Required)
 
@@ -630,6 +601,7 @@ Run through after all design work. Every item is yes/no. Do not skip.
 - [ ] Dynamic numbers use `tabular-nums`
 - [ ] Nested rounded elements use concentric border radius (outer = inner + padding; independent if padding > 24px)
 - [ ] Icons optically centered — asymmetric padding on icon buttons, play triangles shifted right
+- [ ] Surface elevation uses `var(--shadow-subtle/elevated/floating/extruded)` — no invented `box-shadow` values
 - [ ] Shadows used instead of borders where elements need depth on varied backgrounds
 - [ ] Dark mode shadows simplified to single white ring (not multi-layer)
 - [ ] Images have subtle semi-transparent outline
@@ -685,5 +657,6 @@ Run through after all design work. Every item is yes/no. Do not skip.
 
 - [motion.md](references/motion.md) - Timing, easing, states, transitions, micro-interactions
 - [transitions.md](references/transitions.md) - State-change recipes: reveals, swaps, in-component page transitions, asymmetric open/close
+- [surfaces.md](references/surfaces.md) - Elevation tiers, ring-as-border, recessed inputs, glass, image outlines, dark-mode collapse
 - [interactable.md](references/interactable.md) - Buttons, forms, navigation, feedback, empty states, confirmation, accessibility, modals
 - [bold.md](references/bold.md) - Bold design mode
