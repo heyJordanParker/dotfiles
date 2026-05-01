@@ -21,6 +21,36 @@ Pair every primary with `:active scale(0.96)` (motion.md → Micro-interactions)
 - Two or more primary buttons in the same view — no one thing to press
 - Skipping `:active scale(0.96)` — press feedback completes the tactile contract
 
+## Hover States
+
+Gate every `:hover` rule with `@media (hover: hover)`. On touch devices, tapping triggers `:hover` styles and they stay stuck until another element is tapped — buttons remain "lit up", cards stay elevated. The media query restricts hover styles to devices with a real pointer.
+
+Apply only to `:hover` — `:active`, `:focus-visible`, and `:focus` work on touch and stay outside the gate.
+
+```css
+.button {
+  @apply transition-[background-color,transform] duration-200;
+
+  &:active { @apply bg-primary/80 translate-y-0; }
+
+  @media (hover: hover) {
+    &:hover { @apply bg-primary/90 -translate-y-px; }
+  }
+}
+```
+
+For surface elevation on hover (card lifts to a higher tier), the same rule applies:
+
+```css
+.card {
+  box-shadow: var(--shadow-subtle);
+  transition: box-shadow 200ms var(--ease);
+}
+@media (hover: hover) {
+  .card:hover { box-shadow: var(--shadow-elevated); }
+}
+```
+
 ## Forms
 
 **Layout:**

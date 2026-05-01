@@ -40,17 +40,20 @@ Every interactive element needs:
 - **Disabled:** Reduced opacity (50-60%), no pointer
 - **Loading:** Spinner or pulse, disabled interaction
 
-**Hover example:**
+**Hover example** — gate `:hover` with `@media (hover: hover)` so styles don't stick on tap on touch devices. See [interactable.md](./interactable.md) → Hover States.
+
 ```css
 .button {
   @apply transition-[background-color,transform] duration-200;
 
-  &:hover {
-    @apply bg-primary/90 -translate-y-px;
-  }
-
   &:active {
     @apply bg-primary/80 translate-y-0;
+  }
+
+  @media (hover: hover) {
+    &:hover {
+      @apply bg-primary/90 -translate-y-px;
+    }
   }
 }
 ```

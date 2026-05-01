@@ -122,12 +122,16 @@ Ring is always layer 1 of every tier token — applying `var(--shadow-subtle)` a
 
 ## Hover transitions one tier up
 
+Gate the hover rule with `@media (hover: hover)` so the elevated shadow doesn't stick on tap on touch devices. See [interactable.md](./interactable.md) → Hover States.
+
 ```css
 .card {
   box-shadow: var(--shadow-subtle);
   transition: box-shadow 200ms var(--ease);
 }
-.card:hover { box-shadow: var(--shadow-elevated); }
+@media (hover: hover) {
+  .card:hover { box-shadow: var(--shadow-elevated); }
+}
 ```
 
 ## Tactile primaries

@@ -239,13 +239,7 @@ Auto-declare container from the child with the "Has Me" pattern:
 
 Prefer `cqi`/`cqb` over viewport units (`vw`/`vh`).
 
-**Touch detection** — desktop-only hover effects:
-
-```css
-@media (hover: hover) {
-  .card:hover { @apply shadow-elevated -translate-y-1; }
-}
-```
+**Hover states** — gate every `:hover` rule with `@media (hover: hover)`. Without it, `:hover` styles stick on tap on touch devices. See [interactable.md](references/interactable.md) → Hover States.
 
 Touch targets: minimum 44x44px (see hit area technique in [interactable.md](references/interactable.md)).
 
@@ -634,7 +628,7 @@ Run through after all design work. Every item is yes/no. Do not skip.
 - [ ] All inputs have labels, `aria-label` when visual label missing
 - [ ] Minimum contrast ratios met (4.5:1 normal, 3:1 large/UI)
 - [ ] All sizes in `rem`
-- [ ] Desktop-only hover effects gated with `@media (hover: hover)`
+- [ ] All `:hover` rules gated with `@media (hover: hover)`
 
 #### UX Patterns
 - [ ] Forms: single column, labels above inputs, validate on blur
