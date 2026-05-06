@@ -7,6 +7,7 @@
     "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
   },
   "includeCoAuthoredBy": false,
+  "skillListingBudgetFraction": 0.02,
   "permissions": {
     "allow": [
       "Skill(building-skills)",
