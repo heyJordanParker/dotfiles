@@ -1881,6 +1881,87 @@ out=$(ss get "gf-1" approach)
 assert_eq "$out" "solo" "get <session_id> <field>: still works without --path"
 teardown_test
 
+section "COMPACTED — truncate reads.jsonl and skills.jsonl on PostCompact"
+
+setup_test
+ss start "cp-1" --transcript-path "/foo/cp-1.jsonl"
+# Populate logs
+for i in 1 2 3 4 5; do ss read  "cp-1" "/path/$i"; done
+for i in 1 2 3;       do ss skill "cp-1" "/skill-$i"; done
+assert_eq "$(wc -l < "$TEST_ROOT/sessions/cp-1/reads.jsonl"  | tr -d ' ')" "5" "pre-compaction: 5 reads"
+assert_eq "$(wc -l < "$TEST_ROOT/sessions/cp-1/skills.jsonl" | tr -d ' ')" "3" "pre-compaction: 3 skills"
+
+ss compacted "cp-1"
+assert_exit "$?" 0 "compacted: exit 0"
+# After truncation: zero bytes, zero lines
+assert_eq "$(wc -c < "$TEST_ROOT/sessions/cp-1/reads.jsonl"  | tr -d ' ')" "0" "compacted: reads.jsonl is zero bytes"
+assert_eq "$(wc -c < "$TEST_ROOT/sessions/cp-1/skills.jsonl" | tr -d ' ')" "0" "compacted: skills.jsonl is zero bytes"
+assert_eq "$(wc -l < "$TEST_ROOT/sessions/cp-1/reads.jsonl"  | tr -d ' ')" "0" "compacted: reads.jsonl is zero lines"
+assert_eq "$(wc -l < "$TEST_ROOT/sessions/cp-1/skills.jsonl" | tr -d ' ')" "0" "compacted: skills.jsonl is zero lines"
+teardown_test
+
+setup_test
+# After compacted, fresh appends work normally
+ss start "cp-2" --transcript-path "/foo/cp-2.jsonl"
+ss read "cp-2" "/before"
+ss compacted "cp-2"
+ss read "cp-2" "/after-1"
+ss read "cp-2" "/after-2"
+assert_eq "$(wc -l < "$TEST_ROOT/sessions/cp-2/reads.jsonl" | tr -d ' ')" "2" "post-compacted appends accumulate fresh"
+# The single line should be /after-1 (not /before)
+first=$(head -1 "$TEST_ROOT/sessions/cp-2/reads.jsonl" | jq -r .path)
+assert_eq "$first" "/after-1" "post-compacted: first entry is the post-compaction read"
+teardown_test
+
+setup_test
+# Idempotent: compacted twice in a row is fine
+ss start "cp-3" --transcript-path "/foo/cp-3.jsonl"
+ss read "cp-3" "/x"
+ss compacted "cp-3"
+ss compacted "cp-3"
+assert_exit "$?" 0 "compacted: idempotent (second call exits 0)"
+assert_eq "$(wc -c < "$TEST_ROOT/sessions/cp-3/reads.jsonl" | tr -d ' ')" "0" "compacted: still zero bytes after second call"
+teardown_test
+
+setup_test
+# compacted on a session with no jsonl files yet (no reads/skills happened)
+ss start "cp-4" --transcript-path "/foo/cp-4.jsonl"
+ss compacted "cp-4"
+assert_exit "$?" 0 "compacted: works on fresh session with no jsonl files yet"
+assert_file_exists "$TEST_ROOT/sessions/cp-4/reads.jsonl"  "compacted: reads.jsonl materialized empty"
+assert_file_exists "$TEST_ROOT/sessions/cp-4/skills.jsonl" "compacted: skills.jsonl materialized empty"
+teardown_test
+
+setup_test
+# State.json fields are NOT reset by compacted (per scope)
+ss start "cp-5" --transcript-path "/foo/cp-5.jsonl"
+echo -n "first prompt" | ss prompt "cp-5"
+ss tool-used "cp-5"
+ss tool-used "cp-5"
+ss compacted "cp-5"
+assert_eq "$(ss get cp-5 human_turns)" "1" "compacted: human_turns NOT reset (out of scope)"
+assert_eq "$(ss get cp-5 tools_used)" "2"  "compacted: tools_used NOT reset (out of scope)"
+teardown_test
+
+setup_test
+# compacted preserves nesting for subagents
+ss start "cp-main" --transcript-path "/foo/projects/p/cp-main/cp-main.jsonl"
+ss start "agent-cp" --transcript-path "/foo/projects/p/cp-main/subagents/agent-cp.jsonl"
+ss read "agent-cp" "/sub/file"
+ss compacted "agent-cp"
+assert_eq "$(wc -c < "$TEST_ROOT/sessions/cp-main/subagents/agent-cp/reads.jsonl" | tr -d ' ')" "0" "compacted: subagent's nested reads.jsonl truncated"
+teardown_test
+
+setup_test
+capture ss compacted
+assert_exit "$TEST_CODE" 1 "compacted with no args exits 1"
+teardown_test
+
+setup_test
+capture ss compacted "../traversal"
+assert_exit "$TEST_CODE" 1 "compacted with traversal session_id rejected"
+teardown_test
+
 section "REGRESSION: missing jq fails loud"
 
 setup_test

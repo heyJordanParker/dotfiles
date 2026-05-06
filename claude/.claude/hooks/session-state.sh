@@ -19,6 +19,7 @@
 #   tool-used <session_id>                          atomic ++ on tools_used
 #   read <session_id> <file_path>                   append entry to reads.jsonl ({path, ts})
 #   skill <session_id> <skill_name>                 append entry to skills.jsonl ({skill, ts})
+#   compacted <session_id>                          truncate reads.jsonl and skills.jsonl (post-compaction reset)
 #   find-by-pane <pane_id>                          default zellij (.pane); --tmux for .tmux-pane
 #   list                                            main sessions; --subagents <id> for nested
 #   stats <session_id>                              JSON snapshot of session timings + counters
@@ -70,6 +71,19 @@ _atomic_write() {
     fi
     rm -f "$tmp" 2>/dev/null
     return 1
+}
+
+# Atomically truncate a file to zero bytes. mktemp + mv replaces the target
+# in one rename; readers either see the old content or an empty file, never
+# a half-written intermediate. Missing target is fine — mv creates it empty.
+_truncate() {
+    local file="$1"
+    local dir
+    dir=$(dirname "$file")
+    mkdir -p "$dir" 2>/dev/null || return 1
+    local tmp
+    tmp=$(mktemp "${dir}/.session-state.XXXXXX" 2>/dev/null) || return 1
+    mv "$tmp" "$file" 2>/dev/null || { rm -f "$tmp" 2>/dev/null; return 1; }
 }
 
 # Atomic increment of an integer field. Treats missing/null as 0.
@@ -603,6 +617,25 @@ cmd_skill() {
     printf '%s\n' "$entry" >> "$target_file"
 }
 
+cmd_compacted() {
+    [ $# -lt 1 ] && { echo "Error: compacted requires session_id" >&2; return 1; }
+    local session_id="$1"
+
+    _is_valid_session_id "$session_id" || {
+        echo "Error: invalid session_id: $session_id" >&2
+        return 1
+    }
+
+    local session_dir
+    session_dir=$(_ensure_session "$session_id") || return 1
+
+    # Pre-compaction reads/skills no longer reflect context the agent has —
+    # the conversation history was just summarized away. Truncate both logs.
+    _truncate "${session_dir}/reads.jsonl"
+    _truncate "${session_dir}/skills.jsonl"
+    return 0
+}
+
 cmd_find_by_pane() {
     [ $# -lt 1 ] && { echo "Error: find-by-pane requires pane_id" >&2; return 1; }
 
@@ -767,6 +800,7 @@ main() {
         tool-used)       cmd_tool_used "$@" ;;
         read)            cmd_read "$@" ;;
         skill)           cmd_skill "$@" ;;
+        compacted)       cmd_compacted "$@" ;;
         find-by-pane)    cmd_find_by_pane "$@" ;;
         list)            cmd_list "$@" ;;
         stats)           cmd_stats "$@" ;;

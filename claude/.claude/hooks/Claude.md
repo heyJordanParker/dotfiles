@@ -1,5 +1,5 @@
 # Claude Code Hooks
-v1.0 | Updated: 2026-05-06
+v1.1 | Updated: 2026-05-06
 
 ## Why
 
@@ -93,6 +93,7 @@ stopped <session_id>                              records last_stop (last-write-
 tool-used <session_id>                            atomic ++ on tools_used
 read <session_id> <file_path>                     append {path, ts} to reads.jsonl
 skill <session_id> <skill_name>                   append {skill, ts} to skills.jsonl
+compacted <session_id>                            atomically truncate reads.jsonl and skills.jsonl after compaction
 
 find-by-pane <pane_id>                            default zellij; --tmux for .tmux-pane
 list                                              main sessions; --subagents <id> for nested
@@ -139,6 +140,7 @@ Subagent state files omit the intent-classifier fields (`approach`, `state`, `in
 - **PostToolUse** (any tool) — `session-state tool-used "$SESSION_ID"`
 - **PreToolUse Read/Glob/Grep** — `session-state read "$SESSION_ID" "$FILE_PATH"`
 - **PreToolUse Skill** — `session-state skill "$SESSION_ID" "$SKILL_NAME"`
+- **PostCompact** (matchers `manual|auto`) — `session-state compacted "$SESSION_ID"`
 
 ### Running the test suite
 
@@ -196,6 +198,11 @@ Only add a rule that's backed by a real transcript shape observed in `~/.claude/
 
 Subagent session IDs start with `agent-`. Lazy-create paths (`set`, `merge`, `prompt`, `stopped`, `tool-used`, `read`, `skill`) need to know the parent to nest correctly. They glob `$CLAUDE_PROJECTS_ROOT/*/*/subagents/agent-<id>.jsonl` and extract the parent UUID from the path. Claude Code writes the transcript before any hook fires, so the glob succeeds in production. If the transcript is missing (test environment, manual invocation), `_ensure_session` fails loud rather than landing the subagent at flat top-level.
 
+### Compaction
+
+Claude Code compacts long conversations server-side, summarizing earlier turns when context approaches the limit. After compaction, the agent no longer "has" the pre-compaction history — but `reads.jsonl` and `skills.jsonl` would still show those old events. The PostCompact hook calls `session-state compacted <session_id>` which atomically truncates both logs to zero bytes via `_truncate` (mktemp + mv). State.json fields (`human_turns`, `tools_used`, turn timestamps) are NOT reset — only the append-only event logs that downstream hooks use to gate "events since the agent's effective memory started."
+
 ## Ledger
 
+- v1.1: Document compacted command and PostCompact hook
 - v1.0: Document hooks dir centered on session-state helper
