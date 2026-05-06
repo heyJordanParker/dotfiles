@@ -1,8 +1,9 @@
 ---
 name: researcher
 description: |
-  Use for external research — finding documentation, understanding libraries, investigating APIs,
-  and answering questions about systems outside the current codebase. Read-only. Never writes code.
+  Use for research — external (libraries, APIs, framework docs) or in-codebase
+  ("where is X defined / which files reference Y", architectural surveys, cross-file analysis).
+  Read-only. Never writes code.
 color: green
 model: opus
 tools: Read, Grep, Glob, Bash, WebFetch, WebSearch, mcp__context7__resolve-library-id, mcp__context7__query-docs
