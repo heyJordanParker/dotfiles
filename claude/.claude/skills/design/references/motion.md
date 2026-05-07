@@ -10,7 +10,16 @@
 - **Toast appear:** 200ms — Quick entrance
 - **Toast dismiss:** 150ms — Faster exit
 
+**Duration bands by category:**
+- **Micro-interactions** (button press, icon swap, hover): 100-150ms
+- **Standard UI** (tooltips, dropdowns, focus, popovers): 150-250ms
+- **Modals, drawers, large surfaces**: 200-300ms
+
+UI animations stay under 300ms.
+
 **Scale duration with size.** Bigger elements travel farther and read slower. Small elements (buttons, toasts, icons ≤ 20rem) use base durations. Medium containers (panels, cards 20–30rem) × 1.2. Large surfaces (drawers, full-screen sheets ≥ 30rem) × 1.3–1.5.
+
+**Match duration to travel distance.** A 4px nudge and a 400px slide both at 200ms feel wrong — the nudge looks slow, the slide looks frantic. Longer travel earns longer duration; short travel takes the base.
 
 **Rule:** Exits roughly half the duration of entrances (e.g., 150ms exit vs 300ms enter). Exit animations should also be more subtle — use fixed small movement (`-12px`) instead of full element height (`calc(-100% - 4px)`). Exiting elements don't need the same attention as entering ones; full-height exit movement is jarring and competes with incoming content. Never remove exit animation entirely — keep some motion to indicate direction.
 
@@ -40,7 +49,7 @@ Every interactive element needs:
 - **Disabled:** Reduced opacity (50-60%), no pointer
 - **Loading:** Spinner or pulse, disabled interaction
 
-**Hover example** — gate `:hover` with `@media (hover: hover)` so styles don't stick on tap on touch devices. See [interactable.md](./interactable.md) → Hover States.
+**Hover example** — gate `:hover` with `@media (hover: hover) and (pointer: fine)` so styles don't stick on tap on touch devices. See [interactable.md](./interactable.md) → Hover States.
 
 ```css
 .button {
@@ -50,13 +59,15 @@ Every interactive element needs:
     @apply bg-primary/80 translate-y-0;
   }
 
-  @media (hover: hover) {
+  @media (hover: hover) and (pointer: fine) {
     &:hover {
       @apply bg-primary/90 -translate-y-px;
     }
   }
 }
 ```
+
+**Hover flicker** — when a parent's `:hover` triggers a transform on the parent itself, the parent can re-enter and re-exit hover as it moves under the cursor. Animate a child element instead, leaving the parent's hit area stable.
 
 ## Interruptibility
 
@@ -253,7 +264,7 @@ Small delights that feel intentional:
 - **Icon rotation** on menu expand/collapse
 - **Staggered entering elements** — break content into individually animated chunks instead of animating one big block. Three granularity levels:
   - **Sections** (~100ms delay) — title, description, buttons animate separately
-  - **Individual elements** (~80ms delay) — split title into word spans, buttons into individual items
+  - **Individual elements** (~30-80ms delay between items) — split title into word spans, buttons into individual items
   - Use a `--stagger` CSS variable for clean implementation:
 
 ```css
@@ -271,9 +282,13 @@ Small delights that feel intentional:
   .button { @apply transition-transform duration-150 ease-out active:scale-[0.96]; }
   ```
 - **Success checkmark** with draw animation
+- **Sequential tooltips** — the first tooltip in a hover sequence uses the standard delay and entrance. Subsequent tooltips opened within ~500ms of the previous skip both. Without this, hovering across a row of icons feels gated by the first reveal's pacing.
+- **Subtle blur as polish** — when a transition reads as technically correct but still feels off, a subtle blur (under 20px peak) on entry/exit masks the discontinuity the eye is catching. Skip when motion is already physical (large translate, scale change > 0.2) — the blur becomes redundant.
 - **Skip animation on page load** — use `initial={false}` on `AnimatePresence` to prevent enter animations on first render. Elements in their default state (toggles, tabs, icon swaps) shouldn't animate in on mount — only on subsequent state changes. Don't use on staggered heroes or intentional entrance animations where the initial animation IS the entrance.
 
 **Don't animate high-frequency interactions.** If users see an interaction 100+ times daily (tab switches, list row toggles, feedback on keystrokes), don't animate it. Animation draws attention; attention is expensive when renewed constantly.
+
+**Keyboard-driven actions specifically — remove animation entirely.** Typing, arrow-key navigation, shortcut activation. The user is moving faster than any animation can keep up with, and animation interferes with the input rhythm.
 
 Don't overdo it. One or two per view maximum.
 
@@ -294,3 +309,5 @@ Tailwind: `transition-transform` covers `transform, translate, scale, rotate`. F
 - **Never:** `will-change: all`, `background-color`, `padding`, `top`, `left`, `width`, `height`
 
 Only add when you observe first-frame stutter (Safari benefits most). Each compositing layer costs memory — don't add preemptively.
+
+**Framer Motion: animate `transform`, not `x`/`y` props.** The `x` and `y` props animate `translate()` via the style attribute, which doesn't hardware-accelerate under load. Use `transform: "translateX(...)"` / `"translateY(...)"` directly to keep the GPU compositing path.

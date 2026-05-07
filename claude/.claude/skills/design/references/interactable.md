@@ -23,7 +23,7 @@ Pair every primary with `:active scale(0.96)` (motion.md → Micro-interactions)
 
 ## Hover States
 
-Gate every `:hover` rule with `@media (hover: hover)`. On touch devices, tapping triggers `:hover` styles and they stay stuck until another element is tapped — buttons remain "lit up", cards stay elevated. The media query restricts hover styles to devices with a real pointer.
+Gate every `:hover` rule with `@media (hover: hover) and (pointer: fine)`. On touch devices, tapping triggers `:hover` styles and they stay stuck until another element is tapped — buttons remain "lit up", cards stay elevated. The media query restricts hover styles to devices with a real pointer.
 
 Apply only to `:hover` — `:active`, `:focus-visible`, and `:focus` work on touch and stay outside the gate.
 
@@ -33,7 +33,7 @@ Apply only to `:hover` — `:active`, `:focus-visible`, and `:focus` work on tou
 
   &:active { @apply bg-primary/80 translate-y-0; }
 
-  @media (hover: hover) {
+  @media (hover: hover) and (pointer: fine) {
     &:hover { @apply bg-primary/90 -translate-y-px; }
   }
 }
@@ -46,7 +46,7 @@ For surface elevation on hover (card lifts to a higher tier), the same rule appl
   box-shadow: var(--shadow-subtle);
   transition: box-shadow 200ms var(--ease);
 }
-@media (hover: hover) {
+@media (hover: hover) and (pointer: fine) {
   .card:hover { box-shadow: var(--shadow-elevated); }
 }
 ```
