@@ -1,58 +1,210 @@
-# macOS Environment
-v1.1 | Updated: 2026-03-09
+# Dotfiles
+v1.6 | Updated: 2026-05-08
 
 ## Why
 
-Quick reference for system defaults that affect keybinding and development environment decisions.
+Reproducible macOS environment setup and Claude Code plugin distribution from a single repository.
 
 ## What
 
-Reference documentation for terminal keybindings and local development services.
+GNU Stow-managed dotfiles, organized under `packages/`. Each subdirectory of `packages/` is a stow package whose contents are exactly what should land at the package's stow target. The `claude` package doubles as the source for the Claude Code plugin marketplace.
+
+### Requirements
+
+- Every package contains exactly the files that should land in its target — no inner mirror wrappers (`.config/<tool>/`, `.<tool>/`)
+- Plugin marketplace must distribute skills, hooks, and commands without leaking local config
+- Must restow with the correct `-t` target after editing — `stow -t <target> <pkg>`
 
 ### Boundaries
 
-- Never bind custom keybindings to the system defaults listed below
+- Never commit `settings.json`, `Claude.md`, or other local config to plugin distribution — these are local only
+- Never put rules in plugin manifest — not supported by plugin schema
+- Never break the per-package target mapping in `setup.sh` — each package needs the correct `-t` so contents land where they belong
+- Never bind custom keybindings to the macOS terminal defaults listed in the Reference section — they're system-wide and overriding them breaks expected shell behavior
+
+## Architecture
+
+```
+dotfiles/
+├── .claude/                          # gitignored — Claude Code's local working dir for this repo
+├── .claude-plugin/
+│   └── marketplace.json              # source: "./packages/claude"
+├── packages/                         # stow source dir; each child is a stow package
+│   ├── claude/                       # → ~/.claude/      (settings, agents, skills, hooks, rules, Claude.md)
+│   ├── codex/                        # → ~/.codex/       (config, rules, system-skills, Agents.md, skills symlink)
+│   ├── ssh/                          # → ~/.ssh/         (config)
+│   ├── bin/                          # → ~/.local/bin/   (custom shell scripts)
+│   ├── starship/                     # → ~/.config/      (starship.toml)
+│   ├── git/                          # → ~/              (.gitconfig)
+│   ├── hyprspace/                    # → ~/              (.hyprspace.toml)
+│   ├── npm/                          # → ~/              (.npmrc)
+│   ├── tmux/                         # → ~/              (.tmux.conf, .tmux/)
+│   ├── zsh/                          # → ~/              (.zshrc, .zprofile, .zshenv, .zsh_completions.zsh)
+│   ├── atuin/, bat/, borders/, btop/, bun/, delta/, ghostty/,
+│   ├── karabiner/, lazygit/, nvim/, opencode/, superfile/, zed/, zellij/   # → ~/.config/<pkg>/
+├── Brewfile
+├── Claude.md                         # this file — repo project docs
+├── README.md
+├── setup-secrets.sh
+├── setup.sh
+├── .gitignore
+└── .stow-local-ignore
+```
+
+### Cross-tool sharing (codex ↔ claude)
+
+- `packages/codex/Agents.md → ../../../.claude/Claude.md` — Codex reads the same global Claude.md as Claude does (post-stow user-global)
+- `packages/codex/skills → ../claude/skills` — Codex sees Claude's whole skills dir
+- `packages/claude/skills/.system → ../../codex/system-skills` — Claude sees Codex's defaults via reverse symlink
+- Codex defaults (`imagegen`, `openai-docs`, `plugin-creator`, `skill-creator`, `skill-installer`) live as real files in `packages/codex/system-skills/` and are excluded from stow via `packages/codex/.stow-local-ignore`
+
+## Workflow
+
+### When You Don't Need to Restow
+
+Editing **content** of an already-stowed file works through the symlink — the link at `$HOME` points at the source, so edits land in the source and stay live without any stow command. Day-to-day edits (settings.json tweak, hook script change, new skill text) need nothing further.
+
+### When You Do Need to Restow
+
+Restow on filesystem-shape changes inside a package — these aren't picked up by existing symlinks:
+
+- **Adding** a file/dir to a package
+- **Removing** a file/dir from a package (the dangling symlink at the target stays until stow cleans it)
+- **Renaming or restructuring** anything inside a package
+- **First-time stow** of a brand-new package
+
+Per-package restow:
+
+```bash
+cd ~/dotfiles/packages
+stow -R -t <target> <pkg>     # e.g., stow -R -t ~/.claude claude
+```
+
+The target for each `<pkg>` is the one defined in `setup.sh` — see the per-package mapping in the "Stow Targets" section under How.
+
+Whole-repo restow (after multi-package changes): copy the stow block from `setup.sh` (the `cd "$DOTFILES_DIR/packages"` block) and run it. There's no helper script — `setup.sh` is the single source of truth for the package→target mapping.
+
+### Adding a New Package
+
+1. Create the package directory inside `packages/`
+2. Add the actual config files at the package root (no inner wrappers — the package contents are exactly what should land at the target)
+3. Add a stow line to `setup.sh` with the correct `-t` target — match the target group your tool belongs to (home root, `~/.config/<tool>/`, or special)
+4. If the target dir might not exist on a fresh machine, add `mkdir -p` to setup.sh's mkdir block
+5. Stow it: `stow -t <target> <pkg>`
+
+### Adding/Renaming Files Inside an Existing Package
+
+After the change, restow that one package: `stow -R -t <target> <pkg>`. No edit to `setup.sh` is needed — the package is already in its stow block.
+
+### Removing a Package
+
+1. Unstow it: `stow -D -t <target> <pkg>`
+2. Delete the package directory under `packages/`
+3. Remove its line from `setup.sh`
+
+### Installing CLI Tools
+
+1. Add to `Brewfile` (appropriate section)
+2. If config needed: create a package dir under `packages/`, add config files at package root
+3. If wrapper needed (secrets, env vars): add a script to `packages/bin/` and restow `bin`
+4. Stow new/modified packages with the correct `-t`
+
+### Python Tools (pipx)
+
+```bash
+pipx install <package>
+```
+
+### Editing the Stow Mapping
+
+`setup.sh`'s stow block is the contract — every package appears there with its target. When the mapping changes, the stow block is the only file that changes. Any helper or workflow tooling needs to read the mapping from this block.
 
 ## How
 
-### Terminal Keybindings
+### Stow Targets — the explicit per-package mapping
+
+`setup.sh` runs stow once per target group:
+
+- Home root (`~/`): `git`, `hyprspace`, `npm`, `tmux`, `zsh`
+- Single-segment dirs: `claude` → `~/.claude/`, `codex` → `~/.codex/`, `ssh` → `~/.ssh/`
+- Special targets: `bin` → `~/.local/bin/`, `starship` → `~/.config/`
+- `~/.config/<tool>/` group (loop): `atuin`, `bat`, `borders`, `btop`, `bun`, `delta`, `ghostty`, `karabiner`, `lazygit`, `nvim`, `opencode`, `superfile`, `zed`, `zellij`
+
+### Plugin Marketplace
+
+Users install with:
+```
+/plugin marketplace add heyJordanParker/dotfiles
+/plugin install talents@talent-tree
+```
+
+**Distributed:** Skills (`packages/claude/skills/`), Commands (`packages/claude/commands/`), Hooks (`packages/claude/hooks/hooks.json` with `${CLAUDE_PLUGIN_ROOT}` paths)
+
+**Local-only:** Rules, settings, agents, `settings.json`, `Claude.md`, tmux hooks, the `.system/` codex defaults (lives in the codex package, reached from claude via symlink so it doesn't appear under the plugin source path)
+
+### Dual Hooks Setup
+
+Hook **scripts/content** are shared (single files in `packages/claude/hooks/`). Hook **wiring** exists in two places:
+- `packages/claude/settings.json` — local use via stow (includes tmux hooks)
+- `packages/claude/hooks/hooks.json` — plugin consumers (non-tmux hooks only, uses `${CLAUDE_PLUGIN_ROOT}`)
+
+When adding/changing a non-tmux hook, update both files.
+
+### Expanding the Marketplace
+
+- **Add skill:** Create `packages/claude/skills/<name>/Skill.md` — auto-discovered
+- **Add command:** Create `packages/claude/commands/<name>.md` — auto-discovered
+- **Add hook:** Add script to `packages/claude/hooks/`, wire in both `settings.json` and `hooks/hooks.json`
+- **Bump version:** Update `version` in `marketplace.json` plugin entry — required for users to get updates
+- **Validate:** `claude plugin validate .` from repo root
+- **Test locally:** `/plugin marketplace add ./` then `/plugin install talents@talent-tree`
+
+### Plugin Distribution Limitations
+
+- `strict: false` — marketplace entry defines all components, no `plugin.json` needed
+- Entire `./packages/claude` directory gets copied to plugin cache (extra files are inert)
+- Plugin consumers don't get rules or settings — those go in their own Claude.md/settings
+
+## Reference
+
+### macOS Terminal Keybindings (system defaults — don't override)
 
 #### Ctrl (readline/shell)
-- ^a - beginning of line
-- ^e - end of line
-- ^b - back one char
-- ^f - forward one char
-- ^d - delete forward
-- ^h - delete backward
-- ^k - kill to end of line
-- ^u - kill whole line
-- ^w - kill word backward
-- ^y - yank (paste killed text)
-- ^t - transpose chars
-- ^p - previous history
-- ^n - next history
-- ^r - reverse search history
-- ^l - clear screen
-- ^c - interrupt
-- ^z - suspend
-- ^i - tab (same keycode)
-- ^j - newline (same keycode)
-- ^m - return (same keycode)
+- ^a — beginning of line
+- ^e — end of line
+- ^b — back one char
+- ^f — forward one char
+- ^d — delete forward
+- ^h — delete backward
+- ^k — kill to end of line
+- ^u — kill whole line
+- ^w — kill word backward
+- ^y — yank (paste killed text)
+- ^t — transpose chars
+- ^p — previous history
+- ^n — next history
+- ^r — reverse search history
+- ^l — clear screen
+- ^c — interrupt
+- ^z — suspend
+- ^i — tab (same keycode)
+- ^j — newline (same keycode)
+- ^m — return (same keycode)
 
 #### Alt/Option (word movement)
-- ~b - back one word
-- ~f - forward one word
-- ~d - delete word forward
-- ~Delete - delete word backward
-- ~Enter - insert newline
-- ~Tab - insert tab
-- ~Esc - complete
+- ~b — back one word
+- ~f — forward one word
+- ~d — delete word forward
+- ~Delete — delete word backward
+- ~Enter — insert newline
+- ~Tab — insert tab
+- ~Esc — complete
 
-#### Cmd - typically handled by terminal app, not shell
-- Cmd+c - copy
-- Cmd+v - paste
-- Cmd+a - select all
-- Cmd+. - cancel
+#### Cmd — typically handled by the terminal app, not the shell
+- Cmd+c — copy
+- Cmd+v — paste
+- Cmd+a — select all
+- Cmd+. — cancel
 
 ### ~/Developer Directory
 
@@ -72,4 +224,11 @@ Two subdirectories with distinct purposes:
 
 ## Ledger
 
-- v1.1: Adopted Why/What/How template
+- v1.6: Restow rules documented for content vs shape changes
+- v1.5: Flat packages/ layout with per-target stow
+- v1.4: Added keybindings.json as LOCAL ONLY — per-user shortcuts wire `command:*` to skills (e.g. copy-plan-path, copy-shaping-dir)
+- v1.3: Added agents/ to architecture tree and plugin exclusion list -- agents are local-only, not distributed
+- v1.2: Adopted Why/What/How template with Requirements/Boundaries/Ledger
+- v1.1: Added plugin marketplace with `strict: false` manifest
+</content>
+</invoke>

@@ -3,7 +3,9 @@ package.json
 tsconfig.json
 bun.lock
 node_modules
-CLAUDE.md
+docs
+karabiner\.json
+Claude\.md
 \.gitignore
 \.cursor
 \.stow-local-ignore

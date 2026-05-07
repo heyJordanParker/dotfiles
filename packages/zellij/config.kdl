@@ -38,7 +38,7 @@ plugins {
     session-manager location="zellij:session-manager"
     // Invisible plugin: normalizes tab names + manages attention indicators
     // via `zellij pipe --name "muxline::waiting::$ZELLIJ_PANE_ID"`.
-    // Built by setup.sh from dotfiles/zellij/plugins/muxline/.
+    // Built by setup.sh from dotfiles/packages/zellij/build/muxline/.
     muxline location="file:~/.config/zellij/plugins/muxline.wasm"
 }
 

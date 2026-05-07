@@ -7,7 +7,7 @@
   "plugins": [
     {
       "name": "talents",
-      "source": "./claude/.claude",
+      "source": "./packages/claude",
       "description": "Overpowered Claude Code talents to power level your software architecture.",
       "version": "1.4.0",
       "strict": false,

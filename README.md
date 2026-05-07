@@ -117,20 +117,22 @@ This installs Xcode CLI tools, Homebrew, all packages from `Brewfile`, bun, and 
 
 ### Manual Usage
 
+Each subdirectory of `packages/` is a stow package. Its contents are exactly what should land at the package's stow target — no inner mirror wrappers. The package-to-target mapping lives in `setup.sh`.
+
 ```bash
-# Add a new config
-cd ~/dotfiles
-mkdir -p newapp/.config/newapp
-mv ~/.config/newapp/config newapp/.config/newapp/
-stow newapp
+# Add a new config — example: 'newapp' targets ~/.config/newapp/
+cd ~/dotfiles/packages
+mkdir -p newapp
+mv ~/.config/newapp/* newapp/
+stow -t ~/.config/newapp newapp
 
 # Remove symlinks
-stow -D newapp
+stow -D -t ~/.config/newapp newapp
 
 # Re-link after changes
-stow -R newapp
+stow -R -t ~/.config/newapp newapp
 ```
 
 ### Structure
 
-Each top-level directory is a stow package. Files inside mirror their target location relative to `$HOME`.
+Stow packages live under `dotfiles/packages/<pkg>/`. Each package contains the actual files that get symlinked to its target — see `Claude.md` for the full architecture.

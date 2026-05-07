@@ -33,7 +33,7 @@ brew bundle --file="$DOTFILES_DIR/Brewfile"
 echo "==> Installing bun global packages..."
 while read -r pkg; do
   [ -n "$pkg" ] && bun add -g "$pkg"
-done < "$DOTFILES_DIR/bun/.config/bun/globals"
+done < "$DOTFILES_DIR/packages/bun/globals"
 bun pm -g trust --all
 agent-browser install
 
@@ -68,13 +68,26 @@ PLIST
 fi
 
 echo "==> Linking dotfiles..."
+mkdir -p "$HOME/.claude" "$HOME/.codex" "$HOME/.ssh" "$HOME/.local/bin" "$HOME/.config"
+for pkg in atuin bat borders btop bun delta ghostty karabiner lazygit nvim opencode superfile zed zellij; do
+  mkdir -p "$HOME/.config/$pkg"
+done
+cd "$DOTFILES_DIR/packages"
+stow -v -t "$HOME" git hyprspace npm tmux zsh
+stow -v -t "$HOME/.claude" claude
+stow -v -t "$HOME/.codex" codex
+stow -v -t "$HOME/.ssh" ssh
+stow -v -t "$HOME/.local/bin" bin
+stow -v -t "$HOME/.config" starship
+for pkg in atuin bat borders btop bun delta ghostty karabiner lazygit nvim opencode superfile zed zellij; do
+  stow -v -t "$HOME/.config/$pkg" "$pkg"
+done
 cd "$DOTFILES_DIR"
-stow -v zsh git tmux npm ssh nvim ghostty karabiner btop claude lazygit delta bat opencode atuin bun zellij
 
 # Pre-grant zellij plugin permissions so zjstatus/autolock render without prompting
 ZELLIJ_CACHE="$HOME/Library/Caches/org.Zellij-Contributors.Zellij"
 mkdir -p "$ZELLIJ_CACHE"
-cp "$DOTFILES_DIR/zellij/.config/zellij/permissions.kdl" "$ZELLIJ_CACHE/permissions.kdl"
+cp "$DOTFILES_DIR/packages/zellij/permissions.kdl" "$ZELLIJ_CACHE/permissions.kdl"
 
 # Build and install custom muxline zellij plugin
 echo "==> Building muxline zellij plugin..."
@@ -84,8 +97,8 @@ if [ ! -x "$HOME/.cargo/bin/rustup" ]; then
 fi
 rustup target add wasm32-wasip1 >/dev/null 2>&1
 mkdir -p "$HOME/.config/zellij/plugins"
-(cd "$DOTFILES_DIR/zellij/plugins/muxline" && cargo build --target wasm32-wasip1 --release >/dev/null)
-cp "$DOTFILES_DIR/zellij/plugins/muxline/target/wasm32-wasip1/release/muxline.wasm" "$HOME/.config/zellij/plugins/"
+(cd "$DOTFILES_DIR/packages/zellij/build/muxline" && cargo build --target wasm32-wasip1 --release >/dev/null)
+cp "$DOTFILES_DIR/packages/zellij/build/muxline/target/wasm32-wasip1/release/muxline.wasm" "$HOME/.config/zellij/plugins/"
 
 # Build bat theme cache
 bat cache --build 2>/dev/null || true
