@@ -1691,9 +1691,9 @@ ss start "tu-2" --transcript-path "/foo/tu-2.jsonl"
 (for i in $(seq 1 25); do ss tool-used "tu-2"; done) &
 wait
 final=$(ss get tu-2 tools_used)
-# Race semantics same as `set` — last-jq-result-wins, no flock. Final count
-# may be ≤ 50 due to lost updates under contention, but must be > 0 and ≤ 50.
-[ "$final" -ge 1 ] && [ "$final" -le 50 ] && ok "concurrent tool-used: count is in [1,50] ($final), no corruption" || fail "concurrent tool-used" "got $final"
+# mkdir-mutex around _bump serializes the read-modify-write — every increment
+# lands. 50 dispatched tool-used calls must result in tools_used=50 exactly.
+assert_eq "$final" "50" "concurrent tool-used: 50 increments → tools_used=50 exactly (no lost updates)"
 state="$TEST_ROOT/sessions/tu-2/state.json"
 jq -e . "$state" >/dev/null 2>&1 && ok "concurrent tool-used: state.json valid" || fail "tu-2" "corrupt"
 teardown_test

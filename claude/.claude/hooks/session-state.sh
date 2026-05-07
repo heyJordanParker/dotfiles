@@ -73,6 +73,26 @@ _atomic_write() {
     return 1
 }
 
+# Mutex around read-modify-write on a state file. mkdir is atomic on POSIX
+# filesystems; this loop spins up to 5s waiting for the lock holder to release.
+# Returns 1 if the lock can't be acquired in 5s — caller logs and skips.
+_with_lock() {
+    local lock_dir="${1}.lock"
+    local tries=0
+    while ! mkdir "$lock_dir" 2>/dev/null; do
+        tries=$((tries + 1))
+        if [ "$tries" -gt 500 ]; then
+            return 1
+        fi
+        sleep 0.01
+    done
+    return 0
+}
+
+_release_lock() {
+    rmdir "${1}.lock" 2>/dev/null
+}
+
 # Atomically truncate a file to zero bytes. mktemp + mv replaces the target
 # in one rename; readers either see the old content or an empty file, never
 # a half-written intermediate. Missing target is fine — mv creates it empty.
@@ -87,14 +107,23 @@ _truncate() {
 }
 
 # Atomic increment of an integer field. Treats missing/null as 0.
+# Locked: read-modify-write under a mkdir mutex so concurrent invocations
+# don't lose increments.
 _bump() {
     local state_file="$1"
     local field="$2"
     [ ! -f "$state_file" ] && return 1
+    _with_lock "$state_file" || return 1
     local updated
     updated=$(jq --arg f "$field" '.[$f] = ((.[$f] // 0) + 1)' "$state_file" 2>/dev/null)
-    [ -z "$updated" ] && return 1
+    if [ -z "$updated" ]; then
+        _release_lock "$state_file"
+        return 1
+    fi
     _atomic_write "$state_file" "$updated"
+    local rc=$?
+    _release_lock "$state_file"
+    return $rc
 }
 
 # Reads prompt content from stdin. Returns 0 if human-typed, 1 if system-injected.
@@ -368,6 +397,7 @@ cmd_start() {
 
     # One-shot: record session_start the first time start runs for this session
     local state_file="${session_dir}/state.json"
+    _with_lock "$state_file" || { echo "Error: lock timeout: $state_file" >&2; return 1; }
     local current_start
     current_start=$(jq -r '.session_start // empty' "$state_file" 2>/dev/null)
     if [ -z "$current_start" ]; then
@@ -376,6 +406,7 @@ cmd_start() {
         updated=$(jq --argjson now "$now" '.session_start = $now' "$state_file" 2>/dev/null)
         [ -n "$updated" ] && _atomic_write "$state_file" "$updated"
     fi
+    _release_lock "$state_file"
 
     if [ -n "$transcript_path" ]; then
         _atomic_write "${session_dir}/transcript" "$transcript_path"
@@ -462,6 +493,7 @@ cmd_set() {
     session_dir=$(_ensure_session "$session_id") || return 1
     local state_file="${session_dir}/state.json"
 
+    _with_lock "$state_file" || { echo "Error: lock timeout: $state_file" >&2; return 1; }
     local updated
     if printf '%s' "$value" | jq empty >/dev/null 2>&1; then
         updated=$(jq --arg f "$field" --argjson v "$value" '.[$f] = $v' "$state_file" 2>/dev/null)
@@ -470,9 +502,13 @@ cmd_set() {
     fi
     if [ -z "$updated" ]; then
         echo "Error: failed to update state.json: $state_file" >&2
+        _release_lock "$state_file"
         return 1
     fi
     _atomic_write "$state_file" "$updated"
+    local rc=$?
+    _release_lock "$state_file"
+    return $rc
 }
 
 cmd_merge() {
@@ -494,13 +530,18 @@ cmd_merge() {
     session_dir=$(_ensure_session "$session_id") || return 1
     local state_file="${session_dir}/state.json"
 
+    _with_lock "$state_file" || { echo "Error: lock timeout: $state_file" >&2; return 1; }
     local updated
     updated=$(jq --argjson frag "$fragment" '. + $frag' "$state_file" 2>/dev/null)
     if [ -z "$updated" ]; then
         echo "Error: failed to merge into state.json: $state_file" >&2
+        _release_lock "$state_file"
         return 1
     fi
     _atomic_write "$state_file" "$updated"
+    local rc=$?
+    _release_lock "$state_file"
+    return $rc
 }
 
 cmd_prompt() {
@@ -524,6 +565,7 @@ cmd_prompt() {
     session_dir=$(_ensure_session "$session_id") || return 1
     local state_file="${session_dir}/state.json"
 
+    _with_lock "$state_file" || { echo "Error: lock timeout: $state_file" >&2; return 1; }
     local now
     now=$(_now)
     local updated
@@ -534,9 +576,13 @@ cmd_prompt() {
     ' "$state_file" 2>/dev/null)
     if [ -z "$updated" ]; then
         echo "Error: failed to record prompt event: $state_file" >&2
+        _release_lock "$state_file"
         return 1
     fi
     _atomic_write "$state_file" "$updated"
+    local rc=$?
+    _release_lock "$state_file"
+    return $rc
 }
 
 cmd_stopped() {
@@ -552,14 +598,19 @@ cmd_stopped() {
     session_dir=$(_ensure_session "$session_id") || return 1
     local state_file="${session_dir}/state.json"
 
+    _with_lock "$state_file" || { echo "Error: lock timeout: $state_file" >&2; return 1; }
     local now updated
     now=$(_now)
     updated=$(jq --argjson now "$now" '.last_stop = $now' "$state_file" 2>/dev/null)
     if [ -z "$updated" ]; then
         echo "Error: failed to record stop event: $state_file" >&2
+        _release_lock "$state_file"
         return 1
     fi
     _atomic_write "$state_file" "$updated"
+    local rc=$?
+    _release_lock "$state_file"
+    return $rc
 }
 
 cmd_tool_used() {

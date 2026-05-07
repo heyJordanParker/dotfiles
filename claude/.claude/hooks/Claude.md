@@ -1,5 +1,5 @@
 # Claude Code Hooks
-v1.1 | Updated: 2026-05-06
+v1.3 | Updated: 2026-05-07
 
 ## Why
 
@@ -18,6 +18,7 @@ This directory contains the safety, enforcement, and state-tracking hooks wired 
 - New fields added to the state schema also get `// 0` / `// null` defaults at every read site — older session files on disk must keep working
 - Subagent sessions (`session_id` starting with `agent-`) get their own state files under their parent's `subagents/` directory; no global parent-state mutation from a subagent's hook
 - Every persistent file lives under `~/.claude/` (overridable via `$CLAUDE_DATA_ROOT`); never `/tmp/` — sessions must survive reboot
+- Helper hook invocations always redirect stderr to `/tmp/session-state-hook.log` (never `/dev/null`) — silent failures hide the cause
 
 ### Boundaries
 
@@ -134,13 +135,26 @@ Subagent state files omit the intent-classifier fields (`approach`, `state`, `in
 ### Hook → command wiring
 
 - **SessionStart** — `session-state start "$SESSION_ID" --transcript-path "$TRANSCRIPT"`
-- **SessionEnd** — `session-state end "$SESSION_ID"`
 - **UserPromptSubmit** — `printf '%s' "$PROMPT" | session-state prompt "$SESSION_ID"`
 - **Stop** — `session-state stopped "$SESSION_ID"`
-- **PostToolUse** (any tool) — `session-state tool-used "$SESSION_ID"`
-- **PreToolUse Read/Glob/Grep** — `session-state read "$SESSION_ID" "$FILE_PATH"`
+- **PreToolUse `"*"`** — `session-state tool-used "$SESSION_ID"` (literal asterisk; PostToolUse omit-matcher does not fire reliably in 2.1.131)
+- **PreToolUse Read** — `session-state read "$SESSION_ID" "$FILE_PATH"`
 - **PreToolUse Skill** — `session-state skill "$SESSION_ID" "$SKILL_NAME"`
 - **PostCompact** (matchers `manual|auto`) — `session-state compacted "$SESSION_ID"`
+
+For per-tool-call events, the wiring overwrites `SESSION_ID` with `agent-<agent_id>` when the payload carries `agent_id` (event fires inside a subagent's execution context), otherwise leaves it as the parent's `session_id`:
+
+```bash
+SESSION_ID=$(echo "$INPUT" | jq -r '.session_id')
+AGENT_ID=$(echo "$INPUT" | jq -r '.agent_id // empty')
+[ -n "$AGENT_ID" ] && SESSION_ID="agent-$AGENT_ID"
+```
+
+This routes subagent inner tool calls into `<sessions>/<parent>/subagents/agent-<agent_id>/`. The helper's `_resolve_parent_id` then globs Claude Code's transcript layout to populate `parent_session_id` correctly.
+
+`SessionEnd` is intentionally not wired — sessions can be resumed after terminal close, and state must survive reboot. `end` is a manual deletion command, not a lifecycle hook target.
+
+In Claude Code 2.1.131: `SessionStart` does not fire for subagent sessions; `SubagentStart`/`SubagentStop`/`TaskCreated`/`TaskCompleted` did not appear in any of the 138 debug logs surveyed. Subagent identity reaches hooks only via `agent_id`/`agent_type` payload fields on `PreToolUse`/`PostToolUse` — `session_id` always carries the parent's UUID. The helper's full subagent infrastructure remains in place: it's the wiring's responsibility to construct `agent-<agent_id>` from the payload before calling the helper.
 
 ### Running the test suite
 
@@ -190,9 +204,8 @@ Only add a rule that's backed by a real transcript shape observed in `~/.claude/
 ### Race semantics
 
 - `_atomic_write` uses `mktemp + mv` — atomic on the same filesystem; concurrent writers see either the old or new state, never a half-written file
-- `set` and `merge` are read-modify-write — last writer wins per field; no flock since perfect counter accuracy isn't a requirement for any current consumer
-- Append (`read`, `skill`) uses `>> file` — POSIX guarantees atomicity for writes under PIPE_BUF (4KB); JSONL entries are well below that
-- `tool-used` (via `_bump`) has the same race as `set` — under contention some increments are lost; the test pins this as accepted behavior
+- All read-modify-write paths (`start`, `set`, `merge`, `prompt`, `stopped`, `tool-used`/`_bump`) acquire a per-state-file mutex via `_with_lock` (atomic `mkdir` of `<state.json>.lock`, 5s timeout). Concurrent invocations serialize through the lock; no increments are lost. Test `concurrent tool-used: 50 increments → tools_used=50 exactly` pins this
+- Append (`read`, `skill`) uses `>> file` — POSIX guarantees atomicity for writes under PIPE_BUF (4KB); JSONL entries are well below that, no lock needed
 
 ### `agent-*` session resolution
 
@@ -204,5 +217,7 @@ Claude Code compacts long conversations server-side, summarizing earlier turns w
 
 ## Ledger
 
+- v1.3: Lock RMW paths so concurrent counters land exactly
+- v1.2: Wire helper into Claude Code hook events
 - v1.1: Document compacted command and PostCompact hook
 - v1.0: Document hooks dir centered on session-state helper

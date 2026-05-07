@@ -93,7 +93,7 @@ hooks:
 
 - `"Write"` — exact tool
 - `"Write|Edit"` — multiple tools
-- `"*"` or omit — all tools
+- `"*"` — all tools (use the literal asterisk — observed in 2.1.131: omitting the matcher field results in the hook not firing reliably across tools, even though the doc treats omit as equivalent to `"*"`)
 - `"mcp__.*"` — regex pattern
 
 **Case-sensitive.** Use `/hooks` to verify tool names.
@@ -115,10 +115,19 @@ hooks:
 Each hook event receives a JSON object on stdin. Fields vary by event.
 
 **PreToolUse / PostToolUse:**
-- `session_id` — session UUID (prefixed `agent-` for subagent sessions)
+- `session_id` — session UUID. In Claude Code 2.1.131 this is the parent session's UUID even when the tool runs inside a subagent — verified by directly reading hook payloads from `/tmp/payload-trace.log` during a controlled subagent dispatch. Subagent identity is NOT carried in `session_id`; see `agent_id` / `agent_type` below.
+- `agent_id` — present only when the event fires inside a subagent's execution (e.g. `"a3b88a27b1667264e"`). Absent for parent's own tool calls.
+- `agent_type` — present alongside `agent_id`; the dispatched subagent type (e.g. `"researcher"`).
 - `tool_name` — the tool being called (e.g. `"Write"`, `"Bash"`, `"Agent"`)
 - `tool_input` — tool-specific parameters (e.g. `{file_path, content}` for Write, `{command}` for Bash, `{prompt, run_in_background}` for Agent)
 - `cwd` — working directory
+
+**To route per-tool-call events per-subagent**, overwrite `SESSION_ID` with `agent-<agent_id>` when the payload carries it:
+```bash
+SESSION_ID=$(echo "$INPUT" | jq -r '.session_id')
+AGENT_ID=$(echo "$INPUT" | jq -r '.agent_id // empty')
+[ -n "$AGENT_ID" ] && SESSION_ID="agent-$AGENT_ID"
+```
 
 **UserPromptSubmit:**
 - `session_id` — session UUID
@@ -285,6 +294,8 @@ For complex logic, use LLM evaluation (single turn, no tools):
 ```
 
 **Supported events:** PreToolUse, PostToolUse, Stop, StopFailure, SubagentStop, UserPromptSubmit, PermissionRequest, TaskCompleted, TaskCreated, CwdChanged, FileChanged, Elicitation, ElicitationResult
+
+**Observed in 2.1.131:** `SubagentStop`, `TaskCompleted`, `TaskCreated`, and `SubagentStart` did not appear in any of 138 debug logs surveyed (134 historical plus 4 controlled `claude --debug` runs covering subagent dispatch). Subagent inner tool calls DO fire `PreToolUse`/`PostToolUse` — with the parent's `session_id` plus the subagent identity carried in `agent_id` / `agent_type` payload fields (see Event Input Schemas).
 
 ## Agent Hooks
 
