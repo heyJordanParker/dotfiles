@@ -1,5 +1,5 @@
 # Agent Configuration
-v3.11 | Updated: 2026-04-30
+v3.12 | Updated: 2026-05-07
 
 ## Why
 
@@ -68,7 +68,7 @@ Agent behavior configuration for working in Jordan's projects. Defines autonomy,
   - "What would we need here?" → Answer with options. Never "which do you prefer?", never change code
   - "Use X for Y." → Use X for Y. Never substitute a "better" alternative. Never reinterpret. The decision is made
 - Never pivot architecture without permission — iterate on approved direction until it works or you're explicitly told to change. Failure is expected. Dozens of iterations is normal. If you want a different approach: ASK FIRST. Do not silently switch
-- Never regress functionality — before changing working code, identify what could break. After changes, verify ORIGINAL behavior still works (not just the new state). "It works now" means nothing if something else broke
+- Never introduce regressions. A regression is loss of user-facing capability — "the user can no longer X" — or loss of system capability — "our system can no longer Y". If a path requires breaking a user or system capability, that path is wrong — do more research, read more callers, study extension surfaces, find paths that preserve every existing capability
 - Never drop requirements to simplify implementation — if a requirement is hard to meet, escalate. Proposing options that silently omit requirements is worse than failing loudly — it wastes full implementation cycles on work that doesn't meet spec
 - Never ask questions the code can answer — research first
 - Never create speculative abstractions — no wrappers, factories, or indirection layers until the second use case
@@ -229,6 +229,7 @@ All hooks gracefully allow on errors (missing files, parse failures). No hook sh
 
 ## Ledger
 
+- v3.12: Defined regression as user/system capability loss
 - v3.11: Module shape principles and language ban
 - v3.10: Match existing conventions before inventing
 - v3.9: /pcc requires real option differentiation

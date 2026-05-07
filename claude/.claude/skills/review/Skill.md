@@ -5,7 +5,7 @@ description: Use for code review - runs all reviewers in parallel on uncommitted
 
 # Review
 
-Full code review gate. Runs 7 agents in parallel on uncommitted changes.
+Full code review gate. Runs 8 agents in parallel on uncommitted changes.
 
 ## Current Changes
 
@@ -19,7 +19,7 @@ Full code review gate. Runs 7 agents in parallel on uncommitted changes.
 
 Include the "Current Changes" and "Full Diff" sections above in each agent prompt instead of telling them to run `git diff HEAD`.
 
-Launch 7 reviewers in parallel using the Agent tool: `subagent_type: "code-reviewer"`, `subagent_type: "architect"`, general-purpose (naming), `subagent_type: "backend-engineer"`, `subagent_type: "frontend-engineer"`, `subagent_type: "context-engineer"`, and `subagent_type: "ux-tester"`.
+Launch 8 reviewers in parallel using the Agent tool: `subagent_type: "code-reviewer"`, `subagent_type: "architect"`, general-purpose (naming), `subagent_type: "backend-engineer"`, `subagent_type: "frontend-engineer"`, `subagent_type: "context-engineer"`, `subagent_type: "regression-reviewer"`, and `subagent_type: "ux-tester"`.
 
 ### Code-Reviewer Agent: Anti-Slop
 
@@ -75,6 +75,14 @@ Audit Claude.md files against the current uncommitted changes (diff provided). R
 If clean: "Ledger is up to date."
 
 DO NOT make any changes. Report findings only.
+```
+
+### Regression-Reviewer Agent: Capability Regressions
+
+Dispatch using `subagent_type: "regression-reviewer"` via the Agent tool (not Task tool). Prompt:
+
+```
+Review uncommitted changes for capability regressions. Map the diff to affected user-facing flows and system capabilities. Trace each end-to-end. Flag any capability that is lost or degraded. Report using Critical/Important/Minor format. If clean: "No capability regressions found."
 ```
 
 ### UX Tester Agent: User Experience
