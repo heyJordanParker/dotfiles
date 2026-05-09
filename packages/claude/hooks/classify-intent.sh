@@ -56,7 +56,7 @@ TRANSCRIPT_PATH=$(echo "$EVENT" | jq -r '.transcript_path // ""')
 STATE_FILE="/tmp/claude-session-state-${SESSION_ID}"
 
 # Ensure session state file exists (creates with defaults if missing)
-[ ! -f "$STATE_FILE" ] && /Users/jordan/.claude/hooks/initialize-session-state.sh "$SESSION_ID"
+[ ! -f "$STATE_FILE" ] && "$HOME/.claude/hooks/initialize-session-state.sh" "$SESSION_ID"
 
 # Read existing session state
 CURRENT_APPROACH=$(jq -r '.approach // "solo"' "$STATE_FILE" 2>/dev/null) || CURRENT_APPROACH="solo"

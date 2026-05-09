@@ -1,14 +1,26 @@
 #!/bin/bash
 # Block rm commands outside whitelisted directories
 
+# Resolve script path through any symlinks (Claude Code wires this hook from
+# ~/.claude/hooks/block-unsafe-delete.sh, a stow symlink into the repo).
+SOURCE="${BASH_SOURCE[0]}"
+while [ -L "$SOURCE" ]; do
+  TARGET="$(readlink "$SOURCE")"
+  case "$TARGET" in
+    /*) SOURCE="$TARGET" ;;
+    *) SOURCE="$(cd -P "$(dirname "$SOURCE")" && pwd)/$TARGET" ;;
+  esac
+done
+DOTFILES_DIR="$(cd -P "$(dirname "$SOURCE")/../../.." && pwd)"
+
 # === WHITELIST - add directories here ===
 ALLOWED_PREFIXES=(
-  "/Users/jordan/dotfiles"
-  "/Users/jordan/Developer"
-  "/Users/jordan/Downloads"
-  "/Users/jordan/Desktop"
-  "/Users/jordan/conductor"
-  "/Users/jordan/.claude"
+  "$DOTFILES_DIR"
+  "$HOME/Developer"
+  "$HOME/Downloads"
+  "$HOME/Desktop"
+  "$HOME/conductor"
+  "$HOME/.claude"
   "/tmp"
 )
 

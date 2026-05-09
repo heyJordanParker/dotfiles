@@ -4,7 +4,7 @@ ulimit -n 65536
 # --- PATH CONFIGURATION ---
 export ZSH="$HOME/.oh-my-zsh"
 export PATH="$HOME/.local/bin:$HOME/bin:/usr/local/bin:$PATH"
-export PATH="/Users/jordan/.claude/local:$PATH"
+export PATH="$HOME/.claude/local:$PATH"
 export DEV_FOLDER="$HOME/Developer"
 export DEV_BROWSER="Helium"
 export BROWSER="/Applications/Helium.app/Contents/MacOS/Helium"
@@ -68,8 +68,8 @@ export BUN_INSTALL="$HOME/.bun"
 export PATH="$BUN_INSTALL/bin:$PATH"
 
 # Antigravity & Lando
-export PATH="/Users/jordan/.antigravity/antigravity/bin:$PATH"
-export PATH="/Users/jordan/.lando/bin:$PATH"
+export PATH="$HOME/.antigravity/antigravity/bin:$PATH"
+export PATH="$HOME/.lando/bin:$PATH"
 
 # --- ALIASES ---
 alias ls='eza -1l --icons=always --hyperlink --group-directories-first'
@@ -177,4 +177,4 @@ __zellij_claude_resume() {
 }
 add-zsh-hook precmd __zellij_claude_resume
 
-alias claude-mem='bun "/Users/jordan/.claude/plugins/marketplaces/thedotmack/plugin/scripts/worker-service.cjs"'
+claude-mem() { bun "$HOME/.claude/plugins/marketplaces/thedotmack/plugin/scripts/worker-service.cjs" "$@"; }

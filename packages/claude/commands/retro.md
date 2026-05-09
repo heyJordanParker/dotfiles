@@ -7,7 +7,7 @@ Retrospective analysis of Claude Code conversations. Find actionable patterns.
 ## Phase 1: Select Conversations
 
 Detect scope from current directory:
-- If in `~/Developer/*` or `~/dotfiles` → project-specific analysis
+- If in `~/Developer/*` or inside the dotfiles repo (any clone path) → project-specific analysis
 - Otherwise → global analysis
 
 ```bash

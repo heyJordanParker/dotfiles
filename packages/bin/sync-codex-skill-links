@@ -1,0 +1,39 @@
+#!/bin/bash
+set -e
+
+# Mirrors every Claude skill into packages/codex/skills/ as a symlink so that
+# ~/.codex/skills/<name>/ resolves to packages/claude/skills/<name>/ once stow
+# tree-folds the codex package. Per-skill mirroring (rather than one dir-level
+# symlink) is required because Codex's restart does `rm -rf .system && mkdir
+# .system && cp` on every start; if the chain were a single dir-level symlink,
+# Codex's destructive write would land inside packages/claude/.
+
+# Resolve script path through any symlinks (stow installs us as a symlink at
+# ~/.local/bin/sync-codex-skill-links pointing back into the repo).
+SOURCE="${BASH_SOURCE[0]}"
+while [ -L "$SOURCE" ]; do
+  TARGET="$(readlink "$SOURCE")"
+  case "$TARGET" in
+    /*) SOURCE="$TARGET" ;;
+    *) SOURCE="$(cd -P "$(dirname "$SOURCE")" && pwd)/$TARGET" ;;
+  esac
+done
+PACKAGES_DIR="$(cd -P "$(dirname "$SOURCE")/.." && pwd)"
+CLAUDE_SKILLS="$PACKAGES_DIR/claude/skills"
+CODEX_SKILLS="$PACKAGES_DIR/codex/skills"
+
+mkdir -p "$CODEX_SKILLS"
+
+shopt -s nullglob
+
+for entry in "$CODEX_SKILLS"/*; do
+  name=$(basename "$entry")
+  if [ ! -d "$CLAUDE_SKILLS/$name" ]; then
+    rm -f "$entry"
+  fi
+done
+
+for dir in "$CLAUDE_SKILLS"/*/; do
+  name=$(basename "$dir")
+  ln -sfn "../../claude/skills/$name" "$CODEX_SKILLS/$name"
+done

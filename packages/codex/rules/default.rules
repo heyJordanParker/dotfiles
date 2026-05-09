@@ -4,12 +4,12 @@
 # Block destructive file deletion.
 # Codex prefix_rule cannot express path-prefix whitelisting (exact token match only).
 # Claude Code equivalent (block-unsafe-delete.sh) allows rm within:
-#   ~/dotfiles, ~/Developer, ~/Downloads, ~/Desktop, ~/conductor, ~/.claude/plans, /tmp
+#   the dotfiles repo, ~/Developer, ~/Downloads, ~/Desktop, ~/conductor, ~/.claude/plans, /tmp
 # Until Codex adds glob/regex rules, blanket block is the safe fallback.
 prefix_rule(
     pattern = [["rm", "/bin/rm"]],
     decision = "forbidden",
-    justification = "rm is blocked. Move or delete files manually. Allowed directories (enforced in Claude Code, not here): ~/dotfiles, ~/Developer, ~/Downloads, ~/Desktop, ~/conductor, ~/.claude/plans, /tmp.",
+    justification = "rm is blocked. Move or delete files manually. Allowed directories (enforced in Claude Code, not here): the dotfiles repo, ~/Developer, ~/Downloads, ~/Desktop, ~/conductor, ~/.claude/plans, /tmp.",
     match = [
         "rm -rf build",
         "/bin/rm -f /tmp/foo",

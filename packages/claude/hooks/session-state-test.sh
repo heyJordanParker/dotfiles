@@ -1596,7 +1596,7 @@ printf '<bash-stdout>output</bash-stdout><bash-stderr></bash-stderr>' | ss promp
 printf '<teammate-message teammate_id="x" color="green">hi</teammate-message>' | ss prompt "sys-1"
 printf '%s' "[task-notification]" | ss prompt "sys-1"
 printf '%s' "This session is being continued from a previous conversation" | ss prompt "sys-1"
-printf '%s' "Base directory for this skill: /Users/jordan/.claude/skills/pcc" | ss prompt "sys-1"
+printf '%s' "Base directory for this skill: $HOME/.claude/skills/pcc" | ss prompt "sys-1"
 assert_eq "$(ss get sys-1 human_turns)" "0" "all 12 system-injected shapes filtered: human_turns stays 0"
 assert_eq "$(ss get sys-1 current_turn_start)" "" "system-injected shapes: current_turn_start stays null"
 teardown_test

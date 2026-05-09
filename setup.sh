@@ -2,7 +2,14 @@
 set -e
 
 REPO="heyJordanParker/dotfiles"
-DOTFILES_DIR="$HOME/dotfiles"
+
+# Prefer the script's own directory; fall back to $HOME/dotfiles only when
+# piped (no on-disk $0). Reruns from any clone location resolve to that clone.
+if [ -f "${BASH_SOURCE[0]}" ] && [ -d "$(dirname "${BASH_SOURCE[0]}")/packages" ]; then
+  DOTFILES_DIR="$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+else
+  DOTFILES_DIR="$HOME/dotfiles"
+fi
 
 if ! xcode-select -p &>/dev/null; then
   echo "==> Installing Xcode CLI tools..."
@@ -68,10 +75,11 @@ PLIST
 fi
 
 echo "==> Linking dotfiles..."
-mkdir -p "$HOME/.claude" "$HOME/.codex" "$HOME/.ssh" "$HOME/.local/bin" "$HOME/.config"
+mkdir -p "$HOME/.claude" "$HOME/.codex" "$HOME/.codex/skills" "$HOME/.ssh" "$HOME/.local/bin" "$HOME/.config"
 for pkg in atuin bat borders btop bun delta ghostty karabiner lazygit nvim opencode superfile zed zellij; do
   mkdir -p "$HOME/.config/$pkg"
 done
+"$DOTFILES_DIR/packages/bin/sync-codex-skill-links"
 cd "$DOTFILES_DIR/packages"
 stow -v -t "$HOME" git hyprspace npm tmux zsh
 stow -v -t "$HOME/.claude" claude

@@ -40,7 +40,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "INPUT=$(cat); SESSION_ID=$(printf '%s' \"$INPUT\" | jq -r '.session_id'); /Users/jordan/.claude/hooks/initialize-session-state.sh \"$SESSION_ID\" || true"
+            "command": "INPUT=$(cat); SESSION_ID=$(printf '%s' \"$INPUT\" | jq -r '.session_id'); $HOME/.claude/hooks/initialize-session-state.sh \"$SESSION_ID\" || true"
           }
         ]
       },
@@ -64,7 +64,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "INPUT=$(cat); SESSION_ID=$(printf '%s' \"$INPUT\" | jq -r '.session_id // empty'); [ -z \"$SESSION_ID\" ] && exit 0; TRANSCRIPT=$(printf '%s' \"$INPUT\" | jq -r '.transcript_path // empty'); /Users/jordan/.claude/hooks/session-state.sh start \"$SESSION_ID\" --transcript-path \"$TRANSCRIPT\" 2>>/tmp/session-state-hook.log || true"
+            "command": "INPUT=$(cat); SESSION_ID=$(printf '%s' \"$INPUT\" | jq -r '.session_id // empty'); [ -z \"$SESSION_ID\" ] && exit 0; TRANSCRIPT=$(printf '%s' \"$INPUT\" | jq -r '.transcript_path // empty'); $HOME/.claude/hooks/session-state.sh start \"$SESSION_ID\" --transcript-path \"$TRANSCRIPT\" 2>>/tmp/session-state-hook.log || true"
           }
         ]
       }
@@ -75,22 +75,22 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/Users/jordan/.claude/hooks/block-git-revert.sh",
+            "command": "$HOME/.claude/hooks/block-git-revert.sh",
             "timeout": 5
           },
           {
             "type": "command",
-            "command": "/Users/jordan/.claude/hooks/block-unsafe-delete.sh",
+            "command": "$HOME/.claude/hooks/block-unsafe-delete.sh",
             "timeout": 5
           },
           {
             "type": "command",
-            "command": "/Users/jordan/.claude/hooks/block-unauthorized-commits.sh",
+            "command": "$HOME/.claude/hooks/block-unauthorized-commits.sh",
             "timeout": 5
           },
           {
             "type": "command",
-            "command": "/Users/jordan/.claude/hooks/protect-session-state.sh",
+            "command": "$HOME/.claude/hooks/protect-session-state.sh",
             "timeout": 5
           }
         ]
@@ -100,17 +100,17 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/Users/jordan/.claude/hooks/enforce-solo-mode.sh",
+            "command": "$HOME/.claude/hooks/enforce-solo-mode.sh",
             "timeout": 5
           },
           {
             "type": "command",
-            "command": "/Users/jordan/.claude/hooks/enforce-background-agents.sh",
+            "command": "$HOME/.claude/hooks/enforce-background-agents.sh",
             "timeout": 5
           },
           {
             "type": "command",
-            "command": "/Users/jordan/.claude/hooks/block-builtin-subagents.sh",
+            "command": "$HOME/.claude/hooks/block-builtin-subagents.sh",
             "timeout": 5
           },
           {
@@ -126,7 +126,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/Users/jordan/.claude/hooks/block-team-deletion.sh",
+            "command": "$HOME/.claude/hooks/block-team-deletion.sh",
             "timeout": 5
           }
         ]
@@ -146,29 +146,29 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/Users/jordan/.claude/hooks/protect-session-state.sh",
+            "command": "$HOME/.claude/hooks/protect-session-state.sh",
             "timeout": 5
           },
           {
             "type": "command",
-            "command": "/Users/jordan/.claude/hooks/validate-planning-docs.sh",
+            "command": "$HOME/.claude/hooks/validate-planning-docs.sh",
             "timeout": 60
           },
           {
             "type": "command",
-            "command": "/Users/jordan/.claude/hooks/validate-ledger-entries.sh",
+            "command": "$HOME/.claude/hooks/validate-ledger-entries.sh",
             "if": "Write(**/*.md)",
             "timeout": 5
           },
           {
             "type": "command",
-            "command": "/Users/jordan/.claude/hooks/validate-ledger-entries.sh",
+            "command": "$HOME/.claude/hooks/validate-ledger-entries.sh",
             "if": "Edit(**/*.md)",
             "timeout": 5
           },
           {
             "type": "command",
-            "command": "/Users/jordan/.claude/hooks/validate-ledger-entries.sh",
+            "command": "$HOME/.claude/hooks/validate-ledger-entries.sh",
             "if": "MultiEdit(**/*.md)",
             "timeout": 5
           }
@@ -179,7 +179,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/Users/jordan/.claude/hooks/block-edits-during-proposal.sh",
+            "command": "$HOME/.claude/hooks/block-edits-during-proposal.sh",
             "timeout": 5
           }
         ]
@@ -189,7 +189,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/Users/jordan/.claude/hooks/validate-plan-quality.sh",
+            "command": "$HOME/.claude/hooks/validate-plan-quality.sh",
             "timeout": 180
           }
         ]
@@ -199,7 +199,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "INPUT=$(cat); SESSION_ID=$(printf '%s' \"$INPUT\" | jq -r '.session_id // empty'); AGENT_ID=$(printf '%s' \"$INPUT\" | jq -r '.agent_id // empty'); [ -n \"$AGENT_ID\" ] && SESSION_ID=\"agent-$AGENT_ID\"; [ -z \"$SESSION_ID\" ] && exit 0; FILE=$(printf '%s' \"$INPUT\" | jq -r '.tool_input.file_path // empty'); [ -n \"$FILE\" ] && /Users/jordan/.claude/hooks/session-state.sh read \"$SESSION_ID\" \"$FILE\" 2>>/tmp/session-state-hook.log || true"
+            "command": "INPUT=$(cat); SESSION_ID=$(printf '%s' \"$INPUT\" | jq -r '.session_id // empty'); AGENT_ID=$(printf '%s' \"$INPUT\" | jq -r '.agent_id // empty'); [ -n \"$AGENT_ID\" ] && SESSION_ID=\"agent-$AGENT_ID\"; [ -z \"$SESSION_ID\" ] && exit 0; FILE=$(printf '%s' \"$INPUT\" | jq -r '.tool_input.file_path // empty'); [ -n \"$FILE\" ] && $HOME/.claude/hooks/session-state.sh read \"$SESSION_ID\" \"$FILE\" 2>>/tmp/session-state-hook.log || true"
           }
         ]
       },
@@ -208,7 +208,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "INPUT=$(cat); SESSION_ID=$(printf '%s' \"$INPUT\" | jq -r '.session_id // empty'); AGENT_ID=$(printf '%s' \"$INPUT\" | jq -r '.agent_id // empty'); [ -n \"$AGENT_ID\" ] && SESSION_ID=\"agent-$AGENT_ID\"; [ -z \"$SESSION_ID\" ] && exit 0; SKILL=$(printf '%s' \"$INPUT\" | jq -r '.tool_input.skill // .tool_input.skill_name // .tool_input.name // empty'); [ -n \"$SKILL\" ] && /Users/jordan/.claude/hooks/session-state.sh skill \"$SESSION_ID\" \"$SKILL\" 2>>/tmp/session-state-hook.log || true"
+            "command": "INPUT=$(cat); SESSION_ID=$(printf '%s' \"$INPUT\" | jq -r '.session_id // empty'); AGENT_ID=$(printf '%s' \"$INPUT\" | jq -r '.agent_id // empty'); [ -n \"$AGENT_ID\" ] && SESSION_ID=\"agent-$AGENT_ID\"; [ -z \"$SESSION_ID\" ] && exit 0; SKILL=$(printf '%s' \"$INPUT\" | jq -r '.tool_input.skill // .tool_input.skill_name // .tool_input.name // empty'); [ -n \"$SKILL\" ] && $HOME/.claude/hooks/session-state.sh skill \"$SESSION_ID\" \"$SKILL\" 2>>/tmp/session-state-hook.log || true"
           }
         ]
       }
@@ -219,7 +219,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/Users/jordan/.claude/hooks/sync-shaping.sh",
+            "command": "$HOME/.claude/hooks/sync-shaping.sh",
             "timeout": 5
           }
         ]
@@ -229,7 +229,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/Users/jordan/.claude/hooks/transition-state-after-plan.sh",
+            "command": "$HOME/.claude/hooks/transition-state-after-plan.sh",
             "timeout": 5
           }
         ]
@@ -238,7 +238,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "INPUT=$(cat); SESSION_ID=$(printf '%s' \"$INPUT\" | jq -r '.session_id // empty'); AGENT_ID=$(printf '%s' \"$INPUT\" | jq -r '.agent_id // empty'); [ -n \"$AGENT_ID\" ] && SESSION_ID=\"agent-$AGENT_ID\"; [ -z \"$SESSION_ID\" ] && exit 0; /Users/jordan/.claude/hooks/session-state.sh tool-used \"$SESSION_ID\" 2>>/tmp/session-state-hook.log || true"
+            "command": "INPUT=$(cat); SESSION_ID=$(printf '%s' \"$INPUT\" | jq -r '.session_id // empty'); AGENT_ID=$(printf '%s' \"$INPUT\" | jq -r '.agent_id // empty'); [ -n \"$AGENT_ID\" ] && SESSION_ID=\"agent-$AGENT_ID\"; [ -z \"$SESSION_ID\" ] && exit 0; $HOME/.claude/hooks/session-state.sh tool-used \"$SESSION_ID\" 2>>/tmp/session-state-hook.log || true"
           }
         ]
       }
@@ -256,7 +256,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/Users/jordan/.claude/hooks/validate-completion.sh",
+            "command": "$HOME/.claude/hooks/validate-completion.sh",
             "timeout": 90
           }
         ]
@@ -265,7 +265,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "INPUT=$(cat); SESSION_ID=$(printf '%s' \"$INPUT\" | jq -r '.session_id // empty'); [ -z \"$SESSION_ID\" ] && exit 0; /Users/jordan/.claude/hooks/session-state.sh stopped \"$SESSION_ID\" 2>>/tmp/session-state-hook.log || true"
+            "command": "INPUT=$(cat); SESSION_ID=$(printf '%s' \"$INPUT\" | jq -r '.session_id // empty'); [ -z \"$SESSION_ID\" ] && exit 0; $HOME/.claude/hooks/session-state.sh stopped \"$SESSION_ID\" 2>>/tmp/session-state-hook.log || true"
           }
         ]
       }
@@ -283,7 +283,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/Users/jordan/.claude/hooks/classify-intent.sh",
+            "command": "$HOME/.claude/hooks/classify-intent.sh",
             "timeout": 60
           }
         ]
@@ -292,7 +292,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "INPUT=$(cat); SESSION_ID=$(printf '%s' \"$INPUT\" | jq -r '.session_id // empty'); [ -z \"$SESSION_ID\" ] && exit 0; printf '%s' \"$INPUT\" | jq -r '.prompt // empty' | /Users/jordan/.claude/hooks/session-state.sh prompt \"$SESSION_ID\" 2>>/tmp/session-state-hook.log || true"
+            "command": "INPUT=$(cat); SESSION_ID=$(printf '%s' \"$INPUT\" | jq -r '.session_id // empty'); [ -z \"$SESSION_ID\" ] && exit 0; printf '%s' \"$INPUT\" | jq -r '.prompt // empty' | $HOME/.claude/hooks/session-state.sh prompt \"$SESSION_ID\" 2>>/tmp/session-state-hook.log || true"
           }
         ]
       },
@@ -300,7 +300,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "INPUT=$(cat); PROMPT=$(printf '%s' \"$INPUT\" | jq -r '.prompt // empty'); if printf '%s' \"$PROMPT\" | grep -q '^<task-notification>'; then TASK_ID=$(printf '%s' \"$PROMPT\" | sed -n 's|.*<task-id>\\([a-f0-9]*\\)</task-id>.*|\\1|p' | head -1); STATUS=$(printf '%s' \"$PROMPT\" | sed -n 's|.*<status>\\([a-z]*\\)</status>.*|\\1|p' | head -1); [ \"$STATUS\" = \"completed\" ] && [ -n \"$TASK_ID\" ] && /Users/jordan/.claude/hooks/session-state.sh stopped \"agent-$TASK_ID\" 2>>/tmp/session-state-hook.log || true; fi"
+            "command": "INPUT=$(cat); PROMPT=$(printf '%s' \"$INPUT\" | jq -r '.prompt // empty'); if printf '%s' \"$PROMPT\" | grep -q '^<task-notification>'; then TASK_ID=$(printf '%s' \"$PROMPT\" | sed -n 's|.*<task-id>\\([a-f0-9]*\\)</task-id>.*|\\1|p' | head -1); STATUS=$(printf '%s' \"$PROMPT\" | sed -n 's|.*<status>\\([a-z]*\\)</status>.*|\\1|p' | head -1); [ \"$STATUS\" = \"completed\" ] && [ -n \"$TASK_ID\" ] && $HOME/.claude/hooks/session-state.sh stopped \"agent-$TASK_ID\" 2>>/tmp/session-state-hook.log || true; fi"
           }
         ]
       }
@@ -350,7 +350,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "INPUT=$(cat); SESSION_ID=$(printf '%s' \"$INPUT\" | jq -r '.session_id // empty'); [ -z \"$SESSION_ID\" ] && exit 0; /Users/jordan/.claude/hooks/session-state.sh compacted \"$SESSION_ID\" 2>>/tmp/session-state-hook.log || true"
+            "command": "INPUT=$(cat); SESSION_ID=$(printf '%s' \"$INPUT\" | jq -r '.session_id // empty'); [ -z \"$SESSION_ID\" ] && exit 0; $HOME/.claude/hooks/session-state.sh compacted \"$SESSION_ID\" 2>>/tmp/session-state-hook.log || true"
           }
         ]
       }

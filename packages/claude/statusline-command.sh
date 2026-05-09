@@ -63,7 +63,7 @@ session_id=$(echo "$input" | jq -r '.session_id // ""')
 classifier_status=""
 if [ -n "$session_id" ]; then
   state_file="/tmp/claude-session-state-${session_id}"
-  [ ! -f "$state_file" ] && /Users/jordan/.claude/hooks/initialize-session-state.sh "$session_id"
+  [ ! -f "$state_file" ] && "$HOME/.claude/hooks/initialize-session-state.sh" "$session_id"
   if [ -f "$state_file" ]; then
     raw_state=$(jq -r '.state // "proposing"' "$state_file" 2>/dev/null) || raw_state="proposing"
     raw_approach=$(jq -r '.approach // "solo"' "$state_file" 2>/dev/null) || raw_approach="solo"

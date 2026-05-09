@@ -3,20 +3,6 @@ model_reasoning_effort = "high"
 approval_policy = "never"
 personality = "pragmatic"
 
-notify = ["/Users/jordan/.codex/plugins/cache/openai-bundled/computer-use/1.0.758/Codex Computer Use.app/Contents/SharedSupport/SkyComputerUseClient.app/Contents/MacOS/SkyComputerUseClient", "turn-ended"]
-
-[projects."/Users/jordan/Products"]
-trust_level = "trusted"
-
-[projects."/Users/jordan/Downloads/src"]
-trust_level = "trusted"
-
-[projects."/Users/jordan/Developer/creator-income-blueprint"]
-trust_level = "trusted"
-
-[projects."/Users/jordan/Developer/cc-prompt-extractor"]
-trust_level = "trusted"
-
 [mcp_servers.pencil]
 command = "/Applications/Pencil.app/Contents/Resources/app.asar.unpacked/out/mcp-server-darwin-arm64"
 args = [ "--app", "desktop" ]
@@ -42,13 +28,3 @@ enabled = true
 
 [plugins."browser-use@openai-bundled"]
 enabled = true
-
-[marketplaces.openai-bundled]
-last_updated = "2026-05-06T11:24:05Z"
-source_type = "local"
-source = "/Users/jordan/.codex/.tmp/bundled-marketplaces/openai-bundled"
-
-[marketplaces.openai-primary-runtime]
-last_updated = "2026-05-06T09:55:24Z"
-source_type = "local"
-source = "/Users/jordan/.cache/codex-runtimes/codex-primary-runtime/plugins/openai-primary-runtime"

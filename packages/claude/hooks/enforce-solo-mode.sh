@@ -9,7 +9,7 @@ session_id=$(echo "$input" | jq -r '.session_id // ""' 2>/dev/null) || exit 0
 [ -z "$session_id" ] && exit 0
 
 state_file="/tmp/claude-session-state-${session_id}"
-[ ! -f "$state_file" ] && /Users/jordan/.claude/hooks/initialize-session-state.sh "$session_id"
+[ ! -f "$state_file" ] && "$HOME/.claude/hooks/initialize-session-state.sh" "$session_id"
 
 approach=$(jq -r '.approach // "solo"' "$state_file" 2>/dev/null) || exit 0
 

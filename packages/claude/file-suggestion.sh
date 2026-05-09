@@ -45,7 +45,23 @@ for item in "${EXCLUDES[@]}"; do FD_EXCLUDES+=(--exclude "$item"); done
 FD_GLOBAL_EXCLUDES=("${FD_EXCLUDES[@]}")
 for item in "${GLOBAL_EXCLUDES[@]}"; do FD_GLOBAL_EXCLUDES+=(--exclude "$item"); done
 
-WORKSPACE_DIRS=("$HOME_DIR/Developer" "$HOME_DIR/dotfiles" "$HOME_DIR/conductor")
+# Resolve script path through any symlinks (Claude Code calls this from
+# ~/.claude/file-suggestion.sh, a stow symlink into the repo).
+SOURCE="${BASH_SOURCE[0]}"
+while [ -L "$SOURCE" ]; do
+  TARGET="$(readlink "$SOURCE")"
+  case "$TARGET" in
+    /*) SOURCE="$TARGET" ;;
+    *) SOURCE="$(cd -P "$(dirname "$SOURCE")" && pwd)/$TARGET" ;;
+  esac
+done
+DOTFILES_DIR="$(cd -P "$(dirname "$SOURCE")/../.." && pwd)"
+
+if [[ -n "$FSG_WORKSPACE_DIRS" ]]; then
+  IFS=':' read -ra WORKSPACE_DIRS <<< "$FSG_WORKSPACE_DIRS"
+else
+  WORKSPACE_DIRS=("$HOME_DIR/Developer" "$DOTFILES_DIR" "$HOME_DIR/conductor")
+fi
 
 EXCLUDE_RE='\.git|node_modules|vendor|__pycache__|\.venv|\.Trash|\.DS_Store|dist|build|\.next|\.bun|worktrees|\.worktrees|playwright-report|test-results'
 GLOBAL_EXCLUDE_RE="$EXCLUDE_RE|Library|Applications|Movies|Music|Pictures|System|Volumes|cores|private|opt"

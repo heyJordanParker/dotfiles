@@ -109,11 +109,20 @@ macOS dotfiles managed with [GNU Stow](https://www.gnu.org/software/stow/).
 
 ### New Machine Setup
 
+One-line bootstrap (clones to `~/dotfiles`, then runs setup):
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/heyJordanParker/dotfiles/master/setup.sh | bash
 ```
 
-This installs Xcode CLI tools, Homebrew, all packages from `Brewfile`, bun, and symlinks configs.
+To clone elsewhere, do it yourself first; setup will run from whichever path you pick:
+
+```bash
+git clone https://github.com/heyJordanParker/dotfiles.git <path>
+cd <path> && ./setup.sh
+```
+
+Either way installs Xcode CLI tools, Homebrew, all packages from `Brewfile`, bun, and symlinks configs.
 
 ### Manual Usage
 
@@ -121,7 +130,7 @@ Each subdirectory of `packages/` is a stow package. Its contents are exactly wha
 
 ```bash
 # Add a new config — example: 'newapp' targets ~/.config/newapp/
-cd ~/dotfiles/packages
+cd <repo>/packages
 mkdir -p newapp
 mv ~/.config/newapp/* newapp/
 stow -t ~/.config/newapp newapp
