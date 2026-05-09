@@ -103,8 +103,22 @@ if [ -n "$CURRENT_TURN" ]; then
     MUTATIONS=$(echo "$CURRENT_TURN" | grep -c '"name":"Edit"\|"name":"Write"\|"name":"MultiEdit"' 2>/dev/null) || MUTATIONS=0
 fi
 
-# No phrase AND low mutations → allow stop
-if [ "$HAS_PHRASE" = false ] && [ "$MUTATIONS" -lt 3 ] 2>/dev/null; then
+# Third trigger: deliverable-shaped turn — substantive assistant text on a deliverable intent
+# Catches text-only deferral/burial that the phrase and mutation gates miss
+HAS_DELIVERABLE_TEXT=false
+case "$CURRENT_INTENT" in
+    proposal_request|instructions|correction)
+        if [ -n "$CURRENT_TURN" ]; then
+            TEXT_CHARS=$(echo "$CURRENT_TURN" | jq -r 'select(.type=="assistant") | .message.content[]? | select(.type=="text") | .text' 2>/dev/null | wc -c | tr -d ' ') || TEXT_CHARS=0
+            if [ "${TEXT_CHARS:-0}" -gt 1500 ] 2>/dev/null; then
+                HAS_DELIVERABLE_TEXT=true
+            fi
+        fi
+        ;;
+esac
+
+# No phrase AND low mutations AND not a deliverable turn → allow stop
+if [ "$HAS_PHRASE" = false ] && [ "$MUTATIONS" -lt 3 ] 2>/dev/null && [ "$HAS_DELIVERABLE_TEXT" = false ]; then
     exit 0
 fi
 
@@ -139,6 +153,14 @@ if [ -n "$TRANSCRIPT_PATH" ] && [ -f "$TRANSCRIPT_PATH" ]; then
     RECENT_USER_MSGS=$(jq -r 'select(.type == "user" and (.message.content | type != "array" or any(.[]; .type == "text" and .text != ""))) | .message.content // "" | if type == "array" then map(select(.type == "text") | .text) | join(" ") else . end' "$TRANSCRIPT_PATH" 2>/dev/null | tail -n 4 | head -c 4000) || true
 fi
 
+# Extract full current-turn assistant content (text + thinking blocks, chronological order)
+# Used by LLM for placement check (BURIED DELIVERABLE) — last_assistant_message alone
+# only carries the final text and can't reveal whether the deliverable was buried earlier
+CURRENT_TURN_CONTENT=""
+if [ -n "$CURRENT_TURN" ]; then
+    CURRENT_TURN_CONTENT=$(echo "$CURRENT_TURN" | tac | jq -r 'select(.type=="assistant") | .message.content[]? | select(.type=="text" or .type=="thinking") | "[\(.type)] \(.text // .thinking // "")"' 2>/dev/null | head -c 8000) || CURRENT_TURN_CONTENT=""
+fi
+
 # Build LLM context
 PLAN_CONTEXT=""
 if [ -n "$PLAN_CONTENT" ]; then
@@ -159,15 +181,23 @@ JSON_SCHEMA='{"type":"object","properties":{"allow":{"type":"boolean"},"reason":
 
 SYSTEM_PROMPT="You are a completion validator. Decide whether the agent should be allowed to stop or forced to continue. Output structured JSON only."
 
+CURRENT_TURN_CONTEXT=""
+if [ -n "$CURRENT_TURN_CONTENT" ]; then
+    CURRENT_TURN_CONTEXT="Full assistant content from this turn (text + thinking blocks, chronological order — used to detect buried deliverables):
+${CURRENT_TURN_CONTENT}
+---
+"
+fi
+
 EVAL_PROMPT="Evaluate whether this agent should be allowed to stop.
 
 ${PLAN_CONTEXT}${SESSION_CONTEXT}Recent user messages:
 ${RECENT_USER_MSGS}
 ---
-Agent's last message before stopping:
+Agent's last message before stopping (this is what the user will see in the final visible text):
 ${LAST_ASSISTANT_MSG}
 ---
-
+${CURRENT_TURN_CONTEXT}
 BLOCK the stop if ANY of these are true:
 
 1. PREMATURE STOP — the agent asks permission to continue work that is already approved. Signals: \"shall I proceed?\", \"want me to continue?\", \"ready to move?\", \"where should I start?\" after a plan was approved or instructions were given. The agent should execute, not ask.
@@ -180,6 +210,10 @@ BLOCK the stop if ANY of these are true:
    Exception: the agent explicitly identifies remaining items AND explains why it stopped (genuine blocker, not \"this is a good stopping point\").
 
 4. CONTEXT PRESSURE EXCUSE — the agent stops citing context window, message length, or \"manageable\" context as the reason, mid-task. The agent should continue executing until the work is done or a genuine blocker is hit.
+
+5. SHIPPED-AND-DEFERRED — the agent acknowledges its own deliverable is off-brief, sub-quality, or wrong, then ships it anyway and promises a next-turn redo. Signals in the agent's last message: \"will be regenerated next turn\", \"misses the brief and will be fixed\", \"for now here's X, I'll redo properly later\", \"next iteration\", \"TODO: redo\", \"acknowledged on the correction — most of the list misses\". No exception. If the agent recognized the work is bad, it must redo before stopping. The whole point of the rule is preventing this exact failure shape.
+
+6. BURIED DELIVERABLE — the deliverable the user asked for is missing from the agent's last message (final user-visible text) but present in earlier text content or thinking blocks of this same turn. The render folds intermediate text and thinking — the user only sees the final text. Compare the full current-turn content above against the last message: if the substantive deliverable lives only in earlier blocks, or the last message references \"above\" / \"earlier\" / \"the list below\" pointing at content not actually inside the last message, that's burial. Block.
 
 ALLOW the stop if ANY of these are true:
 - Work is genuinely complete — all plan items done, no deferred work

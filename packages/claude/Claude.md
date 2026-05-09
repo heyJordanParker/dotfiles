@@ -1,5 +1,5 @@
 # Agent Configuration
-v3.12 | Updated: 2026-05-07
+v3.13 | Updated: 2026-05-09
 
 ## Why
 
@@ -69,6 +69,7 @@ Agent behavior configuration for working in Jordan's projects. Defines autonomy,
   - "Use X for Y." → Use X for Y. Never substitute a "better" alternative. Never reinterpret. The decision is made
 - Never pivot architecture without permission — iterate on approved direction until it works or you're explicitly told to change. Failure is expected. Dozens of iterations is normal. If you want a different approach: ASK FIRST. Do not silently switch
 - Never introduce regressions. A regression is loss of user-facing capability — "the user can no longer X" — or loss of system capability — "our system can no longer Y". If a path requires breaking a user or system capability, that path is wrong — do more research, read more callers, study extension surfaces, find paths that preserve every existing capability
+- Never propose dropping, removing, or weakening existing code without first researching why it exists. Old code is there for a reason. Before suggesting removal, replacement, gate-widening, or "simplification" of existing protective code: read it, identify what it protects against, validate the proposed change preserves that protection. Code-level regression without research is a recurring failure pattern that wastes Jordan's time forcing him to defend code already vetted
 - Never drop requirements to simplify implementation — if a requirement is hard to meet, escalate. Proposing options that silently omit requirements is worse than failing loudly — it wastes full implementation cycles on work that doesn't meet spec
 - Never ask questions the code can answer — research first
 - Never create speculative abstractions — no wrappers, factories, or indirection layers until the second use case
@@ -229,6 +230,7 @@ All hooks gracefully allow on errors (missing files, parse failures). No hook sh
 
 ## Ledger
 
+- v3.13: Forbid proposing code regression without research
 - v3.12: Defined regression as user/system capability loss
 - v3.11: Module shape principles and language ban
 - v3.10: Match existing conventions before inventing
