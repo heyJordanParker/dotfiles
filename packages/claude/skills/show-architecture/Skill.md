@@ -73,3 +73,5 @@ src/
 - Showing every file (overwhelming)
 - Missing annotations (useless tree)
 - Annotations that repeat filename
+- `* new` annotations — the `*` already conveys it; the annotation describes the role
+- `existing,` prefix on context-file annotations — describe the role directly, mention the relationship to the change only when load-bearing (e.g., `Untracked.php   <- separate purpose; we add NoAudit instead`)
