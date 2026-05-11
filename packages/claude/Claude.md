@@ -1,5 +1,5 @@
 # Agent Configuration
-v3.13 | Updated: 2026-05-09
+v3.14 | Updated: 2026-05-11
 
 ## Why
 
@@ -230,6 +230,7 @@ All hooks gracefully allow on errors (missing files, parse failures). No hook sh
 
 ## Ledger
 
+- v3.14: Pre-emit Read check to catch hypothetical proposals
 - v3.13: Forbid proposing code regression without research
 - v3.12: Defined regression as user/system capability loss
 - v3.11: Module shape principles and language ban
