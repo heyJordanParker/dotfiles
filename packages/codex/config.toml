@@ -3,6 +3,8 @@ model_reasoning_effort = "high"
 approval_policy = "never"
 personality = "pragmatic"
 
+notify = ["/Users/jordan/.codex/computer-use/Codex Computer Use.app/Contents/SharedSupport/SkyComputerUseClient.app/Contents/MacOS/SkyComputerUseClient", "turn-ended"]
+
 [mcp_servers.pencil]
 command = "/Applications/Pencil.app/Contents/Resources/app.asar.unpacked/out/mcp-server-darwin-arm64"
 args = [ "--app", "desktop" ]
@@ -28,3 +30,27 @@ enabled = true
 
 [plugins."browser-use@openai-bundled"]
 enabled = true
+
+[hooks.state]
+
+[hooks.state."/Users/jordan/.codex/hooks.json:session_start:0:0"]
+trusted_hash = "sha256:39be23ab34d3fd31dd19fdf82f913e84ca783417cece30041a9ed6bc22bcca44"
+
+[hooks.state."/Users/jordan/.codex/hooks.json:stop:0:0"]
+trusted_hash = "sha256:23412b202018ced62691e40af28aa3c40825e51e53e9ab925f0dc341bd29c4b9"
+
+[hooks.state."/Users/jordan/.codex/hooks.json:user_prompt_submit:0:0"]
+trusted_hash = "sha256:4d5507f51db6e7a63cf495cbc9b8ac15be3c775487b0040b40f03c21b8aba437"
+
+[marketplaces.openai-bundled]
+last_updated = "2026-05-11T20:52:58Z"
+source_type = "local"
+source = "/Users/jordan/.codex/.tmp/bundled-marketplaces/openai-bundled"
+
+[marketplaces.openai-primary-runtime]
+last_updated = "2026-05-11T22:55:10Z"
+source_type = "local"
+source = "/Users/jordan/.cache/codex-runtimes/codex-primary-runtime/plugins/openai-primary-runtime"
+
+[projects."/Users/jordan/Downloads/src"]
+trust_level = "trusted"
