@@ -1,5 +1,5 @@
 # Claude Code Hooks
-v1.3 | Updated: 2026-05-07
+v1.4 | Updated: 2026-05-12
 
 ## Why
 
@@ -41,7 +41,7 @@ hooks/
 │
 ├── auto-approve-permissions.sh           # PermissionRequest matcher
 ├── block-builtin-subagents.sh            # PreToolUse Agent matcher
-├── block-edits-during-proposal.sh        # PreToolUse Write|Edit matcher
+├── block-edits-during-proposal.sh        # PreToolUse Write|Edit|NotebookEdit + Bash matchers
 ├── block-git-revert.sh                   # PreToolUse Bash matcher
 ├── block-team-deletion.sh                # PreToolUse TeamDelete matcher
 ├── block-unauthorized-commits.sh         # PreToolUse Bash matcher
@@ -217,6 +217,7 @@ Claude Code compacts long conversations server-side, summarizing earlier turns w
 
 ## Ledger
 
+- v1.4: Proposing-mode block extends to Bash file mutations
 - v1.3: Lock RMW paths so concurrent counters land exactly
 - v1.2: Wire helper into Claude Code hook events
 - v1.1: Document compacted command and PostCompact hook

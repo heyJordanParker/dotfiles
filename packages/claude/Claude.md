@@ -1,5 +1,5 @@
 # Agent Configuration
-v3.14 | Updated: 2026-05-11
+v3.15 | Updated: 2026-05-12
 
 ## Why
 
@@ -200,7 +200,7 @@ Planning quality hooks (PreToolUse, Write|Edit and ExitPlanMode matchers):
 
 Intent classifier and edit blocker (UserPromptSubmit + PreToolUse):
 - classify-intent.sh — LLM classifies intent (approval/question/instructions/correction/proposal_request), bash transitions state (proposing/executing) deterministically. Manages session state (`/tmp/claude-session-state-{session_id}`), detects surprise moments, tracks execution modes (solo/default/team), recommends specialized agents based on user intent
-- block-edits-during-proposal.sh — blocks Write/Edit/NotebookEdit when state is "proposing". Allows writes to planning artifact directories (shaping/, plans/)
+- block-edits-during-proposal.sh — blocks Write/Edit/NotebookEdit and Bash file-mutation commands (redirects, tee, sed -i, dd of=, cp/mv, touch/truncate) when state is "proposing". Bash branch resolves targets against cwd and blocks only when they land inside the project root. Allows /tmp, /var/tmp, /dev/null, $HOME paths outside the repo, and writes to planning artifact directories (shaping/, plans/)
 
 Completion validation (Stop + PostToolUse):
 - validate-completion.sh — two-layer stop gate. Layer 1 (deterministic): blocks when ExitPlanMode was called in current turn AND agent uses permission-seeking phrases. Layer 2 (LLM): fires when phrases detected OR 3+ file mutations, checks for premature stops, deferral, incomplete work, context pressure excuses. Max 3 blocks per turn via validation_phase
@@ -230,6 +230,7 @@ All hooks gracefully allow on errors (missing files, parse failures). No hook sh
 
 ## Ledger
 
+- v3.15: Closed Bash bypass of proposing-mode lock
 - v3.14: Pre-emit Read check to catch hypothetical proposals
 - v3.13: Forbid proposing code regression without research
 - v3.12: Defined regression as user/system capability loss
