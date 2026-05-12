@@ -41,6 +41,7 @@ Invoked as `/talents:<name>`:
 - **show-architecture** — Annotated file trees inline
 - **slicing** — Break modeled features into vertical implementation slices with acceptance criteria
 - **subagents** — Framework for dispatching and managing subagents
+- **trace** — Code intelligence CLI: search, callers, definitions, complexity, file/method reads with rich architectural context (requires the bundled `trace` binary; see Tracer Setup below)
 - **user-testing** — Trace real user flows through code changes, find gaps
 - **using-git-worktrees** — Isolated git worktrees for feature work
 - **verification-before-completion** — Evidence before assertions
@@ -70,10 +71,67 @@ The plugin includes hooks that run automatically to keep Claude disciplined:
 - **retro-reminder** — Nudges to run `/retro` if 3+ days since last one
 - **block-git-revert** — Blocks `git reset`, `git restore`, `git checkout -- <file>`. Forces manual execution.
 - **block-unsafe-delete** — Whitelists `rm` to specific directories only. Everything else blocked.
+- **enrich-on-read** — Auto-enriches every native Read/Glob with tracer's per-file lifecycle, complexity rank, and architecture-graph counts. Silent fallback if `trace` isn't installed; the native tool always runs.
 - **pre-edit** — "Did you read this file?" checklist before any edit
 - **ask-user-question** — Enforces research-first, 4+ options, self-contained questions
 - **sync-shaping** — Ripple-check reminders when editing shaping documents
 - **user-prompt-submit** — Pre-response checklist (read the code, question vs instruction, test your changes)
+
+
+### Tracer Setup
+
+The `enrich-on-read` hook and the `/trace` skill both need the `trace` binary. The plugin ships a bundled zipapp that lands on `PATH` automatically when the plugin is enabled — that covers ~9 of 15 commands.
+
+For the full feature set (LSP-backed commands and the architecture-graph commands that need tree-sitter), install via pipx:
+
+```bash
+brew install pipx          # one-time, if not installed
+pipx install tracer        # full-fat tracer (PyPI)
+```
+
+Tracer wraps five external binaries: `ast-grep`, `scc`, `universal-ctags`, `ripgrep`, `git`. Install whichever your platform needs:
+
+**macOS (Homebrew):**
+
+```bash
+brew install ast-grep scc universal-ctags ripgrep
+xcode-select --install     # git
+```
+
+**Linux (Debian/Ubuntu):**
+
+```bash
+apt install universal-ctags ripgrep git
+# ast-grep:  https://ast-grep.github.io/guide/quick-start.html
+# scc:       https://github.com/boyter/scc#installation
+```
+
+**Windows (Scoop):**
+
+```bash
+scoop install ast-grep scc ripgrep
+# universal-ctags: https://github.com/universal-ctags/ctags
+# git:             https://git-scm.com/download/win
+```
+
+Verify with `trace doctor` — it lists missing binaries with the same install command for your platform. The `enrich-on-read` hook degrades gracefully: if `trace` isn't installed at all, the hook exits 0 with no output and native Read/Glob run normally — nothing breaks, you just don't get the enrichment.
+
+### Agents
+
+Per Claude Code plugin schema, agents (`.md` files in `packages/claude/agents/`) are NOT distributed by the marketplace install — only skills, commands, and hooks. To use the bundled agents (explorer, researcher, architect, debugger, etc.), copy the files you want into your own `~/.claude/agents/` or `<repo>/.claude/agents/`:
+
+```bash
+git clone https://github.com/heyJordanParker/dotfiles.git /tmp/dotfiles
+cp /tmp/dotfiles/packages/claude/agents/explorer.md ~/.claude/agents/
+cp /tmp/dotfiles/packages/claude/agents/researcher.md ~/.claude/agents/
+# ... and any others you want
+```
+
+The split worth knowing:
+
+- **explorer** — in-codebase architectural mapping ("where is X used", "how does Y work end-to-end"). Uses the trace skill heavily.
+- **researcher** — external research (library docs, APIs, framework references, web lookups). Uses agent-browser, cc, claude-api, plus trace for incidental in-repo grounding.
+- **architect / backend-engineer / code-reviewer / debugger / frontend-engineer / regression-reviewer / tester** — also have the trace skill for navigating the codebase during their work.
 
 ### Safe Delete
 

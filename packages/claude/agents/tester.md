@@ -8,7 +8,7 @@ description: |
 color: red
 model: opus
 tools: Read, Grep, Glob, Bash, LSP, WebFetch
-skills: user-testing, agent-browser, design
+skills: user-testing, agent-browser, design, trace
 memory: user
 ---
 

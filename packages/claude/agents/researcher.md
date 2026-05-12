@@ -1,13 +1,15 @@
 ---
 name: researcher
 description: |
-  Use for research — external (libraries, APIs, framework docs) or in-codebase
-  ("where is X defined / which files reference Y", architectural surveys, cross-file analysis).
-  Read-only. Never writes code.
+  Use for external research — library docs, APIs, framework references, web lookups, vendor
+  specs. The trace skill is also available for incidental in-repo lookups when an external answer
+  needs grounding in our actual code (e.g. "which version of X are we on", "is this option set").
+  For in-codebase architectural mapping ("where is X used", "how does Y work end-to-end"), use the
+  explorer agent. Read-only. Never writes code.
 color: green
 model: opus
 tools: Read, Grep, Glob, Bash, WebFetch, WebSearch, mcp__context7__resolve-library-id, mcp__context7__query-docs
-skills: agent-browser, cc, claude-api
+skills: agent-browser, cc, claude-api, trace
 memory: user
 ---
 

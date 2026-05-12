@@ -7,7 +7,7 @@ description: |
 color: magenta
 model: opus
 tools: Read, Grep, Glob, Bash, LSP
-skills: debug, naming, pcc
+skills: debug, naming, pcc, trace
 memory: user
 ---
 

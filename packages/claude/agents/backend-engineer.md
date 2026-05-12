@@ -6,7 +6,7 @@ description: |
   library leverage, and anti-complexity enforcement. Reads Claude.md files for stack-specific patterns.
 color: green
 model: opus
-skills: naming, pcc
+skills: naming, pcc, trace
 memory: user
 ---
 

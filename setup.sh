@@ -44,6 +44,9 @@ done < "$DOTFILES_DIR/packages/bun/globals"
 bun pm -g trust --all
 agent-browser install
 
+echo "==> Installing tracer (code intelligence CLI)..."
+pipx install --force --editable "$DOTFILES_DIR/tools/tracer"
+
 echo "==> Setting up services..."
 if [ ! -d "$SERVICES_DIR/drawbridge" ]; then
   git clone https://github.com/heyJordanParker/drawbridge.git "$SERVICES_DIR/drawbridge"

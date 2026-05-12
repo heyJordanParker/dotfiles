@@ -10,12 +10,14 @@ subagent_type=$(echo "$input" | jq -r '.tool_input.subagent_type // ""' 2>/dev/n
 case "$subagent_type" in
     Explore)
         cat >&2 <<'EOF'
-BLOCKED: Built-in Explore is replaced by the researcher agent.
+BLOCKED: Built-in Explore is replaced by the explorer agent.
 
 Explore runs on Haiku 4.5 and returns excerpts that miss content past its read window — unreliable for review, audits, or any open-ended analysis.
-Researcher runs on Opus, reads whole files, and returns structured findings with file:line citations. Its scope covers both in-codebase exploration ("where is X defined / which files reference Y") and external research.
+explorer runs on Opus 4.7 with the trace skill (a code-intelligence CLI that surfaces complexity, callers, dependencies, git lifecycle, deploy-branch presence, and nested Claude.md context per file). It reads whole files, categorizes findings by impact (load-bearing / moderate / minor), and returns a structured five-section trace report with verified file:line citations.
 
-Set subagent_type: researcher. Brief it with WHY and WHAT — the question or goal — not HOW (which files to read or commands to run).
+Use it for "where is X used", "how does Y work end-to-end", "what depends on Z", or any question that needs the agent to map connections between files, modules, or layers. For external research (library docs, API references), use the researcher agent instead.
+
+Set subagent_type: explorer. Brief it with WHY and WHAT — the question or goal — not HOW (which files to read or commands to run).
 EOF
         exit 2
         ;;

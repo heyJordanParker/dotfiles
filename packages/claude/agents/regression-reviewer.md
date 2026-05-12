@@ -7,7 +7,7 @@ description: |
 color: yellow
 model: opus
 tools: Read, Grep, Glob, Bash, LSP
-skills: regressions
+skills: regressions, trace
 memory: user
 ---
 

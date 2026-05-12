@@ -7,7 +7,7 @@ description: |
 color: red
 model: opus
 tools: Read, Grep, Glob, Bash, LSP
-skills: naming, pcc
+skills: naming, pcc, trace
 memory: user
 ---
 
