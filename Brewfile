@@ -35,6 +35,7 @@ brew "opencode"
 brew "rust"
 brew "rustup"                   # needed for wasm32-wasip1 target (zellij plugin build)
 brew "git-delta"
+brew "modem-dev/tap/hunk"
 brew "ast-grep"
 brew "scc"
 brew "universal-ctags"

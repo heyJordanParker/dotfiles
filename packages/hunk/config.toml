@@ -1,0 +1,7 @@
+theme = "graphite"
+mode = "auto"
+vcs = "git"
+exclude_untracked = false
+line_numbers = true
+wrap_lines = false
+agent_notes = true

@@ -1,5 +1,5 @@
 # Dotfiles
-v1.8 | Updated: 2026-05-09
+v1.9 | Updated: 2026-05-08
 
 ## Why
 
@@ -40,7 +40,7 @@ dotfiles/
 │   ├── npm/                          # → ~/              (.npmrc)
 │   ├── tmux/                         # → ~/              (.tmux.conf, .tmux/)
 │   ├── zsh/                          # → ~/              (.zshrc, .zprofile, .zshenv, .zsh_completions.zsh)
-│   ├── atuin/, bat/, borders/, btop/, bun/, delta/, ghostty/,
+│   ├── atuin/, bat/, borders/, btop/, bun/, delta/, ghostty/, hunk/,
 │   ├── karabiner/, lazygit/, nvim/, opencode/, superfile/, zed/, zellij/   # → ~/.config/<pkg>/
 ├── Brewfile
 ├── Claude.md                         # this file — repo project docs
@@ -129,7 +129,7 @@ pipx install <package>
 - Home root (`~/`): `git`, `hyprspace`, `npm`, `tmux`, `zsh`
 - Single-segment dirs: `claude` → `~/.claude/`, `codex` → `~/.codex/`, `ssh` → `~/.ssh/`
 - Special targets: `bin` → `~/.local/bin/`, `starship` → `~/.config/`
-- `~/.config/<tool>/` group (loop): `atuin`, `bat`, `borders`, `btop`, `bun`, `delta`, `ghostty`, `karabiner`, `lazygit`, `nvim`, `opencode`, `superfile`, `zed`, `zellij`
+- `~/.config/<tool>/` group (loop): `atuin`, `bat`, `borders`, `btop`, `bun`, `delta`, `ghostty`, `hunk`, `karabiner`, `lazygit`, `nvim`, `opencode`, `superfile`, `zed`, `zellij`
 
 ### Plugin Marketplace
 
@@ -225,6 +225,7 @@ Two subdirectories with distinct purposes:
 
 ## Ledger
 
+- v1.9: Added hunk diff viewer
 - v1.8: Scripts derive repo root from canonical script path
 - v1.7: Per-skill codex mirror so Codex owns system natively
 - v1.6: Restow rules documented for content vs shape changes

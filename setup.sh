@@ -79,7 +79,7 @@ fi
 
 echo "==> Linking dotfiles..."
 mkdir -p "$HOME/.claude" "$HOME/.codex" "$HOME/.codex/skills" "$HOME/.ssh" "$HOME/.local/bin" "$HOME/.config"
-for pkg in atuin bat borders btop bun delta ghostty karabiner lazygit nvim opencode superfile zed zellij; do
+for pkg in atuin bat borders btop bun delta ghostty hunk karabiner lazygit nvim opencode superfile zed zellij; do
   mkdir -p "$HOME/.config/$pkg"
 done
 "$DOTFILES_DIR/packages/bin/sync-codex-skill-links"
@@ -90,7 +90,7 @@ stow -v -t "$HOME/.codex" codex
 stow -v -t "$HOME/.ssh" ssh
 stow -v -t "$HOME/.local/bin" bin
 stow -v -t "$HOME/.config" starship
-for pkg in atuin bat borders btop bun delta ghostty karabiner lazygit nvim opencode superfile zed zellij; do
+for pkg in atuin bat borders btop bun delta ghostty hunk karabiner lazygit nvim opencode superfile zed zellij; do
   stow -v -t "$HOME/.config/$pkg" "$pkg"
 done
 cd "$DOTFILES_DIR"
