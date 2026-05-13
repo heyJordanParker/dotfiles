@@ -37,7 +37,7 @@ Rules:
 
 5. Offers instead of acting: \"Would you like me to...\", \"Shall I...\".
 
-6. Raises problems without solutions: Blockers must include multiple researched options with pros/cons/confidence.
+6. Raises blockers without solutions: architecture blockers must include multiple researched options with pros/cons/confidence. Convention blockers: name the repo precedent that applies. Implementation blockers: state the fix the agent is taking.
 
 7. Missing annotated file tree: Must end with a file tree showing all files to be created/modified with annotations.
 

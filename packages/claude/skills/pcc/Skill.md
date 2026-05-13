@@ -15,6 +15,9 @@ When presenting alternatives, options, or approaches, use this format.
 - **Pros and cons stay inside the option** — pros describe how this option solves the stated problem; cons describe real costs or risks this option introduces. Forbidden: cross-option references ("more files than Option Z", "more complex than the alternative"), treating normal implementation cost as inherent badness ("8-file edit", "touches multiple modules"), filler cons added to balance the format. If an option has no real cons, say so — don't invent one
 - **Confidence ranks rightness, not implementability** — the percentage reflects how confident you are that THIS option is the right call for the stated problem, after accounting for compromises. Major architectural compromises drag the score down. Options clustered within ~10% of each other (88/90/92) mean you haven't differentiated them
 - **Inconsistent confidence or pros/cons signal a research gap** — if scores cluster, if pros/cons feel forced, if you can't tell why one option scores higher than another, that's the agent flagging its own lack of codebase research. Fix it by reading more code, not by adjusting numbers or reshuffling bullets. Never ship a /pcc with patched-over scores
+- **Single layer per invocation** — every option in one /pcc sits at the same decision layer (architecture / convention / implementation). Mixing is banned.
+- **Convention decisions skip /pcc** — find the repo precedent and apply it; promote to architecture only when precedent is missing or needs changing.
+- **Implementation decisions skip /pcc** — direct recommendation, agent owns.
 
 ## Format per option
 

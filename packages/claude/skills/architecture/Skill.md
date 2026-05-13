@@ -60,7 +60,7 @@ Architecture before implementation. Never ask about:
 
 ## Scope
 
-- Structural decisions: data model, system boundaries, responsibility split
-- NOT tactical decisions: column defaults, method names, error messages
-- Each option implies a different set of follow-on decisions
-- "What does choosing this FORCE us to decide next?" — that's the implication
+- Architecture only: module boundaries, public contracts, data ownership, dependency direction, new modules, schema mutations
+- Convention decisions: apply repo precedent; promote to architecture only when precedent is missing or needs changing
+- Implementation decisions: direct answer, agent owns — method internals, error messages, control flow
+- Each option implies different follow-on decisions — "What does choosing this FORCE us to decide next?" is the implication

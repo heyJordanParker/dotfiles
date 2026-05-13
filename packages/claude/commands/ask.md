@@ -7,9 +7,8 @@ description: Break complex scenarios into self-contained decision questions with
 For complex multi-decision scenarios. Each decision = one AskUserQuestion call.
 
 ## When to Use
-- 3+ independent decisions needing approval
-- Claude.md / docs overhauls
-- Architecture spanning multiple concerns
+- 3+ independent architecture decisions needing approval
+- Claude.md / docs overhauls (typically multi-architecture)
 - Anything too complex for a single plan review
 
 ## Question Format
