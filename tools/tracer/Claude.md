@@ -1,5 +1,5 @@
 # Tracer
-v3.2 | Updated: 2026-05-11
+v3.3 | Updated: 2026-05-13
 
 ## Why
 
@@ -17,7 +17,7 @@ A Python CLI exposing 16 commands that orchestrate external code-intelligence bi
 
 **Per-file commands** (read the `file/` cache):
 - `doctor` — verify required external binaries; print per-platform install instructions
-- `read <file> [<method>]` — cleaned read; method by name or full file; preserves comments, cuts fluff
+- `read <file> [<method>] [--at <ref>] [--lines L1:L2] [--diff]` — cleaned read; whole file, method by name, or line range; worktree or git ref; optional symbol-level diff vs worktree when reading at a ref
 - `list <dir>` — one-level annotated ls; files + sub-directories with file count, ccn, recency per entry
 - `survey <path>` — repo-wide complexity distribution via scc
 - `tree <path>` — annotated file tree with complexity ranks (recursive)
@@ -147,6 +147,7 @@ Bundles `tracer` plus pure-Python deps (click, lizard, multilspy) into a single 
 
 ## Ledger
 
+- v3.3: Read scopes by ref and line range, one-call lookups
 - v3.1: Passive lifecycle context on reads and listings
 - v3.0: Directional upstream/downstream for graph queries
 - v2.0: Split cache to isolate per-file from architecture

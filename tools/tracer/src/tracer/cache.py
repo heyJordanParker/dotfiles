@@ -43,7 +43,7 @@ NAMESPACE_ARCHITECTURE = "architecture"
 # Schema version baked into every cache key. Bump when the extraction logic,
 # FileFacts shape, or architecture graph schema changes — old entries become
 # unreachable, invalidating the cache without needing a manual `cache clear`.
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 
 def repo_root_for(path: str | Path = ".") -> Path:

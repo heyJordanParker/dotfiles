@@ -26,6 +26,10 @@ def render(facts: "FileFacts", graph: dict | None = None) -> str:
         {"callers": int, "depended_on_by_modules": int}
     Surfaced inline so the agent doesn't need a separate `trace callers` call
     to assess how load-bearing the file is.
+
+    `last:` and `owner:` are included on the full shoulder only (not on
+    `render_compact`) so deep reads carry one-line provenance without
+    requiring a follow-up `git log -1` call.
     """
     state = _state_label(facts)
     age = _age(facts)
@@ -41,7 +45,18 @@ def render(facts: "FileFacts", graph: dict | None = None) -> str:
         graph_part = f"callers: {graph['callers']} · dependents: {graph['depended_on_by_modules']}"
         parts.append(graph_part)
     parts.append(complexity)
+    if facts.top_author:
+        parts.append(f"owner: {facts.top_author}")
+    if facts.last_subject:
+        parts.append(f"last: {_clip_subject(facts.last_subject)}")
     return "[" + " · ".join(parts) + "]"
+
+
+def _clip_subject(subject: str, max_chars: int = 60) -> str:
+    """Truncate a commit subject to keep the shoulder compact."""
+    if len(subject) <= max_chars:
+        return subject
+    return subject[: max_chars - 1].rstrip() + "…"
 
 
 def render_compact(facts: "FileFacts") -> str:

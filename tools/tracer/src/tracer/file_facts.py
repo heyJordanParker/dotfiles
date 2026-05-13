@@ -54,6 +54,15 @@ class FileFacts:
     # Deploy-branch presence. Tuple of labels: "prod", "staging", "main".
     # Empty = file does not exist on any tracked deploy branch.
     present_in: tuple[str, ...] = ()
+    # Subject of the newest commit touching this file. Surfaced in the
+    # shoulder so the agent doesn't need a follow-up `git log -1 --format=%s`.
+    last_subject: str | None = None
+    # Author with the most commits to this file over full history. May
+    # differ from last_author (most recent committer).
+    top_author: str | None = None
+    # Top files that historically change together with this one, ranked by
+    # commit co-occurrence. Capped at 5.
+    co_changed: tuple[tuple[str, int], ...] = ()
     # mtime + size for the fast-path. If the file's current mtime + size
     # match the cached entry, skip the SHA computation entirely on warm
     # validation. mtime + size collisions on a real edit are vanishingly
@@ -90,6 +99,11 @@ class FileFacts:
             rename_from=data.get("rename_from"),
             working_state=data.get("working_state"),
             present_in=tuple(data.get("present_in") or ()),
+            last_subject=data.get("last_subject"),
+            top_author=data.get("top_author"),
+            co_changed=tuple(
+                (p, c) for p, c in (data.get("co_changed") or ())
+            ),
             mtime_ns=data.get("mtime_ns", 0),
             size_bytes=data.get("size_bytes", 0),
         )
@@ -166,6 +180,9 @@ def _extract_facts(
         rename_from=git.rename_from,
         working_state=git.working_state,
         present_in=git.present_in,
+        last_subject=git.last_subject,
+        top_author=git.top_author,
+        co_changed=git.co_changed,
         mtime_ns=mtime_ns,
         size_bytes=size_bytes,
     )

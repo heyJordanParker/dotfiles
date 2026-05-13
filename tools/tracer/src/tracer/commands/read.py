@@ -1,14 +1,20 @@
-"""`trace read` — cleaned file or method reads.
+"""`trace read` — cleaned file or method reads, optionally scoped to a git ref or line range.
 
-Reads a method by name or the entire file. Strips token-wasting fluff
-(license headers, generated banners, decorative separators, excessive
+Reads a method by name, an explicit line range, or the entire file, from
+the worktree by default or from a git ref via `--at`. Strips token-wasting
+fluff (license headers, generated banners, decorative separators, excessive
 blank lines) while preserving meaningful comments adjacent to code.
+
+When `--at <ref>` is combined with `--diff`, returns the ref's content plus
+a structural symbol-level diff against the worktree version of the file:
+which top-level symbols were added, removed, or changed.
 """
 
 from __future__ import annotations
 
 import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -17,6 +23,7 @@ import lizard
 
 from tracer import architecture, cache, file_facts, nested_memory, passive_context
 from tracer.deps import require_dependencies
+from tracer.extraction import extract as extract_symbols, supported_extensions
 
 # Heuristics for fluff detection. Conservative: when in doubt, keep the line.
 GENERATED_MARKERS = (
@@ -29,6 +36,7 @@ GENERATED_MARKERS = (
 )
 LICENSE_MARKERS = ("license", "copyright (c)", "copyright ©", "all rights reserved")
 SEPARATOR_RE = re.compile(r"^[\s#/*\-=_*~]{8,}$")
+LINES_RE = re.compile(r"^(\d+):(\d+)$")
 
 
 def _is_decorative_separator(line: str) -> bool:
@@ -110,109 +118,495 @@ def _clean(content: str, start_line: int = 1) -> str:
     )
 
 
-def _extract_method(file: str, method_name: str) -> tuple[str, int] | None:
+def _extract_method_from_source(
+    source: str, file_for_language: str, method_name: str
+) -> tuple[str, int] | None:
+    """Find `method_name` in `source` and return (snippet, start_line).
+
+    `file_for_language` is the path used only for language detection by
+    extension — content is parsed from `source`, not read from disk. This
+    lets method-by-name resolution work against ref content without writing
+    temp files.
+    """
     try:
-        parsed = lizard.analyze_file(file)
+        parsed = lizard.analyze_file.analyze_source_code(file_for_language, source)
     except Exception:
         return None
     target = next(
-        (f for f in parsed.function_list if f.name == method_name or f.name.endswith(f".{method_name}")),
+        (f for f in parsed.function_list
+         if f.name == method_name or f.name.endswith(f".{method_name}")),
         None,
     )
     if target is None:
         return None
-    with open(file, encoding="utf-8", errors="replace") as fh:
-        source = fh.read().splitlines()
+    lines = source.splitlines()
     start = max(0, target.start_line - 1)
-    end = min(len(source), target.end_line)
+    end = min(len(lines), target.end_line)
 
     while start > 0:
-        prev = source[start - 1].strip()
-        if prev == "" or prev.startswith("#") or prev.startswith("//") or prev.startswith("*") or prev.startswith("/*"):
+        prev = lines[start - 1].strip()
+        if (prev == "" or prev.startswith("#") or prev.startswith("//")
+                or prev.startswith("*") or prev.startswith("/*")):
             start -= 1
             continue
         break
-    snippet = "\n".join(source[start:end]) + "\n"
+    snippet = "\n".join(lines[start:end]) + "\n"
     return snippet, start + 1
 
 
-@click.command()
-@click.argument("file", type=click.Path(exists=True, dir_okay=False))
-@click.argument("method", required=False)
-@click.option("--json", "as_json", is_flag=True, help="Machine-parseable JSON output")
-@click.option("--raw", is_flag=True, help="Skip fluff stripping; return the file as-is")
-def command(file: str, method: str | None, as_json: bool, raw: bool) -> None:
-    """Read a method by name or the entire file.
+def _apply_line_range(source: str, l1: int, l2: int) -> tuple[str, int]:
+    """Slice `source` to inclusive 1-indexed [l1, l2]. Out-of-range is clamped."""
+    lines = source.splitlines()
+    total = len(lines)
+    if total == 0:
+        return "", l1
+    start_idx = max(0, l1 - 1)
+    end_idx = min(total, l2)
+    if start_idx >= end_idx:
+        return "", l1
+    snippet = "\n".join(lines[start_idx:end_idx]) + "\n"
+    return snippet, start_idx + 1
 
-    Strips license headers, generated banners, decorative separators, and
-    excessive blank lines. Preserves docstrings and code-adjacent comments.
+
+def _apply_between(
+    source: str, start_anchor: str, end_anchor: str
+) -> tuple[str, int] | None:
+    """Slice `source` to the section bracketed by anchors (inclusive of both).
+
+    Anchors are tried as regex first; on regex compile failure they fall back
+    to literal substring. Mirrors `sed -n '/start/,/end/p'`. Returns None when
+    no start anchor matches in the source.
     """
-    require_dependencies()
+    try:
+        start_re = re.compile(start_anchor)
+    except re.error:
+        start_re = re.compile(re.escape(start_anchor))
+    try:
+        end_re = re.compile(end_anchor)
+    except re.error:
+        end_re = re.compile(re.escape(end_anchor))
 
-    # Side effect: ensure the file's cache entry is fresh. file_facts.get
-    # uses the mtime fast-path on warm cache (single stat() call) and
-    # re-extracts on staleness. Keeps the cache up to date opportunistically
-    # so the next architecture query sees current state.
-    facts = file_facts.get(file)
+    lines = source.splitlines()
+    start_idx: int | None = None
+    for i, line in enumerate(lines):
+        if start_re.search(line):
+            start_idx = i
+            break
+    if start_idx is None:
+        return None
+    end_idx = len(lines)
+    for j in range(start_idx + 1, len(lines)):
+        if end_re.search(lines[j]):
+            end_idx = j + 1
+            break
+    snippet = "\n".join(lines[start_idx:end_idx]) + "\n"
+    return snippet, start_idx + 1
+
+
+def _parse_lines(value: str) -> tuple[int, int]:
+    """Parse `L1:L2` (1-indexed, inclusive). Raises click.BadParameter on bad input."""
+    match = LINES_RE.match(value)
+    if not match:
+        raise click.BadParameter(
+            f"expected format L1:L2 (1-indexed inclusive), got '{value}'"
+        )
+    l1, l2 = int(match.group(1)), int(match.group(2))
+    if l1 < 1:
+        raise click.BadParameter(f"line numbers must be >= 1 (got {l1})")
+    if l2 < l1:
+        raise click.BadParameter(f"end line {l2} must be >= start line {l1}")
+    return l1, l2
+
+
+def _resolve_ref(ref: str, repo_root: Path) -> dict | None:
+    """Resolve `ref` to (full_sha, short_sha, date, subject). None when unknown."""
+    result = subprocess.run(
+        ["git", "log", "-1", "--pretty=format:%H|%h|%ad|%s", "--date=short", ref],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=5,
+    )
+    if result.returncode != 0 or "|" not in result.stdout:
+        return None
+    full, short, date, subject = result.stdout.strip().split("|", 3)
+    return {"full_sha": full, "short_sha": short, "date": date, "subject": subject}
+
+
+def _load_at_ref(ref: str, repo_root: Path, relative: str) -> str | None:
+    """`git show <ref>:<relpath>` text. None when missing at that ref."""
+    result = subprocess.run(
+        ["git", "show", f"{ref}:{relative}"],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=10,
+    )
+    if result.returncode != 0:
+        return None
+    return result.stdout
+
+
+def _symbol_diff(
+    ref_source: str | None,
+    worktree_source: str | None,
+    relative: str,
+) -> dict | None:
+    """Structural symbol-level diff between ref content and worktree content.
+
+    Compares the `exports` lists (top-level functions / classes / constants /
+    interfaces / types) produced by the language extractor. Symbol identity
+    is (name, kind). For shared symbols, compares the per-function body via
+    lizard line ranges to flag "changed".
+
+    Returns None for unsupported extensions (no extractor). Returns the diff
+    dict with empty lists when the file is identical at both states.
+    """
+    extension = Path(relative).suffix.lower()
+    if extension not in supported_extensions():
+        return None
+
+    def _exports(source: str | None) -> list[dict]:
+        if source is None:
+            return []
+        try:
+            result = extract_symbols(source.encode(), relative)
+        except Exception:
+            return []
+        if result is None:
+            return []
+        return [{"name": e.name, "kind": e.kind, "line": e.line} for e in result.exports]
+
+    def _functions(source: str | None) -> dict[str, tuple[int, int]]:
+        if source is None:
+            return {}
+        try:
+            parsed = lizard.analyze_file.analyze_source_code(relative, source)
+        except Exception:
+            return {}
+        return {f.name: (f.start_line, f.end_line) for f in parsed.function_list}
+
+    ref_exports = _exports(ref_source)
+    work_exports = _exports(worktree_source)
+    ref_keys = {(e["name"], e["kind"]) for e in ref_exports}
+    work_keys = {(e["name"], e["kind"]) for e in work_exports}
+
+    added = [e for e in work_exports if (e["name"], e["kind"]) not in ref_keys]
+    removed = [e for e in ref_exports if (e["name"], e["kind"]) not in work_keys]
+
+    ref_fns = _functions(ref_source)
+    work_fns = _functions(worktree_source)
+    ref_lines = (ref_source.splitlines() if ref_source else [])
+    work_lines = (worktree_source.splitlines() if worktree_source else [])
+
+    changed: list[dict] = []
+    shared = ref_keys & work_keys
+    for name, kind in sorted(shared):
+        if name not in ref_fns or name not in work_fns:
+            # Non-function shared symbol (class/constant/interface/type). We
+            # don't have body ranges from lizard for these; skip the body
+            # comparison rather than guess.
+            continue
+        rs, re_ = ref_fns[name]
+        ws, we = work_fns[name]
+        ref_body = "\n".join(ref_lines[max(0, rs - 1):re_])
+        work_body = "\n".join(work_lines[max(0, ws - 1):we])
+        if ref_body != work_body:
+            changed.append({
+                "name": name,
+                "kind": kind,
+                "ref_line": rs,
+                "worktree_line": ws,
+            })
+
+    return {"added": added, "removed": removed, "changed": changed}
+
+
+def _render_symbol_diff(diff: dict) -> str:
+    lines = ["", "## Symbol diff (ref → worktree)"]
+    if not diff["added"] and not diff["removed"] and not diff["changed"]:
+        lines.append("  (no top-level symbol changes)")
+        return "\n".join(lines)
+    if diff["added"]:
+        lines.append("  added:")
+        for s in diff["added"]:
+            lines.append(f"    + {s['kind']} {s['name']} (L{s['line']})")
+    if diff["removed"]:
+        lines.append("  removed:")
+        for s in diff["removed"]:
+            lines.append(f"    - {s['kind']} {s['name']} (L{s['line']})")
+    if diff["changed"]:
+        lines.append("  changed:")
+        for s in diff["changed"]:
+            lines.append(
+                f"    ~ {s['kind']} {s['name']} "
+                f"(ref L{s['ref_line']} → worktree L{s['worktree_line']})"
+            )
+    return "\n".join(lines)
+
+
+def _render_one(
+    file_arg: str,
+    method: str | None,
+    line_range: tuple[int, int] | None,
+    between: tuple[str, str] | None,
+    ref: str | None,
+    raw: bool,
+    as_diff: bool,
+    as_json: bool,
+) -> tuple[dict, list]:
+    """Render one file's payload. Returns the JSON-shape dict.
+
+    Caller decides whether to emit JSON (the dict) or human-readable text
+    (formatted from the dict). Multi-file callers loop over this; single-file
+    callers call it once and unwrap.
+    """
+    file_path = Path(file_arg).resolve()
+    repo_root = cache.repo_root_for(file_path if file_path.exists() else Path.cwd())
+    try:
+        relative = str(file_path.relative_to(repo_root.resolve()))
+    except ValueError:
+        relative = str(file_path)
+
+    ref_meta: dict | None = None
+    if ref:
+        ref_meta = _resolve_ref(ref, repo_root)
+        if ref_meta is None:
+            click.echo(f"Error: unknown git ref '{ref}'", err=True)
+            sys.exit(2)
+        source = _load_at_ref(ref, repo_root, relative)
+        if source is None:
+            click.echo(
+                f"Error: '{relative}' does not exist at ref '{ref}'", err=True
+            )
+            sys.exit(2)
+    else:
+        if not file_path.is_file():
+            click.echo(f"Error: file not found: {file_arg}", err=True)
+            sys.exit(2)
+        source = file_path.read_text(encoding="utf-8", errors="replace")
 
     start_line = 1
+    between_resolved_lines: list[int] | None = None
     if method:
-        extracted = _extract_method(file, method)
+        extracted = _extract_method_from_source(source, relative, method)
         if extracted is None:
-            click.echo(f"Error: method '{method}' not found in {file}", err=True)
+            click.echo(f"Error: method '{method}' not found in {relative}", err=True)
             sys.exit(2)
         content, start_line = extracted
+    elif line_range:
+        content, start_line = _apply_line_range(source, line_range[0], line_range[1])
+    elif between:
+        slice_result = _apply_between(source, between[0], between[1])
+        if slice_result is None:
+            click.echo(
+                f"Error: start anchor '{between[0]}' not found in {relative}",
+                err=True,
+            )
+            sys.exit(2)
+        content, start_line = slice_result
+        between_resolved_lines = [
+            start_line,
+            start_line + content.count("\n") - (1 if content.endswith("\n") else 0),
+        ]
     else:
-        with open(file, encoding="utf-8", errors="replace") as fh:
-            content = fh.read()
+        content = source
 
     if not raw:
         content = _clean(content, start_line=start_line)
 
-    file_path = Path(file).resolve()
-    repo_root = cache.repo_root_for(file_path)
-    graph_counts = _graph_counts(file_path, repo_root)
-    context_line = (
-        passive_context.render(facts, graph=graph_counts) if facts else None
-    )
+    symbol_diff_data: dict | None = None
+    if as_diff and ref:
+        worktree_source: str | None = None
+        if file_path.is_file():
+            worktree_source = file_path.read_text(encoding="utf-8", errors="replace")
+        symbol_diff_data = _symbol_diff(source, worktree_source, relative)
+
+    facts = file_facts.get(file_path) if (not ref and file_path.is_file()) else None
+    graph_counts = _graph_counts(file_path, repo_root) if facts else None
+    if ref and ref_meta:
+        context_line = (
+            f"[source: ref {ref_meta['short_sha']} · resolved: {ref_meta['full_sha']} · "
+            f"date: {ref_meta['date']} · subject: {_clip(ref_meta['subject'])}]"
+        )
+    else:
+        context_line = (
+            passive_context.render(facts, graph=graph_counts) if facts else None
+        )
+
     session_dedupe = nested_memory.load_session_dedupe()
-    memories = nested_memory.load_for_file(file_path, repo_root,
-                                           session_dedupe=session_dedupe)
+    memories = nested_memory.load_for_file(
+        file_path, repo_root, session_dedupe=session_dedupe
+    )
     nested_memory.save_session_dedupe(session_dedupe)
-    memories_block = nested_memory.render(memories)
 
     try:
         display_file = str(file_path.relative_to(repo_root.resolve()))
     except ValueError:
         display_file = str(file_path)
 
-    if as_json:
-        click.echo(
-            json.dumps(
-                {
-                    "file": display_file,
-                    "method": method,
-                    "content": content,
-                    "raw": raw,
-                    "passive_context": context_line,
-                    "graph": graph_counts,
-                    "nested_memories": [
-                        {"path": m.relative_path, "kind": m.kind,
-                         "size": m.size, "large": m.large, "content": m.content}
-                        for m in memories
-                    ],
-                },
-                indent=2,
-            )
-        )
+    payload = {
+        "file": display_file,
+        "method": method,
+        "lines": list(line_range) if line_range else None,
+        "between": list(between) if between else None,
+        "between_resolved_lines": between_resolved_lines,
+        "ref": ref,
+        "ref_resolved": ref_meta,
+        "source": "ref" if ref else "worktree",
+        "content": content,
+        "raw": raw,
+        "passive_context": context_line,
+        "graph": graph_counts,
+        "symbol_diff": symbol_diff_data,
+        "nested_memories": [
+            {"path": m.relative_path, "kind": m.kind,
+             "size": m.size, "large": m.large, "content": m.content}
+            for m in memories
+        ],
+    }
+    return payload, memories
+
+
+def _emit_human(payload: dict, memories: list) -> None:
+    header = f"# {payload['file']}"
+    if payload["ref"]:
+        header += f" @ {payload['ref']}"
+    if payload["method"]:
+        header += f" :: {payload['method']}"
+    elif payload["lines"]:
+        header += f" :: L{payload['lines'][0]}-L{payload['lines'][1]}"
+    elif payload["between"]:
+        resolved = payload["between_resolved_lines"]
+        header += f" :: between /{payload['between'][0]}/,/{payload['between'][1]}/"
+        if resolved:
+            header += f" (L{resolved[0]}-L{resolved[1]})"
+    click.echo(header)
+    if payload["passive_context"]:
+        click.echo(payload["passive_context"])
+    memories_block = nested_memory.render(memories) if memories else ""
+    if memories_block:
+        click.echo(memories_block)
+        click.echo("")
+    click.echo(payload["content"], nl=False)
+    if payload["symbol_diff"] is not None:
+        click.echo(_render_symbol_diff(payload["symbol_diff"]))
+
+
+@click.command()
+@click.argument("paths", nargs=-1, required=True)
+@click.option("--method", "method_flag", default=None,
+              help="Method/function name to extract (equivalent to second positional)")
+@click.option("--json", "as_json", is_flag=True, help="Machine-parseable JSON output")
+@click.option("--raw", is_flag=True, help="Skip fluff stripping; return the file as-is")
+@click.option("--at", "ref", default=None, metavar="REF",
+              help="Read at a git ref (sha, branch, HEAD~N) instead of the worktree")
+@click.option("--lines", "lines_arg", default=None, metavar="L1:L2",
+              help="Read an explicit 1-indexed inclusive line range; multi-file when "
+                   "multiple positionals are given")
+@click.option("--between", "between", nargs=2, type=str, default=None,
+              metavar="START END",
+              help="Read the section bracketed by two regex/literal anchors")
+@click.option("--diff", "as_diff", is_flag=True,
+              help="With --at, also emit a structural symbol-level diff vs the worktree")
+def command(
+    paths: tuple[str, ...],
+    method_flag: str | None,
+    as_json: bool,
+    raw: bool,
+    ref: str | None,
+    lines_arg: str | None,
+    between: tuple[str, str] | None,
+    as_diff: bool,
+) -> None:
+    """Read methods, line ranges, anchor-bracketed sections, or whole files.
+
+    Positional disambiguation:
+      - With --lines or --between, every positional is a file path (multi-file
+        mode).
+      - Without --lines/--between, two positionals are interpreted as
+        (file, method-name) — same shape as the legacy single-file interface.
+    """
+    require_dependencies()
+
+    if as_diff and not ref:
+        click.echo("Error: --diff requires --at <ref>", err=True)
+        sys.exit(2)
+    if lines_arg and between:
+        click.echo("Error: --lines and --between are mutually exclusive", err=True)
+        sys.exit(2)
+
+    line_range: tuple[int, int] | None = None
+    if lines_arg:
+        line_range = _parse_lines(lines_arg)
+
+    # Disambiguate the positionals into files + optional method.
+    multi_scope = line_range is not None or between is not None
+    if multi_scope:
+        files = list(paths)
+        positional_method: str | None = None
     else:
-        click.echo(f"# {display_file}{(' :: ' + method) if method else ''}")
-        if context_line:
-            click.echo(context_line)
-        if memories_block:
-            click.echo(memories_block)
+        if len(paths) == 0:
+            click.echo("Error: missing file argument", err=True)
+            sys.exit(2)
+        if len(paths) > 2:
+            click.echo(
+                "Error: too many positionals — use --lines or --between for multi-file reads",
+                err=True,
+            )
+            sys.exit(2)
+        files = [paths[0]]
+        positional_method = paths[1] if len(paths) == 2 else None
+
+    if method_flag and positional_method:
+        click.echo("Error: --method and positional METHOD are mutually exclusive", err=True)
+        sys.exit(2)
+    method = method_flag or positional_method
+
+    if method and multi_scope:
+        click.echo(
+            "Error: METHOD is not valid with --lines or --between", err=True
+        )
+        sys.exit(2)
+    if method and len(files) > 1:
+        click.echo("Error: METHOD requires exactly one file", err=True)
+        sys.exit(2)
+
+    results = [
+        _render_one(
+            file_arg=f,
+            method=method,
+            line_range=line_range,
+            between=between,
+            ref=ref,
+            raw=raw,
+            as_diff=as_diff,
+            as_json=as_json,
+        )
+        for f in files
+    ]
+
+    if as_json:
+        payloads = [p for p, _ in results]
+        if len(payloads) == 1:
+            click.echo(json.dumps(payloads[0], indent=2))
+        else:
+            click.echo(json.dumps({"files": payloads}, indent=2))
+        return
+
+    for i, (payload, memories) in enumerate(results):
+        if i > 0:
             click.echo("")
-        click.echo(content, nl=False)
+            click.echo("---")
+        _emit_human(payload, memories)
+
+
+def _clip(subject: str, max_chars: int = 60) -> str:
+    if len(subject) <= max_chars:
+        return subject
+    return subject[: max_chars - 1].rstrip() + "…"
 
 
 def _graph_counts(file_path: Path, repo_root: Path) -> dict | None:

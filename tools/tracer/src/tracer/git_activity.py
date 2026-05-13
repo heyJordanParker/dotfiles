@@ -24,6 +24,7 @@ commit_count=0 in the resulting map.
 from __future__ import annotations
 
 import subprocess
+from collections import Counter
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -52,6 +53,17 @@ class GitActivity:
     # Closes the wrong-answer class where an agent treats a file with low
     # commit_count as "never deployed" without checking origin/production.
     present_in: tuple[str, ...] = ()
+    # Subject of the most recent commit that touched this file. Renders
+    # alongside the shoulder so the agent doesn't need a follow-up
+    # `git log -1 --format=%s` after reading.
+    last_subject: str | None = None
+    # Author with the most commits to this file (over full history). May
+    # differ from last_author (most recent committer). Surfaces ownership
+    # without a separate `trace blame` call.
+    top_author: str | None = None
+    # Top files that change together with this one, ranked by commit
+    # co-occurrence count. Capped at 5 entries to bound cache size.
+    co_changed: tuple[tuple[str, int], ...] = ()
 
 
 _EMPTY = GitActivity(
@@ -63,6 +75,9 @@ _EMPTY = GitActivity(
     rename_from=None,
     working_state=None,
     present_in=(),
+    last_subject=None,
+    top_author=None,
+    co_changed=(),
 )
 
 
@@ -98,6 +113,9 @@ def bulk(repo_root: Path) -> dict[str, GitActivity]:
             rename_from=info["rename_from"],
             working_state=working.get(path),
             present_in=presence.get(path, ()),
+            last_subject=info.get("last_subject"),
+            top_author=info.get("top_author"),
+            co_changed=tuple(info.get("co_changed") or ()),
         )
     # Surface working-tree-only entries (staged-but-uncommitted or untracked).
     for path, state in working.items():
@@ -112,6 +130,9 @@ def bulk(repo_root: Path) -> dict[str, GitActivity]:
             rename_from=None,
             working_state=state,
             present_in=presence.get(path, ()),
+            last_subject=None,
+            top_author=None,
+            co_changed=(),
         )
     return out
 
@@ -138,6 +159,7 @@ def bulk_cached(repo_root: Path) -> dict[str, GitActivity]:
     if cached is not None:
         history: dict[str, GitActivity] = {}
         for path, fields in cached.items():
+            co = fields.get("co_changed") or ()
             history[path] = GitActivity(
                 last_modified=fields.get("last_modified"),
                 last_author=fields.get("last_author"),
@@ -147,6 +169,9 @@ def bulk_cached(repo_root: Path) -> dict[str, GitActivity]:
                 rename_from=fields.get("rename_from"),
                 working_state=None,
                 present_in=tuple(fields.get("present_in") or ()),
+                last_subject=fields.get("last_subject"),
+                top_author=fields.get("top_author"),
+                co_changed=tuple((p, c) for p, c in co),
             )
     else:
         history = bulk(repo_root)
@@ -176,6 +201,9 @@ def bulk_cached(repo_root: Path) -> dict[str, GitActivity]:
                 rename_from=None,
                 working_state=state,
                 present_in=(),
+                last_subject=None,
+                top_author=None,
+                co_changed=(),
             )
         else:
             out[path] = GitActivity(
@@ -187,6 +215,9 @@ def bulk_cached(repo_root: Path) -> dict[str, GitActivity]:
                 rename_from=existing.rename_from,
                 working_state=state,
                 present_in=existing.present_in,
+                last_subject=existing.last_subject,
+                top_author=existing.top_author,
+                co_changed=existing.co_changed,
             )
     return out
 
@@ -239,12 +270,17 @@ def _walk_history(repo_root: Path) -> dict[str, dict]:
     """Single git log pass that produces last/first/count/rename per file.
 
     `-M` triggers rename detection. Output:
-      COMMIT|<date>|<author>
+      COMMIT|<date>|<author>|<subject>
       M\tpath
       A\tpath
       D\tpath
       R100\told\tnew         (rename, percentage similarity)
       C75\tsource\tcopy      (copy, percentage similarity)
+
+    Also derives, in the same pass:
+      - last_subject: subject of the newest commit touching the file
+      - top_author: author with the most commits to the file
+      - co_changed: top-5 files that change together with this one
     """
     try:
         result = subprocess.run(
@@ -253,7 +289,7 @@ def _walk_history(repo_root: Path) -> dict[str, dict]:
                 "-M",
                 "--diff-merges=first-parent",
                 "--name-status",
-                "--pretty=format:COMMIT|%ad|%an",
+                "--pretty=format:COMMIT|%ad|%an|%s",
                 "--date=short",
             ],
             cwd=repo_root,
@@ -266,18 +302,37 @@ def _walk_history(repo_root: Path) -> dict[str, dict]:
         return {}
 
     out: dict[str, dict] = {}
+    authors_by_path: dict[str, Counter[str]] = {}
+    co_by_path: dict[str, Counter[str]] = {}
     current_date: str | None = None
     current_author: str | None = None
+    current_subject: str | None = None
+    current_paths: set[str] = set()
+
+    def _flush_co() -> None:
+        if len(current_paths) <= 1:
+            return
+        paths = list(current_paths)
+        for a in paths:
+            counter = co_by_path.setdefault(a, Counter())
+            for b in paths:
+                if a != b:
+                    counter[b] += 1
+
     for line in result.stdout.splitlines():
         if line.startswith("COMMIT|"):
-            parts = line.split("|", 2)
-            if len(parts) == 3:
+            _flush_co()
+            current_paths = set()
+            parts = line.split("|", 3)
+            if len(parts) == 4:
+                _, current_date, current_author, current_subject = parts
+            elif len(parts) == 3:
                 _, current_date, current_author = parts
+                current_subject = None
             continue
         stripped = line.strip()
         if not stripped or current_date is None:
             continue
-        # Parse status\tpath  OR  status\told\tnew (rename/copy).
         tokens = line.split("\t")
         if len(tokens) < 2:
             continue
@@ -286,46 +341,66 @@ def _walk_history(repo_root: Path) -> dict[str, dict]:
             if len(tokens) < 3:
                 continue
             old_path, path = tokens[1], tokens[2]
-            entry = _ensure(out, path, current_date, current_author)
+            entry = _ensure(out, path, current_date, current_author, current_subject)
             entry["commit_count"] += 1
-            # Most recent rename wins — we read the log newest→oldest, so the
-            # first time we see a rename for `path` is the most recent.
             if entry["rename_from"] is None:
                 entry["rename_from"] = old_path
             entry["first_seen"] = current_date
-            # Carry history of the old path forward so its commits also count
-            # toward the new path. Walked in chronological-reverse, the old
-            # name's commits show up after the rename — they belong to the
-            # same file lineage.
+            if current_author:
+                authors_by_path.setdefault(path, Counter())[current_author] += 1
+            current_paths.add(path)
             out.setdefault(
                 f"__alias__::{old_path}",
                 {"resolves_to": path},
             )
         else:
             path = tokens[1]
-            # If this path has been renamed in a later commit, attribute the
-            # touch to the new path (commit_count and first_seen).
             alias = out.get(f"__alias__::{path}")
             target = alias["resolves_to"] if alias else path
-            entry = _ensure(out, target, current_date, current_author)
+            entry = _ensure(out, target, current_date, current_author, current_subject)
             entry["commit_count"] += 1
             entry["first_seen"] = current_date
+            if current_author:
+                authors_by_path.setdefault(target, Counter())[current_author] += 1
+            current_paths.add(target)
 
-    # Drop alias bookkeeping entries before returning.
+    _flush_co()
+
+    for path, entry in out.items():
+        if path.startswith("__alias__::"):
+            continue
+        author_counter = authors_by_path.get(path)
+        entry["top_author"] = (
+            author_counter.most_common(1)[0][0] if author_counter else None
+        )
+        co_counter = co_by_path.get(path)
+        entry["co_changed"] = (
+            [list(pair) for pair in co_counter.most_common(5)]
+            if co_counter
+            else []
+        )
+
     return {k: v for k, v in out.items() if not k.startswith("__alias__::")}
 
 
 def _ensure(
-    out: dict[str, dict], path: str, date: str, author: str | None
+    out: dict[str, dict],
+    path: str,
+    date: str,
+    author: str | None,
+    subject: str | None = None,
 ) -> dict:
     entry = out.get(path)
     if entry is None:
         entry = {
             "last_modified": date,
             "last_author": author or "",
+            "last_subject": subject,
             "first_seen": date,
             "commit_count": 0,
             "rename_from": None,
+            "top_author": None,
+            "co_changed": [],
         }
         out[path] = entry
     return entry

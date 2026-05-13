@@ -11,17 +11,21 @@ from __future__ import annotations
 import click
 
 from tracer.commands import (
+    blame,
     cache,
     callers,
     context,
     defines,
+    diff,
     doctor,
     downstream,
+    find,
     grep,
     history,
     info,
     list_,
     read,
+    status,
     struct_,
     structure,
     survey,
@@ -51,9 +55,13 @@ main.add_command(symbols.command, name="symbols")
 main.add_command(upstream.command, name="upstream")
 main.add_command(downstream.command, name="downstream")
 main.add_command(history.command, name="history")
+main.add_command(blame.command, name="blame")
 main.add_command(cache.command, name="cache")
 main.add_command(list_.command, name="list")
 main.add_command(context.command, name="context")
+main.add_command(status.command, name="status")
+main.add_command(find.command, name="find")
+main.add_command(diff.command, name="diff")
 
 
 if __name__ == "__main__":

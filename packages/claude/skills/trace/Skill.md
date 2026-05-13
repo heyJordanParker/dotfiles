@@ -48,6 +48,8 @@ trace grep <pattern> [-l <lang>]        # text search with rich context
 trace struct <pattern> -l <lang>        # structural (AST) search via ast-grep
 trace read <file> [<method>]            # cleaned read; method or full file; preserves comments, cuts fluff
 trace history <file>                    # git log/blame summary
+trace blame <file> [<symbol>]           # symbol-aware blame; regions collapse runs of one commit, include the subject
+trace blame <file> --lines L1:L2        # blame an explicit line range
 ```
 
 ## Passive context on every read — hypothesis, not conclusion
@@ -103,6 +105,7 @@ Worktrees, squashed-baseline commits, and branch divergence can all make a file 
 | Read one method without the rest of the file | `trace read <file> <method>` |
 | Read a whole file with token-wasting fluff cut | `trace read <file>` |
 | Understand history/why of a file | `trace history <file>` |
+| Find who last touched a function or line range | `trace blame <file> <symbol>` or `trace blame <file> --lines L1:L2` |
 
 ## Directional intuition
 

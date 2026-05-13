@@ -43,6 +43,7 @@ trace structure <file>             Methods, properties, variables, imports, expo
 trace grep <pattern>               Text search with per-match enrichment
 trace struct <pattern> -l <lang>   Structural AST search via ast-grep with per-match enrichment
 trace history <file>               Git log/blame summary for a file
+trace blame <file> [<symbol>]      Symbol-aware blame; collapsed regions with commit subjects
 ```
 
 `read`, `list`, `tree`, and `info` annotate each file with a one-line passive-context shoulder showing lifecycle state (new / renamed / modified / settled), age, and complexity rank — letting an AI agent calibrate its conclusions about how settled a file is before drawing them.
