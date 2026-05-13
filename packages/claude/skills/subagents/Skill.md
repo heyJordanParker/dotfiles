@@ -81,6 +81,77 @@ backend/
     └── PaymentServiceTest.php*         <- add timeout test coverage
 ```
 
+**Bad: Pre-researched paths and prescribed investigation order**
+
+```
+Build a new top-level `trace blame` command.
+
+The command lives in `src/tracer/commands/blame.py` and registers on the
+click group in `src/tracer/__main__.py`. Read `src/tracer/commands/read.py`
+first to see the `_extract_method` pattern, then `src/tracer/file_facts.py`
+for FileFacts, then `src/tracer/passive_context.py` for the shoulder.
+
+Use `lizard.analyze_file.analyze_source_code(...)` to resolve the symbol's
+line range. Shell out to `git blame --line-porcelain` for raw blame, then
+parse the porcelain envelope. DO NOT modify `src/tracer/__main__.py` —
+registration is handled centrally.
+
+DoD: ...
+```
+
+Problems: looks like WHAT/WHY at first glance, but every concrete file
+path, function name, and ordering instruction is a HOW decision smuggled
+in as context. Specific triggers that get this rejected:
+
+- file paths (`src/tracer/commands/blame.py`)
+- function/symbol names (`_extract_method`, `FileFacts`)
+- ordering instructions (`Read X first, then Y`)
+- prescribed library calls (`use lizard.analyze_file.analyze_source_code`)
+- mechanical guardrails (`DO NOT modify __main__.py`)
+
+The agent has fresh context; it will find the read pattern, the file
+facts module, and the shoulder by exploring the codebase from the Goal.
+The list above does that work for it, biases the implementation, and
+encodes assumptions you may have gotten wrong.
+
+**Good: Same intent, agent left to discover the codebase**
+
+```
+Story: Empirical transcript analysis found `git blame -L <range>:<file>`
+is used zero times despite constant ownership questions of the form
+"who last touched function X" — agents currently simulate this by
+reading `git log` output and guessing which commit modified which
+region.
+
+Business: gives the agent a clean, scoped ownership answer for any
+region of any file, instead of the line-by-line porcelain dump or the
+manual log-and-guess workaround.
+
+Goal: build a new top-level `trace blame` command in the tracer
+codebase. The command returns blame information for a file, scoped to
+either the whole file, a specific line range, or a named symbol.
+Symbol scoping is the novel capability — agents can ask "who owns this
+function" without thinking in line numbers.
+
+DoD:
+- `trace blame <file>` blames the whole file
+- `trace blame <file> <symbol>` resolves the symbol and blames its range
+- `trace blame <file> --lines L1:L2` blames an explicit range
+- Each result region carries the commit subject inline
+- Consecutive identical-commit lines collapse to a single region
+
+Constraints:
+- Tracer's command structure, output shape, and dependency handling
+  follow established conventions — discover and match them.
+- No new external binary dependencies.
+- Command registration is centrally managed; you are responsible only
+  for the new command module.
+```
+
+The Story explains the user pain, the Goal names the capability and the
+novel bit, the DoD is observable. Nothing names a file, function, or
+library — the agent finds those by exploring from the Goal.
+
 **Bad: Vague one-liner**
 
 ```

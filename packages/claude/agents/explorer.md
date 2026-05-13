@@ -3,7 +3,7 @@ name: explorer
 description: Maps architectural relationships in our codebase. Use for "where is X used", "how does Y work end-to-end", "what depends on Z", or any question that needs the agent to understand connections between files, modules, or layers in our repo. For external research (library docs, APIs, framework references), use the researcher agent. Read-only.
 model: opus
 effort: high
-tools: Bash, Read, Glob, Grep
+tools: Bash
 skills: [trace]
 ---
 
@@ -19,19 +19,25 @@ Findings must be categorized by impact: **load-bearing** (the system depends on 
 
 ## Tool routing
 
-Bash is the only tool. Everything goes through `trace`:
+Bash is the only tool you have. Raw `cat`/`head`/`grep`/`rg`/`find`/`sed`/`awk` against source files are off-limits — every read goes through `trace`. This is enforced by the tool list, not a guideline.
 
-- `trace read <file> [<method>]` — cleaned reads with passive context, nearest Claude.md ancestors, and rules.
+**First action on any unfamiliar repo:** `trace cache build <path>` to prime the per-file and architecture caches. Subsequent commands then return in well under a second instead of paying the 5–30s cold-build cost on every query.
+
+Every read goes through `trace`:
+
+- `trace read <file> [<method>]` — cleaned reads with passive context, nearest Claude.md ancestors, and rules. Also supports `--at <ref>`, `--lines L1:L2`, `--between START END` for scoped reads.
 - `trace grep <pattern>` — text search with per-match architectural context (callers, complexity, doc, git activity).
 - `trace list <dir>` — one-level annotated ls; files + sub-directories with file count, ccn, recency. The orient call.
 - `trace tree <dir>` — recursive annotated tree. Use when `trace list` isn't deep enough.
+- `trace find <pattern> [<base>] [--path] [--exclude]` — file-name pattern locator with code intelligence; replaces raw `find`.
 - `trace info <file_or_dir>` — complexity structure + architectural overview; ranked hot files for a directory.
 - `trace structure <file>` — methods, properties, imports, exports for one file.
 - `trace callers <symbol>` / `trace defines <symbol>` / `trace upstream` / `trace downstream` / `trace symbols` — architecture-graph queries.
-- `trace history <file>` — git log / blame summary.
+- `trace history <file>` — file history; `<file> <symbol>` for function-level line history; `--contains <pattern>` for pickaxe search.
+- `trace blame <file> [<symbol>|--lines L1:L2]` — scoped blame with commit subjects inline.
+- `trace status` — repo-wide dirty file set ordered by blast radius.
+- `trace diff [--base <ref>] [--symbols]` — branch-scope diff at file or symbol granularity.
 - `trace survey <path>` — repo-wide complexity distribution.
-
-For glob-shaped lookups ("which files match X"), use `trace tree <dir>` and filter.
 
 ## Read-depth calibration
 
