@@ -3,36 +3,66 @@
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 
 import click
 
-from tracer import file_facts, passive_context
+from tracer import cache, file_facts, passive_context, repo_files
 from tracer.deps import require_dependencies
-from tracer.enrich import file_complexity
 from tracer.repo_context import repo_context
 
 
-SKIP_DIRS = {".git", "node_modules", ".venv", "venv", "__pycache__", "dist", "build", ".next"}
+def _empty_ccn() -> dict:
+    return {"ccn_total": 0, "ccn_max_function": 0, "loc": 0, "rank": "unknown"}
+
+
+def _render_entry(full: Path, repo_root: Path) -> tuple[Path, dict, str | None]:
+    facts = file_facts.get(full, repo_root=repo_root, cache_only=True)
+    if facts is None:
+        return (full, _empty_ccn(), None)
+    return (
+        full,
+        {
+            "ccn_total": facts.cyclomatic_complexity_total,
+            "ccn_max_function": facts.cyclomatic_complexity_max,
+            "loc": facts.loc,
+            "rank": facts.rank,
+        },
+        passive_context.render_compact(facts),
+    )
 
 
 def _walk(path: Path, max_depth: int) -> list[tuple[Path, dict, str | None]]:
+    """Annotated walk. File discovery via `repo_files.tracked_files` inside
+    a git repo, `repo_files.walk_files` outside. Both honor the shared
+    `SKIP_DIRS` set and never descend into ignored trees. file_facts
+    queried with cache_only=True — tree never blocks on per-file
+    extraction."""
+    base = path.resolve()
+    repo_root = cache.repo_root_for(base)
+    tracked = repo_files.tracked_files(repo_root, base=base)
+
     entries: list[tuple[Path, dict, str | None]] = []
-    for root, dirs, files in os.walk(path):
-        rel_root = Path(root).relative_to(path)
-        depth = 0 if str(rel_root) == "." else len(rel_root.parts)
-        if depth >= max_depth:
-            dirs[:] = []
-            continue
-        dirs[:] = sorted([d for d in dirs if d not in SKIP_DIRS and not d.startswith(".")])
-        for fname in sorted(files):
-            full = Path(root) / fname
-            if full.is_symlink():
+    if tracked is not None:
+        for rel in sorted(tracked):
+            full = repo_root / rel
+            try:
+                under_base = str(full.resolve().relative_to(base))
+            except ValueError:
                 continue
-            facts = file_facts.get(full)
-            ctx = passive_context.render_compact(facts) if facts else None
-            entries.append((full, file_complexity(full), ctx))
+            if under_base.count("/") + 1 > max_depth:
+                continue
+            entries.append(_render_entry(full, repo_root))
+        return entries
+
+    for full in sorted(repo_files.walk_files(base)):
+        try:
+            depth = len(full.relative_to(base).parts)
+        except ValueError:
+            continue
+        if depth > max_depth:
+            continue
+        entries.append(_render_entry(full, repo_root))
     return entries
 
 

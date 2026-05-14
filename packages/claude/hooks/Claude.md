@@ -1,5 +1,5 @@
 # Claude Code Hooks
-v1.4 | Updated: 2026-05-12
+v1.5 | Updated: 2026-05-14
 
 ## Why
 
@@ -58,6 +58,7 @@ hooks/
 ├── validate-ledger-entries.sh            # PreToolUse Write|Edit *.md
 │
 ├── sync-shaping.sh                       # PostToolUse Write|Edit
+├── load-trace-context.sh                 # SessionStart — injects `trace context` primer as additionalContext
 └── initialize-session-state.sh           # legacy — superseded by session-state start
 ```
 
@@ -217,6 +218,7 @@ Claude Code compacts long conversations server-side, summarizing earlier turns w
 
 ## Ledger
 
+- v1.5: SessionStart injects trace context primer
 - v1.4: Proposing-mode block extends to Bash file mutations
 - v1.3: Lock RMW paths so concurrent counters land exactly
 - v1.2: Wire helper into Claude Code hook events

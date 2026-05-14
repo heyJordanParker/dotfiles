@@ -141,17 +141,32 @@ def empty() -> GitActivity:
     return _EMPTY
 
 
+# Per-process memo: 1500 `_lite_facts` callers shouldn't each spawn a
+# `git rev-parse HEAD` subprocess + JSON parse + reconstruct ~N
+# `GitActivity` dataclasses. Caller IDs the repo by absolute path; the map
+# is recomputed once per invocation (short-lived process is the invariant).
+_BULK_CACHE: dict[str, dict[str, "GitActivity"]] = {}
+
+
 def bulk_cached(repo_root: Path) -> dict[str, GitActivity]:
-    """Bulk git activity with disk caching keyed by HEAD SHA.
+    """Bulk git activity with disk caching keyed by HEAD SHA + process-level
+    memo so repeat callers in the same tracer invocation pay only once.
 
     Historical fields (last_modified, first_seen, commit_count, rename_from)
     are cached — they only change when HEAD moves. Working-tree state
     (untracked, staged add, modified) is recomputed fresh each call because
     it changes as the user edits, with no commit needed.
     """
+    memo_key = str(repo_root.resolve())
+    memoed = _BULK_CACHE.get(memo_key)
+    if memoed is not None:
+        return memoed
+
     head = _head_sha(repo_root)
     if head is None:
-        return bulk(repo_root)
+        result = bulk(repo_root)
+        _BULK_CACHE[memo_key] = result
+        return result
 
     cache_key = f"git_activity__{head}"
     cached = _cache.load(_cache.NAMESPACE_FILE, cache_key, repo_root)
@@ -182,10 +197,12 @@ def bulk_cached(repo_root: Path) -> dict[str, GitActivity]:
         _cache.save(_cache.NAMESPACE_FILE, cache_key, payload, repo_root)
         # The freshly-computed bulk already has working_state; re-fetching
         # below would just produce the same answer.
+        _BULK_CACHE[memo_key] = history
         return history
 
     working = _working_tree_state(repo_root)
     if not working:
+        _BULK_CACHE[memo_key] = history
         return history
 
     out = dict(history)
@@ -219,6 +236,7 @@ def bulk_cached(repo_root: Path) -> dict[str, GitActivity]:
                 top_author=existing.top_author,
                 co_changed=existing.co_changed,
             )
+    _BULK_CACHE[memo_key] = out
     return out
 
 

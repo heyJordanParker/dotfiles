@@ -67,6 +67,16 @@
             "command": "INPUT=$(cat); SESSION_ID=$(printf '%s' \"$INPUT\" | jq -r '.session_id // empty'); [ -z \"$SESSION_ID\" ] && exit 0; TRANSCRIPT=$(printf '%s' \"$INPUT\" | jq -r '.transcript_path // empty'); $HOME/.claude/hooks/session-state.sh start \"$SESSION_ID\" --transcript-path \"$TRANSCRIPT\" 2>>/tmp/session-state-hook.log || true"
           }
         ]
+      },
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/load-trace-context.sh",
+            "timeout": 20
+          }
+        ]
       }
     ],
     "PreToolUse": [

@@ -1,5 +1,5 @@
 # Tracer
-v3.3 | Updated: 2026-05-13
+v3.5 | Updated: 2026-05-14
 
 ## Why
 
@@ -11,7 +11,7 @@ Standalone developers who want the same unified interface are a secondary audien
 
 ## What
 
-A Python CLI exposing 16 commands that orchestrate external code-intelligence binaries plus an in-process two-layer disk cache: per-file facts and an architecture graph of symbols and modules connected by cross-file edges. Reads and directory listings include passive context: lifecycle state (new / renamed / modified / settled), age, and complexity rank inline.
+A Python CLI exposing 17 commands that orchestrate external code-intelligence binaries plus an in-process two-layer disk cache: per-file facts and an architecture graph of symbols and modules connected by cross-file edges. Reads and directory listings include passive context: lifecycle state (new / renamed / modified / settled), age, and complexity rank inline.
 
 ### Commands
 
@@ -25,6 +25,7 @@ A Python CLI exposing 16 commands that orchestrate external code-intelligence bi
 - `structure <file>` — methods, properties, variables, imports, exports for one file
 - `grep <pattern>` — text search via ripgrep with per-match enrichment
 - `struct <pattern> -l <lang>` — structural AST search via ast-grep with per-match enrichment
+- `glob <pattern> [<base>]` — full-path pattern search (Claude Glob shape: `**` recursive, gitignore-respecting). Returns the complete deterministically-sorted match list; bare paths by default, `--details` adds per-line ccn + rank + lifecycle shoulder
 - `history <file>` — git log/blame summary
 
 **Architecture commands** (read the `architecture/` cache):
@@ -74,6 +75,10 @@ Joins between the two layers happen at the rendering layer (in command output) a
 - Never put files as nodes in the architecture graph — files are an attribute (`source_file`) on symbol/module nodes, never the node itself. This is the layer-separation invariant; violating it brings back graphify's defensive `_is_file_node` filtering
 - Never cross-read between the two cache namespaces — per-file commands stay in `file/`, architecture commands stay in `architecture/`. Joins happen in command code at render time, are disposable, and never persist
 - Never store cache entries with stale schemas — bump `cache.SCHEMA_VERSION` whenever extraction or FileFacts shape changes; old entries become unreachable automatically
+- Never call `file_facts.get(path)` in a loop without passing `repo_root=` — without it, every call shells out to `git rev-parse --show-toplevel` (15-30ms each), so a 1500-file loop pays 20-45s of pure subprocess overhead. Resolve `repo_root` once outside the loop and thread it through
+- Never use `Path.rglob()` for repo-wide file walks — it traverses the entire tree before filtering, and on any repo with `node_modules` / `vendor` / worktrees that's a 30+ second walk. Use `architecture.discover_files()` for source files, `git ls-files --cached --others --exclude-standard` for all repo files, or `os.walk` with dir-level `SKIP_DIRS` pruning
+- Never call `file_facts.get()` for non-source files (markdown / json / yaml / configs) on a cold cache — `architecture.get()` only pre-warms files matching `supported_extensions()`, so non-source files trigger `lizard.analyze_file` per file inside `_extract_facts`. For loops that only need counts and timestamps, check the extension and pull `last_modified` / `working_state` from `git_activity.bulk_cached` directly
+- Never call `git_activity.bulk_cached(repo_root)` inside a loop — it reconstructs ~N GitActivity dataclasses from cached JSON on every call, making the loop O(N²). Hoist the call outside the loop and index the returned dict per iteration
 
 ## Architecture
 
@@ -84,7 +89,7 @@ tracer/
 ├── scripts/
 │   └── build-zipapp.sh                  → packages/claude/bin/trace plugin artifact
 └── src/tracer/
-    ├── __main__.py                      click group; registers 16 commands
+    ├── __main__.py                      click group; registers 17 commands
     ├── passive_context.py                renders one-line lifecycle/complexity shoulder for any FileFacts
     ├── deps.py                          require_dependencies; per-platform install hints
     ├── cache.py                         two-namespace disk cache (file/, architecture/)
@@ -99,11 +104,12 @@ tracer/
     │   ├── python.py                    Python imports + module-level definitions
     │   ├── typescript.py                TS/TSX/JS/JSX imports + exports
     │   └── php.py                       PHP `use` statements + class/interface/function
-    └── commands/                        one file per CLI command (16 total)
+    └── commands/                        one file per CLI command (17 total)
         ├── doctor.py    read.py         tree.py       survey.py
         ├── info.py      structure.py    grep.py       struct_.py
-        ├── history.py   defines.py      callers.py    symbols.py
-        ├── upstream.py  downstream.py   cache.py      list_.py
+        ├── glob.py      history.py      defines.py    callers.py
+        ├── symbols.py   upstream.py     downstream.py cache.py
+        ├── list_.py
 ```
 
 ## Workflow
@@ -147,6 +153,8 @@ Bundles `tracer` plus pure-Python deps (click, lizard, multilspy) into a single 
 
 ## Ledger
 
+- v3.5: Glob command for full-path pathlib match with `**`
+- v3.4: Loop hot-paths banned because they hid 50x slowdowns
 - v3.3: Read scopes by ref and line range, one-call lookups
 - v3.1: Passive lifecycle context on reads and listings
 - v3.0: Directional upstream/downstream for graph queries

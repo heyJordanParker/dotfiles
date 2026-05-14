@@ -16,16 +16,19 @@ from pathlib import Path
 import click
 import lizard
 
-from tracer import architecture, cache, digest, file_facts, passive_context
+from tracer import architecture, cache, digest, file_facts, passive_context, repo_files
 from tracer.deps import require_dependencies
 from tracer.enrich import nearest_doc
 from tracer.repo_context import repo_context
 
 
 def _file_info(path: Path) -> dict:
-    """Per-file info; uses file_facts for cached aggregates plus a fresh
-    lizard pass for per-function detail (not stored in file_facts)."""
-    facts = file_facts.get(path)
+    """Per-file info; runs one lizard pass for per-function detail and
+    derives the summary aggregates (function_count, ccn_total, ccn_max)
+    from the same pass. file_facts is queried with cache_only=True so it
+    doesn't trigger a second lizard run during cache miss."""
+    repo_root = cache.repo_root_for(path)
+    facts = file_facts.get(path, repo_root=repo_root, cache_only=True)
     try:
         parsed = lizard.analyze_file(str(path))
         functions = [
@@ -42,7 +45,11 @@ def _file_info(path: Path) -> dict:
     except Exception:
         functions = []
 
-    repo_root = cache.repo_root_for(path)
+    ccn_total = sum(f["cyclomatic_complexity"] for f in functions)
+    ccn_max = max((f["cyclomatic_complexity"] for f in functions), default=0)
+    function_count = len(functions)
+    rank = "low" if ccn_total < 10 else "medium" if ccn_total < 30 else "high" if ccn_total < 80 else "critical"
+
     leading = digest.leading_comment(path)
     callers: list[dict] = []
     deps: list[dict] = []
@@ -58,11 +65,11 @@ def _file_info(path: Path) -> dict:
     return {
         "file": str(path),
         "language": facts.language if facts else None,
-        "loc": facts.loc if facts else 0,
-        "function_count": facts.function_count if facts else len(functions),
-        "cyclomatic_complexity_total": facts.cyclomatic_complexity_total if facts else 0,
-        "cyclomatic_complexity_max": facts.cyclomatic_complexity_max if facts else 0,
-        "rank": facts.rank if facts else "unknown",
+        "loc": facts.loc if facts else (functions[0]["nloc"] if functions else 0),
+        "function_count": function_count,
+        "cyclomatic_complexity_total": ccn_total,
+        "cyclomatic_complexity_max": ccn_max,
+        "rank": rank,
         "functions": functions,
         "nearest_doc": nearest_doc(path),
         "passive_context": passive_context.render(facts) if facts else None,
@@ -73,29 +80,60 @@ def _file_info(path: Path) -> dict:
 
 
 def _dir_info(path: Path) -> dict:
+    """Aggregate via `repo_files.tracked_files` inside a repo (respects
+    .gitignore, never descends into ignored trees); fall back to
+    `repo_files.walk_files` outside a repo. file_facts queried with
+    cache_only=True — info never blocks on per-file extraction."""
+    base = path.resolve()
+    repo_root = cache.repo_root_for(base)
+    tracked = repo_files.tracked_files(repo_root, base=base)
+
     files: list[dict] = []
-    for f in sorted(path.rglob("*")):
-        if not f.is_file():
-            continue
-        if any(part.startswith(".") or part in {"node_modules", "__pycache__", "dist", "build", "vendor"} for part in f.parts):
-            continue
-        facts = file_facts.get(f)
-        if facts is None:
-            continue
-        files.append(
-            {
-                "file": str(f.relative_to(path)),
-                "abs_path": str(f),
-                "loc": facts.loc,
-                "cyclomatic_complexity_total": facts.cyclomatic_complexity_total,
-                "function_count": facts.function_count,
-                "rank": facts.rank,
-                "passive_context": passive_context.render_compact(facts),
-            }
-        )
+    total_count = 0
+
+    if tracked is not None:
+        for rel in sorted(tracked):
+            full = repo_root / rel
+            try:
+                under_base = str(full.resolve().relative_to(base))
+            except ValueError:
+                continue
+            total_count += 1
+            facts = file_facts.get(full, repo_root=repo_root, cache_only=True)
+            if facts is None:
+                continue
+            files.append(
+                {
+                    "file": under_base,
+                    "abs_path": str(full),
+                    "loc": facts.loc,
+                    "cyclomatic_complexity_total": facts.cyclomatic_complexity_total,
+                    "function_count": facts.function_count,
+                    "rank": facts.rank,
+                    "passive_context": passive_context.render_compact(facts),
+                }
+            )
+    else:
+        for full in sorted(repo_files.walk_files(base)):
+            total_count += 1
+            facts = file_facts.get(full, repo_root=repo_root, cache_only=True)
+            if facts is None:
+                continue
+            files.append(
+                {
+                    "file": str(full.relative_to(base)),
+                    "abs_path": str(full),
+                    "loc": facts.loc,
+                    "cyclomatic_complexity_total": facts.cyclomatic_complexity_total,
+                    "function_count": facts.function_count,
+                    "rank": facts.rank,
+                    "passive_context": passive_context.render_compact(facts),
+                }
+            )
+
     return {
         "directory": str(path),
-        "file_count": len(files),
+        "file_count": total_count,
         "cyclomatic_complexity_total": sum(f["cyclomatic_complexity_total"] for f in files),
         "loc_total": sum(f["loc"] for f in files),
         "files": files,

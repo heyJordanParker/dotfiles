@@ -46,6 +46,8 @@ trace info <path>                       # complexity structure + architectural o
 trace structure <path>                  # methods, properties, variables, imports, exports
 trace grep <pattern> [-l <lang>]        # text search with rich context
 trace struct <pattern> -l <lang>        # structural (AST) search via ast-grep
+trace find <pattern> [<base>]           # basename fnmatch (mirrors `find -name`); optional path filter
+trace glob <pattern> [<base>]           # full-path pathlib match (mirrors shell glob); `**` recurses, gitignore-respecting; `--details` adds ccn + rank + lifecycle
 trace read <file> [<method>]            # cleaned read; method or full file; preserves comments, cuts fluff
 trace history <file>                    # git log/blame summary
 trace blame <file> [<symbol>]           # symbol-aware blame; regions collapse runs of one commit, include the subject
@@ -102,6 +104,8 @@ Worktrees, squashed-baseline commits, and branch divergence can all make a file 
 | See a file's outline | `trace symbols <file>` |
 | Find a string anywhere | `trace grep <pattern>` |
 | Find a structural pattern (e.g. all controllers calling a service) | `trace struct '<pattern>' -l <lang>` |
+| Find files by basename (`find -name` mental model — e.g. `*.test.ts`, `Migration*.php`) | `trace find <pattern>` |
+| Find files by full-path glob (shell-glob mental model — e.g. `src/**/*.tsx`, `app/Models/*.php`) | `trace glob <pattern>` |
 | Read one method without the rest of the file | `trace read <file> <method>` |
 | Read a whole file with token-wasting fluff cut | `trace read <file>` |
 | Understand history/why of a file | `trace history <file>` |

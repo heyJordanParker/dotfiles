@@ -20,6 +20,7 @@ from tracer.commands import (
     doctor,
     downstream,
     find,
+    glob,
     grep,
     history,
     info,
@@ -61,6 +62,7 @@ main.add_command(list_.command, name="list")
 main.add_command(context.command, name="context")
 main.add_command(status.command, name="status")
 main.add_command(find.command, name="find")
+main.add_command(glob.command, name="glob")
 main.add_command(diff.command, name="diff")
 
 

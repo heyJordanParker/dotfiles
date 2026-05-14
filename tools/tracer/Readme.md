@@ -42,6 +42,7 @@ trace info <path>                  Complexity structure + architectural overview
 trace structure <file>             Methods, properties, variables, imports, exports
 trace grep <pattern>               Text search with per-match enrichment
 trace struct <pattern> -l <lang>   Structural AST search via ast-grep with per-match enrichment
+trace glob <pattern> [<base>]      Full-path pattern search (** recursive, gitignore-respecting); bare paths, --details adds ccn + rank + lifecycle
 trace history <file>               Git log/blame summary for a file
 trace blame <file> [<symbol>]      Symbol-aware blame; collapsed regions with commit subjects
 ```
@@ -78,7 +79,7 @@ Add `.tracer-cache/` to your project's `.gitignore`. Use `trace cache clear` to 
 
 ## Status
 
-All 16 commands implemented. Architecture extraction supports Python, TypeScript / TSX / JSX, and PHP — extensions without an extractor still get per-file facts (complexity, git activity) but no architecture-graph entry.
+All 17 commands implemented. Architecture extraction supports Python, TypeScript / TSX / JSX, and PHP — extensions without an extractor still get per-file facts (complexity, git activity) but no architecture-graph entry.
 
 ## License
 

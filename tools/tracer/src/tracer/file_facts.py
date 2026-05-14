@@ -12,8 +12,9 @@ to build its graph; nothing goes the other way.
 from __future__ import annotations
 
 import os
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import asdict, dataclass, field
+import multiprocessing as _mp
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 import lizard
@@ -22,9 +23,19 @@ from tracer import cache, git_activity
 from tracer.extraction import ExtractionResult, extract, supported_extensions
 
 
-# Worker count for parallel cold-cache extraction. Tree-sitter and lizard
-# release the GIL during C-level parsing so threads scale on multi-core.
-_PARALLEL_WORKERS = min(8, (os.cpu_count() or 4))
+# Worker count for parallel cold-cache extraction. Lizard is pure Python
+# (GIL-bound) so threads don't actually parallelize its work; tree-sitter
+# is a C extension that releases the GIL but still benefits from process
+# parallelism. We use a fork-based ProcessPool so workers inherit the
+# parent's imported modules at zero re-import cost — `spawn` would
+# re-import the entire tracer package per worker (~200ms × N workers).
+_PARALLEL_WORKERS = os.cpu_count() or 4
+
+# Fork context once at module import. Fork preserves the parent's loaded
+# modules so worker startup is ~5ms instead of ~200ms (spawn). Tracer
+# invocations are short-lived; fork's safety caveats (threads + locks at
+# fork point) don't apply in our flow.
+_MP_CONTEXT = _mp.get_context("fork")
 
 
 @dataclass
@@ -123,35 +134,46 @@ def _extract_facts(
     path: Path,
     repo_root: Path,
     git: git_activity.GitActivity = git_activity.empty(),
+    scc_data: dict | None = None,
+    source_bytes: bytes | None = None,
 ) -> FileFacts:
     """Fresh extraction — called on cache miss.
 
-    `git` is precomputed in bulk by the caller for cold-cache builds; for
-    single-file paths it falls back to the empty default (the bulk path is
-    still O(commits) but a single-file caller pays no extra cost — the
-    field just shows None until next bulk refresh).
+    Lizard gives per-function complexity (function_count + ccn_max +
+    accurate sum) over a single Python pass; scc data is the fallback when
+    lizard chokes on the file. Parallelism in `get_many` is provided by a
+    fork-based ProcessPool — true CPU parallelism across cores, so the
+    GIL no longer caps lizard's bulk speed.
+
+    `source_bytes` lets callers that already read the file (e.g. the
+    ProcessPool worker that hashed it for the cache key) skip the second
+    read on the tree-sitter path. `git` is precomputed in bulk by the
+    caller for cold-cache builds.
     """
     relative = str(path.resolve().relative_to(repo_root.resolve()))
 
+    if scc_data is None:
+        from tracer.repo_context import per_file_metrics
+        scc_data = per_file_metrics(repo_root).get(relative, {})
+
     try:
         parsed = lizard.analyze_file(str(path))
-        ccn_total = sum(f.cyclomatic_complexity for f in parsed.function_list)
-        ccn_max = max(
-            (f.cyclomatic_complexity for f in parsed.function_list), default=0
-        )
+        function_list = parsed.function_list
+        ccn_total = sum(f.cyclomatic_complexity for f in function_list)
+        ccn_max = max((f.cyclomatic_complexity for f in function_list), default=0)
         loc = parsed.nloc
-        function_count = len(parsed.function_list)
+        function_count = len(function_list)
     except Exception:
-        ccn_total = 0
+        ccn_total = scc_data.get("ccn", 0)
         ccn_max = 0
-        loc = 0
+        loc = scc_data.get("loc", 0)
         function_count = 0
 
     extraction: ExtractionResult | None = None
     if path.suffix.lower() in supported_extensions():
         try:
-            source = path.read_bytes()
-            extraction = extract(source, str(path))
+            data = source_bytes if source_bytes is not None else path.read_bytes()
+            extraction = extract(data, str(path))
         except Exception:
             extraction = None
 
@@ -165,7 +187,7 @@ def _extract_facts(
 
     return FileFacts(
         path=relative,
-        language=extraction.language if extraction else None,
+        language=(extraction.language if extraction else None) or scc_data.get("language"),
         loc=loc,
         function_count=function_count,
         cyclomatic_complexity_total=ccn_total,
@@ -192,6 +214,8 @@ def get(
     path: str | Path,
     repo_root: Path | None = None,
     git: git_activity.GitActivity | None = None,
+    cache_only: bool = False,
+    scc_data: dict | None = None,
 ) -> FileFacts | None:
     """Return cached FileFacts for `path`, extracting and caching on miss.
 
@@ -199,17 +223,20 @@ def get(
       1. mtime + size match against the cached fast-path index → return
          cached without reading file bytes.
       2. Full SHA hash → cache entry exists → return.
-      3. Fresh extraction.
+      3. Fresh extraction (lizard + tree-sitter).
 
-    Step 1 turns warm-cache validation from "read file bytes + SHA" into
-    "stat()" — microseconds vs milliseconds per file.
+    When `cache_only=True`, step 3 is replaced by a lite-facts assembly
+    that pulls ccn + loc from the scc-derived per-file metrics cache and
+    last_modified / working_state from the bulk-cached git activity map.
+    Skipping lizard + tree-sitter avoids the 19+ seconds of cold-build
+    per-file parsing — orientation commands stay sub-second on cold cache
+    while still returning rich data instead of zeros.
     """
     p = Path(path).resolve()
     if not p.is_file():
         return None
     root = repo_root or cache.repo_root_for(p)
 
-    # Fast path: stat-only validation against the mtime index
     try:
         stat = p.stat()
     except OSError:
@@ -218,6 +245,13 @@ def get(
     fast = _mtime_index_lookup(root, p, stat, root)
     if fast is not None:
         return _with_working_state(fast, p, root)
+
+    if cache_only:
+        # Skip the file-bytes-read + hash lookup when the caller can accept
+        # lite facts. On cold cache, hashing every file in the repo just to
+        # confirm miss costs ~1-2 seconds per 1500 files; cache_only callers
+        # don't need that round-trip.
+        return _lite_facts(p, root, stat, git)
 
     try:
         key = cache.file_hash(p, root)
@@ -240,10 +274,62 @@ def get(
             relative = str(p)
         git = git_activity.bulk_cached(root).get(relative, git_activity.empty())
 
-    facts = _extract_facts(p, root, git)
+    facts = _extract_facts(p, root, git, scc_data=scc_data)
     cache.save(cache.NAMESPACE_FILE, key, facts.to_dict(), root)
     _mtime_index_record(root, p, stat, root, key)
     return facts
+
+
+def _lite_facts(
+    path: Path,
+    repo_root: Path,
+    stat: "os.stat_result",
+    git: git_activity.GitActivity | None,
+) -> FileFacts:
+    """FileFacts assembled from bulk-cached scc + git_activity data — no
+    per-file parsing. Used by orientation commands on cache miss so they
+    can render rich ccn / lifecycle data without triggering extraction.
+    `cyclomatic_complexity_max` and `function_count` are 0 in lite facts;
+    single-file commands that need per-function detail (`trace info <file>`)
+    call lizard separately."""
+    from tracer.repo_context import per_file_metrics
+
+    try:
+        relative = str(path.relative_to(repo_root.resolve()))
+    except ValueError:
+        relative = str(path)
+
+    if git is None:
+        git = git_activity.bulk_cached(repo_root).get(relative, git_activity.empty())
+
+    metrics = per_file_metrics(repo_root).get(relative, {})
+    ccn = metrics.get("ccn", 0)
+    loc = metrics.get("loc", 0)
+    language = metrics.get("language")
+
+    return FileFacts(
+        path=relative,
+        language=language,
+        loc=loc,
+        function_count=0,
+        cyclomatic_complexity_total=ccn,
+        cyclomatic_complexity_max=0,
+        rank=_rank(ccn),
+        extraction=None,
+        last_modified=git.last_modified,
+        last_author=git.last_author,
+        commits_30d=git.commits_30d,
+        first_seen=git.first_seen,
+        commit_count=git.commit_count,
+        rename_from=git.rename_from,
+        working_state=git.working_state,
+        present_in=git.present_in,
+        last_subject=git.last_subject,
+        top_author=git.top_author,
+        co_changed=git.co_changed,
+        mtime_ns=stat.st_mtime_ns,
+        size_bytes=stat.st_size,
+    )
 
 
 def _with_working_state(facts: FileFacts, path: Path, repo_root: Path) -> FileFacts:
@@ -283,12 +369,29 @@ def _working_state_for(repo_root: Path) -> dict[str, str]:
 
 _MTIME_INDEX_KEY = "mtime_index_v1"
 
+# Per-process memo of the mtime index, keyed by repo root. The index is one
+# JSON blob with ~one entry per file; re-parsing it on every `get` call turns
+# a fast-path lookup into the bottleneck on repo-wide loops. A tracer
+# invocation is short-lived, so a process-level cache is correct — the
+# in-memory copy and the on-disk file are written through the same code path.
+_MTIME_INDEX_CACHE: dict[str, dict] = {}
+
+
+def _mtime_index_load(repo_root: Path) -> dict:
+    key = str(repo_root.resolve())
+    cached = _MTIME_INDEX_CACHE.get(key)
+    if cached is not None:
+        return cached
+    index = cache.load(cache.NAMESPACE_FILE, _MTIME_INDEX_KEY, repo_root) or {}
+    _MTIME_INDEX_CACHE[key] = index
+    return index
+
 
 def _mtime_index_lookup(
     repo_root: Path, path: Path, stat: "os.stat_result", root_for_relative: Path
 ) -> "FileFacts | None":
     """Read the per-repo mtime index; return cached FileFacts if mtime matches."""
-    index = cache.load(cache.NAMESPACE_FILE, _MTIME_INDEX_KEY, repo_root)
+    index = _mtime_index_load(repo_root)
     if not index:
         return None
     try:
@@ -317,7 +420,7 @@ def _mtime_index_record(
         relative = str(path.relative_to(root_for_relative.resolve()))
     except ValueError:
         return
-    index = cache.load(cache.NAMESPACE_FILE, _MTIME_INDEX_KEY, repo_root) or {}
+    index = _mtime_index_load(repo_root)
     index[relative] = {
         "mtime_ns": stat.st_mtime_ns,
         "size": stat.st_size,
@@ -326,34 +429,110 @@ def _mtime_index_record(
     cache.save(cache.NAMESPACE_FILE, _MTIME_INDEX_KEY, index, repo_root)
 
 
+def _extract_one_worker(args: tuple) -> dict | None:
+    """Worker entry point for ProcessPool. Returns a serialized FileFacts
+    dict (or None) so the parent process doesn't need to import the full
+    extraction stack to reconstruct dataclasses. Workers inherit imported
+    modules via fork — no re-import cost. The worker writes its own cache
+    entry; the parent reads back via a single-threaded sweep.
+
+    File bytes are read once and reused for both the cache key (SHA) and
+    the tree-sitter extraction path — avoids a second read per file on
+    cold cache."""
+    path_str, root_str, git_dict, scc_dict = args
+    p = Path(path_str).resolve()
+    if not p.is_file():
+        return None
+    root = Path(root_str)
+    try:
+        stat = p.stat()
+    except OSError:
+        return None
+    try:
+        data = p.read_bytes()
+    except OSError:
+        return None
+    try:
+        key = cache.file_hash_from_bytes(data, p, root)
+    except (OSError, IsADirectoryError):
+        return None
+
+    cached = cache.load(cache.NAMESPACE_FILE, key, root)
+    if cached is not None:
+        return cached
+
+    git = git_activity.GitActivity(**git_dict) if git_dict else git_activity.empty()
+    facts = _extract_facts(p, root, git, scc_data=scc_dict, source_bytes=data)
+    payload = facts.to_dict()
+    cache.save(cache.NAMESPACE_FILE, key, payload, root)
+    _mtime_index_record(root, p, stat, root, key)
+    return payload
+
+
+def _git_activity_to_dict(g: git_activity.GitActivity) -> dict:
+    """Picklable representation of GitActivity — tuples become lists in JSON
+    transit but the dataclass accepts both via tuple coercion in __init__."""
+    return {
+        "last_modified": g.last_modified,
+        "last_author": g.last_author,
+        "commits_30d": g.commits_30d,
+        "first_seen": g.first_seen,
+        "commit_count": g.commit_count,
+        "rename_from": g.rename_from,
+        "working_state": g.working_state,
+        "present_in": tuple(g.present_in),
+        "last_subject": g.last_subject,
+        "top_author": g.top_author,
+        "co_changed": tuple((p, c) for p, c in g.co_changed),
+    }
+
+
 def get_many(paths: list[str | Path], repo_root: Path | None = None) -> list[FileFacts]:
     """Bulk get — returns FileFacts for every readable file in `paths`.
 
-    Computes git activity for the whole repo in 2 subprocesses (instead of
-    2 per file). Then dispatches per-file extraction across a thread pool
-    — both cache hits (JSON read) and cache misses (lizard + tree-sitter
-    parse) are I/O- or C-extension-bound, so threads scale.
+    Pre-populates the shared inputs once before dispatch:
+      - bulk git activity (2 subprocesses for the whole repo)
+      - per-file scc metrics (1 subprocess via `repo_context.per_file_metrics`)
+
+    Per-file extraction runs in a fork-based ProcessPool — lizard is pure
+    Python (GIL-bound) so threads can't parallelize it. Fork inherits the
+    parent's imports so worker startup is ~5ms each, not ~200ms (spawn).
+    Workers write their own cache entries; the parent reconstructs the
+    FileFacts list from the returned dicts.
     """
     root = repo_root or cache.repo_root_for(".")
     root_resolved = root.resolve()
     git_map = git_activity.bulk(root)
-    empty = git_activity.empty()
+    empty_git_dict = _git_activity_to_dict(git_activity.empty())
 
-    def _one(p: str | Path) -> FileFacts | None:
+    from tracer.repo_context import per_file_metrics
+    scc_map = per_file_metrics(root)
+
+    work_items: list[tuple] = []
+    for p in paths:
         path_obj = Path(p).resolve()
         try:
             relative = str(path_obj.relative_to(root_resolved))
         except ValueError:
             relative = str(path_obj)
-        return get(p, root, git=git_map.get(relative, empty))
+        git_value = git_map.get(relative)
+        git_dict = _git_activity_to_dict(git_value) if git_value else empty_git_dict
+        work_items.append((
+            str(path_obj),
+            str(root),
+            git_dict,
+            scc_map.get(relative, {}),
+        ))
 
-    with ThreadPoolExecutor(max_workers=_PARALLEL_WORKERS) as pool:
-        futures = [pool.submit(_one, p) for p in paths]
-        results = [
-            facts
-            for facts in (future.result() for future in as_completed(futures))
-            if facts is not None
-        ]
+    results: list[FileFacts] = []
+    with ProcessPoolExecutor(max_workers=_PARALLEL_WORKERS, mp_context=_MP_CONTEXT) as pool:
+        for payload in pool.map(_extract_one_worker, work_items):
+            if payload is None:
+                continue
+            try:
+                results.append(FileFacts.from_dict(payload))
+            except (KeyError, TypeError):
+                continue
     return results
 
 

@@ -43,7 +43,7 @@ NAMESPACE_ARCHITECTURE = "architecture"
 # Schema version baked into every cache key. Bump when the extraction logic,
 # FileFacts shape, or architecture graph schema changes — old entries become
 # unreachable, invalidating the cache without needing a manual `cache clear`.
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 
 def repo_root_for(path: str | Path = ".") -> Path:
@@ -95,16 +95,25 @@ def file_hash(path: Path, repo_root: Path | None = None) -> str:
     p = Path(path)
     if not p.is_file():
         raise IsADirectoryError(f"file_hash requires a file, got: {p}")
-    root = repo_root or repo_root_for(p)
+    return file_hash_from_bytes(p.read_bytes(), p, repo_root)
+
+
+def file_hash_from_bytes(
+    data: bytes, path: Path, repo_root: Path | None = None
+) -> str:
+    """Same as `file_hash` but accepts pre-read bytes — callers that already
+    need the file contents (tree-sitter extraction reads them too) avoid
+    paying for a second read just to compute the cache key."""
+    root = repo_root or repo_root_for(path)
     digest = hashlib.sha256()
     digest.update(f"v{SCHEMA_VERSION}\x00".encode())
-    digest.update(p.read_bytes())
+    digest.update(data)
     digest.update(b"\x00")
     try:
-        relative = p.resolve().relative_to(root.resolve())
+        relative = Path(path).resolve().relative_to(root.resolve())
         digest.update(str(relative).encode())
     except ValueError:
-        digest.update(str(p.resolve()).encode())
+        digest.update(str(Path(path).resolve()).encode())
     return digest.hexdigest()
 
 
