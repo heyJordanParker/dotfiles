@@ -34,6 +34,7 @@ directory/
 4. **Context-dependent:** adapt annotations to purpose
 5. **Skip irrelevant:** only show relevant files, omit the rest entirely
 6. **Never write to files.** Output inline only. No exceptions.
+7. **No status prefixes.** Mark a changed file with `*` and state the change after `<-`. Show an unchanged context file with a plain role annotation and no prefix. Never write `KEEP:`, `REMOVE:`, or `PRESERVE:`.
 
 ## Annotation Styles
 
@@ -75,3 +76,44 @@ src/
 - Annotations that repeat filename
 - `* new` annotations — the `*` already conveys it; the annotation describes the role
 - `existing,` prefix on context-file annotations — describe the role directly, mention the relationship to the change only when load-bearing (e.g., `Untracked.php   <- separate purpose; we add NoAudit instead`)
+
+## Relationship Diagrams
+
+File trees show structure. A relationship diagram shows runtime flow: how components call, read, write, or hand off. Use it when the question is "how does data move through this", not "where do the files live".
+
+```
+┌─────────────────────────────────┐
+│ Cart  (source of truth)         │
+│ items: offer_id, product_id, qty│
+│ subtotal / tax / total          │
+└──────┬───────────────────┬──────┘
+       │ read              │ read
+       ▼                   ▼
+┌──────────────┐   ┌──────────────────┐
+│ CheckoutView │   │ StoreService     │
+│ customer sees│   │ projectCartToWc()│
+└──────────────┘   └────────┬─────────┘
+                            │ write
+                            ▼
+                   ┌──────────────────┐
+                   │ WC_Order         │
+                   └────────┬─────────┘
+                            │ charge
+                            ▼
+                   ┌──────────────────┐
+                   │ Gateway plugin   │
+                   └──────────────────┘
+```
+
+### Rules
+
+1. The box title is the component. Inside, list only the fields or methods the flow touches.
+2. Every arrow is labelled with the relationship: `read`, `write`, `charge`, `emit`, `call`.
+3. Mark the authoritative box, for example `(source of truth)`.
+4. Flow runs top to bottom: entry at the top, terminal effect at the bottom.
+5. Show only the boxes on the path being explained. Skip the rest.
+
+### Tree or diagram
+
+- **File tree.** Where code lives, what files change.
+- **Relationship diagram.** How it works end to end, data flow, ownership, call order.
