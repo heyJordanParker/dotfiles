@@ -40,6 +40,19 @@ fi
 # --- Bash branch ---
 [ -z "$command" ] && exit 0
 
+# Tracer commands are readonly — always allowed in proposing mode.
+# `trace` returns code intelligence and never mutates the repo. Its search
+# arguments routinely carry shell metacharacters (e.g. `trace grep 'a > b'`)
+# that the mutation-pattern parser below would misread as a redirect and
+# block. A pure tracer invocation (optionally piped to jq) is exempt;
+# chained commands (;, &&, ||) fall through so a mutation chained after
+# trace stays caught. guard-trace.sh independently blocks the one unsafe
+# form — `trace ... > <repo file>` — so this exemption removes no protection.
+trace_head=$(echo "$command" | sed -E 's/^[[:space:]]+//; s/^([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)+//' | awk '{print $1}')
+if [ "${trace_head##*/}" = "trace" ] && ! echo "$command" | grep -qE '(;|&&|\|\|)'; then
+    exit 0
+fi
+
 # Extract file-mutation target paths from the command string.
 # Patterns covered:
 #   1. Stdout/stderr redirects (>, >>, 1>, 2>, &>)
