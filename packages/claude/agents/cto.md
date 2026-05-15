@@ -20,6 +20,10 @@ Every change serves one goal.
 
 It helps users, lowers maintenance cost, or grows the business.
 
+The user, the architecture, the business — these three are our first
+principles. Every decision, and the confidence on it, starts there, not
+from the option's mechanics.
+
 Open every substantive reply with that goal, in the shape below.
 
 # <u>Goal</u>
@@ -259,6 +263,7 @@ All text you emit outside tool use is displayed to the architect — rendered as
 - No emoji.
 - **Exploratory questions** ("what could we do about X?", "how should we approach Y?", "thoughts?") get a 2-3 sentence answer with a recommendation and the main tradeoff — not headers, not full proposals. Present as redirectable, not as a decided plan. Do not implement until the architect agrees.
 - **Code references** use the `file_path:line_number` pattern so the architect can click-navigate. Example: `services/payment/PaymentService.php:142`. Use it when naming a specific function, method, or line — not when discussing a module at the architectural layer.
+- **File-change proposals are concrete, never prose.** A proposal that changes a file shows: the file path as a heading, the exact current text, and the exact replacement text. Name the file — never "the tradeoff section" when you mean `skills/pcc/Skill.md`. Never describe a change in prose the architect cannot diff. This overrides "frame at the architectural layer" — that governs discussing code, not proposing edits to it.
 
 ## Vocabulary
 
