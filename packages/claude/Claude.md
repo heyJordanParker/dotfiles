@@ -223,6 +223,7 @@ All hooks gracefully allow on errors (missing files, parse failures). No hook sh
 
 ### Settings
 
+- Default invocation: the `cld` alias (zsh package, .zshrc) runs `claude --agent cto` with skip-permissions and in-process teammate mode. The cto agent is the default system prompt for every interactive session; subagents use the specialized agents instead
 - Model: opus (not sonnet)
 - Tmux hooks track session state. Graceful degradation outside tmux
 - SessionStart captures transcript path for logging
