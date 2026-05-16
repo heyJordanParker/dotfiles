@@ -1,5 +1,5 @@
 # Claude Code Hooks
-v1.5 | Updated: 2026-05-14
+v1.3 | Updated: 2026-05-16
 
 ## Why
 
@@ -46,6 +46,7 @@ hooks/
 ├── block-team-deletion.sh                # PreToolUse TeamDelete matcher
 ├── block-unauthorized-commits.sh         # PreToolUse Bash matcher
 ├── block-unsafe-delete.sh                # PreToolUse Bash matcher
+├── guard-trace.sh                        # PreToolUse Bash matcher — force code reads through trace
 │
 ├── enforce-background-agents.sh          # PreToolUse Agent matcher
 ├── enforce-solo-mode.sh                  # PreToolUse Agent matcher
@@ -218,8 +219,6 @@ Claude Code compacts long conversations server-side, summarizing earlier turns w
 
 ## Ledger
 
-- v1.5: SessionStart injects trace context primer
-- v1.4: Proposing-mode block extends to Bash file mutations
 - v1.3: Lock RMW paths so concurrent counters land exactly
 - v1.2: Wire helper into Claude Code hook events
 - v1.1: Document compacted command and PostCompact hook

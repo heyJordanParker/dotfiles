@@ -109,7 +109,7 @@ Boundaries define encapsulation. Use domain language, not library names.
 - Good: "Domain models never import plugin code — service providers own integrations"
 - Bad: "Models never import FunnelKit" — names the library; generic rule is durable
 
-**Ledger** — min 1 versioned entry. Every entry is keyed by the file's version number. Adding a ledger entry requires bumping the version; bumping the version requires a ledger entry. They enforce each other. Amend while iterating so the ledger matches what git shows.
+**Ledger** — min 1 versioned entry. Every entry is keyed by the file's version number. Adding a ledger entry requires bumping the version; bumping the version requires a ledger entry. They enforce each other. Amend while iterating so the ledger matches what git shows. An entry is an architectural decision within this Claude.md's own documented scope — not a changelog of repo or code changes, which git already records. A script tweak, a hook behavior change, or a prompt reword the file merely lists is repo history, not a ledger decision, even when it happened in this directory.
 - Read `git diff --stat` before writing — scope the entry to the actual commit, not the task
 - Short WHAT, then WHY when not obvious (for/because). Most entries under 10 words
 - WHY comes from the architect (plan, shaping doc, conversation) — not from patterns inferred while coding
@@ -122,6 +122,7 @@ Boundaries define encapsulation. Use domain language, not library names.
 - Bad: Fabricating WHY — "to scale independently of X" when you don't know the motivation. Ask if unknown
 - Bad: Splitting one decision into multiple entries — "Added multi-tenancy" + "Added dual-boot" when they're one decision
 - Bad: Writing what changed instead of why it was decided — that's a changelog, not a ledger
+- Bad: Logging repo or code changes git owns — "Tracer commands exempt from proposing block", "Code reads go through trace". The ledger records decisions about what this Claude.md documents, not every script or prompt edit under its directory
 - Bad: Long entries with technical details — ledger entries are one line. Details belong in the file body or a deeper Claude.md
 - Bad: Including execution context — "(importance 8)", "(impact 6)" are meaningless outside the session that produced them
 - Bad: Implementation HOW — "extract helper so callers share validation" describes code mechanics. Ledger names decisions and business motivation, not how the code achieves them

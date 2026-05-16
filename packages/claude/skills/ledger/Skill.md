@@ -59,6 +59,7 @@ Read `/cc` reference `claude-md.md` for the full template before making any chan
 - Never include HOW details — name the decision and motivation, not the implementation mechanics
 - Amend existing entries when iterating before committing — the ledger matches what git shows (A→C, not A→B→C)
 - Ledger records facts ("Replaced Nginx with Caddy"), not ongoing constraints — those go in Requirements or Boundaries
+- A ledger entry is an architectural decision within this Claude.md's own documented scope — not a changelog of repo or code changes, which git records. Script, hook, or prompt changes the file only lists are repo history, not ledger entries, even when they happen in this directory
 - One concept per change — don't restructure entire files in a single diff
 - Preserve all existing content — restructure, don't delete
 - When extracting from HOW sections: move the constraint to What, keep the implementation detail in How
