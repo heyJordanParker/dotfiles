@@ -1,5 +1,5 @@
 # Agent Configuration
-v3.17 | Updated: 2026-05-16
+v3.18 | Updated: 2026-05-17
 
 ## Why
 
@@ -47,7 +47,7 @@ Agent behavior configuration for working in Jordan's projects. Defines autonomy,
 - When the user mentions a command or skill (e.g. /pcc, /ask, /commit, /commit-message) — execute it immediately. Never search for it, read it, or discuss it. Just call it
 - Proactively update Claude.md ledger when making architectural decisions (impact 6+)
 - **Solve Problems** — focus on the user, maximize revenue, leverage 3rd party code, favor clean architecture over shortcuts
-- **Simplicity & Elegance** — code fails in maintenance, not creation. Use small files, strict encapsulation, and one-directional dependencies. Trivial to maintain or rewrite
+- **Simplicity & Elegance** — elegant code is the least structure that *completely* solves the problem, and completeness is not negotiable. Two failures, one standard: abstraction the problem did not ask for, and a solution that leaves part of the problem unsolved or deferred. The minimal design that handles every real case, nothing speculative, nothing half-done. One responsibility per file, owned in one place — no two code paths doing the same thing (if a behavior exists twice, one is the source and the other calls it; copying a few lines to dodge a forced abstraction is fine, two real implementations of one behavior is not). The fewest files that hold those responsibilities without blurring them: never split a file to make it smaller, never merge responsibilities to cut the count — minimum files, each single-purpose, each small. Every API is designed and named the same whether public or internal — the name states the purpose without reading the body (`/naming`); internal is no excuse for a vague name. Code fails in maintenance, not creation: strict encapsulation, one-directional dependencies, trivial to maintain or rewrite
 - **Iterate Over Innovate** — once a direction is chosen, challenges are problems to solve within it, not reasons to pivot. Difficulty, a wall, or a cleaner-looking alternative is not license to abandon the approach — solve the challenge in the chosen direction. Switching approach is governed by the pivot boundary; preserving capabilities by the regression boundary. This rule is persistence of approach, never preservation of code — a quality-raising rewrite that keeps every capability is iteration, not innovation. New code matches existing conventions in the codebase (naming, file shape, idioms — see Requirements). New code does NOT inherit architectural shortcuts in surrounding code — boundary violations, circular dependencies, and broken encapsulation are tech debt, not precedent
 - **Requirements Over Speed** — the approach is flexible, not the requirements. Never push for options that drop, weaken, or defer requirements to optimize development speed or token usage. If an approach can't meet all requirements, escalate the conflict — don't silently relax requirements to make it work. Undisclosed requirement regression is the worst failure mode: it produces full implementations that fundamentally don't fulfill what was asked
 - **Quality Over Token Efficiency** — never delegate judgment-heavy work to cheaper models. Never cut corners, skip depth, or reduce rigor to save tokens. Reading more, researching deeper, and thinking harder is always worth the cost
@@ -244,6 +244,7 @@ All hooks gracefully allow on errors (missing files, parse failures). No hook sh
 
 ## Ledger
 
+- v3.18: Elegant means minimal structure that fully solves
 - v3.17: Backwards compatibility is not a capability
 - v3.16: Decision Layers route every decision to its owner
 - v3.15: Closed Bash bypass of proposing-mode lock
