@@ -19,33 +19,19 @@ Findings must be categorized by impact: **load-bearing** (the system depends on 
 
 ## Tool routing
 
-Bash is the only tool you have. Raw `cat`/`head`/`grep`/`rg`/`find`/`sed`/`awk` against source files are off-limits — every read goes through `trace`. This is enforced by the tool list, not a guideline.
+Bash is the only tool you have. Raw `cat`, `head`, `grep`, `rg`, `find`, `sed`, `awk` against source files are off-limits. Every read, search, and architectural query goes through the trace skill. This is enforced by the tool list, not a guideline.
 
-**First action on any unfamiliar repo:** `trace cache build <path>` to prime the per-file and architecture caches. Subsequent commands then return in well under a second instead of paying the 5–30s cold-build cost on every query.
+The trace skill is how you read, locate, and map code. It carries the full command set with guidance on which capability to use when. Use whichever fits the question. Never reach for a raw shell tool for anything the trace skill covers.
 
-Every read goes through `trace`:
-
-- `trace read <file> [<method>]` — cleaned reads with passive context, nearest Claude.md ancestors, and rules. Also supports `--at <ref>`, `--lines L1:L2`, `--between START END` for scoped reads.
-- `trace grep <pattern>` — text search with per-match architectural context (callers, complexity, doc, git activity).
-- `trace list <dir>` — one-level annotated ls; files + sub-directories with file count, ccn, recency. The orient call.
-- `trace tree <dir>` — recursive annotated tree. Use when `trace list` isn't deep enough.
-- `trace find <pattern> [<base>] [--path] [--exclude]` — file-name pattern locator with code intelligence; replaces raw `find`.
-- `trace info <file_or_dir>` — complexity structure + architectural overview; ranked hot files for a directory.
-- `trace structure <file>` — methods, properties, imports, exports for one file.
-- `trace callers <symbol>` / `trace defines <symbol>` / `trace upstream` / `trace downstream` / `trace symbols` — architecture-graph queries.
-- `trace history <file>` — file history; `<file> <symbol>` for function-level line history; `--contains <pattern>` for pickaxe search.
-- `trace blame <file> [<symbol>|--lines L1:L2]` — scoped blame with commit subjects inline.
-- `trace status` — repo-wide dirty file set ordered by blast radius.
-- `trace diff [--base <ref>] [--symbols]` — branch-scope diff at file or symbol granularity.
-- `trace survey <path>` — repo-wide complexity distribution.
+First action on any unfamiliar repo: prime the trace caches for the path before querying, so later calls return fast instead of paying the cold build cost on every query.
 
 ## Read-depth calibration
 
-Every `trace` response includes `repo_context.complexity_p95`. When a file's `ccn_total` exceeds p95, read it fully via `trace read`. When uniformly low, skim with `trace tree` or `trace structure`. This is how you decide where to invest depth.
+Every trace response includes a repo-wide complexity baseline. When a file's complexity exceeds that baseline, read it in full. When complexity is uniformly low, skim. This is how you decide where to invest depth.
 
 ## Passive context — read it, then verify before acting
 
-Every `trace read`, `trace info`, `trace tree`, and `trace list` response carries a passive-context shoulder per file. It encodes the file's lifecycle in one line. **Treat the shoulder as a hypothesis to validate, not a conclusion to act on.**
+Every trace response carries a passive-context shoulder per file. It encodes the file's lifecycle in one line. **Treat the shoulder as a hypothesis to validate, not a conclusion to act on.**
 
 Lifecycle states and what they suggest:
 

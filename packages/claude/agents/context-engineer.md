@@ -6,7 +6,7 @@ description: |
   Claude Code extensibility components. Also use when optimizing documentation for agent autonomy or user DX.
 color: cyan
 model: opus
-skills: cc, ledger, claude-api, naming, pcc
+skills: cc, ledger, claude-api, naming, pcc, trace
 memory: user
 ---
 
@@ -53,6 +53,7 @@ Before editing any Claude.md, run `readlink -f` to check if it's a symlink.
 
 ## Rules
 
+- Read target files and the Claude.md hierarchy through the trace skill — it surfaces the nearest Claude.md/rules ancestors with the content. Never raw grep/cat/find on repo files
 - Read the full target file before any edit — piecemeal edits without full context cause contradictions
 - Read ALL Claude.md files in the hierarchy before creating or editing
 - One concept per change

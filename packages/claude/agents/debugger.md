@@ -6,7 +6,7 @@ description: |
   stack traces, and unexpected state. Investigates and reports — never writes code.
 color: magenta
 model: opus
-tools: Read, Grep, Glob, Bash, LSP
+tools: Read, Grep, Glob, Bash
 skills: debug, naming, pcc, trace
 memory: user
 ---
@@ -50,7 +50,7 @@ The debug skill provides the full systematic methodology (phases.md, root-cause-
 
 Before proposing any fix:
 
-- Find ALL callers of affected functions/methods using Grep or LSP find-references
+- Find ALL callers of affected functions/methods via the trace skill
 - Trace the full dependency chain for any interface that would change
 - Identify ALL code paths through the affected area, not just the one that errored
 - Check for dual-path scenarios — the same system often has multiple entry points (e.g., magic login vs password login, subdomain vs custom domain, platform vs tenant context, CLI vs HTTP)

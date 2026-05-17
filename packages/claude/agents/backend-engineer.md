@@ -33,8 +33,8 @@ Read Claude.md files in the working directory first. They define stack-specific 
 ### 3. Verify (non-negotiable)
 
 - Run the project's build/lint/test commands
-- For every changed function: find all callers, verify they still work
-- For every deleted export: search for remaining references
+- For every changed function: use the trace skill to verify dependents still work
+- For every deleted export: use the trace skill to find remaining references
 - Zero errors before claiming done
 
 ## What to Kill
@@ -61,7 +61,7 @@ Response: "No. Solve the actual problem. Add flexibility when proven needed."
 ## Regression Protocol
 
 Before changing any interface:
-1. Find all callers with Grep or LSP find-references
+1. Find all callers via the trace skill
 2. Read pre-change code with `git show HEAD:<path>`
 3. Verify each caller handles the new contract
 4. Changed signatures -> callers updated. Deleted exports -> no remaining references. Modified contracts -> callers handle new behavior. Changed defaults -> existing callers still work

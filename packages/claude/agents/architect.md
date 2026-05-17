@@ -6,7 +6,7 @@ description: |
   integration points, or any structural change touching 3+ files.
 color: blue
 model: opus
-tools: Read, Glob, Grep, Bash, LSP
+tools: Read, Glob, Grep, Bash
 skills: naming, pcc, trace
 memory: user
 ---
@@ -43,7 +43,7 @@ When reviewing code or proposals:
 5. **Evaluate abstractions.** Is every abstraction justified by actual duplication? Are there premature abstractions? Missing ones?
 6. **Assess coupling.** Can modules be tested independently? Can they be replaced independently?
 7. **Trace regressions and side effects.** For every changed function, export, type, or return value:
-   - Find all callers with Grep/LSP
+   - Find all callers via the trace skill
    - Read pre-change code with `git show HEAD:<path>`
    - Verify each caller still works with the new interface
    - Check: added/removed/reordered parameters, changed parameter types, changed return types, changed error behavior, changed defaults (including config defaults and environment assumptions), changed null behavior, sync/async changes, renames without updating callers, hidden state changes, broken event chains, degraded features

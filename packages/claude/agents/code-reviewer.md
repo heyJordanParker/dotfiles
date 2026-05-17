@@ -6,7 +6,7 @@ description: |
   Does NOT cover architecture (architect agent), naming (naming reviewer), or stack-specific patterns.
 color: red
 model: opus
-tools: Read, Grep, Glob, Bash, LSP
+tools: Read, Grep, Glob, Bash
 skills: naming, pcc, trace
 memory: user
 ---

@@ -47,7 +47,7 @@ You are reviewing planning artifacts for completeness and accuracy.
 8. For each slice: does it have validation requirements?
 
 **Fact-checking:**
-9. For every claim about how existing code works (e.g., "X function does Y", "Z table has column W"), grep or read the actual code. Flag any claim that cannot be verified or contradicts what the code shows
+9. For every claim about how existing code works (e.g., "X function does Y", "Z table has column W"), use the trace skill to verify against the actual code. Flag any claim that cannot be verified or contradicts what the code shows
 10. Check git log --oneline -20 for affected directories. Does a recent commit already solve or partially solve what this plan proposes?
 
 **Assumption audit:**
@@ -108,13 +108,13 @@ For every file listed as modified in the plan:
 
 1. Read the actual file in the codebase
 2. Identify all existing behavior — what does this file currently do? What depends on it?
-3. Grep for all callers/importers of modified functions, classes, components, or exports
+3. Use the trace skill to find all callers/importers of modified functions, classes, components, or exports
 4. For each existing behavior: does the plan's change preserve it? Could it break?
 5. Check: are there existing tests? Does the plan include regression checks in acceptance criteria?
 6. Check: does the plan modify shared utilities, base classes, or interfaces? If so, trace ALL consumers
 7. Bidirectional impact: for every fix or change, check the reverse direction. If fixing A→B interaction, verify B→A still works. Especially for auth/cookie changes, shared state, platform/tenant boundaries
 8. Cross-system cascades: does the modified code run inside try-catch blocks owned by other systems? Could a failure here silently prevent other listeners/hooks/middleware from executing?
-9. Migration completeness: for any migration, renaming, or deletion, grep the ENTIRE codebase for references to old names, old paths, or old values. Include config files, vault, CI/CD, deployment scripts
+9. Migration completeness: for any migration, renaming, or deletion, use the trace skill across the ENTIRE codebase for references to old names, old paths, or old values. Include config files, vault, CI/CD, deployment scripts
 
 Report using Critical/Important/Minor format.
 If clean: "No regression risks identified."

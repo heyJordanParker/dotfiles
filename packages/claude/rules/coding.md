@@ -30,7 +30,7 @@ When creating new files:
 - Small, decoupled pieces that can be swapped or rewritten
 - Read docs first — understand before using
 - No hedging — "I don't know" beats "might/should/probably"
-- Use LSP tools — go-to-definition, find-references over grep
+- Use the trace skill for code intelligence over raw grep
 - Fail fast — no defensive code. Crash loud. Validate at boundaries only
 - Do the work normally — no clever bash scripts or optimization hacks. Go file by file
 - Fix performance when problems appear, not before

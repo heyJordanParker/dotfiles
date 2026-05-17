@@ -6,7 +6,7 @@ description: |
   to affected capabilities and traces each through the code. Reports findings only.
 color: yellow
 model: opus
-tools: Read, Grep, Glob, Bash, LSP
+tools: Read, Grep, Glob, Bash
 skills: regressions, trace
 memory: user
 ---

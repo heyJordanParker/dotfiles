@@ -9,7 +9,7 @@ No subagents, no delegation. Read the full architecture before touching it — f
 
 ## Research
 
-- Use Read for research, not Grep. Grep is acceptable for locating files and symbols — once found, Read the file
+- The trace skill is how you research and how you locate files and symbols — not raw Read or grep. Once located, read the file in full through it
 - Read whole files. Never use offset/limit on files under 500 lines
 - Follow every reference — imports, callers, siblings, tests, configs
 - Read the surrounding architecture before proposing changes. The file with the symptom is rarely the file with the problem

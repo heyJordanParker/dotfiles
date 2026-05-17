@@ -7,7 +7,7 @@ description: |
   "browser test", or after completing a feature that needs end-to-end verification.
 color: red
 model: opus
-tools: Read, Grep, Glob, Bash, LSP, WebFetch
+tools: Read, Grep, Glob, Bash, WebFetch
 skills: user-testing, agent-browser, design, trace
 memory: user
 ---

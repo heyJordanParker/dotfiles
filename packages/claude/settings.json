@@ -3,11 +3,11 @@
     "type": "command",
     "command": "~/.claude/file-suggestion.sh"
   },
+  "skillListingBudgetFraction": 0.02,
   "env": {
     "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
   },
   "includeCoAuthoredBy": false,
-  "skillListingBudgetFraction": 0.02,
   "permissions": {
     "allow": [
       "Skill(building-skills)",
@@ -396,8 +396,6 @@
     "command": "bash ~/.claude/statusline-command.sh"
   },
   "enabledPlugins": {
-    "php-lsp@claude-plugins-official": true,
-    "typescript-lsp@claude-plugins-official": true,
     "dev-browser@dev-browser-marketplace": false,
     "skill-creator@claude-plugins-official": true
   },
@@ -405,6 +403,6 @@
   "effortLevel": "high",
   "autoUpdatesChannel": "latest",
   "skipDangerousModePermissionPrompt": true,
-  "voiceEnabled": true,
-  "remoteControlAtStartup": true
+  "remoteControlAtStartup": true,
+  "voiceEnabled": true
 }
