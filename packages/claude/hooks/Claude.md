@@ -1,5 +1,5 @@
 # Claude Code Hooks
-v1.4 | Updated: 2026-05-16
+v1.5 | Updated: 2026-05-17
 
 ## Why
 
@@ -19,6 +19,7 @@ This directory contains the safety, enforcement, and state-tracking hooks wired 
 - Subagent sessions (`session_id` starting with `agent-`) get their own state files under their parent's `subagents/` directory; no global parent-state mutation from a subagent's hook
 - Every persistent file lives under `~/.claude/` (overridable via `$CLAUDE_DATA_ROOT`); never `/tmp/` — sessions must survive reboot
 - Helper hook invocations always redirect stderr to `/tmp/session-state-hook.log` (never `/dev/null`) — silent failures hide the cause
+- Pick the mechanism by the decision's nature — a deterministic predicate over structured input (a flag, a path, an exit code, a `jq` test) is code; a judgment over natural language or intent is an LLM call. Bash cannot classify language — keyword and regex matching on prose is fragile and wrong. An LLM gate on what `jq` can decide is nondeterminism and cost for nothing
 
 ### Boundaries
 
@@ -221,6 +222,7 @@ Claude Code compacts long conversations server-side, summarizing earlier turns w
 
 ## Ledger
 
+- v1.5: Match hook mechanism to decision type
 - v1.4: guard-trace blocks jq pipes into trace
 - v1.3: Lock RMW paths so concurrent counters land exactly
 - v1.2: Wire helper into Claude Code hook events
