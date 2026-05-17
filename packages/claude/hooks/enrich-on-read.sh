@@ -7,8 +7,8 @@
 # this hook adds only the lifecycle/complexity/graph signal on top.
 #
 # Read   → enrich the file with passive_context + caller/dependent counts.
-# Glob   → resolve the pattern via tracer's glob mode, enrich each matched
-#          file with passive_context (top 30 by complexity, capped).
+# Glob   → run `trace glob <pattern> <base> --details`: every match
+#          annotated with ccn + rank + lifecycle shoulder.
 # Grep   → no-op for now (matched-file enrichment via ripgrep is a future
 #          extension; native Grep already returns matched lines with file
 #          paths the agent can Read individually).
@@ -30,14 +30,14 @@ case "$tool_name" in
         [ -z "$pattern" ] && exit 0
         base=$(echo "$input" | jq -r '.tool_input.path // empty' 2>/dev/null)
         [ -z "$base" ] && base="$PWD"
-        args=("context" "--glob" "$pattern" "$base")
+        args=("glob" "$pattern" "$base" "--details")
         ;;
     *)
         exit 0
         ;;
 esac
 
-# Resolve trace binary: prefer pipx-installed `trace` on PATH, fall back to plugin zipapp.
+# Resolve trace binary: prefer `trace` on PATH, fall back to the plugin launcher.
 trace_bin=$(command -v trace 2>/dev/null)
 [ -z "$trace_bin" ] && trace_bin="${CLAUDE_PLUGIN_ROOT:-$HOME/.claude/plugins/talents/talent-tree/packages/claude}/bin/trace"
 [ ! -x "$trace_bin" ] && exit 0

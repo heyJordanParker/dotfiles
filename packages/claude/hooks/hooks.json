@@ -1,17 +1,5 @@
 {
   "hooks": {
-    "SessionStart": [
-      {
-        "matcher": "startup|resume|clear|compact",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/load-trace-context.sh",
-            "timeout": 20
-          }
-        ]
-      }
-    ],
     "PreToolUse": [
       {
         "matcher": "Bash",
@@ -63,16 +51,6 @@
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/hooks/validate-plan-quality.sh",
             "timeout": 180
-          }
-        ]
-      },
-      {
-        "matcher": "Read|Glob|Grep",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/enrich-on-read.sh",
-            "timeout": 5
           }
         ]
       }

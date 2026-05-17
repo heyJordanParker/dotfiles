@@ -149,7 +149,7 @@ Hook **scripts/content** are shared (single files in `packages/claude/hooks/`). 
 - `packages/claude/settings.json` — local use via stow (includes tmux hooks)
 - `packages/claude/hooks/hooks.json` — plugin consumers (non-tmux hooks only, uses `${CLAUDE_PLUGIN_ROOT}`)
 
-When adding/changing a non-tmux hook, update both files.
+When adding/changing a non-tmux hook, update both files. Exception: tracer hooks (`load-trace-context.sh`, `guard-trace.sh`, `enrich-on-read.sh`, `inject-docs.sh`) are local-only — wired in `settings.json` only, never in `hooks.json`. Tracer is our experimental local surface; plugin users get tracer as a command, never these hooks.
 
 ### Expanding the Marketplace
 

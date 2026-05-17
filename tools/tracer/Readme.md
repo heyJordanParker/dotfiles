@@ -4,14 +4,19 @@ Code intelligence CLI for mapping architectural relationships in any local codeb
 
 Built for use by AI coding agents (via the `trace` Claude Code skill), but works as a standalone CLI for any developer who wants ast-grep, complexity metrics, git context, and a tree-sitter-built architecture graph unified behind one interface.
 
+A single static Rust binary — no runtime, no interpreter.
+
 ## Install
 
 ```bash
-pipx install tracer
+cargo build --release
+install -m 755 target/release/trace ~/.local/bin/trace
 trace doctor
 ```
 
 `trace doctor` validates that required external binaries are installed and prints per-platform install commands if any are missing. Every other `trace` command hard-fails with the same diagnostics if dependencies are missing.
+
+Inside the dotfiles repo, `setup.sh` does the build + install automatically. When shipped with the Claude Code plugin, a POSIX launcher at `packages/claude/bin/trace` resolves a host-appropriate binary (committed prebuilt, locally-cached build, or `cargo build` from the shipped crate source), so plugin users get `trace` on PATH with no manual step.
 
 ## Required external binaries
 
@@ -25,16 +30,15 @@ The CLI orchestrates these tools — install them via your platform's package ma
 | `ripgrep` (`rg`) | Text grep | `brew install ripgrep` | `apt install ripgrep` | `scoop install ripgrep` |
 | `git` | History/blame context | `xcode-select --install` | `apt install git` | git-scm.com |
 
-Tree-sitter grammars (Python, TypeScript, PHP) are pulled in as Python deps — no extra install.
-
-LSP servers (used by the legacy multilspy path) are auto-downloaded by `multilspy` on first use per language — no manual install.
+Tree-sitter grammars (Python, TypeScript/TSX/JSX, PHP, plus bash, lua, go, rust, ruby, java, c) are compiled into the binary — no extra install.
 
 ## Commands
 
 **Per-file** (cached under `.tracer-cache/file/`):
 ```
 trace doctor                       Verify dependencies; print install instructions for any missing
-trace read <file> [<method>]       Cleaned read; method by name or full file; preserves context, cuts fluff
+trace read <file> [--method <n>]   Cleaned read; method by name, line range, anchor, or full file; worktree or git ref; --docs opts in to project-docs injection (off by default)
+trace docs <path> [--directory]    The deduped project-docs set (Claude.md / rules ancestors) for a path; shares read's per-session read-once dedupe
 trace list <dir>                   One-level annotated ls: files + sub-directories with complexity and recency
 trace survey <path>                Repo-wide language + LOC + complexity distribution
 trace tree <path>                  Annotated file tree with complexity ranks (recursive)
@@ -43,8 +47,12 @@ trace structure <file>             Methods, properties, variables, imports, expo
 trace grep <pattern>               Text search with per-match enrichment
 trace struct <pattern> -l <lang>   Structural AST search via ast-grep with per-match enrichment
 trace glob <pattern> [<base>]      Full-path pattern search (** recursive, gitignore-respecting); bare paths, --details adds ccn + rank + lifecycle
-trace history <file>               Git log/blame summary for a file
+trace find <pattern> [<base>]      Filename-pattern search with complexity rank + lifecycle shoulder
+trace history <file> | --contains <p>   Whole-file log, function-line history, or pickaxe
 trace blame <file> [<symbol>]      Symbol-aware blame; collapsed regions with commit subjects
+trace diff [--base <ref>] [--symbols]    Files or module-level symbols changed vs a base ref, load-bearing first
+trace status [--state <s>]         Working-tree dirty set ordered by blast radius
+trace context [<path>]             Session-start primer (no args) or single-file enrichment (path arg)
 ```
 
 `read`, `list`, `tree`, and `info` annotate each file with a one-line passive-context shoulder showing lifecycle state (new / renamed / modified / settled), age, and complexity rank — letting an AI agent calibrate its conclusions about how settled a file is before drawing them.
@@ -62,11 +70,16 @@ trace symbols <file>                    Module-level symbols of a file
 
 **Cache management**:
 ```
+trace cache build [<path>]         Prebuild per-file facts + architecture graph
 trace cache stats                  Show entries and size per namespace
 trace cache clear [--namespace file|architecture] [--all]   Invalidate cache entries
 ```
 
-All commands accept `--json` for machine-parseable output.
+All commands accept `--json` for machine-parseable output. For partial
+output, add `--filter '<jq expression>'` (requires `--json`): an in-process
+jq (`jaq`) runs the program over the value and prints each result. This
+replaces piping `trace … --json | jq` — the binary stays self-contained and
+no `jq` is shelled out.
 
 ## Disk cache
 
@@ -77,9 +90,13 @@ All commands accept `--json` for machine-parseable output.
 
 Add `.tracer-cache/` to your project's `.gitignore`. Use `trace cache clear` to invalidate manually.
 
+## Cyclomatic complexity
+
+Per-file and per-function cyclomatic complexity is computed by an in-process tree-sitter AST decision-node walker covering ten languages (Python, TypeScript/TSX/JSX, PHP, bash, lua, go, rust, ruby, java, c). It walks each function's body counting decision-point nodes (`if`, `for`, `while`, each `case`, each `catch`, `&&` / `||` / `??`, ternaries, comprehension clauses, language-appropriate equivalents) under the McCabe convention. This is the single backend; `TRACER_CCN_BACKEND` is recognized as an external protocol name and resolves to `ast`.
+
 ## Status
 
-All 17 commands implemented. Architecture extraction supports Python, TypeScript / TSX / JSX, and PHP — extensions without an extractor still get per-file facts (complexity, git activity) but no architecture-graph entry.
+All 24 commands implemented. Architecture extraction supports Python, TypeScript / TSX / JSX, and PHP — extensions without an extractor still get per-file facts (complexity, git activity) but no architecture-graph entry.
 
 ## License
 

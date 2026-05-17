@@ -1,0 +1,10 @@
+[package]
+name = "xtask"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Workspace automation for the tracer crate (cargo xtask)"
+
+[[bin]]
+name = "xtask"
+path = "src/main.rs"

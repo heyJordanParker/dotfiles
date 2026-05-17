@@ -45,7 +45,15 @@ bun pm -g trust --all
 agent-browser install
 
 echo "==> Installing tracer (code intelligence CLI)..."
-pipx install --force --editable "$DOTFILES_DIR/tools/tracer"
+export PATH="/opt/homebrew/opt/rustup/bin:$HOME/.cargo/bin:$PATH"
+if [ ! -x "$HOME/.cargo/bin/rustup" ] && ! command -v rustc &>/dev/null; then
+    rustup-init -y --no-modify-path --default-toolchain stable >/dev/null 2>&1
+fi
+(cd "$DOTFILES_DIR/tools/tracer" && cargo build --release)
+mkdir -p "$HOME/.local/bin"
+install -m 755 "$DOTFILES_DIR/tools/tracer/target/release/trace" "$HOME/.local/bin/trace"
+echo "==> Regenerating tracer plugin crate mirror..."
+(cd "$DOTFILES_DIR/tools/tracer" && cargo xtask sync-dist)
 
 echo "==> Setting up services..."
 if [ ! -d "$SERVICES_DIR/drawbridge" ]; then

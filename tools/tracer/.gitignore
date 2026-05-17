@@ -1,34 +1,8 @@
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
+# Rust build artifacts
+/target/
 
-# Packaging
-build/
-dist/
-*.egg-info/
-*.egg
-wheels/
-.eggs/
-share/python-wheels/
-
-# Virtualenvs
-.venv/
-venv/
-env/
-ENV/
-
-# Tooling caches
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
-.coverage
-.coverage.*
-htmlcov/
-.tox/
-.nox/
+# Integration-test crate build artifacts (tests/).
+tests/target/
 
 # IDE
 .idea/
@@ -39,11 +13,6 @@ htmlcov/
 # OS
 .DS_Store
 Thumbs.db
-
-# multilspy auto-downloads language servers under the cwd by default.
-# Keep them out of the repo — they're large and platform-specific.
-.multilspy/
-multilspy_logs/
 
 # tracer's own disk cache — kept out of the repo by convention. Users of
 # tracer in their projects should add this to their .gitignore too.

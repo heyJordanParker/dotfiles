@@ -80,13 +80,14 @@ The plugin includes hooks that run automatically to keep Claude disciplined:
 
 ### Tracer Setup
 
-The `enrich-on-read` hook and the `/trace` skill both need the `trace` binary. The plugin ships a bundled zipapp that lands on `PATH` automatically when the plugin is enabled — that covers ~9 of 15 commands.
+The `enrich-on-read` hook and the `/trace` skill both need the `trace` binary. The plugin ships a POSIX launcher that lands on `PATH` automatically when the plugin is enabled. tracer is a native Rust binary, so the launcher resolves a host-appropriate one: a committed prebuilt (macOS arm64 / Linux x86_64), a previously locally-built cached binary, or — on any other platform — `cargo build` from the crate source shipped in the plugin. If no Rust toolchain is present for that last path, `trace` prints an actionable "install Rust" error; the SessionStart primer degrades silently so sessions never break.
 
-For the full feature set (LSP-backed commands and the architecture-graph commands that need tree-sitter), install via pipx:
+All 23 commands work from whichever binary the launcher resolves — there is no reduced-feature tier. If you want `trace` outside the plugin too, build it from `tools/tracer` and put it on `PATH` (the dotfiles `setup.sh` does this into `~/.local/bin`):
 
 ```bash
-brew install pipx          # one-time, if not installed
-pipx install tracer        # full-fat tracer (PyPI)
+cd tools/tracer
+cargo build --release
+install -m 755 target/release/trace ~/.local/bin/trace
 ```
 
 Tracer wraps five external binaries: `ast-grep`, `scc`, `universal-ctags`, `ripgrep`, `git`. Install whichever your platform needs:

@@ -107,6 +107,16 @@
             "type": "command",
             "command": "$HOME/.claude/hooks/block-edits-during-proposal.sh",
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/guard-trace.sh",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/inject-docs.sh",
+            "timeout": 15
           }
         ]
       },

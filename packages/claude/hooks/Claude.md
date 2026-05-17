@@ -1,5 +1,5 @@
 # Claude Code Hooks
-v1.3 | Updated: 2026-05-16
+v1.4 | Updated: 2026-05-16
 
 ## Why
 
@@ -175,6 +175,8 @@ Hook scripts live here in dotfiles. Two wiring files reference them:
 
 When adding or modifying a non-tmux hook, update both.
 
+Exception — tracer hooks are local-only. `load-trace-context.sh`, `guard-trace.sh`, `enrich-on-read.sh`, and `inject-docs.sh` are wired in `settings.json` only and must never appear in `hooks.json`. Tracer is our experimental local surface; plugin users get tracer as a command (the launcher in `bin/`), never these hooks.
+
 ## How
 
 ### Adding a new tracked field to the state schema
@@ -219,6 +221,7 @@ Claude Code compacts long conversations server-side, summarizing earlier turns w
 
 ## Ledger
 
+- v1.4: guard-trace blocks jq pipes into trace
 - v1.3: Lock RMW paths so concurrent counters land exactly
 - v1.2: Wire helper into Claude Code hook events
 - v1.1: Document compacted command and PostCompact hook

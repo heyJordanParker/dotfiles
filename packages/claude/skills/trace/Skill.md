@@ -11,7 +11,7 @@ The `trace` CLI returns rich code intelligence — matches plus per-file complex
 
 **Plugin users**: the `trace` binary auto-lands on your `PATH` when this plugin is enabled. Run `trace doctor` once to verify required external binaries (ast-grep, scc, universal-ctags, ripgrep, git) are installed.
 
-**Standalone**: `pipx install tracer && trace doctor`.
+**Standalone**: build from `tools/tracer` with `cargo build --release`, put `target/release/trace` on `PATH`, then `trace doctor`.
 
 If a `trace` command errors with "missing dependencies", run `trace doctor` for per-platform install instructions.
 
@@ -47,8 +47,9 @@ trace structure <path>                  # methods, properties, variables, import
 trace grep <pattern> [-l <lang>]        # text search with rich context
 trace struct <pattern> -l <lang>        # structural (AST) search via ast-grep
 trace find <pattern> [<base>]           # basename fnmatch (mirrors `find -name`); optional path filter
-trace glob <pattern> [<base>]           # full-path pathlib match (mirrors shell glob); `**` recurses, gitignore-respecting; `--details` adds ccn + rank + lifecycle
-trace read <file> [<method>]            # cleaned read; method or full file; preserves comments, cuts fluff
+trace glob <pattern> [<base>]           # full-path shell-glob match; `**` recurses, gitignore-respecting; `--details` adds ccn + rank + lifecycle
+trace read <file> [<method>]            # cleaned read; method or full file; preserves comments, cuts fluff; --docs/--no-docs toggles project-docs injection
+trace docs <path> [--directory]         # deduped project-docs set (Claude.md / rules ancestors) for a path; shares read's per-session read-once
 trace history <file>                    # git log/blame summary
 trace blame <file> [<symbol>]           # symbol-aware blame; regions collapse runs of one commit, include the subject
 trace blame <file> --lines L1:L2        # blame an explicit line range
@@ -78,9 +79,31 @@ For decision-shaped questions ("should I modify or stack?", "should I add this h
 
 Worktrees, squashed-baseline commits, and branch divergence can all make a file look "fresh" locally while being settled in production. Only recommend modify when lifecycle signal AND project rule AND production check all agree.
 
+## Auto-attached Claude.md & rules
+
+`trace read`, `info`, `tree`, `list`, and `context` prepend the nearest
+`Claude.md` ancestors and applicable `.claude/rules/` files — banner-delimited
+(`=== <path> · <kind> ===`) — before the requested content. These are the same
+docs the native Read path injects; they carry the project's own constraints
+alongside the code they govern. It is part of the answer, not skippable
+preamble.
+
+`trace docs <path>` returns that same deduped doc set on its own, and
+`trace read --no-docs` suppresses the inline injection. Both share one
+per-session "read once" dedupe with `read`: a doc surfaced by either is
+not re-emitted by the other in the same session.
+
 ## Execution rules
 
-- Always pass `--json` when piping output to subsequent reasoning.
+- Never pipe trace output into anything
+  (`grep`/`rg`/`head`/`tail`/`sed`/`awk`/`cut`/`sort`/`uniq`/`wc`/`jq`) or
+  redirect it into a repo file — that discards the context trace exists to
+  give you. For partial output, use the in-binary filter:
+  `trace <cmd> --json --filter '<jq expression>'` runs a jq program over
+  the value in-process (requires `--json`; no pipe). Raw
+  `cat`/`grep`/`rg`/`find`/`sed`/`awk`/`head`/`tail` on an in-repo path is
+  also blocked — use the matching trace subcommand. Enforced by the
+  `guard-trace.sh` PreToolUse hook.
 - Run `trace doctor` first if any command errors with a missing-dependency error.
 - Use `trace info` and `trace structure` for architectural orientation **before** deep reads.
 - Use `trace read` instead of raw Read whenever you want fluff-stripped output.
@@ -108,8 +131,10 @@ Worktrees, squashed-baseline commits, and branch divergence can all make a file 
 | Find files by full-path glob (shell-glob mental model — e.g. `src/**/*.tsx`, `app/Models/*.php`) | `trace glob <pattern>` |
 | Read one method without the rest of the file | `trace read <file> <method>` |
 | Read a whole file with token-wasting fluff cut | `trace read <file>` |
+| Get just the project docs (Claude.md / rules) for a path | `trace docs <path>` |
 | Understand history/why of a file | `trace history <file>` |
 | Find who last touched a function or line range | `trace blame <file> <symbol>` or `trace blame <file> --lines L1:L2` |
+| Get only part of a command's output | append `--json --filter '<jq expression>'` (in-process jq; never pipe to `jq`) |
 
 ## Directional intuition
 
