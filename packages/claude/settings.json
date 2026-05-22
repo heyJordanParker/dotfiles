@@ -32,7 +32,14 @@
       "mcp__pencil",
       "Bash(stow:*)"
     ],
+    "deny": [
+      "EnterWorktree",
+      "ExitWorktree"
+    ],
     "defaultMode": "dontAsk"
+  },
+  "worktree": {
+    "bgIsolation": "none"
   },
   "hooks": {
     "SessionStart": [
