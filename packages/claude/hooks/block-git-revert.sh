@@ -56,14 +56,26 @@ EOF
   exit 2
 fi
 
-# Pattern 4: git stash (hides working state)
-# Allow read-only: stash list, stash show
-if [[ "$normalized" =~ git[[:space:]]+stash ]] && ! [[ "$normalized" =~ git[[:space:]]+stash[[:space:]]+(list|show) ]]; then
+# Pattern 4: git stash is BANNED. Only pure read-only inspection is allowed
+# (stash list / stash show). Subtract those occurrences, then block if ANY
+# stash verb survives — so a mutating stash cannot be smuggled past by
+# appending `&& git stash list`.
+residual=$(echo "$normalized" | sed -E 's/git[[:space:]]+stash[[:space:]]+(list|show)[^&|;]*//g')
+if [[ "$residual" =~ git[[:space:]]+stash ]]; then
   cat << 'EOF' >&2
-BLOCKED: git stash can disrupt other agents working in the same codebase.
+BLOCKED: git stash is BANNED for agents. This is not a soft limit. Never run it.
 
-Stashing or popping changes the working tree state for all agents sharing this worktree.
-If you truly need to stash, ask the user to run it manually.
+git stash hides or discards uncommitted work in a worktree shared by other
+agents. It is the single most common way agent work is silently lost. It has
+already destroyed real work in this repo.
+
+Do NOT stash. Do NOT pop, drop, clear, push, apply, or save a stash. Do NOT
+hide a mutating stash behind a trailing `&& git stash list`, an alias, sh -c,
+or git -c alias.*=stash. Adding a read-only stash command does not make this
+allowed.
+
+To run something against a clean tree: commit your work first, then run it.
+If a human truly needs a stash, the human runs it manually.
 EOF
   exit 2
 fi

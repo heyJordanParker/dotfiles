@@ -1,5 +1,5 @@
 # Claude Code Hooks
-v1.5 | Updated: 2026-05-17
+v1.7 | Updated: 2026-05-22
 
 ## Why
 
@@ -43,10 +43,12 @@ hooks/
 ├── auto-approve-permissions.sh           # PermissionRequest matcher
 ├── block-builtin-subagents.sh            # PreToolUse Agent matcher
 ├── block-edits-during-proposal.sh        # PreToolUse Write|Edit|NotebookEdit + Bash matchers
+├── block-enter-worktree.sh               # PreToolUse EnterWorktree matcher
 ├── block-git-revert.sh                   # PreToolUse Bash matcher
 ├── block-team-deletion.sh                # PreToolUse TeamDelete matcher
 ├── block-unauthorized-commits.sh         # PreToolUse Bash matcher
 ├── block-unsafe-delete.sh                # PreToolUse Bash matcher
+├── block-worktree-isolation.sh           # PreToolUse Agent matcher
 ├── guard-trace.sh                        # PreToolUse Bash matcher — force code reads through trace
 │
 ├── enforce-background-agents.sh          # PreToolUse Agent matcher
@@ -61,7 +63,10 @@ hooks/
 │
 ├── sync-shaping.sh                       # PostToolUse Write|Edit
 ├── load-trace-context.sh                 # SessionStart — injects `trace context` primer as additionalContext
-└── initialize-session-state.sh           # legacy — superseded by session-state start
+├── initialize-session-state.sh           # legacy — superseded by session-state start
+│
+└── subagents/                            # subagent-only hooks (gated by .agent_id; local wiring only)
+    └── block-branch-change.sh            # PreToolUse Bash matcher — block branch changes for subagents
 ```
 
 ### State storage
@@ -178,6 +183,10 @@ When adding or modifying a non-tmux hook, update both.
 
 Exception — tracer hooks are local-only. `load-trace-context.sh`, `guard-trace.sh`, `enrich-on-read.sh`, and `inject-docs.sh` are wired in `settings.json` only and must never appear in `hooks.json`. Tracer is our experimental local surface; plugin users get tracer as a command (the launcher in `bin/`), never these hooks.
 
+Exception — subagent-exclusive hooks under `subagents/` are local-only. They are wired in `settings.json` only and must never appear in `hooks.json`. The subagent topology and worktree-sharing model they assume are our local workflow; plugin consumers don't run them.
+
+Exception — dispatch-level worktree guards are local-only. `block-worktree-isolation.sh` (PreToolUse Agent matcher) and `block-enter-worktree.sh` (PreToolUse EnterWorktree matcher) are wired in `settings.json` only and must never appear in `hooks.json`. They enforce that all agents share one worktree — a workflow assumption local to this project, not the plugin contract.
+
 ## How
 
 ### Adding a new tracked field to the state schema
@@ -222,6 +231,8 @@ Claude Code compacts long conversations server-side, summarizing earlier turns w
 
 ## Ledger
 
+- v1.7: Block agent worktree splits
+- v1.6: Subagent-scoped hooks live under subagents/
 - v1.5: Match hook mechanism to decision type
 - v1.4: guard-trace blocks jq pipes into trace
 - v1.3: Lock RMW paths so concurrent counters land exactly
