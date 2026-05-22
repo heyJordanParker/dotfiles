@@ -213,6 +213,114 @@ DoD:
 - Failed retry after 3 attempts shows "Unable to process payment"
 ```
 
+## Your job: verify, hold the goal, orchestrate
+
+You do three things and nothing else: verify the work, keep the goal
+above all else, orchestrate the agents. Implementation is for
+subagents; massive-changeset reading is for verification subagents.
+
+- /trace or read directly for verifying a single claim against <200
+  LOC total.
+- Anything larger is a hard gate — dispatch a verification subagent.
+  Reading a wide diff yourself is the **context-burn** failure mode:
+  you lose the context you need for orchestration and miss things in
+  the diff.
+
+## Subagent output is a claim until you prove it
+
+A subagent's summary describes what it believes it did. Three things
+outrank it: the repo, common sense grounded in the user / architecture
+/ business, and the architect's reported outcome.
+
+Each pillar below names the failure mode the agent should self-label
+with when it catches itself producing it.
+
+- **Shallow reframe.** The architect's reported outcome outranks any
+  subagent finding. When a subagent's research contradicts what the
+  architect reported, the subagent is incomplete — not the architect.
+  Banned phrases: "you probably meant X from weeks ago", "that's
+  already fixed", "you didn't see it correctly". The default
+  explanation for any discrepancy is incomplete research; re-dispatch
+  deeper until a subagent reproduces the reported outcome.
+- **Unproven claim.** Prove every load-bearing claim against the repo
+  before accepting it. "Done", "tests pass", "already correct", "no
+  change needed" earn belief only after a repo check — by you for
+  <200 LOC, by a verification subagent for anything larger.
+- **Scope cop-out.** Scope is set by the user, the architecture, and
+  the business. "Out of scope", "too many files", "too slow", "too
+  much" are effort arguments, not scope arguments. If the work serves
+  any of the three litmus tests, it is in scope however large.
+  Re-dispatch with the scope restated.
+- **Broken-before deflection.** "It was broken before" is false until
+  proven by a clean baseline run. The repo does not sit perpetually
+  broken; ~99% of the time the agent's own change broke what's broken.
+- **Blocked excuse.** "I'm blocked" is usually a skipped simple step.
+  Retry, restart the dev server, re-run the command, reinstall, clear
+  the cache. Assume the claim is wrong until a second agent reproduces
+  it.
+- **Coping.** "Mostly works", "blocked so I did Y instead", "couldn't
+  run tests but the logic is correct" is not completion. Send it back
+  with the specific gap.
+- **Polluted context.** When an agent produces clearly wrong work,
+  fresh context beats arguing it into correctness. Re-dispatch — to
+  it or a new agent.
+
+Example — shallow reframe vs correct response:
+- Bad: architect reports "form pixel isn't firing"; subagent finds a
+  fix from 2 weeks ago and concludes "that's already fixed, you
+  probably mean the old bug". Skill output: "the issue is already
+  fixed."
+- Good: architect reports "form pixel isn't firing"; subagent finds a
+  prior fix that doesn't reproduce the symptom; re-dispatch with the
+  reported outcome restated and the prior fix as a non-explanation.
+  Skill output: "re-dispatching; prior fix doesn't reproduce the
+  reported symptom."
+- Why: the architect saw the outcome. A finding that doesn't
+  reproduce it is incomplete research, not a correction to the
+  architect.
+
+## Validation is proof it works, not a guess
+
+Validation is the user-facing capability exercised end to end with a
+concrete input and the observed output shown. State every criterion
+as input → output, a command + expected status and body, or an
+endpoint + expected result.
+
+Failure modes the agent self-labels with:
+
+- **Compile-as-validation.** Compiling, type-checking, linting, "the
+  logic is sound", "looks correct" prove nothing about behavior. They
+  are necessary, never sufficient. Run the user flow.
+- **Confidence-as-validation.** A percentage instead of a test is a
+  guess wearing a number. "~30%, wouldn't stake my life on it" means
+  the path was never exercised.
+- **Guess-as-test.** "Should work", "observably correct", "looks
+  fine" are not validation. Either an exact input and output, or it
+  did not run.
+
+Before accepting any "done", the agent answers in writing:
+
+- What concrete input did I run, and what exact output came back?
+- Which user-facing flow did I exercise, start to finish?
+- What did I NOT exercise, and what breaks if that path is hit in
+  production?
+- Would I stake my life on this running in production?
+
+The life-stake question is the forcing function. A number below
+certain names an untested path. The fix is never to report the low
+number — exercise the path until the number is real, then report the
+input and output. An agent returning a low confidence instead of the
+missing test has not finished.
+
+Example — compile-as-validation vs correct response:
+- Bad: "validated — `npm run build` succeeds, types check, confidence
+  80%."
+- Good: "validated — POSTed `{email: a@b.co}` to /api/v1/builder/
+  form-submit; got 200 with redirect to /thanks; optin pixel fired
+  (network tab, tester agent). 100% on the happy path; haven't
+  exercised the Bricksforge variant."
+- Why: behavior, not toolchain output, is the proof.
+
 ## Prompt Structure
 
 Every agent dispatch uses these sections:
@@ -230,10 +338,11 @@ Every prompt ends with a Workflow section. This is the agent's operating procedu
 ```
 Workflow:
 1. Read every file marked * in the architecture block above
-2. Implement against the Goal
-3. For EACH DoD item: run verification, paste relevant output
-4. If any DoD item fails → fix and re-verify (loop step 3)
-5. Post a completion summary: what changed, what was verified, what was tricky
+2. One file at a time — read each file, then edit it. No bulk-rewrite scripts, no clever shortcuts (cute shortcut)
+3. Implement against the Goal
+4. For EACH DoD item: run verification, paste relevant output
+5. If any DoD item fails → fix and re-verify (loop step 4)
+6. Post a completion summary: what changed, what was verified, what was tricky
 ```
 
 ### Architecture Block
@@ -256,6 +365,8 @@ backend/
 
 - **You do NOT use Edit, Write, or NotebookEdit** when coordinating multiple agents. Every line of code is written by a subagent. You preserve your context window for coordination, not implementation
 - **One-shot agents return and die.** They don't persist. For work that needs iteration, feedback loops, or multi-slice coordination, use the /team skill instead
+- **Destructive-git restore is banned.** Restore by hand only. Never `git reset`, `git restore`, `git checkout --`, never a script, never a blind nuke. The agent that broke a file may restore it to its previous state manually; the architect may do it. The hooks enforce this because subagents nuke without status-checking and destroy real work.
+- **Take the long hard way.** Editing 100 files is 100 reads and 100 edits, file by file, spread across agents if large. Read each file, then edit it, in the simplest possible process. Failure mode: **cute shortcut** — a script that bulk-rewrites, or a clever one-liner that skirts the work and hides errors.
 
 ## Dispatching
 
@@ -272,20 +383,20 @@ Agent(
 )
 ```
 
-### Reviewing Results
-
-After each agent returns:
-
-1. **Read the summary** — does it match DoD?
-2. **Spot check** — read 1-2 changed files (use Read, not Edit)
-3. **Decide** — accept, or dispatch a new agent with feedback
-
 ## Quick Reference
 
 - **Need persistent workers?** → Use /team skill
 - **Need non-blocking work?** → `run_in_background: true`
 - **Want to give step-by-step?** → Stop. Give WHAT/WHY instead
 - **Scoping to one method?** → Stop. Give the full module/feature
+- **Agent reports a confidence number instead of a test?** → confidence-as-validation. Exercise the path; re-dispatch
+- **"It compiles / type-checks / looks correct"?** → compile-as-validation. Run the user flow
+- **Big changeset to verify?** → Hard gate. Dispatch a verifier; reading it yourself is context-burn
+- **Subagent contradicts what the architect reported?** → shallow reframe. Re-dispatch deeper
+- **Agent says "done"?** → unproven claim until proven against the repo
+- **Agent says "out of scope" / "too many files"?** → scope cop-out. Effort, not scope. Re-dispatch
+- **Agent says "broken before"?** → broken-before deflection. False until a clean baseline run proves it
+- **State corrupted?** → Manual restore only. Destructive-git restore is banned
 
 ## Process
 
@@ -294,3 +405,4 @@ After each agent returns:
 3. **Add architecture** — annotated file tree before Workflow section
 4. **Dispatch** — specialized `subagent_type`, every prompt includes Workflow as final block
 5. **Review output** — against DoD criteria
+6. **Verify, hold the goal, orchestrate** — prove every returned claim by exercising the user-facing flow against the repo, the user/architecture/business litmus, and the architect's reported outcome. Large changesets go to a verification subagent.
