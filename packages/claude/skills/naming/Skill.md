@@ -1,11 +1,41 @@
 ---
 name: naming
-description: MANDATORY for all naming decisions - variables, functions, files, folders, classes, database tables, routes, CSS classes. Must be followed when creating or renaming any identifier. Non-negotiable baseline for consistent, readable names across all languages and contexts.
+description: MANDATORY for naming any code identifier — variable, function, file, folder, class, database column, route, CSS class. Always returns a 5-10 candidate slate; the consumer picks. TRIGGER when proposing or choosing a name, on /naming, on "rename", "ideas", "options", "what should I call", or any new file/class/method/column/route. DO NOT TRIGGER when editing a body that does not introduce or change an identifier, when restructuring code (architecture, not naming), or when labeling UI for end users (copy decision).
 ---
 
 # Naming
 
 **This skill is mandatory.** Follow these rules whenever naming anything in code.
+
+## Output Contract
+
+Every reply is a slate. Shape:
+
+- **Slate** — 5-10 bulleted candidates. Each line: `` `candidate` — what it says; project precedent it matches; named failure mode if any concern remains ``
+- **Recommended:** `name` — one-sentence reason
+- **Runner-up:** `name` — one-sentence reason
+
+When the caller co-tagged `/pcc`: each candidate becomes a `### name` section with a ` ```diff ` pros/cons block and a `Confidence: N%.` line. Recommended + Runner-up still follow.
+
+**Banned openings** (each one triggers rejection):
+
+- "Let's call it X"
+- "I'd name it X"
+- "The right name is X"
+- "Recommended: X" without a slate above it
+- Any single candidate before the slate
+
+The slate is a thinking primer, not a multiple-choice ballot. The consumer often picks a name not in the slate after reading it.
+
+## Quality Bar
+
+Every candidate must pass three tests before entering the slate:
+
+1. **Purpose** — name says what the caller gets, not how the thing works inside
+2. **Domain language** — every word appears in the project's vocabulary or in plain conversational English a developer uses out loud
+3. **One meaning** — name does not already mean something else in this codebase
+
+Replace any candidate that fails any of the three before showing it.
 
 ## Hierarchy of Authority
 
@@ -17,9 +47,9 @@ Always check the project first. Consistency within the project trumps external s
 
 ## Core Rules
 
-- **Never ALL_CAPS for names** - use language features (`const`, `final`, `readonly`) to express immutability. Exception: PHP `define()` constants follow WordPress convention. Note: Claude Code metadata files use capital case (Skill.md, Claude.md).
+- **Never ALL_CAPS for names** - use language features (`const`, `final`, `readonly`) to express immutability.
 
-- **Avoid abbreviations** - spell words out. Exception: universally understood shortenings of long words (`info`, `max`, `min`, `config`).
+- **No abbreviations** - spell every word out.
 
 - **Market-defined acronyms are fine** - `Url`, `Http`, `Api`, `Html`, `Css`, `Id` are acceptable. Don't invent project-specific acronyms users must learn.
 
@@ -30,6 +60,16 @@ Always check the project first. Consistency within the project trumps external s
 - **Hide implementation details** - name the interface, not the mechanism. `getUser` not `fetchAndCacheUser`.
 
 - **Simple but complete** - don't over-shorten, but don't add words that don't add context.
+
+- **No academic English** — thesaurus-substitute verbs from formal writing (`materialize`, `instantiate`, `synthesize`, `rehydrate`) make code read like a design doc; readers have to translate. CHECK: would a developer say this verb out loud at the keyboard? Examples: ✗ `materialize(data)` → ✓ `create(data)`; ✗ `instantiate(user)` → ✓ `createUser()`; ✗ `rehydrateSession()` → ✓ `loadSession()`.
+
+- **No metaphor verbs** — verbs imported from unrelated fields (`mint` from currency, `prune` from gardening, `emit` from event systems used for rendering, `harvest` from farming) force the reader to translate. The metaphor only works when the field matches. CHECK: what field does the verb come from? If not the field the code is in, replace with the plain operational verb. Examples: ✗ `pruneRecords()` → ✓ `deleteRecords()`; ✗ `mintToken()` → ✓ `createToken()`; ✗ `emitNotification()` (for rendering) → ✓ `showNotification()`.
+
+- **No vague verbs** — `process`, `handle`, `manage`, `do`, `run` convey nothing specific; reader has to open the body to learn what the function does. CHECK: can the verb be swapped with another generic verb without changing the name's meaning? If yes, name the actual operation. Examples: ✗ `processOrder()` → ✓ `shipOrder()` / `chargeOrder()` / `validateOrder()`; ✗ `manageSettings()` → ✓ `updateSettings()` / `loadSettings()`.
+
+- **No overloaded terms** — when the name already means something specific in this codebase, reusing it forces every reader to disambiguate every time. CHECK: search the codebase for the proposed name; if it already names something distinct, add the qualifier that distinguishes the new thing. Examples: ✗ a new analytics record called `Event` when domain events already use `Event` → ✓ `TrackingEvent`; ✗ a payment provider class called `Provider` when service providers already use `Provider` → ✓ `PaymentGateway`.
+
+- **No stutter** — type or file name repeats its module's word. The path reads longer, scans harder, and renaming the module forces touching every member. CHECK: drop the module's word from the type's name; if callers still read clearly, drop it. Examples: ✗ `users/UsersService` → ✓ `users/Service`; ✗ `auth/AuthMiddleware` → ✓ `auth/Middleware`; ✗ `models/UserModel` → ✓ `models/User`.
 
 ## Semantic Patterns
 
@@ -57,7 +97,7 @@ For each function:
 | Signal | Meaning |
 |--------|---------|
 | One verb covers all code paths | Boundary is correct |
-| Need "or" to connect two verbs | Likely two operations bundled — split them |
+| Need "or" to connect two verbs | Two operations bundled — split them |
 | Name doesn't feel idiomatic | Boundary is wrong |
 | Name matches a downstream effect, not this step | You're naming the chain, not the step |
 
@@ -69,14 +109,27 @@ For each function:
 
 ## Checklist
 
+- [ ] Slate of 5-10 candidates, not a single name
+- [ ] Each candidate passes the three Quality Bar tests (purpose, domain language, one meaning)
 - [ ] Checked project conventions first
-- [ ] No ALL_CAPS (except PHP define())
-- [ ] No abbreviations (except ultra common & universal ones like info/max/min/config)
+- [ ] No ALL_CAPS
+- [ ] No abbreviations
+- [ ] No academic English, metaphor verbs, or vague verbs
+- [ ] No overloaded terms (name doesn't already mean something else here)
+- [ ] No stutter (type name doesn't repeat module name)
 - [ ] Context not repeated (user.isValid not user.isUserValid)
 - [ ] No redundant suffixes (users not userList)
 - [ ] Booleans use is/has/can/should prefix
 
+## Slate Procedure
+
+1. Read the surrounding code. Find sibling concepts already named. Identify the precedent shape
+2. Generate 5-10 candidates varying the angle: action verb, thing noun, role, domain word, short vs descriptive
+3. Scrub each candidate against every Core Rule. Replace dead candidates before they reach the slate
+4. Annotate each line with what it says, the project precedent it matches, and the failure mode it tripped (if any)
+5. Recommend one + name the runner-up with one-sentence reasons
+6. Stop. The consumer picks.
+
 ## References
 
 - [reference.md](reference.md) - Ecosystem casing conventions
-- [examples.md](examples.md) - Good/bad examples with rationale
