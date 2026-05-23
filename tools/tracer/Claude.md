@@ -1,5 +1,5 @@
 # Tracer
-v4.7 | Updated: 2026-05-17
+v4.10 | Updated: 2026-05-23
 
 ## Why
 
@@ -153,7 +153,9 @@ The committed payload under `packages/claude/bin/tracer-dist/` is: two prebuilt 
 
 The mirror is the tracer crate source with one reshape forced by isolation: the marketplace copies only `packages/claude/`, so the mirror is built standalone with no workspace present. A `[workspace]` table referencing a missing `xtask` member fails `cargo build` for plugin users, so the mirrored `Cargo.toml` is the tracer package manifest with its `[workspace]` table stripped, and the mirrored `Cargo.lock` is resolved from that stripped manifest — not the workspace lock, which carries `xtask` and its dependencies. The `src/` tree is copied verbatim.
 
-When the tracer source changes, rebuild both prebuilts and re-run `cargo xtask sync-dist` (setup.sh does this automatically). No GitHub Releases pipeline, no vendored crates — the build-from-source path is a plain network `cargo build` reaching crates.io.
+When the tracer source changes, rebuild the host-platform prebuilt from that source and re-run `cargo xtask sync-dist` (setup.sh does this automatically). Each prebuilt must come from a host of its own architecture — there is no cross-compile path — so the off-host prebuilt is refreshed from a machine of that architecture; the mirror's drift guard (`cargo xtask sync-dist --check`) is the proof that the committed payload reflects the current source. No GitHub Releases pipeline, no vendored crates — the build-from-source path is a plain network `cargo build` reaching crates.io.
+
+The drift guard doubles as the post-source-edit release gate: an uncommitted source change leaves the mirror dirty, and `--check` exits non-zero until the producer is re-run. A clean `--check` is the contract that the committed crate/ matches the committed source — the host prebuilt is checked separately by running the v4.9 contract probes through the launcher on real repos.
 
 ### Adding a new command
 
@@ -174,10 +176,13 @@ When the tracer source changes, rebuild both prebuilts and re-run `cargo xtask s
 
 - Per-file (`file/`): file SHA changes → cache key changes → next read re-extracts
 - Architecture (`architecture/`): any per-file SHA change → fingerprint changes → next read rebuilds the graph from current per-file facts (cheap because per-file is cached)
-- Schema changes: bump `cache::SCHEMA_VERSION`. Old entries become unreachable across all namespaces
+- Schema changes: bump `cache::SCHEMA_VERSION`. Every cache key shape that namespaces a per-file hash — the on-disk entry key AND the mtime fast-path index key — must include the schema version, so an upgrade rotates them all together. A bumped key on disk + an unrotated mtime index returns stale per-file hashes, which keep the architecture fingerprint stable and serve a stale graph on the first post-upgrade query
 
 ## Ledger
 
+- v4.10: Drift guard is the proof the payload tracks source
+- v4.9: Real-world probes pinned the contract end-to-end
+- v4.8: Callers returns use sites via reference edges
 - v4.7: Crate owns its payload producer as a cargo xtask
 - v4.6: Plugin crate mirror generated and drift-guarded
 - v4.5: Search output deterministic and ranking correct

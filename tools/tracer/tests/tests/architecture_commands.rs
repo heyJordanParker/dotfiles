@@ -90,9 +90,9 @@ fn callers_resolves_cross_file_importer() {
 
 #[test]
 fn callers_excludes_unrelated_symbol() {
-    // Absence guard: `lone_fn` imports nothing and is imported by nobody, so
-    // no module may be reported as its caller. A graph that links everything
-    // would report a bogus caller here.
+    // Absence guard: `lone_fn` is referenced by nobody, so no use site
+    // may be reported. A graph that links everything would report a
+    // bogus caller here.
     let f = chain_repo();
     f.trace(&["cache", "build", "."]).ok();
     let r = f.trace(&["callers", "lone_fn", "--json"]);
@@ -101,13 +101,14 @@ fn callers_excludes_unrelated_symbol() {
     let callers = v["lone.py::lone_fn"]["callers"].as_array().unwrap();
     assert!(
         callers.is_empty(),
-        "lone_fn has no importer; callers must be empty, got {:?}",
+        "lone_fn has no referencer; callers must be empty, got {:?}",
         callers
     );
 
-    // And `d_fn`'s only caller is module::pkg.c — never pkg.a / pkg.b /
-    // anything else. Asserting the *exact* caller set catches an
-    // over-connected graph.
+    // `d_fn`'s only use site is at pkg/c.py:4 (the call inside c_fn). The
+    // architectural source (the edge's source node) is `module::pkg.c` —
+    // never pkg.a / pkg.b / anything else. Asserting the *exact* caller
+    // set catches an over-connected graph.
     let r = f.trace(&["callers", "d_fn", "--json"]);
     r.ok();
     let v = r.json();
@@ -124,6 +125,13 @@ fn callers_excludes_unrelated_symbol() {
         "transitive importers must not appear as direct callers: {:?}",
         ids
     );
+    // The use site is the call inside c_fn at pkg/c.py:4.
+    let row = callers
+        .iter()
+        .find(|c| c["source_file"].as_str() == Some("pkg/c.py"))
+        .unwrap_or_else(|| panic!("missing pkg/c.py use site: {:?}", callers));
+    assert_eq!(row["source_line"].as_i64(), Some(4));
+    assert_eq!(row["relation"].as_str(), Some("references"));
 }
 
 #[test]
@@ -385,12 +393,13 @@ fn downstream_missing_arg_exits_2() {
 
 #[test]
 fn callers_reports_confidence_classes() {
-    // One fixture, two confidence classes:
-    //   * clean.py: `from uniq import only_here` — module `uniq` resolves and
-    //     the symbol resolves → EXTRACTED.
-    //   * imp.py: `from external_unresolvable_pkg import rare_unique_name` —
-    //     module path does not resolve but the uniquely-named symbol does
-    //     (1 candidate, no target module) → INFERRED.
+    // One fixture, two confidence classes on reference rows (callers now
+    // returns use sites, so the classes are reference-edge confidences):
+    //   * clean.py: imports `only_here` from `uniq` and calls it — the
+    //     candidate lives in an imported file → EXTRACTED.
+    //   * sole.py: calls `rare_unique_name` with no import context at
+    //     all; the name uniquely identifies one declaration globally →
+    //     INFERRED.
     let f = Fixture::new();
     f.write("uniq.py", "def only_here():\n    return 1\n");
     f.write(
@@ -399,8 +408,8 @@ fn callers_reports_confidence_classes() {
     );
     f.write("target.py", "def rare_unique_name():\n    return 1\n");
     f.write(
-        "imp.py",
-        "from external_unresolvable_pkg import rare_unique_name\n\ndef u():\n    return rare_unique_name()\n",
+        "sole.py",
+        "def u():\n    return rare_unique_name()\n",
     );
     f.commit("confidence repo");
     f.trace(&["cache", "build", "."]).ok();
@@ -427,7 +436,7 @@ fn callers_reports_confidence_classes() {
     assert_eq!(
         callers[0]["confidence"].as_str(),
         Some("INFERRED"),
-        "unresolvable-module symbol import must be INFERRED: {:?}",
+        "uniquely-named ref with no import context must be INFERRED: {:?}",
         callers[0]
     );
 }

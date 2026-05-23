@@ -16,6 +16,9 @@ pub const CONFIDENCE_EXTRACTED: &str = "EXTRACTED";
 pub const CONFIDENCE_INFERRED: &str = "INFERRED";
 pub const CONFIDENCE_AMBIGUOUS: &str = "AMBIGUOUS";
 
+pub const RELATION_IMPORTS: &str = "imports";
+pub const RELATION_REFERENCES: &str = "references";
+
 #[derive(Debug, Clone)]
 pub struct Node {
     pub id: String,
@@ -31,6 +34,12 @@ pub struct Edge {
     pub target: String,
     pub relation: String,
     pub confidence: String,
+    /// Use-site file and line for a `references` edge — overrides the
+    /// source-node's coordinates when the renderer prints `file:line`.
+    /// `None` for module-level `imports` edges, which keep the source
+    /// node's coordinates.
+    pub source_file: Option<String>,
+    pub source_line: Option<i64>,
 }
 
 #[derive(Debug, Default)]
@@ -87,6 +96,8 @@ impl Graph {
                     "target": e.target,
                     "relation": e.relation,
                     "confidence": e.confidence,
+                    "source_file": e.source_file,
+                    "source_line": e.source_line,
                 })
             })
             .collect();
@@ -156,6 +167,11 @@ impl Graph {
                         .and_then(|x| x.as_str())
                         .unwrap_or("")
                         .to_string(),
+                    source_file: e
+                        .get("source_file")
+                        .and_then(|x| x.as_str())
+                        .map(|s| s.to_string()),
+                    source_line: e.get("source_line").and_then(|x| x.as_i64()),
                 });
             }
         }
@@ -321,18 +337,27 @@ fn build_from_facts(all_facts: &[FileFacts]) -> Graph {
                 .file_to_module_id
                 .insert(facts.path.clone(), module_id.clone());
         }
-        for export in &extraction.exports {
-            let node_id = symbol_node_id(&facts.path, &export.name);
+        // Index every declaration — methods, private/non-exported,
+        // nested defs — so they all become resolvable nodes. The narrower
+        // `exports` list still feeds the structure/module-API views via
+        // other commands; here we want the full index.
+        for decl in &extraction.declarations {
+            let node_id = symbol_node_id(&facts.path, &decl.name);
+            if graph.nodes.contains_key(&node_id) {
+                // Same (file, name) seen twice — overloaded or duplicate
+                // definition. Keep the first.
+                continue;
+            }
             graph.insert_node(Node {
                 id: node_id.clone(),
-                label: export.name.clone(),
-                kind: export.kind.clone(),
+                label: decl.name.clone(),
+                kind: decl.kind.clone(),
                 source_file: Some(facts.path.clone()),
-                source_line: Some(export.line),
+                source_line: Some(decl.line),
             });
             graph
                 .symbol_index
-                .entry(export.name.to_lowercase())
+                .entry(decl.name.to_lowercase())
                 .or_default()
                 .push(node_id);
         }
@@ -386,8 +411,10 @@ fn build_from_facts(all_facts: &[FileFacts]) -> Graph {
                         graph.edges.push(Edge {
                             source: importer_module_id.clone(),
                             target: mc,
-                            relation: "imports".into(),
+                            relation: RELATION_IMPORTS.into(),
                             confidence: CONFIDENCE_EXTRACTED.into(),
+                            source_file: None,
+                            source_line: None,
                         });
                         continue;
                     }
@@ -413,8 +440,10 @@ fn build_from_facts(all_facts: &[FileFacts]) -> Graph {
                     graph.edges.push(Edge {
                         source: importer_module_id.clone(),
                         target: final_target,
-                        relation: "imports".into(),
+                        relation: RELATION_IMPORTS.into(),
                         confidence,
+                        source_file: None,
+                        source_line: None,
                     });
                 }
                 None => {
@@ -425,15 +454,169 @@ fn build_from_facts(all_facts: &[FileFacts]) -> Graph {
                     graph.edges.push(Edge {
                         source: importer_module_id.clone(),
                         target,
-                        relation: "imports".into(),
+                        relation: RELATION_IMPORTS.into(),
                         confidence: CONFIDENCE_EXTRACTED.into(),
+                        source_file: None,
+                        source_line: None,
                     });
                 }
             }
         }
     }
 
+    // Phase 3: reference edges. Every identifier use-site that resolves to
+    // at least one declaration node becomes an edge from the referring
+    // module → that declaration, carrying the use-site file:line and a
+    // confidence label.
+    //
+    // Resolution model (mirrors the imports model's confidence taxonomy):
+    //   - 0 candidates                 → no edge
+    //   - 1 candidate, in a module the referrer imported  → EXTRACTED
+    //   - 1 candidate, no import context                  → INFERRED
+    //   - 1 candidate, in the same file as the referrer   → EXTRACTED
+    //     (same-file references don't need an import edge)
+    //   - >1 candidates                → one AMBIGUOUS edge per candidate
+    build_reference_edges(&mut graph, all_facts);
+
     graph
+}
+
+/// The set of source files an importer module imported from (resolved to
+/// internal `source_file` paths). Used to bias single-candidate references
+/// to EXTRACTED when the candidate lives in an imported file.
+fn imported_files_for(graph: &Graph, importer_module_id: &str) -> std::collections::HashSet<String> {
+    let mut out = std::collections::HashSet::new();
+    for e in &graph.edges {
+        if e.relation != RELATION_IMPORTS || e.source != importer_module_id {
+            continue;
+        }
+        if let Some(target_node) = graph.nodes.get(&e.target) {
+            if let Some(sf) = &target_node.source_file {
+                out.insert(sf.clone());
+            }
+        }
+    }
+    out
+}
+
+/// A reference is a "self-reference" when the file declares exactly one
+/// symbol with this name (case-insensitive). That maps cleanly to the
+/// self-recursion case (`fact` defined once in `rec.py`, called by name
+/// inside its own body) without dropping the rarer case where two
+/// homonyms share a file.
+fn is_self_reference(extraction: &crate::extraction::ExtractionResult, name: &str) -> bool {
+    let lower = name.to_lowercase();
+    extraction
+        .declarations
+        .iter()
+        .filter(|d| d.name.to_lowercase() == lower)
+        .count()
+        == 1
+}
+
+fn build_reference_edges(graph: &mut Graph, all_facts: &[FileFacts]) {
+    let mut new_edges: Vec<Edge> = Vec::new();
+    for facts in all_facts {
+        let extraction = match &facts.extraction {
+            Some(e) => e,
+            None => continue,
+        };
+        if extraction.references.is_empty() {
+            continue;
+        }
+        let importer_module_id = module_node_id(&file_to_module(
+            &facts.path,
+            facts.language.as_deref(),
+        ));
+        let imported_files = imported_files_for(graph, &importer_module_id);
+
+        for reference in &extraction.references {
+            let candidates = match graph.symbol_index.get(&reference.name.to_lowercase()) {
+                Some(c) if !c.is_empty() => c.clone(),
+                _ => continue,
+            };
+            if candidates.len() == 1 {
+                let target = &candidates[0];
+                let target_node = match graph.nodes.get(target) {
+                    Some(n) => n,
+                    None => continue,
+                };
+                // Self-recursion is excluded by contract: a function's own
+                // recursive call is the same symbol naming itself in its
+                // own body — architecturally it adds no "caller", and
+                // surfacing it crowds out the cross-symbol callers the
+                // user actually wants. Detection: target lives in the
+                // same file as the referrer AND the only declaration in
+                // this file matching the referenced name is the target
+                // itself (i.e. it isn't co-defined alongside a homonym).
+                if target_node.source_file.as_deref() == Some(facts.path.as_str())
+                    && is_self_reference(extraction, &reference.name)
+                {
+                    continue;
+                }
+                let in_imported_file = target_node
+                    .source_file
+                    .as_ref()
+                    .map(|sf| imported_files.contains(sf))
+                    .unwrap_or(false);
+                let same_file =
+                    target_node.source_file.as_deref() == Some(facts.path.as_str());
+                let confidence = if in_imported_file || same_file {
+                    CONFIDENCE_EXTRACTED
+                } else {
+                    CONFIDENCE_INFERRED
+                };
+                new_edges.push(Edge {
+                    source: importer_module_id.clone(),
+                    target: target.clone(),
+                    relation: RELATION_REFERENCES.into(),
+                    confidence: confidence.into(),
+                    source_file: Some(facts.path.clone()),
+                    source_line: Some(reference.line),
+                });
+            } else {
+                // Multi-candidate: AMBIGUOUS on every candidate that
+                // could plausibly match. A pre-filter by imported-file
+                // membership disambiguates when import context narrows
+                // it to one — promote that lone surviving candidate to
+                // EXTRACTED.
+                let in_imports: Vec<&String> = candidates
+                    .iter()
+                    .filter(|cid| {
+                        graph
+                            .nodes
+                            .get(*cid)
+                            .and_then(|n| n.source_file.as_ref())
+                            .map(|sf| imported_files.contains(sf))
+                            .unwrap_or(false)
+                    })
+                    .collect();
+                if in_imports.len() == 1 {
+                    let target = in_imports[0].clone();
+                    new_edges.push(Edge {
+                        source: importer_module_id.clone(),
+                        target,
+                        relation: RELATION_REFERENCES.into(),
+                        confidence: CONFIDENCE_EXTRACTED.into(),
+                        source_file: Some(facts.path.clone()),
+                        source_line: Some(reference.line),
+                    });
+                    continue;
+                }
+                for cid in &candidates {
+                    new_edges.push(Edge {
+                        source: importer_module_id.clone(),
+                        target: cid.clone(),
+                        relation: RELATION_REFERENCES.into(),
+                        confidence: CONFIDENCE_AMBIGUOUS.into(),
+                        source_file: Some(facts.path.clone()),
+                        source_line: Some(reference.line),
+                    });
+                }
+            }
+        }
+    }
+    graph.edges.extend(new_edges);
 }
 
 /// Resolve an imported module path to a graph node id: exact module-index
@@ -457,10 +640,15 @@ fn resolve_module(
         }
         return None;
     }
-    let dot_suffix = format!(".{module_path}");
-    let slash_suffix = format!("/{module_path}");
+    // Strip TS/JS relative-path prefixes (`./`, `../`) so a `./helpers`
+    // import matches the indexed `src/helpers` module via suffix. Without
+    // this, every relative import resolved to "INFERRED" because the
+    // suffix match never saw past the leading `./`.
+    let normalized = strip_relative_prefix(module_path);
+    let dot_suffix = format!(".{normalized}");
+    let slash_suffix = format!("/{normalized}");
     for (indexed_module, node_id) in internal_pairs {
-        if indexed_module.ends_with(module_path)
+        if indexed_module.ends_with(&normalized)
             || indexed_module.ends_with(&dot_suffix)
             || indexed_module.ends_with(&slash_suffix)
         {
@@ -468,6 +656,18 @@ fn resolve_module(
         }
     }
     None
+}
+
+/// Drop `./` and any leading `../` segments from a relative import path.
+fn strip_relative_prefix(module_path: &str) -> String {
+    let mut s = module_path;
+    if let Some(rest) = s.strip_prefix("./") {
+        s = rest;
+    }
+    while let Some(rest) = s.strip_prefix("../") {
+        s = rest;
+    }
+    s.to_string()
 }
 
 /// Pick the best symbol from candidates: prefer one in the resolved
@@ -599,7 +799,9 @@ pub fn find_symbols<'a>(graph: &'a Graph, name: &str) -> Vec<&'a Node> {
 }
 
 /// Edges pointing at `node_id` (or its owning module) — its direct
-/// dependents.
+/// import dependents. Filters to `imports` only so the module-level
+/// dependency graph stays distinct from the reference-edge index that
+/// `references_to` exposes.
 pub fn dependents_of<'a>(graph: &'a Graph, node_id: &str) -> Vec<&'a Edge> {
     let mut targets = vec![node_id.to_string()];
     let node = graph.nodes.get(node_id);
@@ -631,12 +833,14 @@ pub fn dependents_of<'a>(graph: &'a Graph, node_id: &str) -> Vec<&'a Edge> {
     graph
         .edges
         .iter()
+        .filter(|e| e.relation == RELATION_IMPORTS)
         .filter(|e| targets.contains(&e.target) || (is_module && module_owns_target(e)))
         .collect()
 }
 
 /// Edges originating from `node_id` (or its owning module) — its direct
-/// dependencies.
+/// import dependencies. Filters to `imports` only, same rationale as
+/// `dependents_of`.
 pub fn dependencies_of<'a>(graph: &'a Graph, node_id: &str) -> Vec<&'a Edge> {
     let tn = match graph.nodes.get(node_id) {
         Some(n) => n,
@@ -651,7 +855,19 @@ pub fn dependencies_of<'a>(graph: &'a Graph, node_id: &str) -> Vec<&'a Edge> {
     graph
         .edges
         .iter()
+        .filter(|e| e.relation == RELATION_IMPORTS)
         .filter(|e| sources.contains(&e.source))
+        .collect()
+}
+
+/// Reference-edge use sites whose target is `node_id`. Distinct from the
+/// import-graph: each edge carries the use-site file:line and a confidence
+/// label drawn from EXTRACTED / INFERRED / AMBIGUOUS.
+pub fn references_to<'a>(graph: &'a Graph, node_id: &str) -> Vec<&'a Edge> {
+    graph
+        .edges
+        .iter()
+        .filter(|e| e.relation == RELATION_REFERENCES && e.target == node_id)
         .collect()
 }
 

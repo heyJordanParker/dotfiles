@@ -138,6 +138,28 @@ pub fn run(path: &Path, as_json: bool) -> Result<Value> {
     let facts = file_facts::get(&p, &repo_root, None);
     let mut symbols = ctags_symbols(&p)?;
 
+    // universal-ctags doesn't know `.tsx`/`.jsx` and returns zero entries
+    // on those files even when the file holds populated declarations.
+    // Backfill from the cached tree-sitter declaration index so structure
+    // matches what the architecture graph already sees for the file.
+    if symbols.is_empty() {
+        if let Some(f) = &facts {
+            if let Some(ex) = &f.extraction {
+                for d in &ex.declarations {
+                    symbols.push(Symbol {
+                        name: d.name.clone(),
+                        kind: d.kind.clone(),
+                        line: Some(d.line),
+                        scope: None,
+                        scope_kind: None,
+                        signature: None,
+                        cyclomatic_complexity: None,
+                    });
+                }
+            }
+        }
+    }
+
     // Per-method CCN: match ctags symbol lines to the AST per-function
     // list, keyed by the function's start_line.
     let function_count = facts.as_ref().map(|f| f.function_count).unwrap_or(0);

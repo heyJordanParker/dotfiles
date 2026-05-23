@@ -4,9 +4,9 @@
 //! `#eq?` text predicates, so the `(#eq? @_fn "require")` predicate is
 //! enforced manually below.
 
-use crate::extraction::{Export, ExtractionResult, Import};
+use crate::extraction::{Declaration, Export, ExtractionResult, Import, Reference};
 use std::collections::HashMap;
-use tree_sitter::{Parser, Query, QueryCursor, StreamingIterator};
+use tree_sitter::{Node, Parser, Query, QueryCursor, StreamingIterator};
 
 const QUERY_SRC: &str = r#"
         ; import statements — module path is always a string literal
@@ -50,6 +50,8 @@ fn empty() -> ExtractionResult {
         language: "typescript".into(),
         imports: vec![],
         exports: vec![],
+        declarations: vec![],
+        references: vec![],
     }
 }
 
@@ -201,10 +203,103 @@ pub fn extract_from_tree(
         }
     }
 
+    let declarations = walk_declarations(tree.root_node(), source);
+    let references = walk_references(tree.root_node(), source);
+
     ExtractionResult {
         language: "typescript".into(),
         imports,
         exports,
+        declarations,
+        references,
+    }
+}
+
+/// Every named declaration in the tree — top-level, nested, and class
+/// members. Covers function/class/interface/type/enum/method definitions
+/// plus `const`/`let`/`var` declarators (with single-identifier names).
+fn walk_declarations(root: Node, source: &[u8]) -> Vec<Declaration> {
+    let mut out = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    let mut stack = vec![root];
+    while let Some(n) = stack.pop() {
+        let kind: Option<&str> = match n.kind() {
+            "function_declaration" => Some("function"),
+            "class_declaration" => Some("class"),
+            "interface_declaration" => Some("interface"),
+            "type_alias_declaration" => Some("type"),
+            "enum_declaration" => Some("enum"),
+            "method_definition" => Some("function"),
+            "method_signature" => Some("function"),
+            "abstract_method_signature" => Some("function"),
+            "variable_declarator" => Some("constant"),
+            _ => None,
+        };
+        if let Some(k) = kind {
+            if let Some(name_node) = n.child_by_field_name("name") {
+                let name_kind = name_node.kind();
+                if name_kind == "identifier"
+                    || name_kind == "property_identifier"
+                    || name_kind == "type_identifier"
+                {
+                    if let Ok(name) = name_node.utf8_text(source) {
+                        let line = name_node.start_position().row as i64 + 1;
+                        if seen.insert((name.to_string(), line)) {
+                            out.push(Declaration {
+                                name: name.to_string(),
+                                kind: k.to_string(),
+                                line,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+        let mut c = n.walk();
+        for child in n.children(&mut c) {
+            stack.push(child);
+        }
+    }
+    out.sort_by_key(|d| d.line);
+    out
+}
+
+/// Every `call_expression` and `new_expression` in the tree.
+fn walk_references(root: Node, source: &[u8]) -> Vec<Reference> {
+    let mut out = Vec::new();
+    let mut stack = vec![root];
+    while let Some(n) = stack.pop() {
+        if n.kind() == "call_expression" || n.kind() == "new_expression" {
+            if let Some(func) = n.child_by_field_name("function") {
+                if let Some((name, line)) = callee_name(func, source) {
+                    out.push(Reference { name, line });
+                }
+            } else if let Some(ctor) = n.child_by_field_name("constructor") {
+                if let Some((name, line)) = callee_name(ctor, source) {
+                    out.push(Reference { name, line });
+                }
+            }
+        }
+        let mut c = n.walk();
+        for child in n.children(&mut c) {
+            stack.push(child);
+        }
+    }
+    out
+}
+
+fn callee_name(node: Node, source: &[u8]) -> Option<(String, i64)> {
+    match node.kind() {
+        "identifier" | "type_identifier" => {
+            let txt = node.utf8_text(source).ok()?;
+            Some((txt.to_string(), node.start_position().row as i64 + 1))
+        }
+        "member_expression" => {
+            let prop = node.child_by_field_name("property")?;
+            let txt = prop.utf8_text(source).ok()?;
+            Some((txt.to_string(), prop.start_position().row as i64 + 1))
+        }
+        _ => None,
     }
 }
 

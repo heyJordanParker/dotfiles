@@ -100,11 +100,23 @@ fn symbol_mode(symbol: &str, depth: i64, as_json: bool) -> Result<Value> {
 }
 
 fn path_mode(path: &Path, depth: i64, limit: i64, as_json: bool) -> Result<Value> {
-    let repo_root = cache::absolutize(path);
+    // Same rationale as downstream::path_mode — the graph must be built
+    // against the real git repo root so single-file `--path` arguments
+    // don't amputate every cross-file edge.
+    let repo_root = cache::repo_root_for(path);
     let graph = architecture::get(&repo_root);
 
     // Counter(edge.source) — first-seen order, count descending (stable).
-    let ranked = ranked_by_edge_count(graph.edges.iter().map(|e| e.source.as_str()));
+    // Path-mode coupling ranks by IMPORT graph only; reference edges are a
+    // separate dimension exposed via `references_to` rather than absorbed
+    // into module-level fan-out.
+    let ranked = ranked_by_edge_count(
+        graph
+            .edges
+            .iter()
+            .filter(|e| e.relation == architecture::RELATION_IMPORTS)
+            .map(|e| e.source.as_str()),
+    );
     let ranked: Vec<(String, usize)> = ranked
         .into_iter()
         .filter(|(id, _)| !id.starts_with("module::external::"))

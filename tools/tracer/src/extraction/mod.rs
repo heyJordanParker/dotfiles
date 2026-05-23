@@ -27,15 +27,35 @@ pub struct Export {
     pub line: i64,
 }
 
+/// A declaration — every named definition in the file, including
+/// non-exported top-levels, methods on classes, and nested definitions.
+/// Distinct from `Export`, which is the narrower module-level/exported set.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Declaration {
+    pub name: String,
+    pub kind: String,
+    pub line: i64,
+}
+
+/// A reference — an identifier use site (a call or qualified-name access).
+/// Resolved into edges at graph-build time.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Reference {
+    pub name: String,
+    pub line: i64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExtractionResult {
     pub language: String,
     pub imports: Vec<Import>,
     pub exports: Vec<Export>,
+    pub declarations: Vec<Declaration>,
+    pub references: Vec<Reference>,
 }
 
 impl ExtractionResult {
-    /// Matches `ExtractionResult.to_dict()`.
+    /// Stable serialization order: language, imports, exports, declarations, references.
     pub fn to_json(&self) -> Value {
         json!({
             "language": self.language,
@@ -48,6 +68,15 @@ impl ExtractionResult {
                 "name": e.name,
                 "kind": e.kind,
                 "line": e.line,
+            })).collect::<Vec<_>>(),
+            "declarations": self.declarations.iter().map(|d| json!({
+                "name": d.name,
+                "kind": d.kind,
+                "line": d.line,
+            })).collect::<Vec<_>>(),
+            "references": self.references.iter().map(|r| json!({
+                "name": r.name,
+                "line": r.line,
             })).collect::<Vec<_>>(),
         })
     }
@@ -96,6 +125,43 @@ impl ExtractionResult {
                                 .unwrap_or("")
                                 .to_string(),
                             line: e.get("line").and_then(|s| s.as_i64()).unwrap_or(0),
+                        })
+                        .collect()
+                })
+                .unwrap_or_default(),
+            declarations: v
+                .get("declarations")
+                .and_then(|x| x.as_array())
+                .map(|a| {
+                    a.iter()
+                        .map(|d| Declaration {
+                            name: d
+                                .get("name")
+                                .and_then(|s| s.as_str())
+                                .unwrap_or("")
+                                .to_string(),
+                            kind: d
+                                .get("kind")
+                                .and_then(|s| s.as_str())
+                                .unwrap_or("")
+                                .to_string(),
+                            line: d.get("line").and_then(|s| s.as_i64()).unwrap_or(0),
+                        })
+                        .collect()
+                })
+                .unwrap_or_default(),
+            references: v
+                .get("references")
+                .and_then(|x| x.as_array())
+                .map(|a| {
+                    a.iter()
+                        .map(|r| Reference {
+                            name: r
+                                .get("name")
+                                .and_then(|s| s.as_str())
+                                .unwrap_or("")
+                                .to_string(),
+                            line: r.get("line").and_then(|s| s.as_i64()).unwrap_or(0),
                         })
                         .collect()
                 })

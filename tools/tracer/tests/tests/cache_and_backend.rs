@@ -28,7 +28,7 @@ fn file_cache_key(schema_version: u32, file_bytes: &[u8], relpath: &str) -> Stri
 /// schema-bump test plants a poison entry at this version's key (proving
 /// the cache IS consulted by this exact schema-versioned key) and at a
 /// neighbor version's key (proving it is unreachable).
-const PUBLISHED_SCHEMA_VERSION: u32 = 7;
+const PUBLISHED_SCHEMA_VERSION: u32 = 9;
 
 #[test]
 fn cache_build_populates_both_namespaces() {
@@ -353,7 +353,13 @@ fn schema_version_bump_makes_prior_entries_unreachable() {
     // Poison the current-schema entry and defeat the mtime fast-path so the
     // content-hash (schema-versioned) key path is what answers.
     fs::write(&cur_path, serde_json::to_string(&poison_entry).unwrap()).unwrap();
-    fs::remove_file(entry_dir.join("mtime_index_v1__ast.json")).ok();
+    fs::remove_file(
+        entry_dir.join(format!(
+            "mtime_index_v1__schema{}__ast.json",
+            PUBLISHED_SCHEMA_VERSION
+        )),
+    )
+    .ok();
     assert_eq!(
         grep_ccn(&f),
         999,
@@ -374,7 +380,13 @@ fn schema_version_bump_makes_prior_entries_unreachable() {
         g_entry_dir.join(format!("{cur_key}.json")),
     )
     .ok();
-    fs::remove_file(g_entry_dir.join("mtime_index_v1__ast.json")).ok();
+    fs::remove_file(
+        g_entry_dir.join(format!(
+            "mtime_index_v1__schema{}__ast.json",
+            PUBLISHED_SCHEMA_VERSION
+        )),
+    )
+    .ok();
     let old_key = file_cache_key(PUBLISHED_SCHEMA_VERSION - 1, bytes, "u.py");
     fs::write(
         g_entry_dir.join(format!("{old_key}.json")),

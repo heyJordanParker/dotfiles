@@ -1,8 +1,8 @@
 //! Python tree-sitter extraction: module-level imports and definitions.
 
-use crate::extraction::{Export, ExtractionResult, Import};
+use crate::extraction::{Declaration, Export, ExtractionResult, Import, Reference};
 use std::collections::HashMap;
-use tree_sitter::{Parser, Query, QueryCursor, StreamingIterator};
+use tree_sitter::{Node, Parser, Query, QueryCursor, StreamingIterator};
 
 const QUERY_SRC: &str = r#"
         ; import_statement covers `import a`, `import a.b`, `import a as c`
@@ -39,6 +39,8 @@ fn empty() -> ExtractionResult {
         language: "python".into(),
         imports: vec![],
         exports: vec![],
+        declarations: vec![],
+        references: vec![],
     }
 }
 
@@ -148,10 +150,91 @@ pub fn extract_from_tree(
         }
     }
 
+    let declarations = walk_declarations(tree.root_node(), source);
+    let references = walk_references(tree.root_node(), source);
+
     ExtractionResult {
         language: "python".into(),
         imports,
         exports,
+        declarations,
+        references,
+    }
+}
+
+/// Every `function_definition` and `class_definition` in the tree —
+/// top-level, methods on classes, and definitions nested inside other
+/// functions. Source-order, deduped (one entry per (name, line) pair).
+fn walk_declarations(root: Node, source: &[u8]) -> Vec<Declaration> {
+    let mut out = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    let mut stack = vec![root];
+    while let Some(n) = stack.pop() {
+        let kind = match n.kind() {
+            "function_definition" => Some("function"),
+            "class_definition" => Some("class"),
+            _ => None,
+        };
+        if let Some(k) = kind {
+            if let Some(name_node) = n.child_by_field_name("name") {
+                if let Ok(name) = name_node.utf8_text(source) {
+                    let line = name_node.start_position().row as i64 + 1;
+                    if seen.insert((name.to_string(), line)) {
+                        out.push(Declaration {
+                            name: name.to_string(),
+                            kind: k.to_string(),
+                            line,
+                        });
+                    }
+                }
+            }
+        }
+        let mut c = n.walk();
+        for child in n.children(&mut c) {
+            stack.push(child);
+        }
+    }
+    out.sort_by_key(|d| d.line);
+    out
+}
+
+/// Every `call` expression in the tree. Resolves the callee identifier:
+///   - bare `foo()`            → name = "foo"
+///   - attribute `o.foo()`     → name = "foo"  (last segment)
+///   - qualified `a.b.foo()`   → name = "foo"
+/// Subscripts and complex callees are skipped — only the last identifier
+/// matters for reference resolution against the declaration index.
+fn walk_references(root: Node, source: &[u8]) -> Vec<Reference> {
+    let mut out = Vec::new();
+    let mut stack = vec![root];
+    while let Some(n) = stack.pop() {
+        if n.kind() == "call" {
+            if let Some(func) = n.child_by_field_name("function") {
+                if let Some((name, line)) = callee_name(func, source) {
+                    out.push(Reference { name, line });
+                }
+            }
+        }
+        let mut c = n.walk();
+        for child in n.children(&mut c) {
+            stack.push(child);
+        }
+    }
+    out
+}
+
+fn callee_name(node: Node, source: &[u8]) -> Option<(String, i64)> {
+    match node.kind() {
+        "identifier" => {
+            let txt = node.utf8_text(source).ok()?;
+            Some((txt.to_string(), node.start_position().row as i64 + 1))
+        }
+        "attribute" => {
+            let attr = node.child_by_field_name("attribute")?;
+            let txt = attr.utf8_text(source).ok()?;
+            Some((txt.to_string(), attr.start_position().row as i64 + 1))
+        }
+        _ => None,
     }
 }
 

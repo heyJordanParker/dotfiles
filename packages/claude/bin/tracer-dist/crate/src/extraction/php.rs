@@ -1,8 +1,8 @@
 //! PHP tree-sitter extraction: `use` statements and class/interface/function defs.
 
-use crate::extraction::{Export, ExtractionResult, Import};
+use crate::extraction::{Declaration, Export, ExtractionResult, Import, Reference};
 use std::collections::HashMap;
-use tree_sitter::{Parser, Query, QueryCursor, StreamingIterator};
+use tree_sitter::{Node, Parser, Query, QueryCursor, StreamingIterator};
 
 const QUERY_SRC: &str = r#"
         ; use statement: `use App\Models\User;`
@@ -25,6 +25,8 @@ fn empty() -> ExtractionResult {
         language: "php".into(),
         imports: vec![],
         exports: vec![],
+        declarations: vec![],
+        references: vec![],
     }
 }
 
@@ -130,9 +132,221 @@ pub fn extract_from_tree(
         }
     }
 
+    let declarations = walk_declarations(tree.root_node(), source);
+    let references = walk_references(tree.root_node(), source);
+
     ExtractionResult {
         language: "php".into(),
         imports,
         exports,
+        declarations,
+        references,
     }
+}
+
+/// Every named declaration: class / interface / trait / enum / function /
+/// method, anywhere in the tree (including methods inside classes and
+/// functions declared inside other functions).
+fn walk_declarations(root: Node, source: &[u8]) -> Vec<Declaration> {
+    let mut out = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    let mut stack = vec![root];
+    while let Some(n) = stack.pop() {
+        let kind: Option<&str> = match n.kind() {
+            "class_declaration" => Some("class"),
+            "interface_declaration" => Some("interface"),
+            "trait_declaration" => Some("class"),
+            "enum_declaration" => Some("class"),
+            "function_definition" => Some("function"),
+            "method_declaration" => Some("function"),
+            _ => None,
+        };
+        if let Some(k) = kind {
+            if let Some(name_node) = n.child_by_field_name("name") {
+                if let Ok(name) = name_node.utf8_text(source) {
+                    let line = name_node.start_position().row as i64 + 1;
+                    if seen.insert((name.to_string(), line)) {
+                        out.push(Declaration {
+                            name: name.to_string(),
+                            kind: k.to_string(),
+                            line,
+                        });
+                    }
+                }
+            }
+        }
+        let mut c = n.walk();
+        for child in n.children(&mut c) {
+            stack.push(child);
+        }
+    }
+    out.sort_by_key(|d| d.line);
+    out
+}
+
+/// Every function / method / static-method / object-method call plus the
+/// idioms that name a class symbol without calling it: `::class`,
+/// `instanceof`, parameter type hints (covers constructor injection),
+/// return type hints, and property type declarations.
+fn walk_references(root: Node, source: &[u8]) -> Vec<Reference> {
+    let mut out = Vec::new();
+    let mut stack = vec![root];
+    while let Some(n) = stack.pop() {
+        let line = n.start_position().row as i64 + 1;
+        match n.kind() {
+            "function_call_expression" => {
+                if let Some(func) = n.child_by_field_name("function") {
+                    if let Some(name) = last_name_segment(func, source) {
+                        out.push(Reference { name, line });
+                    }
+                }
+            }
+            "member_call_expression" | "scoped_call_expression" => {
+                if let Some(method) = n.child_by_field_name("name") {
+                    if let Ok(name) = method.utf8_text(source) {
+                        out.push(Reference {
+                            name: name.to_string(),
+                            line: method.start_position().row as i64 + 1,
+                        });
+                    }
+                }
+                // `Foo::class` (class_constant_access_expression with a
+                // `class` keyword as the constant name) — the class name is
+                // the scope target. tree-sitter-php surfaces this same
+                // production as `scoped_call_expression` in some grammars,
+                // so we also pick the scope identifier up here when the
+                // child name is the literal `class`.
+                if let Some(scope) = n.child_by_field_name("scope") {
+                    if let Some(name_node) = n.child_by_field_name("name") {
+                        if name_node.utf8_text(source).ok() == Some("class") {
+                            if let Some(name) = last_name_segment(scope, source) {
+                                out.push(Reference { name, line });
+                            }
+                        }
+                    }
+                }
+            }
+            "class_constant_access_expression" => {
+                // `Foo::CONST` and `Foo::class`. The scope is the class
+                // identifier — emit a reference to it either way so a
+                // class-name query catches the use site.
+                let mut c = n.walk();
+                let mut children: Vec<Node> = n.children(&mut c).collect();
+                if let Some(first) = children.first_mut() {
+                    if matches!(first.kind(), "name" | "qualified_name") {
+                        if let Some(name) = last_name_segment(*first, source) {
+                            out.push(Reference { name, line });
+                        }
+                    }
+                }
+            }
+            "object_creation_expression" => {
+                // `new Foo(...)` — the class name is the constructor target.
+                let mut c = n.walk();
+                for child in n.children(&mut c) {
+                    if matches!(child.kind(), "name" | "qualified_name") {
+                        if let Some(name) = last_name_segment(child, source) {
+                            out.push(Reference { name, line });
+                        }
+                        break;
+                    }
+                }
+            }
+            "binary_expression" => {
+                // `$x instanceof Foo` — tree-sitter-php models instanceof
+                // as a binary_expression with the `instanceof` operator;
+                // the right operand is the class name.
+                if let Some(op) = n.child_by_field_name("operator") {
+                    if op.utf8_text(source).ok() == Some("instanceof") {
+                        if let Some(right) = n.child_by_field_name("right") {
+                            if let Some(name) = type_name(right, source) {
+                                out.push(Reference { name, line });
+                            }
+                        }
+                    }
+                }
+            }
+            // Type hints carry class names: parameter types (covers
+            // constructor injection), return types, property types.
+            "simple_parameter"
+            | "variadic_parameter"
+            | "property_promotion_parameter" => {
+                if let Some(type_node) = n.child_by_field_name("type") {
+                    push_named_type(type_node, source, &mut out);
+                }
+            }
+            "function_definition" | "method_declaration" => {
+                if let Some(ret) = n.child_by_field_name("return_type") {
+                    push_named_type(ret, source, &mut out);
+                }
+            }
+            "property_declaration" => {
+                let mut c = n.walk();
+                for child in n.children(&mut c) {
+                    if matches!(
+                        child.kind(),
+                        "named_type" | "primitive_type" | "union_type" | "nullable_type" | "intersection_type" | "optional_type"
+                    ) {
+                        push_named_type(child, source, &mut out);
+                    }
+                }
+            }
+            _ => {}
+        }
+        let mut c = n.walk();
+        for child in n.children(&mut c) {
+            stack.push(child);
+        }
+    }
+    out
+}
+
+/// Recursively emit references for every `name`/`qualified_name` found
+/// inside a type node — handles `named_type`, `nullable_type`, `union_type`,
+/// `intersection_type`, and `optional_type`.
+fn push_named_type(node: Node, source: &[u8], out: &mut Vec<Reference>) {
+    let mut stack = vec![node];
+    while let Some(n) = stack.pop() {
+        match n.kind() {
+            "name" | "qualified_name" => {
+                if let Some(name) = last_name_segment(n, source) {
+                    out.push(Reference {
+                        name,
+                        line: n.start_position().row as i64 + 1,
+                    });
+                }
+            }
+            _ => {
+                let mut c = n.walk();
+                for child in n.children(&mut c) {
+                    stack.push(child);
+                }
+            }
+        }
+    }
+}
+
+/// Read a class-name out of an arbitrary RHS node (used for `instanceof`):
+/// drill into the first `name`/`qualified_name` descendant.
+fn type_name(node: Node, source: &[u8]) -> Option<String> {
+    let mut stack = vec![node];
+    while let Some(n) = stack.pop() {
+        match n.kind() {
+            "name" | "qualified_name" => return last_name_segment(n, source),
+            _ => {
+                let mut c = n.walk();
+                for child in n.children(&mut c) {
+                    stack.push(child);
+                }
+            }
+        }
+    }
+    None
+}
+
+fn last_name_segment(node: Node, source: &[u8]) -> Option<String> {
+    let txt = node.utf8_text(source).ok()?;
+    let normalized = txt.replace("\\\\", "\\");
+    let seg = normalized.rsplit('\\').next().unwrap_or(&normalized);
+    Some(seg.to_string())
 }

@@ -337,7 +337,16 @@ fn mtime_ns_of(md: &fs::Metadata) -> i64 {
 }
 
 fn mtime_index_key() -> String {
-    format!("mtime_index_v1__{}", cache::active_ccn_backend())
+    // Includes SCHEMA_VERSION so a binary upgrade that bumps the schema
+    // also rotates this index — the per-file hashes the index serves are
+    // schema-namespaced, so an index from the previous schema would point
+    // at unreachable cache entries (or worse, key the architecture
+    // fingerprint off old hashes and serve a stale graph).
+    format!(
+        "mtime_index_v1__schema{}__{}",
+        cache::SCHEMA_VERSION,
+        cache::active_ccn_backend()
+    )
 }
 
 fn mtime_index_load(repo_root: &Path) -> Map<String, Value> {

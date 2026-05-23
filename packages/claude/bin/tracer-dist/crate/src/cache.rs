@@ -23,7 +23,7 @@ pub const NAMESPACE_ARCHITECTURE: &str = "architecture";
 
 /// Bump whenever extraction or `FileFacts` shape changes — old entries
 /// become unreachable automatically across all namespaces.
-pub const SCHEMA_VERSION: u32 = 7;
+pub const SCHEMA_VERSION: u32 = 9;
 
 /// Active CCN backend. There is exactly one backend — the tree-sitter
 /// AST decision-node walker — so cache identity is unconditionally

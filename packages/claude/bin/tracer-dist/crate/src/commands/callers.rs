@@ -18,22 +18,73 @@ pub fn run(symbol: &str, as_json: bool) -> Result<Value> {
 
     let mut output = Map::new();
     for m in &matches {
-        let edges = architecture::dependents_of(&graph, &m.id);
         let mut callers: Vec<Value> = vec![];
-        for edge in edges {
-            let source_node = match graph.nodes.get(&edge.source) {
-                Some(n) => n,
-                None => continue,
-            };
-            callers.push(json!({
-                "node_id": source_node.id,
-                "label": source_node.label,
-                "kind": source_node.kind,
-                "source_file": source_node.source_file,
-                "source_line": source_node.source_line,
-                "relation": edge.relation,
-                "confidence": edge.confidence,
-            }));
+        if m.kind == "module" {
+            // Module-granular query: keep the existing importer-module
+            // answer — these are the modules that import the module.
+            for edge in architecture::dependents_of(&graph, &m.id) {
+                let source_node = match graph.nodes.get(&edge.source) {
+                    Some(n) => n,
+                    None => continue,
+                };
+                callers.push(json!({
+                    "node_id": source_node.id,
+                    "label": source_node.label,
+                    "kind": source_node.kind,
+                    "source_file": source_node.source_file,
+                    "source_line": source_node.source_line,
+                    "relation": edge.relation,
+                    "confidence": edge.confidence,
+                }));
+            }
+        } else {
+            // Symbol-granular query: rows are USE SITES. Each carries its
+            // own file:line drawn from the reference edge, so two calls in
+            // one file appear as two distinct rows.
+            for edge in architecture::references_to(&graph, &m.id) {
+                let source_node = match graph.nodes.get(&edge.source) {
+                    Some(n) => n,
+                    None => continue,
+                };
+                callers.push(json!({
+                    "node_id": source_node.id,
+                    "label": source_node.label,
+                    "kind": source_node.kind,
+                    "source_file": edge.source_file,
+                    "source_line": edge.source_line,
+                    "relation": edge.relation,
+                    "confidence": edge.confidence,
+                }));
+            }
+            // Fallback: when the symbol has zero reference rows, fall back
+            // to the module-importer answer. The pre-symbol-index behaviour
+            // listed importing modules for any symbol query; preserving
+            // that capability matters most for class symbols whose use
+            // sites the reference walker can't catch (or that the
+            // codebase actually only uses by importing). Without this, a
+            // class used everywhere via `use App\Models\User;` returns
+            // zero callers — strictly worse than the prior behaviour.
+            if callers.is_empty() {
+                if let Some(sf) = &m.source_file {
+                    if let Some(owning_module) = graph.file_to_module_id.get(sf) {
+                        for edge in architecture::dependents_of(&graph, owning_module) {
+                            let source_node = match graph.nodes.get(&edge.source) {
+                                Some(n) => n,
+                                None => continue,
+                            };
+                            callers.push(json!({
+                                "node_id": source_node.id,
+                                "label": source_node.label,
+                                "kind": source_node.kind,
+                                "source_file": source_node.source_file,
+                                "source_line": source_node.source_line,
+                                "relation": edge.relation,
+                                "confidence": edge.confidence,
+                            }));
+                        }
+                    }
+                }
+            }
         }
         output.insert(
             m.id.clone(),
