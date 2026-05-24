@@ -9,9 +9,27 @@ notify = ["/Users/jordan/.codex/computer-use/Codex Computer Use.app/Contents/Sha
 command = "/Applications/Pencil.app/Contents/Resources/app.asar.unpacked/out/mcp-server-darwin-arm64"
 args = [ "--app", "desktop" ]
 
+[mcp_servers.node_repl]
+args = []
+command = "/Applications/Codex.app/Contents/Resources/node_repl"
+startup_timeout_sec = 120
+
+[mcp_servers.node_repl.env]
+BROWSER_USE_AVAILABLE_BACKENDS = "iab"
+BROWSER_USE_MARKETPLACE_NAME = "openai-bundled"
+CODEX_CLI_PATH = "/Applications/Codex.app/Contents/Resources/codex"
+CODEX_HOME = "/Users/jordan/.codex"
+NODE_REPL_NATIVE_PIPE_CONNECT_TIMEOUT_MS = "1000"
+NODE_REPL_NODE_MODULE_DIRS = ""
+NODE_REPL_NODE_PATH = "/Applications/Codex.app/Contents/Resources/node"
+NODE_REPL_TRUSTED_BROWSER_CLIENT_SHA256S = "167fdf579477181fba1773c1efb067b00c5a64fe85dafb50a2001bde198dc739"
+NODE_REPL_TRUSTED_CODE_PATHS = "/Users/jordan/.codex"
+NODE_REPL_UNTRUSTED_ENV_ALLOWLIST = "BROWSER_USE_MARKETPLACE_NAME"
+
 [features]
 multi_agent = true
 goals = true
+js_repl = false
 
 [plugins."github@openai-curated"]
 enabled = true
@@ -31,6 +49,9 @@ enabled = true
 [plugins."browser-use@openai-bundled"]
 enabled = true
 
+[plugins."browser@openai-bundled"]
+enabled = true
+
 [hooks.state]
 
 [hooks.state."/Users/jordan/.codex/hooks.json:session_start:0:0"]
@@ -43,14 +64,45 @@ trusted_hash = "sha256:23412b202018ced62691e40af28aa3c40825e51e53e9ab925f0dc341b
 trusted_hash = "sha256:4d5507f51db6e7a63cf495cbc9b8ac15be3c775487b0040b40f03c21b8aba437"
 
 [marketplaces.openai-bundled]
-last_updated = "2026-05-11T20:52:58Z"
+last_updated = "2026-05-23T14:46:13Z"
 source_type = "local"
 source = "/Users/jordan/.codex/.tmp/bundled-marketplaces/openai-bundled"
 
 [marketplaces.openai-primary-runtime]
-last_updated = "2026-05-11T22:55:10Z"
+last_updated = "2026-05-22T13:54:37Z"
 source_type = "local"
 source = "/Users/jordan/.cache/codex-runtimes/codex-primary-runtime/plugins/openai-primary-runtime"
 
 [projects."/Users/jordan/Downloads/src"]
 trust_level = "trusted"
+
+[desktop]
+appearanceTheme = "dark"
+sansFontSize = 15
+codeFontSize = 14
+usePointerCursors = true
+followUpQueueMode = "steer"
+git-branch-prefix = ""
+notifications-turn-mode = "off"
+notifications-permissions-enabled = false
+conversationDetailMode = "STEPS_COMMANDS"
+
+[desktop.appearanceDarkChromeTheme]
+accent = "#339cff"
+contrast = 60
+ink = "#ffffff"
+opaqueWindows = false
+surface = "#181818"
+
+[desktop.appearanceDarkChromeTheme.fonts]
+
+[desktop.appearanceDarkChromeTheme.semanticColors]
+diffAdded = "#40c977"
+diffRemoved = "#fa423e"
+skill = "#ad7bf9"
+
+[desktop.open-in-target-preferences]
+global = "vscode"
+
+[desktop.open-in-target-preferences.perPath]
+"/Users/jordan/Developer/creator-income-blueprint" = "ghostty"
