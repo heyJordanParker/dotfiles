@@ -1,4 +1,13 @@
 {
+  "vim_mode": false,
+  "agent_servers": {
+    "codex-acp": {
+      "type": "registry"
+    },
+    "claude-acp": {
+      "type": "registry"
+    }
+  },
   "ssh_connections": [
     {
       "host": "mac-studio",
@@ -32,7 +41,7 @@
   },
   "base_keymap": "VSCode",
   "preview_tabs": {
-    "enable_preview_from_file_finder": true
+    "enable_preview_from_file_finder": false
   },
   "buffer_font_size": 13.0,
   "buffer_font_fallbacks": [
@@ -41,10 +50,6 @@
   "buffer_font_family": "JetBrains Mono",
   "linked_edits": true,
   "soft_wrap": "none",
-  "theme": {
-    "mode": "dark",
-    "light": "Glass Light",
-    "dark": "Gruvbox Dark"
-  },
+  "theme": "Gruvbox Dark Soft",
   "use_system_window_tabs": true
 }
