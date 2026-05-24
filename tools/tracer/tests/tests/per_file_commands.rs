@@ -1228,3 +1228,335 @@ fn context_file_mode_emits_single_shoulder_line() {
     assert!(line.starts_with("[git:"), "unexpected shoulder:\n{line}");
     assert_eq!(line.lines().count(), 1, "file mode must emit one line:\n{line}");
 }
+
+// ---- signature fidelity (PHP 8 attributes / 8.4 hooks, TS modifiers, Python annotations) ----
+
+/// Find the single symbol in `v["symbols_by_kind"]` whose `name` matches —
+/// returns the per-symbol JSON object so the test can assert on its rich
+/// signature fields (visibility, return_type, parameters, attributes, etc).
+fn find_symbol<'a>(v: &'a serde_json::Value, name: &str) -> &'a serde_json::Value {
+    let kinds = v["symbols_by_kind"].as_object().expect("symbols_by_kind");
+    for arr in kinds.values() {
+        for s in arr.as_array().expect("kind array") {
+            if s["name"].as_str() == Some(name) {
+                return s;
+            }
+        }
+    }
+    panic!(
+        "no symbol named {name} in:\n{}",
+        serde_json::to_string_pretty(&v["symbols_by_kind"]).unwrap()
+    );
+}
+
+#[test]
+fn structure_php_class_carries_attributes_extends_implements() {
+    let f = Fixture::new();
+    f.write(
+        "src/Funnel.php",
+        concat!(
+            "<?php\n",
+            "namespace App;\n",
+            "#[Entity]\n",
+            "class Funnel extends Model implements UrlRoutable {\n",
+            "  public function show(): string { return ''; }\n",
+            "}\n",
+        ),
+    );
+    f.commit("php class");
+    let r = f.trace(&["structure", "src/Funnel.php", "--json"]);
+    r.ok();
+    let v = r.json();
+    let cls = find_symbol(&v, "Funnel");
+    assert_eq!(cls["kind"].as_str().unwrap(), "class", "{}", cls);
+    assert_eq!(cls["extends"].as_str().unwrap(), "Model", "{}", cls);
+    assert_eq!(
+        cls["implements"].as_array().unwrap(),
+        &vec![serde_json::json!("UrlRoutable")],
+        "{}",
+        cls
+    );
+    let attrs = cls["attributes"].as_array().expect("class attributes");
+    assert_eq!(attrs.len(), 1, "{}", cls);
+    assert_eq!(attrs[0]["name"].as_str().unwrap(), "Entity", "{}", cls);
+}
+
+#[test]
+fn structure_php_method_carries_visibility_return_type_attributes_and_typed_params() {
+    let f = Fixture::new();
+    f.write(
+        "src/M.php",
+        concat!(
+            "<?php\n",
+            "class M {\n",
+            "  #[Route('GET','/x')]\n",
+            "  public static function validateSlug(string $slug, ?int $excludeId = null): ?string { return null; }\n",
+            "}\n",
+        ),
+    );
+    f.commit("php method");
+    let r = f.trace(&["structure", "src/M.php", "--json"]);
+    r.ok();
+    let v = r.json();
+    let m = find_symbol(&v, "validateSlug");
+    assert_eq!(m["visibility"].as_str().unwrap(), "public", "{}", m);
+    assert_eq!(m["return_type"].as_str().unwrap(), "?string", "{}", m);
+    let mods: Vec<&str> = m["modifiers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|x| x.as_str().unwrap())
+        .collect();
+    assert!(mods.contains(&"public") && mods.contains(&"static"), "{}", m);
+    let params = m["parameters"].as_array().expect("parameters");
+    assert_eq!(params.len(), 2, "{}", m);
+    assert_eq!(params[0]["name"].as_str().unwrap(), "slug", "{}", m);
+    assert_eq!(params[0]["type"].as_str().unwrap(), "string", "{}", m);
+    assert_eq!(params[1]["name"].as_str().unwrap(), "excludeId", "{}", m);
+    assert_eq!(params[1]["type"].as_str().unwrap(), "?int", "{}", m);
+    assert_eq!(params[1]["default"].as_str().unwrap(), "null", "{}", m);
+    let attrs = m["attributes"].as_array().expect("method attributes");
+    assert_eq!(attrs.len(), 1, "{}", m);
+    assert_eq!(attrs[0]["name"].as_str().unwrap(), "Route", "{}", m);
+    assert!(
+        attrs[0]["source"].as_str().unwrap().contains("/x"),
+        "attribute source must preserve argument text: {}",
+        m
+    );
+}
+
+#[test]
+fn structure_php_84_hooked_property_surfaces_with_attribute_and_accessors() {
+    // PHP 8.4 property hooks: `public int $id { get => ...; set { ... } }`.
+    // ctags does not emit these properties at all today, so the structure
+    // command must backfill them from tree-sitter. The Schema attribute on
+    // the property and both accessor hooks must round-trip.
+    let f = Fixture::new();
+    f.write(
+        "src/H.php",
+        concat!(
+            "<?php\n",
+            "class H {\n",
+            "  #[Schema(type: 'string', label: 'Name')]\n",
+            "  public string $name { get => 'x'; set { $this->v = $value; } }\n",
+            "}\n",
+        ),
+    );
+    f.commit("php hooks");
+    let r = f.trace(&["structure", "src/H.php", "--json"]);
+    r.ok();
+    let v = r.json();
+    let prop = find_symbol(&v, "name");
+    assert_eq!(prop["kind"].as_str().unwrap(), "property", "{}", prop);
+    assert_eq!(prop["visibility"].as_str().unwrap(), "public", "{}", prop);
+    assert_eq!(prop["type"].as_str().unwrap(), "string", "{}", prop);
+    let attrs = prop["attributes"].as_array().expect("property attributes");
+    assert_eq!(attrs.len(), 1, "{}", prop);
+    assert_eq!(attrs[0]["name"].as_str().unwrap(), "Schema", "{}", prop);
+    let hooks = prop["hooks"].as_array().expect("hooks");
+    let accessors: Vec<&str> = hooks
+        .iter()
+        .map(|h| h["accessor"].as_str().unwrap())
+        .collect();
+    assert_eq!(accessors, vec!["get", "set"], "{}", prop);
+}
+
+#[test]
+fn structure_ts_class_carries_decorators_generics_and_implements() {
+    let f = Fixture::new();
+    f.write(
+        "src/svc.ts",
+        concat!(
+            "@Injectable()\n",
+            "export class Svc<T extends Foo> implements Base, Other {\n",
+            "  private readonly count: number = 0;\n",
+            "  public async run(@Inject('X') id: number, name?: string): Promise<T> { return null!; }\n",
+            "}\n",
+        ),
+    );
+    f.commit("ts class");
+    let r = f.trace(&["structure", "src/svc.ts", "--json"]);
+    r.ok();
+    let v = r.json();
+    let cls = find_symbol(&v, "Svc");
+    assert_eq!(cls["type_parameters"].as_str().unwrap(), "<T extends Foo>", "{}", cls);
+    let imps: Vec<&str> = cls["implements"]
+        .as_array()
+        .expect("implements")
+        .iter()
+        .map(|s| s.as_str().unwrap())
+        .collect();
+    assert_eq!(imps, vec!["Base", "Other"], "{}", cls);
+    let decos = cls["decorators"].as_array().expect("class decorators");
+    assert_eq!(decos.len(), 1, "{}", cls);
+    assert!(
+        decos[0]["source"].as_str().unwrap().starts_with("@Injectable"),
+        "{}",
+        cls
+    );
+
+    let field = find_symbol(&v, "count");
+    assert_eq!(field["visibility"].as_str().unwrap(), "private", "{}", field);
+    assert_eq!(field["type"].as_str().unwrap(), "number", "{}", field);
+    assert_eq!(field["default"].as_str().unwrap(), "0", "{}", field);
+
+    let m = find_symbol(&v, "run");
+    assert_eq!(m["visibility"].as_str().unwrap(), "public", "{}", m);
+    assert_eq!(m["return_type"].as_str().unwrap(), "Promise<T>", "{}", m);
+    assert_eq!(m["async"].as_bool().unwrap(), true, "{}", m);
+    let params = m["parameters"].as_array().expect("ts parameters");
+    assert_eq!(params.len(), 2, "{}", m);
+    assert_eq!(params[0]["name"].as_str().unwrap(), "id", "{}", m);
+    assert_eq!(params[0]["type"].as_str().unwrap(), "number", "{}", m);
+    let p0_decos = params[0]["decorators"]
+        .as_array()
+        .expect("parameter decorators");
+    assert_eq!(p0_decos.len(), 1, "{}", m);
+    assert!(
+        p0_decos[0]["source"]
+            .as_str()
+            .unwrap()
+            .starts_with("@Inject"),
+        "{}",
+        m
+    );
+    assert_eq!(params[1]["optional"].as_bool().unwrap(), true, "{}", m);
+}
+
+#[test]
+fn structure_ts_interface_carries_extends_generics_and_field_types() {
+    let f = Fixture::new();
+    f.write(
+        "src/iface.ts",
+        concat!(
+            "export interface User<T> extends Base<T> {\n",
+            "  id: number;\n",
+            "  readonly name: string;\n",
+            "}\n",
+        ),
+    );
+    f.commit("ts iface");
+    let r = f.trace(&["structure", "src/iface.ts", "--json"]);
+    r.ok();
+    let v = r.json();
+    let iface = find_symbol(&v, "User");
+    assert_eq!(iface["kind"].as_str().unwrap(), "interface", "{}", iface);
+    assert_eq!(iface["type_parameters"].as_str().unwrap(), "<T>", "{}", iface);
+    let ext: Vec<&str> = iface["extends"]
+        .as_array()
+        .expect("extends")
+        .iter()
+        .map(|s| s.as_str().unwrap())
+        .collect();
+    assert_eq!(ext, vec!["Base<T>"], "{}", iface);
+
+    let id = find_symbol(&v, "id");
+    assert_eq!(id["type"].as_str().unwrap(), "number", "{}", id);
+    let name = find_symbol(&v, "name");
+    assert_eq!(name["type"].as_str().unwrap(), "string", "{}", name);
+    let mods: Vec<&str> = name["modifiers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|x| x.as_str().unwrap())
+        .collect();
+    assert!(mods.contains(&"readonly"), "{}", name);
+}
+
+#[test]
+fn structure_python_function_carries_decorators_annotations_and_defaults() {
+    let f = Fixture::new();
+    f.write(
+        "api.py",
+        concat!(
+            "from dataclasses import dataclass\n",
+            "\n",
+            "@dataclass\n",
+            "class User(Base):\n",
+            "    id: int\n",
+            "\n",
+            "    @classmethod\n",
+            "    async def create(cls, seed: int, count: int = 0) -> \"User\":\n",
+            "        return cls()\n",
+            "\n",
+            "def free(x: int, y: str = \"z\", *args, **kwargs) -> bool:\n",
+            "    return True\n",
+        ),
+    );
+    f.commit("py module");
+    let r = f.trace(&["structure", "api.py", "--json"]);
+    r.ok();
+    let v = r.json();
+
+    let cls = find_symbol(&v, "User");
+    let bases: Vec<&str> = cls["bases"]
+        .as_array()
+        .expect("class bases")
+        .iter()
+        .map(|s| s.as_str().unwrap())
+        .collect();
+    assert_eq!(bases, vec!["Base"], "{}", cls);
+    let cls_decos = cls["decorators"].as_array().expect("class decorators");
+    assert_eq!(cls_decos.len(), 1, "{}", cls);
+    assert_eq!(cls_decos[0]["source"].as_str().unwrap(), "@dataclass", "{}", cls);
+
+    let create = find_symbol(&v, "create");
+    assert_eq!(create["async"].as_bool().unwrap(), true, "{}", create);
+    assert_eq!(
+        create["return_type"].as_str().unwrap(),
+        "\"User\"",
+        "{}",
+        create
+    );
+    let create_decos = create["decorators"].as_array().expect("method decorators");
+    assert_eq!(create_decos.len(), 1, "{}", create);
+    assert_eq!(
+        create_decos[0]["source"].as_str().unwrap(),
+        "@classmethod",
+        "{}",
+        create
+    );
+    let cparams = create["parameters"].as_array().expect("create parameters");
+    assert_eq!(cparams.len(), 3, "{}", create);
+    assert_eq!(cparams[1]["type"].as_str().unwrap(), "int", "{}", create);
+    assert_eq!(cparams[2]["default"].as_str().unwrap(), "0", "{}", create);
+
+    let free = find_symbol(&v, "free");
+    assert_eq!(free["return_type"].as_str().unwrap(), "bool", "{}", free);
+    let fparams = free["parameters"].as_array().expect("free parameters");
+    assert_eq!(fparams.len(), 4, "{}", free);
+    assert_eq!(fparams[1]["default"].as_str().unwrap(), "\"z\"", "{}", free);
+    assert_eq!(fparams[2]["variadic"].as_bool().unwrap(), true, "{}", free);
+    assert_eq!(
+        fparams[3]["keyword_variadic"].as_bool().unwrap(),
+        true,
+        "{}",
+        free
+    );
+}
+
+#[test]
+fn structure_existing_fields_remain_with_their_existing_shapes() {
+    // Regression contract: every field structure already emitted (name,
+    // kind, line, scope, scope_kind, signature, cyclomatic_complexity)
+    // keeps its existing name and semantics after the signature-merge.
+    // Any rename or shape change breaks this test.
+    let f = standard_repo();
+    let r = f.trace(&["structure", "src/app.py", "--json"]);
+    r.ok();
+    let v = r.json();
+    let main = find_symbol(&v, "main");
+    assert!(main.get("name").is_some(), "name: {}", main);
+    assert!(main.get("kind").is_some(), "kind: {}", main);
+    assert!(main.get("line").is_some(), "line: {}", main);
+    assert!(main.get("scope").is_some(), "scope: {}", main);
+    assert!(main.get("scope_kind").is_some(), "scope_kind: {}", main);
+    assert!(main.get("signature").is_some(), "signature: {}", main);
+    // cyclomatic_complexity is conditional on a function-kind ctags match;
+    // app.py's main() qualifies, so the field must be present and integer.
+    assert!(
+        main["cyclomatic_complexity"].is_i64(),
+        "cyclomatic_complexity must remain an integer: {}",
+        main
+    );
+}

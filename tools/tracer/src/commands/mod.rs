@@ -21,6 +21,7 @@ pub mod nested_memory;
 pub mod paths_match;
 pub mod read;
 pub mod session_log;
+pub mod signatures;
 pub mod status;
 pub mod struct_;
 pub mod structure;

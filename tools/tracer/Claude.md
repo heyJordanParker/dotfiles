@@ -1,5 +1,5 @@
 # Tracer
-v5.13 | Updated: 2026-05-24
+v5.14 | Updated: 2026-05-24
 
 ## Why
 
@@ -22,7 +22,7 @@ A single static Rust binary (`trace`) exposing 23 commands that orchestrate exte
 - `survey <path>` — repo-wide language + LOC + complexity distribution via scc
 - `tree <path> [--depth N]` — annotated file tree with complexity ranks (recursive; default depth 4)
 - `info <path> [--brief]` — complexity structure + architectural overview of a file or directory; `--brief` trims to the headline facts
-- `structure <file>` — methods, properties, variables, imports, exports for one file
+- `structure <file>` — methods, properties, variables, imports, exports for one file, each carrying full signature surface (visibility, return type, parameters with types and defaults, attributes/decorators, class extends/implements, generic/type parameters, PHP 8.4 property hooks)
 - `grep <pattern> [-l <lang>] [--path <path>]` — text search via ripgrep with per-match enrichment
 - `struct <pattern> -l <lang> [--path <path>]` — structural AST search via ast-grep with per-match enrichment
 - `glob <pattern> [<base>]` — full-path pattern search (Claude Glob shape: `**` recursive, gitignore-respecting). Returns the complete deterministically-sorted match list; bare paths by default, `--details` adds per-line ccn + rank + lifecycle shoulder
@@ -147,6 +147,7 @@ tracer/                                 cargo workspace root (tracer package + x
 │       ├── glob_match.rs               shared shell-glob basename matcher for `find` (not a command)
 │       ├── paths_match.rs              shared `paths:` frontmatter glob matcher for conditional rules
 │       ├── nested_memory.rs            shared project-docs walk-up; `session_id()` resolver (`read`, `docs`)
+│       ├── signatures.rs               per-symbol signature extraction for `structure` (PHP/TS/Python); merged additively into ctags symbols and backfills ctags-gap entries (PHP class nodes, PHP 8.4 hooked properties)
 │       └── session_log.rs              session-context log: events.jsonl + view.json under `<repo>/.tracer-cache/sessions/<sid>/<aid>/`; reads fall back to `sessions/<sid>/archived/<aid>/` when the active dir is missing (subagent-stop archive)
 └── tests/                              black-box CLI test suite (own crate; see tests/Claude.md)
 ```
@@ -197,6 +198,7 @@ The drift guard doubles as the post-source-edit release gate: an uncommitted sou
 
 ## Ledger
 
+- v5.14: Structure carries full signature surface per symbol
 - v5.13: Vocabulary aligns with context prime CLI surface
 - v5.12: Tree names every command module
 - v5.11: Cache anchors strictly to the worktree root

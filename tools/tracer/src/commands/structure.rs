@@ -5,10 +5,11 @@
 //! by matching ctags symbol lines to the AST per-function list keyed by
 //! start_line, giving per-symbol complexity where a function starts there.
 
+use crate::commands::signatures;
 use crate::{cache, ccn, file_facts};
 use anyhow::Result;
 use serde_json::{json, Map, Value};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::path::Path;
 use std::process::Command;
 
@@ -41,6 +42,11 @@ struct Symbol {
     scope_kind: Option<String>,
     signature: Option<String>,
     cyclomatic_complexity: Option<i64>,
+    /// Tree-sitter-extracted per-line signature info (visibility, return
+    /// type, attributes/decorators, parameters, etc). Merged field-by-field
+    /// into the JSON output. Built once per file in `run`, looked up here
+    /// by `line`.
+    extra: Option<Value>,
 }
 
 /// Symbols for a file via `universal-ctags`, in ctags `--sort=no` order.
@@ -94,6 +100,7 @@ fn ctags_symbols(path: &Path) -> Result<Vec<Symbol>> {
                 .and_then(|x| x.as_str())
                 .map(|s| s.to_string()),
             cyclomatic_complexity: None,
+            extra: None,
         });
     }
     Ok(symbols)
@@ -128,6 +135,16 @@ fn symbol_to_json(s: &Symbol) -> Value {
     if let Some(c) = s.cyclomatic_complexity {
         m.insert("cyclomatic_complexity".into(), json!(c));
     }
+    if let Some(extra) = &s.extra {
+        if let Some(obj) = extra.as_object() {
+            for (k, v) in obj {
+                // Additive merge: signature fields are new keys (visibility,
+                // return_type, attributes, parameters, etc). Never overwrite
+                // an existing key.
+                m.entry(k.clone()).or_insert_with(|| v.clone());
+            }
+        }
+    }
     Value::Object(m)
 }
 
@@ -154,6 +171,7 @@ pub fn run(path: &Path, as_json: bool) -> Result<Value> {
                         scope_kind: None,
                         signature: None,
                         cyclomatic_complexity: None,
+                        extra: None,
                     });
                 }
             }
@@ -161,24 +179,62 @@ pub fn run(path: &Path, as_json: bool) -> Result<Value> {
     }
 
     // Per-method CCN: match ctags symbol lines to the AST per-function
-    // list, keyed by the function's start_line.
+    // list, keyed by the function's start_line. The source is read once and
+    // reused for the signature extraction pass below.
     let function_count = facts.as_ref().map(|f| f.function_count).unwrap_or(0);
     let mut by_line: BTreeMap<i64, i64> = BTreeMap::new();
+    let source = std::fs::read(&p).unwrap_or_default();
     if function_count > 0 {
-        let source = std::fs::read(&p).unwrap_or_default();
         if let Some(functions) = ccn::analyze(&source, &p.to_string_lossy()) {
             for f in functions {
                 by_line.insert(f.start_line, f.cyclomatic_complexity);
             }
         }
     }
+    // Per-symbol signatures (visibility, return types, attributes, params,
+    // property hooks, class extends/implements). Matched to existing
+    // ctags-found symbols by (line, name); any signature not matched is
+    // backfilled as a new symbol so ctags-coverage gaps (PHP class nodes,
+    // PHP 8.4 hooked properties, TSX) still surface in the output.
+    let sigs = signatures::extract(&source, &p);
+    let mut matched: HashSet<usize> = HashSet::new();
     for s in &mut symbols {
-        if let Some(line) = s.line {
-            if let Some(c) = by_line.get(&line) {
-                s.cyclomatic_complexity = Some(*c);
+        let line = match s.line {
+            Some(l) => l,
+            None => continue,
+        };
+        if let Some(c) = by_line.get(&line) {
+            s.cyclomatic_complexity = Some(*c);
+        }
+        for (i, sig) in sigs.iter().enumerate() {
+            if sig.line == line && sig.name == s.name {
+                s.extra = Some(sig.extra.clone());
+                matched.insert(i);
+                break;
             }
         }
     }
+    // Backfill: any signature not matched to a ctags symbol becomes a fresh
+    // symbol entry. This is what surfaces PHP class declarations and PHP
+    // 8.4 hooked properties — both invisible to ctags today.
+    for (i, sig) in sigs.iter().enumerate() {
+        if matched.contains(&i) {
+            continue;
+        }
+        let ccn = by_line.get(&sig.line).copied();
+        symbols.push(Symbol {
+            name: sig.name.clone(),
+            kind: sig.kind.clone(),
+            line: Some(sig.line),
+            scope: None,
+            scope_kind: None,
+            signature: None,
+            cyclomatic_complexity: ccn,
+            extra: Some(sig.extra.clone()),
+        });
+    }
+    // Keep deterministic source order across all symbols after the backfill.
+    symbols.sort_by(|a, b| a.line.unwrap_or(0).cmp(&b.line.unwrap_or(0)));
 
     // Imports/exports from cached tree-sitter extraction.
     let mut imports: Vec<Value> = vec![];
