@@ -975,7 +975,7 @@ fn survey_json_has_distribution_and_languages() {
     assert_eq!(d["max"].as_i64().unwrap(), 3, "distribution.max: {}", v);
     // top_complex carries every file with its real (basename, language,
     // loc, complexity). Those per-file values are exact and hand-verified
-    // for standard_repo. The *content* of the list is therefore pinned as
+    // for standard_repo, so the *content* of the list is pinned as
     // an exact multiset. The ordering contract is "complexity descending"
     // (a stable sort): the unique max (app.py, 3) is always first, and
     // complexity is monotonically non-increasing down the list. The
@@ -1046,22 +1046,16 @@ fn docs_repo() -> Fixture {
 }
 
 /// Unique per-test session id so the cross-invocation session-dedupe state
-/// (under `$HOME/.tracer-cache/sessions/<id>`) never collides across the
-/// parallel suite, and a stale dir from a prior run can't leak in.
+/// (under `<repo>/.tracer-cache/sessions/<id>`, where `<repo>` is each
+/// test's hermetic fixture root) never collides across the parallel suite.
+/// Per-test fixtures are themselves throwaway tempdirs deleted on drop, so
+/// no `$HOME`-scoped wipe is needed.
 fn fresh_session_id(tag: &str) -> String {
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    let id = format!("trace-test-{tag}-{nanos}");
-    if let Some(home) = std::env::var_os("HOME") {
-        let dir = std::path::Path::new(&home)
-            .join(".tracer-cache")
-            .join("sessions")
-            .join(&id);
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-    id
+    format!("trace-test-{tag}-{nanos}")
 }
 
 #[test]
@@ -1070,7 +1064,7 @@ fn docs_command_returns_deduped_ancestor_set_human() {
     let r = f.trace(&["docs", "sub/util.py"]);
     r.ok();
     assert!(
-        r.stdout.contains("# docs for sub/util.py"),
+        r.stdout.contains("# docs · sub/util.py"),
         "missing header:\n{}",
         r.stdout
     );
@@ -1206,17 +1200,19 @@ fn read_then_docs_share_session_dedupe() {
     first.ok();
     assert!(first.stdout.contains("Root rules"), "{}", first.stdout);
 
-    // Same session: docs already surfaced by `read --docs` must not reappear.
+    // Same session: docs already surfaced by `read --docs` must not have
+    // their content re-emitted; they appear in the `already in context`
+    // section instead.
     let second = f.trace_env(&["docs", "sub/util.py"], &env);
     second.ok();
     assert!(
         !second.stdout.contains("Root rules") && !second.stdout.contains("Sub rules"),
-        "docs re-emitted a doc already surfaced by read in the same session:\n{}",
+        "docs re-surfaced content for a doc already in the session manifest:\n{}",
         second.stdout
     );
     assert!(
-        second.stdout.contains("no project docs"),
-        "expected the empty-set message:\n{}",
+        second.stdout.contains("already in context"),
+        "expected the already-in-context section listing the skipped docs:\n{}",
         second.stdout
     );
 }

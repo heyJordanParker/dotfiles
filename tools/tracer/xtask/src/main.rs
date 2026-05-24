@@ -6,8 +6,8 @@
 //!
 //! The plugin marketplace copies only `packages/claude/`, so the launcher's
 //! build-from-source fallback needs the tracer crate source physically inside
-//! that payload — it cannot reach the canonical `tools/tracer/`. The mirror at
-//! `packages/claude/bin/tracer-dist/crate/` is therefore a GENERATED artifact,
+//! that payload — it cannot reach the canonical `tools/tracer/`. So the
+//! mirror at `packages/claude/bin/tracer-dist/crate/` is a GENERATED artifact,
 //! never hand-edited: this xtask is its single writer. Edit the tracer at
 //! `tools/tracer/` and re-run `cargo xtask sync-dist` (setup.sh does, after
 //! the tracer release build + binary install).

@@ -38,7 +38,9 @@ Tree-sitter grammars (Python, TypeScript/TSX/JSX, PHP, plus bash, lua, go, rust,
 ```
 trace doctor                       Verify dependencies; print install instructions for any missing
 trace read <file> [--method <n>]   Cleaned read; method by name, line range, anchor, or full file; worktree or git ref; --docs opts in to project-docs injection (off by default)
-trace docs <path> [--directory]    The deduped project-docs set (Claude.md / rules ancestors) for a path; shares read's per-session read-once dedupe
+trace docs <path> [--directory] [--source <s>] [--triggering-tool <t>] [--triggering-command <c>]   Deduped project-docs set (Claude.md / rules ancestors) for a path. Returns { docs, doc_count, already_loaded? } — `docs[]` is the freshly surfaced slice (with content); `already_loaded[]` is the dedupe-skipped slice (with per-entry source) and is omitted when empty
+trace docs load <path> [--source <s>] [--triggering-tool <t>] [--triggering-command <c>]   Hook-facing alias forwarding to path-mode with --source default flipped to `trace_docs_load`. Same shape, same behavior
+trace docs <path> --graph          Whole-repo docs graph (every CLAUDE.md / Claude.md / .claude/rules/*.md with @include edges + conditional-path frontmatter), plus the "available but not loaded" set. `<path>` is optional under `--graph`.
 trace list <dir>                   One-level annotated ls: files + sub-directories with complexity and recency
 trace survey <path>                Repo-wide language + LOC + complexity distribution
 trace tree <path>                  Annotated file tree with complexity ranks (recursive)

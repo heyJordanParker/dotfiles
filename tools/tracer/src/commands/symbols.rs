@@ -9,7 +9,7 @@ use std::path::Path;
 pub fn run(file: &Path, as_json: bool) -> Result<Value> {
     crate::pathval::require_file(file, "FILE");
     let target = cache::absolutize(file);
-    let repo_root = cache::repo_root_for(&target);
+    let repo_root = cache::worktree_root_for(&target).unwrap_or_else(|| cache::display_root(&target));
     let relative = cache::relative_to_root(&target, &repo_root);
 
     let graph = architecture::get(&repo_root);

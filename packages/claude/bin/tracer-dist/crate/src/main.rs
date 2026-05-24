@@ -7,6 +7,7 @@ mod cache;
 mod ccn;
 mod commands;
 mod digest;
+mod docs_graph;
 mod extraction;
 mod file_facts;
 mod filter;
@@ -190,19 +191,49 @@ enum Command {
         #[arg(long = "state", value_parser = ["added", "renamed", "modified", "deleted", "untracked"])]
         state: Option<String>,
     },
-    /// Deduped project-docs set (Claude.md / rules ancestors) for a path.
+    /// Project-docs surface: path-scoped deduped set (default), `--graph` for
+    /// the whole-repo docs graph, `load` for the hook-driven entrypoint
+    /// (thin alias for path-mode), or `status` for the session manifest.
+    #[command(args_conflicts_with_subcommands = true)]
     Docs {
-        path: PathBuf,
+        /// Path for the default path-mode (`trace docs <path>`) or for
+        /// `--graph` (optional; defaults to the cwd's repo root). Replaced by
+        /// any present sub-verb (`load`, `status`).
+        path: Option<PathBuf>,
+        /// Treat <path> as a directory even when it points at a file (path-mode only).
         #[arg(long = "directory")]
         directory: bool,
+        /// Whole-repo docs graph projected from the unified `architecture/`
+        /// cache entry, plus the available-but-not-loaded set. With this
+        /// flag, <path> is optional.
+        #[arg(long = "graph")]
+        graph: bool,
+        /// Names the calling surface (e.g. `trace_inject_hook`, `agent_read`).
+        /// Lands verbatim in the log event's `source` field.
+        #[arg(long, default_value = "trace_docs")]
+        source: String,
+        /// Tool that triggered this load (Bash, Read, Glob, …). Recorded
+        /// on the log event for downstream auditing.
+        #[arg(long = "triggering-tool")]
+        triggering_tool: Option<String>,
+        /// Command string that triggered this load (the agent's Bash
+        /// invocation, the Read file_path, etc.).
+        #[arg(long = "triggering-command")]
+        triggering_command: Option<String>,
         #[arg(long)]
         json: bool,
+        #[command(subcommand)]
+        command: Option<DocsCommand>,
     },
-    /// Session-start primer (no args) or single-file enrichment (path arg).
+    /// Session-start primer (no args / path arg) or `prime` sub-verb that
+    /// records the docs Claude Code's harness auto-loaded into the session log.
+    #[command(args_conflicts_with_subcommands = true)]
     Context {
         path: Option<PathBuf>,
         #[arg(long = "directory")]
         force_directory: bool,
+        #[command(subcommand)]
+        command: Option<ContextCommand>,
     },
     /// Cleaned read: whole file, method, line range, or anchor section; worktree or git ref.
     Read {
@@ -241,6 +272,58 @@ enum Command {
         symbol: Option<String>,
         #[arg(long)]
         contains: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum DocsCommand {
+    /// Hook entrypoint: thin alias forwarding to path-mode with the
+    /// `--source` default flipped to `trace_docs_load`. Returns the same
+    /// `{ docs, doc_count, already_loaded? }` shape as `trace docs <path>`
+    /// so the calling hook reads one contract.
+    Load {
+        path: PathBuf,
+        /// Names the calling surface (e.g. `trace_inject_hook`, `agent_read`).
+        /// Lands verbatim in the log event's `source` field.
+        #[arg(long, default_value = "trace_docs_load")]
+        source: String,
+        /// Tool that triggered this load (Bash, Read, Glob, …). Recorded
+        /// on the log event for downstream auditing.
+        #[arg(long = "triggering-tool")]
+        triggering_tool: Option<String>,
+        /// Command string that triggered this load (the agent's Bash
+        /// invocation, the Read file_path, etc.).
+        #[arg(long = "triggering-command")]
+        triggering_command: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Agent-facing "what do I have right now?" query against the session
+    /// log. No path arg → the full session manifest with source
+    /// attribution. With a path arg → that path's ancestor chain
+    /// partitioned into loaded (with source) and not_loaded.
+    Status {
+        path: Option<PathBuf>,
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum ContextCommand {
+    /// Record the harness's auto-loaded docs into the session log so
+    /// subsequent tracer emissions skip docs the agent already has in
+    /// context. Invoked by the SessionStart / post-compact hook.
+    Prime {
+        #[arg(long, value_parser = ["session_start", "post_compact"])]
+        reason: String,
+        /// Path to the observed-set JSON (or `-` for stdin). When set,
+        /// drift between the context primer's prediction and Claude Code's
+        /// actual auto-load is detected and recorded into the session log.
+        #[arg(long = "observed-from", value_name = "PATH")]
+        observed_from: Option<String>,
         #[arg(long)]
         json: bool,
     },
@@ -397,17 +480,68 @@ fn main() -> Result<()> {
         Command::Docs {
             path,
             directory,
+            graph,
+            source,
+            triggering_tool,
+            triggering_command,
             json,
-        } => output::run_value(json, filter, || {
-            commands::docs::run(&path, directory, json)
-        }),
+            command,
+        } => match command {
+            Some(DocsCommand::Load {
+                path,
+                source,
+                triggering_tool,
+                triggering_command,
+                json,
+            }) => output::run_value(json, filter, || {
+                commands::docs::run(
+                    &path,
+                    false,
+                    &source,
+                    triggering_tool.as_deref(),
+                    triggering_command.as_deref(),
+                    json,
+                )
+            }),
+            Some(DocsCommand::Status { path, json }) => output::run_value(json, filter, || {
+                commands::docs::run_status(path.as_deref(), json)
+            }),
+            None if graph => output::run_value(json, filter, || {
+                commands::docs::run_graph(path.as_deref(), json)
+            }),
+            None => output::run_value(json, filter, || {
+                let target = path.unwrap_or_else(|| {
+                    eprintln!("Error: <PATH> is required (use `trace docs --graph` for the whole-repo graph)");
+                    std::process::exit(2)
+                });
+                commands::docs::run(
+                    &target,
+                    directory,
+                    &source,
+                    triggering_tool.as_deref(),
+                    triggering_command.as_deref(),
+                    json,
+                )
+            }),
+        },
         Command::Context {
             path,
             force_directory,
-        } => {
-            output::guard(false, filter)?;
-            commands::context::run(path.as_deref(), force_directory)
-        }
+            command,
+        } => match command {
+            Some(ContextCommand::Prime {
+                reason,
+                observed_from,
+                json,
+            }) => output::run_value(json, filter, || {
+                let parsed = commands::context_prime::parse_reason(&reason)?;
+                commands::context_prime::run(parsed, observed_from.as_deref(), json)
+            }),
+            None => {
+                output::guard(false, filter)?;
+                commands::context::run(path.as_deref(), force_directory)
+            }
+        },
         Command::Read {
             paths,
             method,

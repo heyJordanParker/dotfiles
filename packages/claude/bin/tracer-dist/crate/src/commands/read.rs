@@ -3,7 +3,7 @@
 //! AST-derived via `crate::ccn` (name -> line span). Supports fluff
 //! stripping, ref loading, line/anchor scoping, and nested-memory loading.
 
-use super::nested_memory;
+use super::{nested_memory, session_log};
 use crate::{architecture, cache, ccn, extraction, file_facts, passive_context};
 use anyhow::Result;
 use regex::Regex;
@@ -550,9 +550,10 @@ fn render_one(
         .canonicalize()
         .unwrap_or_else(|_| cache::absolutize(file_path_raw));
     let repo_root = if file_path.exists() {
-        cache::repo_root_for(&file_path)
+        cache::worktree_root_for(&file_path).unwrap_or_else(|| cache::display_root(&file_path))
     } else {
-        cache::repo_root_for(Path::new("."))
+        let here = Path::new(".");
+        cache::worktree_root_for(here).unwrap_or_else(|| cache::display_root(here))
     };
     let relative = cache::relative_to_root(&file_path, &repo_root);
 
@@ -811,7 +812,7 @@ pub fn run(
     }
 
     let mut session_dedupe = if docs_on {
-        nested_memory::load_session_dedupe()
+        session_log::loaded_paths()
     } else {
         std::collections::BTreeSet::new()
     };
@@ -819,7 +820,7 @@ pub fn run(
 
     let mut results: Vec<(Value, Vec<nested_memory::LoadedMemory>)> = Vec::new();
     for f in &files {
-        results.push(render_one(
+        let rendered = render_one(
             f,
             method.as_deref(),
             line_range,
@@ -829,17 +830,18 @@ pub fn run(
             as_diff,
             docs_on,
             &mut session_dedupe,
-        )?);
-    }
-    if docs_on {
-        nested_memory::save_session_dedupe(&session_dedupe);
+        )?;
+        if docs_on {
+            session_log::record_emission(&rendered.1, "trace_read");
+        }
+        results.push(rendered);
     }
 
     let value = if results.len() == 1 {
         results[0].0.clone()
     } else {
         json!({
-            "files": results.iter().map(|(p, _)| p.clone()).collect::<Vec<_>>()
+            "files": results.iter().map(|(p, _): &(Value, Vec<nested_memory::LoadedMemory>)| p.clone()).collect::<Vec<_>>()
         })
     };
 

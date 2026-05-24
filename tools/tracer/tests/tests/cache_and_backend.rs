@@ -28,7 +28,7 @@ fn file_cache_key(schema_version: u32, file_bytes: &[u8], relpath: &str) -> Stri
 /// schema-bump test plants a poison entry at this version's key (proving
 /// the cache IS consulted by this exact schema-versioned key) and at a
 /// neighbor version's key (proving it is unreachable).
-const PUBLISHED_SCHEMA_VERSION: u32 = 9;
+const PUBLISHED_SCHEMA_VERSION: u32 = 10;
 
 #[test]
 fn cache_build_populates_both_namespaces() {

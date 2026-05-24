@@ -3,10 +3,13 @@
 # inject the project-docs (Claude.md / .claude rules ancestors) for the
 # resolved path into the model's context via additionalContext.
 #
-# Why: `trace read` no longer auto-injects project-docs (off by default).
-# This hook owns that surface for trace usage, sourcing the deduped docs
-# from `trace docs <path> --json` so per-session read-once dedupe is shared
-# with any explicit `trace docs` / `read --docs` in the same session.
+# Thin wrapper over `trace docs <path>` (path-mode) — the binary owns
+# query, emit, record, and the docs/already_loaded split. This script's
+# responsibilities are limited to:
+#   - parsing the agent's Bash command for the `trace` invocation
+#   - resolving the path argument to an absolute target
+#   - propagating session + agent identity into the subprocess
+#   - rendering the binary's response as additionalContext
 #
 # LOCAL-ONLY: wired in settings.json only, never in the plugin-distributed
 # hooks.json. Tracer hooks are our experimental local surface; plugin users
@@ -15,13 +18,18 @@
 # Behavior:
 # - Non-`trace` Bash, or a `trace` subcommand that takes no path → exit 0
 #   (clean no-op, never blocks).
-# - Path-taking `trace` subcommand → resolve the path, run `trace docs`.
-#   - docs found → inject them, exit 0.
-#   - empty doc set (none for the path, or already surfaced this session
-#     via the shared dedupe) → inject nothing, exit 0.
-#   - `trace docs` FAILS (non-zero) → BLOCK the trace command, exit 2, with
-#     a loud explicit reason on stderr naming the path + the error. The
-#     agent must not silently trace without project docs.
+# - Path-taking `trace` subcommand → resolve the path, run
+#   `trace docs <path> --source trace_inject_hook
+#       --triggering-tool Bash --triggering-command <cmd> --json`.
+#   - doc_count > 0 → inject the full response as additionalContext,
+#     exit 0. The response carries `docs` (new) and may carry
+#     `already_loaded` (skipped, with per-entry source) so the agent
+#     sees both slices.
+#   - doc_count == 0 (everything is already in context) → inject
+#     nothing, exit 0.
+#   - `trace docs` FAILS (non-zero) → BLOCK the trace command, exit 2,
+#     with a loud explicit reason on stderr naming the path + the
+#     error. The agent must not silently trace without docs.
 # - Any infrastructure failure (missing jq/trace, parse error) → exit 0;
 #   a hook never blocks the agent because the hook itself is broken.
 #
@@ -37,6 +45,16 @@ command=$(echo "$input" | jq -r '.tool_input.command // ""' 2>/dev/null) || exit
 [ -z "$command" ] && exit 0
 cwd=$(echo "$input" | jq -r '.cwd // ""' 2>/dev/null) || cwd=""
 [ -z "$cwd" ] && cwd="$(pwd)"
+
+# Propagate session + agent identity from stdin into the trace subprocess
+# env. `nested_memory::session_id()` resolves session id from env only, so
+# without this the log no-ops on every call — the
+# broken_dedupe failure mode where the same Claude.md is re-emitted on
+# every Bash trace call.
+session_id=$(echo "$input" | jq -r '.session_id // ""' 2>/dev/null)
+agent_id=$(echo "$input" | jq -r '.agent_id // ""' 2>/dev/null)
+[ -n "$session_id" ] && export CLAUDE_CODE_SESSION_ID="$session_id"
+[ -n "$agent_id" ] && export TRACER_AGENT_ID="$agent_id"
 
 # Only path-taking trace subcommands carry a meaningful file/dir for docs.
 path_taking='read|info|list|tree|structure|grep|struct|find|glob|blame|history|diff'
@@ -83,7 +101,12 @@ fi
 [ -z "$target" ] && target="$cwd"
 
 # Direct subprocess (not the agent's Bash tool) → no PreToolUse recursion.
-docs_json=$(trace docs "$target" --json 2>/tmp/inject-docs.err)
+# The binary owns query + emit + record + the docs/already_loaded split.
+response=$(trace docs "$target" \
+    --source trace_inject_hook \
+    --triggering-tool Bash \
+    --triggering-command "$command" \
+    --json 2>/tmp/inject-docs.err)
 status=$?
 
 if [ "$status" -ne 0 ]; then
@@ -91,7 +114,7 @@ if [ "$status" -ne 0 ]; then
     cat >&2 <<EOF
 BLOCKED: project-docs load failed for: $target
 
-\`trace docs "$target" --json\` exited $status. The trace command is
+\`trace docs "$target" ...\` exited $status. The trace command is
 blocked so the agent does not run it without project-docs context.
 
 Underlying error:
@@ -100,10 +123,10 @@ EOF
     exit 2
 fi
 
-count=$(echo "$docs_json" | jq -r '.doc_count // 0' 2>/dev/null) || count=0
-[ "$count" -eq 0 ] 2>/dev/null && exit 0
+doc_count=$(echo "$response" | jq -r '.doc_count // 0' 2>/dev/null) || doc_count=0
+[ "$doc_count" -eq 0 ] 2>/dev/null && exit 0
 
-jq -nc --arg ctx "$docs_json" '{
+jq -nc --arg ctx "$response" '{
   hookSpecificOutput: {
     hookEventName: "PreToolUse",
     additionalContext: $ctx

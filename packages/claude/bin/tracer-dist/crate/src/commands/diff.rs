@@ -446,7 +446,8 @@ fn emit_symbol_mode(
 }
 
 pub fn run(base: &str, symbol_mode: bool, as_json: bool) -> Result<Value> {
-    let repo_root = cache::repo_root_for(Path::new("."));
+    let here = Path::new(".");
+    let repo_root = cache::worktree_root_for(here).unwrap_or_else(|| cache::display_root(here));
     verify_base_ref(&repo_root, base);
     let mb = merge_base(&repo_root, base);
     let changes = name_status(&repo_root, &mb);

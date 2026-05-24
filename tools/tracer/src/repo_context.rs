@@ -146,7 +146,7 @@ fn load_or_compute(repo_root: &Path) -> Value {
 
 /// The repo-context summary object.
 pub fn repo_context(path: &Path) -> Value {
-    let root = cache::repo_root_for(path);
+    let root = cache::worktree_root_for(path).unwrap_or_else(|| cache::display_root(path));
     load_or_compute(&root)
         .get("summary")
         .cloned()

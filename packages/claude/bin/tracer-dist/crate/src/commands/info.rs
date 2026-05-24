@@ -24,7 +24,7 @@ fn leading_comment(path: &Path) -> Option<String> {
 }
 
 fn file_info(path: &Path) -> Value {
-    let repo_root = cache::repo_root_for(path);
+    let repo_root = cache::worktree_root_for(path).unwrap_or_else(|| cache::display_root(path));
     let facts = file_facts::get(path, &repo_root, None);
 
     let source = std::fs::read(path).unwrap_or_default();
@@ -83,7 +83,7 @@ fn file_info(path: &Path) -> Value {
 
 fn dir_info(path: &Path) -> Value {
     let base = cache::absolutize(path);
-    let repo_root = cache::repo_root_for(&base);
+    let repo_root = cache::worktree_root_for(&base).unwrap_or_else(|| cache::display_root(&base));
     let tracked = crate::repo_files::tracked_files(&repo_root, Some(&base));
 
     let mut files: Vec<Value> = vec![];

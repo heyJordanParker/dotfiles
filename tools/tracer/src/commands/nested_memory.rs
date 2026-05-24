@@ -1,16 +1,17 @@
 //! Nested Claude.md loading on file-read — command-local helper.
-//! Consumed only by `trace read` (for the `nested_memories` payload field
-//! and the rendered header block); not a foundation module, so it lives
-//! next to its single caller. Replicates Claude Code's Claude.md walk-up
-//! that a subprocess `read` would otherwise bypass.
+//! Consumed by `trace read` and `trace docs`. Replicates Claude Code's
+//! Claude.md walk-up that a subprocess `read` would otherwise bypass.
 //!
 //! Limits matched: @include depth cap (5), pass + session dedupe by resolved
 //! path, visited-dir tracking in rules recursion, nested traversal bounded
 //! to file dir..repo_root, external @include blocked, 40k-char large warning.
+//!
+//! Session-scoped dedupe across invocations lives in `session_log`;
+//! `session_id()` is exposed here as the single resolution point both
+//! modules share.
 
 use std::collections::BTreeSet;
 use std::fs;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 
 const MAX_INCLUDE_DEPTH: i32 = 5;
@@ -77,13 +78,25 @@ pub fn load_for_file(
     let mut results: Vec<LoadedMemory> = Vec::new();
 
     for directory in &chain {
-        let candidates: [(PathBuf, &str); 6] = [
+        // Project-rules markdown candidates per ancestor. Two harness
+        // conventions are recognized: Claude Code's `CLAUDE.md` / `Claude.md`
+        // (plus the `.local.md` personal-overrides peer), and OpenAI's
+        // `AGENTS.md` — the cross-harness convention adopted by Codex,
+        // Cursor, Aider, Jules, Amp et al. — with its dual casing and a
+        // matching `.local.md` peer. Both casings of every name are probed;
+        // on case-insensitive filesystems `try_load` collapses duplicate
+        // physical files via canonical-path dedupe.
+        let candidates: [(PathBuf, &str); 10] = [
             (directory.join("CLAUDE.md"), "claude_md"),
             (directory.join("Claude.md"), "claude_md"),
             (directory.join(".claude").join("CLAUDE.md"), "claude_md"),
             (directory.join(".claude").join("Claude.md"), "claude_md"),
             (directory.join("CLAUDE.local.md"), "local_md"),
             (directory.join("Claude.local.md"), "local_md"),
+            (directory.join("AGENTS.md"), "agents_md"),
+            (directory.join("Agents.md"), "agents_md"),
+            (directory.join("AGENTS.local.md"), "agents_local_md"),
+            (directory.join("Agents.local.md"), "agents_local_md"),
         ];
         for (candidate, kind) in &candidates {
             if let Some(mem) = try_load(
@@ -162,11 +175,11 @@ pub fn load_for_file(
     results
 }
 
-fn home_dir() -> Option<PathBuf> {
+pub fn home_dir() -> Option<PathBuf> {
     std::env::var_os("HOME").map(PathBuf::from)
 }
 
-fn try_load(
+pub fn try_load(
     path: &Path,
     repo_root: &Path,
     kind: &str,
@@ -306,7 +319,7 @@ fn walk_rules(
                     if unconditional_only {
                         continue;
                     }
-                    if !matches_paths(file_path, globs, repo_root) {
+                    if !super::paths_match::matches_paths(file_path, globs, repo_root) {
                         continue;
                     }
                     "rules_conditional"
@@ -332,7 +345,7 @@ fn walk_rules(
 }
 
 /// The `paths:` globs from a file's YAML frontmatter. None when absent.
-fn extract_paths_frontmatter(content: &str) -> Option<Vec<String>> {
+pub(crate) fn extract_paths_frontmatter(content: &str) -> Option<Vec<String>> {
     if !content.starts_with("---") {
         return None;
     }
@@ -394,97 +407,7 @@ fn parse_paths_key(line: &str) -> Option<&str> {
     Some(rest.trim_start())
 }
 
-/// True when `file_path` matches any glob, using fnmatch semantics with
-/// the `**/` special-case.
-fn matches_paths(file_path: &Path, globs: &[String], repo_root: &Path) -> bool {
-    let relative = match file_path.strip_prefix(repo_root) {
-        Ok(r) => r.to_string_lossy().to_string(),
-        Err(_) => file_path.to_string_lossy().to_string(),
-    };
-    let name = file_path
-        .file_name()
-        .map(|n| n.to_string_lossy().to_string())
-        .unwrap_or_default();
-    for glob in globs {
-        if fnmatch(&relative, glob) {
-            return true;
-        }
-        if let Some(rest) = glob.strip_prefix("**/") {
-            if fnmatch(&relative, rest) {
-                return true;
-            }
-        }
-        if fnmatch(&name, glob) {
-            return true;
-        }
-        if !glob.contains('/') && fnmatch(&name, glob) {
-            return true;
-        }
-    }
-    false
-}
-
-/// `fnmatch`: case-normalized shell-style match. Supports `*`, `?`,
-/// `[seq]`, `[!seq]`. `*` treats `/` like any other char (no path-segment
-/// special-casing).
-fn fnmatch(name: &str, pattern: &str) -> bool {
-    fn matches(n: &[char], p: &[char]) -> bool {
-        if p.is_empty() {
-            return n.is_empty();
-        }
-        match p[0] {
-            '*' => {
-                if matches(n, &p[1..]) {
-                    return true;
-                }
-                if !n.is_empty() {
-                    return matches(&n[1..], p);
-                }
-                false
-            }
-            '?' => !n.is_empty() && matches(&n[1..], &p[1..]),
-            '[' => {
-                if n.is_empty() {
-                    return false;
-                }
-                if let Some(close) = p.iter().position(|&c| c == ']').filter(|&i| i > 1) {
-                    let mut set = &p[1..close];
-                    let negate = set.first() == Some(&'!');
-                    if negate {
-                        set = &set[1..];
-                    }
-                    let mut hit = false;
-                    let mut i = 0;
-                    while i < set.len() {
-                        if i + 2 < set.len() && set[i + 1] == '-' {
-                            if n[0] >= set[i] && n[0] <= set[i + 2] {
-                                hit = true;
-                            }
-                            i += 3;
-                        } else {
-                            if n[0] == set[i] {
-                                hit = true;
-                            }
-                            i += 1;
-                        }
-                    }
-                    if hit != negate {
-                        return matches(&n[1..], &p[close + 1..]);
-                    }
-                    false
-                } else {
-                    n[0] == '[' && matches(&n[1..], &p[1..])
-                }
-            }
-            c => !n.is_empty() && n[0] == c && matches(&n[1..], &p[1..]),
-        }
-    }
-    let n: Vec<char> = name.to_lowercase().chars().collect();
-    let p: Vec<char> = pattern.to_lowercase().chars().collect();
-    matches(&n, &p)
-}
-
-fn load_includes(
+pub fn load_includes(
     including_file: &Path,
     content: &str,
     repo_root: &Path,
@@ -597,107 +520,13 @@ fn find_includes(line: &str) -> Vec<String> {
     out
 }
 
-// ---------- session dedupe ----------
-
-fn session_id() -> Option<String> {
+/// Session id resolved from the standard env chain. The single resolution
+/// point shared by `nested_memory` and `session_log`.
+pub fn session_id() -> Option<String> {
     std::env::var("CLAUDE_CODE_SESSION_ID")
         .ok()
         .or_else(|| std::env::var("CLAUDE_SESSION_ID").ok())
         .or_else(|| std::env::var("TRACER_SESSION_ID").ok())
-}
-
-fn session_state_path(session_id: &str) -> Option<PathBuf> {
-    home_dir().map(|h| {
-        h.join(".tracer-cache")
-            .join("sessions")
-            .join(session_id)
-            .join("loaded-memories.txt")
-    })
-}
-
-pub fn load_session_dedupe() -> BTreeSet<String> {
-    let sid = match session_id() {
-        Some(s) => s,
-        None => return BTreeSet::new(),
-    };
-    let path = match session_state_path(&sid) {
-        Some(p) => p,
-        None => return BTreeSet::new(),
-    };
-    if !path.is_file() {
-        return BTreeSet::new();
-    }
-    fs::read_to_string(&path)
-        .map(|t| {
-            t.split('\n')
-                .map(|l| l.trim().to_string())
-                .filter(|l| !l.is_empty())
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
-pub fn save_session_dedupe(dedupe: &BTreeSet<String>) {
-    let sid = match session_id() {
-        Some(s) => s,
-        None => return,
-    };
-    let path = match session_state_path(&sid) {
-        Some(p) => p,
-        None => return,
-    };
-    let parent = match path.parent() {
-        Some(p) => p,
-        None => return,
-    };
-    if fs::create_dir_all(parent).is_err() {
-        return;
-    }
-
-    // Hold an exclusive advisory lock on `<parent>/.lock` across the entire
-    // re-read + merge + atomic-replace, then release it. Concurrent
-    // same-session `trace read` invocations race this read-modify-write,
-    // and without the lock a writer's dedupe additions can be lost between
-    // the re-read and the rename. Lock acquisition failure is non-fatal —
-    // lock errors are swallowed and the read proceeds, never failing.
-    let lock_path = parent.join(".lock");
-    let lock_fh = match fs::OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .open(&lock_path)
-    {
-        Ok(fh) => fh,
-        Err(_) => return,
-    };
-    let _ = rustix::fs::flock(&lock_fh, rustix::fs::FlockOperation::LockExclusive);
-
-    let mut merged: BTreeSet<String> = if path.is_file() {
-        fs::read_to_string(&path)
-            .map(|t| {
-                t.split('\n')
-                    .map(|l| l.trim().to_string())
-                    .filter(|l| !l.is_empty())
-                    .collect()
-            })
-            .unwrap_or_default()
-    } else {
-        BTreeSet::new()
-    };
-    for d in dedupe {
-        merged.insert(d.clone());
-    }
-    let body = merged.into_iter().collect::<Vec<_>>().join("\n");
-    if let Ok(mut tmp) = tempfile::Builder::new()
-        .prefix(".loaded-memories.")
-        .tempfile_in(parent)
-    {
-        if tmp.write_all(body.as_bytes()).is_ok() {
-            let _ = tmp.persist(&path);
-        }
-    }
-
-    let _ = rustix::fs::flock(&lock_fh, rustix::fs::FlockOperation::Unlock);
 }
 
 /// Render the nested-memory header block for `trace read` output.

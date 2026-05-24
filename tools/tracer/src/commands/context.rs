@@ -8,6 +8,7 @@
 //! CCN is AST-derived; the Layout per-path aggregation uses the real
 //! `file_facts::get` (no lite-facts shortcut).
 
+use super::{nested_memory, session_log};
 use crate::{architecture, cache, file_facts, git_activity, passive_context, repo_context, repo_files};
 use anyhow::Result;
 use serde_json::{json, Value};
@@ -125,17 +126,52 @@ fn graph_counts(file_path: &Path, repo_root: &Path) -> Option<Value> {
 }
 
 fn file_mode(p: &Path) -> Result<()> {
-    let facts = match file_facts::get(p, &cache::repo_root_for(p), None) {
+    // Record that the agent just Read this file. Enables cross-tool dedup:
+    // a later doc-injection or read against the same content returns
+    // "already loaded" without re-emitting. No-op without a session id.
+    session_log::record_read(p, "agent_read");
+
+    let repo_root = cache::worktree_root_for(p).unwrap_or_else(|| cache::display_root(p));
+    let facts = match file_facts::get(p, &repo_root, None) {
         Some(f) => f,
         None => return Ok(()),
     };
-    let repo_root = cache::repo_root_for(p);
     let gc = graph_counts(p, &repo_root);
     let line = passive_context::render(&facts, gc.as_ref());
     if !line.is_empty() {
         println!("{line}");
     }
+    let docs_line = docs_awareness_line(p, &repo_root);
+    if !docs_line.is_empty() {
+        println!("{docs_line}");
+    }
     Ok(())
+}
+
+/// One-line context-awareness hint: how many Claude.md / rules ancestors
+/// for this path are already in the agent's context, and which are not.
+/// Surfaces on every Read so the agent immediately sees whether the
+/// project's rules for the file it just opened are already loaded.
+///
+/// Pure read against the session log and the doc walk-up — no
+/// recording, no mutation. Empty string when the path has no ancestor
+/// docs at all (no signal to surface).
+fn docs_awareness_line(file_path: &Path, repo_root: &Path) -> String {
+    let mut empty_dedupe: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    let chain = nested_memory::load_for_file(file_path, repo_root, &mut empty_dedupe, false);
+    if chain.is_empty() {
+        return String::new();
+    }
+    let loaded = session_log::loaded_paths();
+    let (in_context, not_loaded): (Vec<_>, Vec<_>) =
+        chain.iter().partition(|m| loaded.contains(&m.path));
+    let total = chain.len();
+    let mut parts: Vec<String> = vec![format!("docs: {}/{} in context", in_context.len(), total)];
+    if !not_loaded.is_empty() {
+        let names: Vec<String> = not_loaded.iter().map(|m| m.relative_path.clone()).collect();
+        parts.push(format!("not loaded: {}", names.join(", ")));
+    }
+    format!("[{}]", parts.join(" · "))
 }
 
 // --- Primer mode --------------------------------------------------------
@@ -162,7 +198,8 @@ pub fn run(path: Option<&Path>, force_directory: bool) -> Result<()> {
 }
 
 fn primer_mode() -> Result<()> {
-    let repo_root = cache::repo_root_for(Path::new("."));
+    let here = Path::new(".");
+    let repo_root = cache::worktree_root_for(here).unwrap_or_else(|| cache::display_root(here));
     let _ = architecture::get(&repo_root);
     let tracked = repo_files::tracked_files(&repo_root, None).unwrap_or_default();
 

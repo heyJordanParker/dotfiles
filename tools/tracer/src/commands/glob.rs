@@ -154,7 +154,7 @@ pub fn run(pattern: &str, base: &str, details: bool, as_json: bool) -> Result<Va
     let base_path = base_abs.clone();
 
     let (matches, ignore_policy) = resolve_glob(pattern, &base_abs);
-    let repo_root = cache::repo_root_for(&base_abs);
+    let repo_root = cache::worktree_root_for(&base_abs).unwrap_or_else(|| cache::display_root(&base_abs));
 
     // Build the value once; the human view reads from it (no second
     // file_facts pass for `--details`).

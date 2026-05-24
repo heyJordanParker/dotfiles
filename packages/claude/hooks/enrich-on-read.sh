@@ -19,6 +19,15 @@ read -r input
 
 tool_name=$(echo "$input" | jq -r '.tool_name // ""' 2>/dev/null) || exit 0
 
+# Propagate session + agent identity from stdin into the trace subprocess
+# env. The tracer log resolves session id from env only; without this
+# every Read flows through with an empty session-context log and no
+# cross-tool dedup is possible.
+session_id=$(echo "$input" | jq -r '.session_id // ""' 2>/dev/null)
+agent_id=$(echo "$input" | jq -r '.agent_id // ""' 2>/dev/null)
+[ -n "$session_id" ] && export CLAUDE_CODE_SESSION_ID="$session_id"
+[ -n "$agent_id" ] && export TRACER_AGENT_ID="$agent_id"
+
 case "$tool_name" in
     Read)
         target=$(echo "$input" | jq -r '.tool_input.file_path // empty' 2>/dev/null)

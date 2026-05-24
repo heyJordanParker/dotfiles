@@ -47,7 +47,7 @@ pub fn build(path: &Path) -> Result<()> {
 
 /// `cache clear` — delete entries in one namespace, both, or the whole tree.
 pub fn clear(path: &Path, namespace: Option<&str>, clear_all: bool) -> Result<()> {
-    let repo_root = cache::repo_root_for(path);
+    let repo_root = cache::worktree_root_for(path).unwrap_or_else(|| cache::display_root(path));
     if clear_all {
         let removed = cache::clear_all(&repo_root)?;
         println!("Removed {removed} cache entries (entire .tracer-cache/).");
@@ -62,7 +62,7 @@ pub fn clear(path: &Path, namespace: Option<&str>, clear_all: bool) -> Result<()
 /// `cache stats` — size and entry count per namespace. `--json` emits an
 /// object keyed by namespace, cross-consistent with the human columns.
 pub fn stats(path: &Path, as_json: bool) -> Result<Value> {
-    let repo_root = cache::repo_root_for(path);
+    let repo_root = cache::worktree_root_for(path).unwrap_or_else(|| cache::display_root(path));
     let rows = cache::stats(&repo_root)?;
     let mut obj = serde_json::Map::new();
     for row in &rows {

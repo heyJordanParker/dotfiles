@@ -50,7 +50,7 @@ fn entry_from(full: &Path, facts: Option<&file_facts::FileFacts>) -> Entry {
 
 /// Depth-bounded tree walk under `base`, collecting entries.
 fn walk(base: &Path, max_depth: usize) -> Vec<Entry> {
-    let repo_root = cache::repo_root_for(base);
+    let repo_root = cache::worktree_root_for(base).unwrap_or_else(|| cache::display_root(base));
     let base_abs = base.canonicalize().unwrap_or_else(|_| base.to_path_buf());
     let tracked = repo_files::tracked_files(&repo_root, Some(base));
 

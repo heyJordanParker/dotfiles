@@ -148,7 +148,7 @@ pub fn run(path: &Path, show_hidden: bool, as_json: bool) -> Result<Value> {
     let base = path
         .canonicalize()
         .unwrap_or_else(|_| cache::absolutize(path));
-    let repo_root = cache::repo_root_for(&base);
+    let repo_root = cache::worktree_root_for(&base).unwrap_or_else(|| cache::display_root(&base));
     let git_map = git_activity::bulk_cached(&repo_root);
     let tracked = repo_files::tracked_files(&repo_root, Some(&base));
 

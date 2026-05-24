@@ -134,7 +134,7 @@ fn symbol_to_json(s: &Symbol) -> Value {
 pub fn run(path: &Path, as_json: bool) -> Result<Value> {
     crate::pathval::require_file(path, "PATH");
     let p = cache::absolutize(path);
-    let repo_root = cache::repo_root_for(&p);
+    let repo_root = cache::worktree_root_for(&p).unwrap_or_else(|| cache::display_root(&p));
     let facts = file_facts::get(&p, &repo_root, None);
     let mut symbols = ctags_symbols(&p)?;
 

@@ -560,7 +560,8 @@ pub fn run(
         if file.is_some() || symbol.is_some() {
             bail!("--contains is mutually exclusive with <file>/<symbol> arguments.");
         }
-        let repo_root = cache::repo_root_for(Path::new("."));
+        let here = Path::new(".");
+        let repo_root = cache::worktree_root_for(here).unwrap_or_else(|| cache::display_root(here));
         let payload = pickaxe_payload(pattern, &repo_root)?;
         if !as_json {
             render_pickaxe(&payload);
@@ -578,7 +579,7 @@ pub fn run(
     let file_path = file
         .canonicalize()
         .unwrap_or_else(|_| cache::absolutize(file));
-    let repo_root = cache::repo_root_for(&file_path);
+    let repo_root = cache::worktree_root_for(&file_path).unwrap_or_else(|| cache::display_root(&file_path));
 
     if let Some(sym) = symbol {
         let relative = cache::relative_to_root(&file_path, &repo_root);

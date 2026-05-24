@@ -1,5 +1,5 @@
 # Claude Code Hooks
-v1.7 | Updated: 2026-05-22
+v1.12 | Updated: 2026-05-24
 
 ## Why
 
@@ -9,7 +9,7 @@ The directory's center of gravity is `session-state.sh` — a unified per-sessio
 
 ## What
 
-This directory contains the safety, enforcement, and state-tracking hooks wired into Claude Code via `settings.json` and `hooks.json`. The session-state helper underpins all of them.
+This directory contains the safety, enforcement, and state-tracking hooks wired into Claude Code via `settings.json` and `hooks.json`. Every other hook reads from or writes to the session-state helper.
 
 ### Requirements
 
@@ -60,9 +60,14 @@ hooks/
 ├── validate-plan-quality.sh              # PreToolUse ExitPlanMode — LLM
 ├── validate-planning-docs.sh             # PreToolUse Write|Edit — LLM
 ├── validate-ledger-entries.sh            # PreToolUse Write|Edit *.md
+├── block-ledger-only-edits.sh            # PreToolUse Write|Edit Claude.md — ledger entry requires same-edit body change
 │
 ├── sync-shaping.sh                       # PostToolUse Write|Edit
 ├── load-trace-context.sh                 # SessionStart — injects `trace context` primer as additionalContext
+├── reload-harness-context.sh             # SessionStart — runs `trace context prime` so the tracer log mirrors what Claude Code's harness auto-loaded
+├── enrich-on-read.sh                     # PreToolUse Read|Glob|Grep — passive shoulder + docs-awareness on Read; details on Glob
+├── inject-docs.sh                        # PreToolUse Bash — injects project-docs for path-taking `trace` invocations
+├── archive-subagent-log.sh               # subagent-stop signal — moves the subagent's tracer log under archived/
 ├── initialize-session-state.sh           # legacy — superseded by session-state start
 │
 └── subagents/                            # subagent-only hooks (gated by .agent_id; local wiring only)
@@ -149,6 +154,10 @@ Subagent state files omit the intent-classifier fields (`approach`, `state`, `in
 - **PreToolUse Read** — `session-state read "$SESSION_ID" "$FILE_PATH"`
 - **PreToolUse Skill** — `session-state skill "$SESSION_ID" "$SKILL_NAME"`
 - **PostCompact** (matchers `manual|auto`) — `session-state compacted "$SESSION_ID"`
+- **SessionStart** (matcher `startup|resume|clear|compact`) — `reload-harness-context.sh` re-runs `trace context prime --reason post_compact` when the source is `compact` and `--reason session_start` otherwise, so the tracer log mirrors what Claude Code's harness auto-loaded; pairs with `load-trace-context.sh` on the same matcher
+- **Subagent stop** (no native event in 2.1.131; signalled by the `<task-notification>` parse on UserPromptSubmit) — after `session-state stopped "agent-$TASK_ID"`, call `archive-subagent-log.sh "$SESSION_ID" "$TASK_ID"` to move the subagent's tracer log from `<repo>/.tracer-cache/sessions/<sid>/<aid>/` to `<repo>/.tracer-cache/sessions/<sid>/archived/<aid>/`. The hook resolves `<repo>` from its inherited cwd via `git -C "$PWD" rev-parse --show-toplevel` and silently exits 0 when cwd is not inside a git repo (matching the tracer's standalone no-op). The tracer's read path falls back to the archived directory when the active one is missing, so queries against the stopped subagent's log keep working
+
+The SessionStart-compact + subagent-stop tracer hooks (`reload-harness-context.sh`, `archive-subagent-log.sh`) are local-only and never appear in `hooks.json` — they share the tracer-local exception with the other tracer hooks.
 
 For per-tool-call events, the wiring overwrites `SESSION_ID` with `agent-<agent_id>` when the payload carries `agent_id` (event fires inside a subagent's execution context), otherwise leaves it as the parent's `session_id`:
 
@@ -181,7 +190,7 @@ Hook scripts live here in dotfiles. Two wiring files reference them:
 
 When adding or modifying a non-tmux hook, update both.
 
-Exception — tracer hooks are local-only. `load-trace-context.sh`, `guard-trace.sh`, `enrich-on-read.sh`, and `inject-docs.sh` are wired in `settings.json` only and must never appear in `hooks.json`. Tracer is our experimental local surface; plugin users get tracer as a command (the launcher in `bin/`), never these hooks.
+Exception — tracer hooks are local-only. `load-trace-context.sh`, `guard-trace.sh`, `enrich-on-read.sh`, `inject-docs.sh`, `reload-harness-context.sh`, and `archive-subagent-log.sh` are wired in `settings.json` only and must never appear in `hooks.json`. Tracer is our experimental local surface; plugin users get tracer as a command (the launcher in `bin/`), never these hooks. The tracer's session-context store lives at `<repo>/.tracer-cache/sessions/` — same `.tracer-cache/` root as the per-file and architecture namespaces — so `archive-subagent-log.sh` resolves the repo root from its inherited cwd via `git rev-parse --show-toplevel` rather than reading `$HOME`, and silently exits 0 when no repo root resolves (matching the tracer's standalone no-op).
 
 Exception — subagent-exclusive hooks under `subagents/` are local-only. They are wired in `settings.json` only and must never appear in `hooks.json`. The subagent topology and worktree-sharing model they assume are our local workflow; plugin consumers don't run them.
 
@@ -229,8 +238,21 @@ Subagent session IDs start with `agent-`. Lazy-create paths (`set`, `merge`, `pr
 
 Claude Code compacts long conversations server-side, summarizing earlier turns when context approaches the limit. After compaction, the agent no longer "has" the pre-compaction history — but `reads.jsonl` and `skills.jsonl` would still show those old events. The PostCompact hook calls `session-state compacted <session_id>` which atomically truncates both logs to zero bytes via `_truncate` (mktemp + mv). State.json fields (`human_turns`, `tools_used`, turn timestamps) are NOT reset — only the append-only event logs that downstream hooks use to gate "events since the agent's effective memory started."
 
+### Ledger scope
+
+`block-ledger-only-edits.sh` enforces that a new ledger entry in a Claude.md only lands when that file's body differs from HEAD in the working tree. The body change can ride in the same edit or in a prior edit during the same turn — the hook reads git state. Sibling-file changes belong in those files' own ledgers, not bolted onto an unrelated Claude.md.
+
+### Tracer log lifecycle
+
+Two hooks own the tracer session log's lifecycle at the harness boundary, separate from `session-state.sh`'s state document. The session-context store lives at `<repo>/.tracer-cache/sessions/` (same root as the per-file and architecture namespaces); both hooks resolve `<repo>` from their inherited cwd. `reload-harness-context.sh` runs on SessionStart matcher `startup|resume|clear|compact` and re-runs `trace context prime --reason {post_compact|session_start}` (picked from the matcher value in the payload's `source` field) so the log mirrors what Claude Code's harness auto-loaded at session start and after compaction alike, keeping the log's "already in context" set in sync with what the agent actually has. `archive-subagent-log.sh` runs on subagent stop (signalled by the `<task-notification>` parse on UserPromptSubmit) and moves the subagent's per-agent directory from `<repo>/.tracer-cache/sessions/<sid>/<aid>/` to `<repo>/.tracer-cache/sessions/<sid>/archived/<aid>/`, with `<repo>` resolved via `git -C "$PWD" rev-parse --show-toplevel` (silent no-op when no repo root resolves). The tracer's read path falls back to `archived/<aid>/` when the active dir is missing, so post-stop log queries keep returning the same data — the archive is a directory rename, not a destructive operation.
+
 ## Ledger
 
+- v1.12: Architecture tree names every tracer-local hook
+- v1.11: Ledger hook reads git for body diff vs HEAD
+- v1.10: Tracer session store moves to the repo root
+- v1.9: Tracer log archives on subagent stop
+- v1.8: Ledger scopes to its own Claude.md
 - v1.7: Block agent worktree splits
 - v1.6: Subagent-scoped hooks live under subagents/
 - v1.5: Match hook mechanism to decision type

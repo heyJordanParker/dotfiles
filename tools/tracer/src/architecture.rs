@@ -1,10 +1,20 @@
-//! Architecture graph: cross-file resolution + `architecture/` namespace owner.
+//! Architecture graph: cross-file resolution + `architecture/` namespace
+//! owner.
 //!
-//! Nodes are symbols and modules — never files. Edges are cross-file
-//! `imports` relations with EXTRACTED/INFERRED/AMBIGUOUS confidence.
-//! Cached under `architecture/{fingerprint}.json`.
+//! Code nodes are symbols and modules; code files remain a `source_file`
+//! attribute on those nodes, never a node themselves. Doc files
+//! (CLAUDE.md / Claude.md / .claude/rules/*.md) are the explicit exception:
+//! they become first-class graph nodes (`kind: claude_md | local_md |
+//! rules_unconditional | rules_conditional | include`) carrying their
+//! `@include` edges. Code-side edges keep the `imports` / `references`
+//! taxonomy with EXTRACTED / INFERRED / AMBIGUOUS confidence; doc-side
+//! edges use the `includes` relation. Cached as a single entry under
+//! `architecture/{fingerprint}.json`, where the fingerprint combines the
+//! per-file content hashes (code side) with git HEAD + doc-file mtime
+//! aggregate (docs side).
 
 use crate::cache;
+use crate::docs_graph;
 use crate::extraction;
 use crate::file_facts::{self, FileFacts};
 use serde_json::{json, Map, Value};
@@ -55,6 +65,20 @@ pub struct Graph {
     /// fallback, which iterates `graph.module_index.items()`).
     pub module_order: Vec<String>,
     pub file_to_module_id: HashMap<String, String>,
+    /// Doc-file nodes (CLAUDE.md / Claude.md / .claude/rules/*.md) carried
+    /// alongside the symbol/module graph in the same cache entry. The shape
+    /// differs enough (path/kind/size/paths_globs vs id/label/kind/
+    /// source_file/source_line) that overloading `Node` would force
+    /// unrelated fields onto code nodes — keeping the doc subset parallel
+    /// preserves both shapes cleanly.
+    pub doc_nodes: Vec<docs_graph::DocNode>,
+    pub doc_edges: Vec<docs_graph::DocEdge>,
+    /// Docs-side inputs to the unified fingerprint, retained on the graph
+    /// so consumers (e.g. `trace docs --graph`) can read git HEAD + mtime
+    /// aggregate without rebuilding the docs side.
+    pub docs_head: String,
+    pub docs_mtime_aggregate: String,
+    pub docs_built_at_ms: u128,
 }
 
 impl Graph {
@@ -101,12 +125,40 @@ impl Graph {
                 })
             })
             .collect();
+        let doc_nodes: Vec<Value> = self
+            .doc_nodes
+            .iter()
+            .map(|n| {
+                json!({
+                    "path": n.path,
+                    "kind": n.kind,
+                    "size": n.size,
+                    "paths_globs": n.paths_globs,
+                })
+            })
+            .collect();
+        let doc_edges: Vec<Value> = self
+            .doc_edges
+            .iter()
+            .map(|e| {
+                json!({
+                    "source": e.source,
+                    "target": e.target,
+                    "relation": e.relation,
+                })
+            })
+            .collect();
         json!({
             "nodes": Value::Object(nodes),
             "edges": edges,
             "symbol_index": self.symbol_index,
             "module_index": self.module_index,
             "file_to_module_id": self.file_to_module_id,
+            "doc_nodes": doc_nodes,
+            "doc_edges": doc_edges,
+            "docs_head": self.docs_head,
+            "docs_mtime_aggregate": self.docs_mtime_aggregate,
+            "docs_built_at_ms": self.docs_built_at_ms,
         })
     }
 
@@ -204,6 +256,66 @@ impl Graph {
                 }
             }
         }
+        if let Some(dn) = v.get("doc_nodes").and_then(|x| x.as_array()) {
+            for n in dn {
+                let path = match n.get("path").and_then(|x| x.as_str()) {
+                    Some(s) => s.to_string(),
+                    None => continue,
+                };
+                let kind = n
+                    .get("kind")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let size = n.get("size").and_then(|x| x.as_u64()).unwrap_or(0) as usize;
+                let paths_globs = n.get("paths_globs").and_then(|x| x.as_array()).map(|a| {
+                    a.iter()
+                        .filter_map(|s| s.as_str().map(String::from))
+                        .collect()
+                });
+                g.doc_nodes.push(docs_graph::DocNode {
+                    path,
+                    kind,
+                    size,
+                    paths_globs,
+                });
+            }
+        }
+        if let Some(de) = v.get("doc_edges").and_then(|x| x.as_array()) {
+            for e in de {
+                g.doc_edges.push(docs_graph::DocEdge {
+                    source: e
+                        .get("source")
+                        .and_then(|x| x.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    target: e
+                        .get("target")
+                        .and_then(|x| x.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    relation: e
+                        .get("relation")
+                        .and_then(|x| x.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                });
+            }
+        }
+        g.docs_head = v
+            .get("docs_head")
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .to_string();
+        g.docs_mtime_aggregate = v
+            .get("docs_mtime_aggregate")
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .to_string();
+        g.docs_built_at_ms = v
+            .get("docs_built_at_ms")
+            .and_then(|x| x.as_u64())
+            .unwrap_or(0) as u128;
         g
     }
 }
@@ -737,17 +849,30 @@ fn ensure_external(graph: &mut Graph, module_path: &str) -> String {
     node_id
 }
 
-/// The architecture graph for a repo: returns the cached graph when the
-/// fingerprint matches, else builds it from per-file facts and caches it.
+/// The unified architecture graph for a repo: returns the cached graph
+/// when the fingerprint matches, else builds it from per-file facts plus
+/// the docs-graph build and caches it. The fingerprint combines per-file
+/// content hashes (code side) with git HEAD + doc-file mtime aggregate
+/// (docs side), so an edit to either input invalidates the entry.
 pub fn get(repo_root: &Path) -> Graph {
     let files = discover_files(repo_root);
     let hashes = file_facts::file_hashes_for(&files, repo_root);
-    let key = cache::architecture_fingerprint(&hashes);
+    let (docs, docs_inputs) = docs_graph::build(repo_root);
+    let key = cache::architecture_fingerprint(
+        &hashes,
+        &docs_inputs.head,
+        &docs_inputs.mtime_aggregate,
+    );
     if let Some(cached) = cache::load(cache::NAMESPACE_ARCHITECTURE, &key, repo_root) {
         return Graph::from_json(&cached);
     }
     let all_facts = file_facts::get_many(&files, repo_root);
-    let graph = build_from_facts(&all_facts);
+    let mut graph = build_from_facts(&all_facts);
+    graph.doc_nodes = docs.nodes;
+    graph.doc_edges = docs.edges;
+    graph.docs_head = docs.head;
+    graph.docs_mtime_aggregate = docs.mtime_aggregate;
+    graph.docs_built_at_ms = docs.built_at_ms;
     let _ = cache::save(
         cache::NAMESPACE_ARCHITECTURE,
         &key,
@@ -757,11 +882,16 @@ pub fn get(repo_root: &Path) -> Graph {
     graph
 }
 
-/// The cached architecture graph if present — never builds.
+/// The cached unified architecture graph if present — never builds.
 pub fn load_cached(repo_root: &Path) -> Option<Graph> {
     let files = discover_files(repo_root);
     let hashes = file_facts::file_hashes_for(&files, repo_root);
-    let key = cache::architecture_fingerprint(&hashes);
+    let (_, docs_inputs) = docs_graph::build(repo_root);
+    let key = cache::architecture_fingerprint(
+        &hashes,
+        &docs_inputs.head,
+        &docs_inputs.mtime_aggregate,
+    );
     cache::load(cache::NAMESPACE_ARCHITECTURE, &key, repo_root)
         .map(|c| Graph::from_json(&c))
 }
@@ -839,7 +969,7 @@ pub fn dependents_of<'a>(graph: &'a Graph, node_id: &str) -> Vec<&'a Edge> {
 }
 
 /// Edges originating from `node_id` (or its owning module) — its direct
-/// import dependencies. Filters to `imports` only, same rationale as
+/// import dependencies. Filters to `imports` only, same logic as
 /// `dependents_of`.
 pub fn dependencies_of<'a>(graph: &'a Graph, node_id: &str) -> Vec<&'a Edge> {
     let tn = match graph.nodes.get(node_id) {

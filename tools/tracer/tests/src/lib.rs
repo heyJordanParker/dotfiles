@@ -206,6 +206,22 @@ impl Fixture {
         self.git(&["commit", "--quiet", "-m", msg]);
     }
 
+    /// `git worktree add <abs_path> -b <branch>`. Returns the linked
+    /// worktree's absolute path. The linked worktree is cleaned up when
+    /// the parent fixture drops (its root is removed recursively); git's
+    /// `worktrees` admin dir is also gone with the main repo.
+    pub fn add_worktree(&self, sub: &str, branch: &str) -> PathBuf {
+        let abs = self.root.join(sub);
+        self.git(&[
+            "worktree",
+            "add",
+            "-b",
+            branch,
+            abs.to_str().expect("worktree path is UTF-8"),
+        ]);
+        abs
+    }
+
     /// Path to a fixture-relative file as a string (for passing to `trace`).
     pub fn path(&self, rel: &str) -> String {
         self.root.join(rel).to_string_lossy().into_owned()

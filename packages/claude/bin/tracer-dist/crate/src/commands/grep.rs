@@ -44,7 +44,8 @@ fn ripgrep(pattern: &str, path: &str, lang: Option<&str>) -> Vec<Match> {
 
 pub fn run(pattern: &str, lang: Option<&str>, path: &str, as_json: bool) -> Result<Value> {
     let matches = ripgrep(pattern, path, lang);
-    let search_root = cache::repo_root_for(&cache::absolutize(Path::new(path)));
+    let abs = cache::absolutize(Path::new(path));
+    let search_root = cache::worktree_root_for(&abs).unwrap_or_else(|| cache::display_root(&abs));
     let (enriched, files_matched) = enrich::enrich(&matches, &search_root);
     let repo_ctx = repo_context::repo_context(&cache::absolutize(Path::new(path)));
 

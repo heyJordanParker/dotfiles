@@ -143,7 +143,7 @@ pub fn run(
     // Canonicalized base path, printed verbatim in output.
     let base_abs = abs.canonicalize().unwrap_or(abs);
     let base_path = base_abs.clone();
-    let repo_root = cache::repo_root_for(&base_abs);
+    let repo_root = cache::worktree_root_for(&base_abs).unwrap_or_else(|| cache::display_root(&base_abs));
     let include_dirs = type_filter.to_lowercase() == "d";
     let candidates = list_files(&base_abs, include_dirs);
 

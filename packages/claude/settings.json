@@ -38,9 +38,6 @@
     ],
     "defaultMode": "dontAsk"
   },
-  "worktree": {
-    "bgIsolation": "none"
-  },
   "hooks": {
     "SessionStart": [
       {
@@ -81,6 +78,16 @@
           {
             "type": "command",
             "command": "$HOME/.claude/hooks/load-trace-context.sh",
+            "timeout": 20
+          }
+        ]
+      },
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/reload-harness-context.sh",
             "timeout": 20
           }
         ]
@@ -223,6 +230,24 @@
             "command": "$HOME/.claude/hooks/validate-ledger-entries.sh",
             "if": "MultiEdit(**/*.md)",
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/block-ledger-only-edits.sh",
+            "if": "Write(**/*.md)",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/block-ledger-only-edits.sh",
+            "if": "Edit(**/*.md)",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/block-ledger-only-edits.sh",
+            "if": "MultiEdit(**/*.md)",
+            "timeout": 5
           }
         ]
       },
@@ -362,7 +387,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "INPUT=$(cat); PROMPT=$(printf '%s' \"$INPUT\" | jq -r '.prompt // empty'); if printf '%s' \"$PROMPT\" | grep -q '^<task-notification>'; then TASK_ID=$(printf '%s' \"$PROMPT\" | sed -n 's|.*<task-id>\\([a-f0-9]*\\)</task-id>.*|\\1|p' | head -1); STATUS=$(printf '%s' \"$PROMPT\" | sed -n 's|.*<status>\\([a-z]*\\)</status>.*|\\1|p' | head -1); [ \"$STATUS\" = \"completed\" ] && [ -n \"$TASK_ID\" ] && $HOME/.claude/hooks/session-state.sh stopped \"agent-$TASK_ID\" 2>>/tmp/session-state-hook.log || true; fi"
+            "command": "INPUT=$(cat); PROMPT=$(printf '%s' \"$INPUT\" | jq -r '.prompt // empty'); SESSION_ID=$(printf '%s' \"$INPUT\" | jq -r '.session_id // empty'); if printf '%s' \"$PROMPT\" | grep -q '^<task-notification>'; then TASK_ID=$(printf '%s' \"$PROMPT\" | sed -n 's|.*<task-id>\\([a-f0-9]*\\)</task-id>.*|\\1|p' | head -1); STATUS=$(printf '%s' \"$PROMPT\" | sed -n 's|.*<status>\\([a-z]*\\)</status>.*|\\1|p' | head -1); if [ \"$STATUS\" = \"completed\" ] && [ -n \"$TASK_ID\" ]; then $HOME/.claude/hooks/session-state.sh stopped \"agent-$TASK_ID\" 2>>/tmp/session-state-hook.log || true; [ -n \"$SESSION_ID\" ] && $HOME/.claude/hooks/archive-subagent-log.sh \"$SESSION_ID\" \"$TASK_ID\" 2>>/tmp/session-state-hook.log || true; fi; fi"
           }
         ]
       }
@@ -417,6 +442,9 @@
         ]
       }
     ]
+  },
+  "worktree": {
+    "bgIsolation": "none"
   },
   "statusLine": {
     "type": "command",

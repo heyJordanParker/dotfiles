@@ -1,5 +1,5 @@
 # Tracer Test Suite
-v1.7 | Updated: 2026-05-17
+v1.8 | Updated: 2026-05-24
 
 ## Why
 
@@ -52,16 +52,53 @@ tests/
 └── tests/
     ├── per_file_commands.rs          doctor, read (+ docs toggle), docs, info, structure,
     │                                  tree, list, survey, context; cross-command session dedupe
-    ├── architecture_commands.rs      callers, defines, symbols, upstream/downstream
+    ├── architecture_commands.rs     callers, defines, symbols, upstream/downstream
     ├── search_commands.rs            grep, struct, find, glob
     ├── git_commands.rs               history, blame, diff, status
     ├── cache_and_backend.rs          build/warm/invalidate, namespaces, clear, stats,
     │                                  TRACER_CCN_BACKEND + cache segregation
+    ├── complexity_exact.rs           per-language exact CCN values via the AST walker
+    ├── declarations_and_references.rs   per-language exact extraction values
+    ├── worktree_anchoring.rs         `.tracer-cache/` lives only at a worktree root;
+    │                                  linked-worktree isolation; no-repo execution
+    │                                  reads but never writes a cache
+    ├── session_log.rs                events.jsonl + view.json schema; content-hash
+    │                                  dedupe; per-agent isolation; concurrent-writer
+    │                                  safety; subagent-stop archive + read fallback
+    ├── docs_load.rs                  `trace docs` path mode + `docs load` alias:
+    │                                  unified response shape, `--source` and
+    │                                  `--triggering-*` round-trip, `already_loaded`
+    │                                  attribution, AGENTS.md / Agents.md (+ `.local.md`)
+    │                                  recognition with distinct kinds
+    ├── docs_status.rs                `trace docs status` session manifest + per-path
+    │                                  loaded/not_loaded partitioning; the docs hint
+    │                                  on `trace context <file>`
+    ├── docs_graph.rs                 `trace docs --graph` projected from the unified
+    │                                  `architecture/` entry: build, cache reuse,
+    │                                  doc-mtime + HEAD invalidation, @include edges,
+    │                                  conditional `paths:` promotion
+    ├── context_prime.rs              `trace context prime --reason …` primer: empty
+    │                                  case, project-root CLAUDE.md, recursive @include
+    │                                  graph, depth cap, MEMORY.md exclusion, AGENTS.md
+    │                                  mirrored with its own kind
+    ├── drift.rs                      `trace context prime --observed-from` reconciler:
+    │                                  no-observation no-op, equal sets emit no event,
+    │                                  divergence appends one `context_prime_drift` event
+    │                                  and reconciles `view.json` to observed paths + hashes
+    ├── regressions_v4_9.rs           pinned regression cases from the v4.9 contract probe
     ├── primer.rs                     trace context (no args) — all sections + cache warming
     ├── edge_cases.rs                 missing/outside-repo/empty/non-source/binary/large paths
     ├── filter.rs                     global --filter: requires --json, fail-fast, stream, identity
     └── speed.rs                      per-command wall-clock budgets; cold-vs-warm pairs
 ```
+
+The v5.11/v5.12 invariants pinned by these files:
+
+- **Worktree-anchored cache** (`worktree_anchoring.rs`) — `.tracer-cache/` lands only at the worktree root, linked worktrees stay isolated from the main checkout, and execution outside any worktree still returns results but writes zero cache directories
+- **Doc-graph recognition** (`docs_load.rs`, `docs_graph.rs`, `context_prime.rs`) — both Claude Code's `CLAUDE.md`/`Claude.md` family and OpenAI's cross-harness `AGENTS.md`/`Agents.md` family, including their `.local.md` peers, surface in the per-file doc walk and the docs graph with distinct kinds
+- **Content-hash dedupe in the session log** (`session_log.rs`, `docs_load.rs`) — a doc whose hash matches the materialized view records no second event, so repeat invocations are no-ops
+- **Context-primer auto-load set** (`context_prime.rs`) — the primer's set is exactly the user-global CLAUDE.md plus the project-root chain (and their `@include` graphs); the Claude memory file is never mirrored
+- **Context-primer drift reconciliation** (`drift.rs`) — when the primer's predicted set diverges from the observed set Claude Code's harness actually injected, one `context_prime_drift` event appends and `view.json` is rewritten to the observed paths and their hook-supplied content hashes, while `events.jsonl` preserves the diff payload
 
 ## How
 
@@ -79,6 +116,7 @@ The suite pins these deliberate behaviors — they are the contract, not acciden
 
 ## Ledger
 
+- v1.8: Layout names v5 invariants new tests pin
 - v1.7: Shoulder age the only exempt non-deterministic axis
 - v1.6: Exact-value assertions replace shape checks
 - v1.5: Graph pinned by absence depth and confidence

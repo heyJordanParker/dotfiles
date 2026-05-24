@@ -30,7 +30,8 @@ pub fn run(
 }
 
 fn symbol_mode(symbol: &str, depth: i64, as_json: bool) -> Result<Value> {
-    let repo_root = cache::repo_root_for(Path::new("."));
+    let here = Path::new(".");
+    let repo_root = cache::worktree_root_for(here).unwrap_or_else(|| cache::display_root(here));
     let graph = architecture::get(&repo_root);
     let matches = architecture::find_symbols(&graph, symbol);
     if matches.is_empty() {
@@ -100,10 +101,10 @@ fn symbol_mode(symbol: &str, depth: i64, as_json: bool) -> Result<Value> {
 }
 
 fn path_mode(path: &Path, depth: i64, limit: i64, as_json: bool) -> Result<Value> {
-    // Same rationale as downstream::path_mode — the graph must be built
+    // Same logic as downstream::path_mode — the graph must be built
     // against the real git repo root so single-file `--path` arguments
     // don't amputate every cross-file edge.
-    let repo_root = cache::repo_root_for(path);
+    let repo_root = cache::worktree_root_for(path).unwrap_or_else(|| cache::display_root(path));
     let graph = architecture::get(&repo_root);
 
     // Counter(edge.source) — first-seen order, count descending (stable).

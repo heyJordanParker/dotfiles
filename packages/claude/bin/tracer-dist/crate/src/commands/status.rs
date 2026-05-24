@@ -78,7 +78,8 @@ fn sort_key(entry: &Value) -> (i64, i64, usize, String) {
 }
 
 pub fn run(as_json: bool, state_filter: Option<&str>) -> Result<Value> {
-    let repo_root = cache::repo_root_for(Path::new("."));
+    let here = Path::new(".");
+    let repo_root = cache::worktree_root_for(here).unwrap_or_else(|| cache::display_root(here));
     let state_map = git_activity::working_tree_state(&repo_root);
     let mut states: Vec<(String, String)> = state_map
         .into_iter()

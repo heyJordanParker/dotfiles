@@ -31,7 +31,8 @@ pub fn run(
 }
 
 fn symbol_mode(symbol: &str, depth: i64, as_json: bool) -> Result<Value> {
-    let repo_root = cache::repo_root_for(Path::new("."));
+    let here = Path::new(".");
+    let repo_root = cache::worktree_root_for(here).unwrap_or_else(|| cache::display_root(here));
     let graph = architecture::get(&repo_root);
     let matches = architecture::find_symbols(&graph, symbol);
     if matches.is_empty() {
@@ -105,7 +106,7 @@ fn path_mode(path: &Path, depth: i64, limit: i64, as_json: bool) -> Result<Value
     // using the arg path as repo_root (a single-file `--path` arg) sends
     // discover_files into a one-file walk and amputates every cross-file
     // edge whose source/target lives outside that file.
-    let repo_root = cache::repo_root_for(path);
+    let repo_root = cache::worktree_root_for(path).unwrap_or_else(|| cache::display_root(path));
     let graph = architecture::get(&repo_root);
 
     // Counter(edge.target) — first-seen order, count descending (stable).
