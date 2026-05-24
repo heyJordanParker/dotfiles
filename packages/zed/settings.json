@@ -1,4 +1,6 @@
 {
+  "use_smartcase_search": true,
+  "cli_default_open_behavior": "new_window",
   "vim_mode": false,
   "agent_servers": {
     "codex-acp": {
