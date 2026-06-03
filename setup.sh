@@ -55,6 +55,12 @@ install -m 755 "$DOTFILES_DIR/tools/tracer/target/release/trace" "$HOME/.local/b
 echo "==> Regenerating tracer plugin crate mirror..."
 (cd "$DOTFILES_DIR/tools/tracer" && cargo xtask sync-dist)
 
+echo "==> Installing prompt-reviewer (local prompt-review CLI)..."
+# Compiles llama.cpp in-process (needs cmake, from the Brewfile). The model
+# is downloaded on demand by `review-prompt download`, never here.
+(cd "$DOTFILES_DIR/tools/prompt-reviewer" && cargo build --release)
+install -m 755 "$DOTFILES_DIR/tools/prompt-reviewer/target/release/review-prompt" "$HOME/.local/bin/review-prompt"
+
 echo "==> Setting up services..."
 if [ ! -d "$SERVICES_DIR/drawbridge" ]; then
   git clone https://github.com/heyJordanParker/drawbridge.git "$SERVICES_DIR/drawbridge"

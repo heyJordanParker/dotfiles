@@ -1,0 +1,19 @@
+[package]
+name = "prompt-reviewer-cli-tests"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Black-box CLI integration suite for the `review-prompt` binary"
+
+# This crate ships no library or binary of its own — it exists purely to host
+# the integration tests under `tests/`. The suite invokes whatever
+# `review-prompt` binary `REVIEW_PROMPT_BIN` points at (default: the release
+# build in ../target/release/review-prompt).
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+serde_json = "1"
+
+[dev-dependencies]
+serde_json = "1"
