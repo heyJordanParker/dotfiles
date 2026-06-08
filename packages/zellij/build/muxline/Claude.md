@@ -1,5 +1,4 @@
 # muxline
-v1.2 | Updated: 2026-04-20
 
 ## Why
 
@@ -128,9 +127,3 @@ Reconciliation runs on every TabUpdate / PaneUpdate / pipe (`State::reconcile_ta
 ### ReloadConfig
 
 `prefix+C` launches a 1×1 floating instance with `mode "reload_config"`. On permission grant, the plugin shells out (`run_command(["sh", "-c", "cat ~/.config/zellij/config.kdl"])`) — `sh -c` so `~` expands. The `RunCommandResult` handler feeds the contents to `reconfigure(contents, false)` (write-to-disk false, mirrors tmux's `source-file` semantics) and calls `close_self`. The plugin is invisible because `set_selectable(false)` runs before any prompt could appear.
-
-## Ledger
-
-- v1.0: One mode-dispatched wasm owns every tmux-parity tab-bar behavior, keeping tab-text ownership in one place
-- v1.1: Pin zellij-tile landmines because re-discovering them costs hours
-- v1.2: Reframed Why around zellij-vs-tmux behavioral gaps to keep project doc factual

@@ -191,7 +191,3 @@ Order matters - Karabiner checks rules top to bottom, first match wins.
 ## References
 
 - [karabiner.ts API Reference](./docs/karabiner-ts-reference.md) - Full karabiner.ts DSL documentation
-
-## Ledger
-
-- 2026-02-21: Adopted Why/What/How template with Requirements/Boundaries

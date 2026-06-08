@@ -1,5 +1,4 @@
 # Prompt Reviewer
-v1.0 | Updated: 2026-06-02
 
 ## Why
 
@@ -214,7 +213,3 @@ The default output budget, temperature, context size, and GPU offload live as
 clap defaults in `src/main.rs`; the runtime shape lives in
 `inference::Settings`. The model identity is never a knob — it stays in
 `model.rs`.
-
-## Ledger
-
-- v1.0: Doc reconciled to current code — `download` subcommand, no instructions-stdin, test suite, hard rebuild-and-reinstall requirement

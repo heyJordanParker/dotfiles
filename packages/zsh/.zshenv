@@ -16,3 +16,6 @@ rm() {
   done
   trash "${args[@]}"
 }
+
+# Machine-local secrets (untracked; repopulate from 1Password via setup-secrets.sh)
+[[ -r "$HOME/.config/zsh/secrets.env" ]] && source "$HOME/.config/zsh/secrets.env"
