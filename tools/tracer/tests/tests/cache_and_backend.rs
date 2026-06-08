@@ -28,7 +28,7 @@ fn file_cache_key(schema_version: u32, file_bytes: &[u8], relpath: &str) -> Stri
 /// schema-bump test plants a poison entry at this version's key (proving
 /// the cache IS consulted by this exact schema-versioned key) and at a
 /// neighbor version's key (proving it is unreachable).
-const PUBLISHED_SCHEMA_VERSION: u32 = 10;
+const PUBLISHED_SCHEMA_VERSION: u32 = 14;
 
 #[test]
 fn cache_build_populates_both_namespaces() {
@@ -52,6 +52,78 @@ fn cache_build_populates_both_namespaces() {
         1,
         "architecture namespace must hold exactly 1 entry after build: {}",
         stats.stdout
+    );
+}
+
+/// Count the `.bin` entries in the architecture namespace — the durable
+/// graph entries (the architecture graph is bincode, not JSON).
+fn architecture_entry_count(f: &Fixture) -> usize {
+    let dir = f.root.join(".tracer-cache/architecture");
+    if !dir.is_dir() {
+        return 0;
+    }
+    fs::read_dir(&dir)
+        .unwrap()
+        .flatten()
+        .filter(|e| e.path().extension().and_then(|x| x.to_str()) == Some("bin"))
+        .count()
+}
+
+/// Eviction: across successive builds that move HEAD and change a doc file —
+/// each of which rotates the architecture fingerprint — the namespace must
+/// hold exactly one entry. Without eviction every fingerprint's entry would
+/// accumulate without bound (the gigabytes-on-disk symptom this fixes).
+#[test]
+fn architecture_namespace_holds_one_entry_across_builds() {
+    let f = standard_repo();
+    f.write("Claude.md", "# project\n");
+    f.commit("add doc");
+
+    f.trace(&["cache", "build", "."]).ok();
+    assert_eq!(
+        architecture_entry_count(&f),
+        1,
+        "first build must leave exactly one architecture entry"
+    );
+
+    // A doc change + HEAD move: rebuild and re-assert single entry.
+    f.write("Claude.md", "# project updated\n");
+    f.commit("doc change");
+    f.trace(&["cache", "build", "."]).ok();
+    assert_eq!(
+        architecture_entry_count(&f),
+        1,
+        "doc change + HEAD move must evict the prior entry, not accumulate"
+    );
+
+    // A code change + HEAD move: rebuild and re-assert single entry.
+    f.write("src/util.py", "def helper(v):\n    return v + 99\n");
+    f.commit("code change");
+    f.trace(&["cache", "build", "."]).ok();
+    assert_eq!(
+        architecture_entry_count(&f),
+        1,
+        "code change + HEAD move must evict the prior entry, not accumulate"
+    );
+
+    // A bare HEAD move (empty commit): rebuild and re-assert single entry.
+    f.write("src/extra.py", "x = 1\n");
+    f.commit("another head move");
+    f.trace(&["cache", "build", "."]).ok();
+    assert_eq!(
+        architecture_entry_count(&f),
+        1,
+        "a HEAD move must evict the prior entry — the namespace cannot grow \
+         without bound across builds"
+    );
+
+    // `cache stats` agrees with the on-disk count.
+    let v = f.trace(&["cache", "stats", "--json"]).json();
+    assert_eq!(
+        v["architecture"]["entries"].as_i64().unwrap(),
+        1,
+        "cache stats must report exactly one architecture entry after several \
+         fingerprint-rotating builds"
     );
 }
 

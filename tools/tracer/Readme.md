@@ -41,6 +41,7 @@ trace read <file> [--method <n>]   Cleaned read; method by name, line range, anc
 trace docs <path> [--directory] [--source <s>] [--triggering-tool <t>] [--triggering-command <c>]   Deduped project-docs set (Claude.md / rules ancestors) for a path. Returns { docs, doc_count, already_loaded? } — `docs[]` is the freshly surfaced slice (with content); `already_loaded[]` is the dedupe-skipped slice (with per-entry source) and is omitted when empty
 trace docs load <path> [--source <s>] [--triggering-tool <t>] [--triggering-command <c>]   Hook-facing alias forwarding to path-mode with --source default flipped to `trace_docs_load`. Same shape, same behavior
 trace docs <path> --graph          Whole-repo docs graph (every CLAUDE.md / Claude.md / .claude/rules/*.md with @include edges + conditional-path frontmatter), plus the "available but not loaded" set. `<path>` is optional under `--graph`.
+trace docs reset [--source <s>]    Clear the current session's surfaced-docs state so a subsequent `trace docs <path>` re-surfaces docs as new (drives the Codex compaction/clear hook). Preserves append-only history; clears only the materialized view. No-op when no session is active
 trace list <dir>                   One-level annotated ls: files + sub-directories with complexity and recency
 trace survey <path>                Repo-wide language + LOC + complexity distribution
 trace tree <path>                  Annotated file tree with complexity ranks (recursive)

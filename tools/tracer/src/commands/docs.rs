@@ -26,6 +26,11 @@
 //!   path argument returns the full session manifest (every loaded doc with
 //!   source attribution). With a path argument returns that path's ancestor
 //!   chain partitioned into `loaded` (with source) and `not_loaded`.
+//! - `reset`: clears the surfaced-docs state for the current session so a
+//!   subsequent `trace docs <path>` re-surfaces docs as new. Driven by the
+//!   Codex compaction/clear hook: a context reset drops injected rule text
+//!   from the model, so the surfaced-docs state must reset to re-inject it.
+//!   Append-only history is preserved — only the view is cleared.
 
 use super::{nested_memory, session_log};
 use crate::{architecture, cache, docs_graph};
@@ -237,6 +242,32 @@ fn run_status_path(
         return Ok(out);
     }
     print_status_path_human(&display, &loaded_chain, &not_loaded_chain, &source_map);
+    Ok(out)
+}
+
+/// Reset-mode: clear the current session's surfaced-docs state so the next
+/// `trace docs <path>` re-surfaces docs as new. Records one `context_reset`
+/// event and clears the view; append-only history is preserved. A clean no-op
+/// when no session is active or nothing was surfaced.
+pub fn run_reset(source: &str, as_json: bool) -> Result<Value> {
+    let session_active = session_log::session_active();
+    let cleared = session_log::record_context_reset(source);
+
+    let out = json!({
+        "scope": "reset",
+        "session_active": session_active,
+        "source": source,
+        "cleared_count": cleared,
+    });
+
+    if as_json {
+        return Ok(out);
+    }
+    if !session_active {
+        println!("# docs reset · no active session (nothing to clear)");
+    } else {
+        println!("# docs reset · cleared {cleared} surfaced doc(s) from session log");
+    }
     Ok(out)
 }
 

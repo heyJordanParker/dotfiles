@@ -132,6 +132,137 @@ fn primer_warms_cache_as_side_effect() {
     );
 }
 
+/// The Spine ranks by transitive dependent count, not raw direct in-edges.
+///
+/// Fixture is a dependency chain: a,b,c,d each import `mid`; `mid` imports
+/// `leaf`. Direct import in-edges: `mid` = 4 (a,b,c,d), `leaf` = 1 (mid).
+/// Transitive dependents: `mid` = {a,b,c,d} = 4; `leaf` = {mid,a,b,c,d} = 5.
+///
+/// Under raw-direct ranking `mid` (4) would outrank `leaf` (1). Under
+/// transitive ranking `leaf` (5) outranks `mid` (4) — `leaf` is the true
+/// load-bearing node because everything ultimately rests on it. This asserts
+/// the flip: `leaf`'s row appears before `mid`'s in the Spine, and the
+/// transitive column carries the higher count for `leaf`.
+#[test]
+fn primer_spine_ranks_by_transitive_dependents() {
+    let f = Fixture::new();
+    f.write("src/leaf.ts", "export const leaf = 1;\n");
+    f.write(
+        "src/mid.ts",
+        "import { leaf } from './leaf';\nexport const mid = leaf + 1;\n",
+    );
+    for name in ["a", "b", "c", "d"] {
+        f.write(
+            &format!("src/{name}.ts"),
+            &format!("import {{ mid }} from './mid';\nexport const {name} = mid;\n"),
+        );
+    }
+    f.commit("dependency chain");
+    f.trace(&["cache", "build", "."]).ok();
+
+    let r = f.trace(&["context"]);
+    r.ok();
+    let spine: Vec<&str> = r
+        .stdout
+        .lines()
+        .skip_while(|l| !l.contains("## Spine"))
+        .take_while(|l| !l.starts_with("repo_context:"))
+        .collect();
+    let block = spine.join("\n");
+
+    // The header now carries a `transitive` column alongside `direct`.
+    assert!(
+        block.contains("transitive"),
+        "Spine table must carry a transitive-dependents column:\n{block}"
+    );
+
+    let leaf_pos = block
+        .find("leaf @")
+        .unwrap_or_else(|| panic!("leaf row missing from Spine:\n{block}"));
+    let mid_pos = block
+        .find("mid @")
+        .unwrap_or_else(|| panic!("mid row missing from Spine:\n{block}"));
+    assert!(
+        leaf_pos < mid_pos,
+        "leaf (transitive 5) must rank above mid (transitive 4) under \
+         transitive-dependent ranking; raw-direct ranking would invert this:\n{block}"
+    );
+
+    // The leaf row shows direct=1, transitive=5; the mid row direct=4,
+    // transitive=4. Pin the leaf row's two counts exactly.
+    let leaf_line = spine
+        .iter()
+        .find(|l| l.contains("leaf @"))
+        .expect("leaf line");
+    let nums: Vec<&str> = leaf_line.split_whitespace().collect();
+    // Row shape: "<rank> <direct> <transitive> <kind> <label> @ <source>".
+    assert_eq!(nums[1], "1", "leaf direct in-edges = 1 (only mid): {leaf_line}");
+    assert_eq!(
+        nums[2], "5",
+        "leaf transitive dependents = 5 (mid,a,b,c,d): {leaf_line}"
+    );
+}
+
+/// A conditional rule whose `paths:` glob matches a working-tree-dirty file,
+/// and that is not already in the session's context, is surfaced in the Rules
+/// section as "Applies to your changes, not loaded".
+///
+/// No session id is set, so the session log no-ops and nothing is "loaded" —
+/// every applicable rule is therefore unloaded and must surface.
+#[test]
+fn primer_surfaces_applicable_unloaded_conditional_rule() {
+    let f = Fixture::new();
+    f.write("src/app.py", "def main():\n    return 1\n");
+    f.write(
+        ".claude/rules/python.md",
+        "---\npaths: \"**/*.py\"\n---\nPython style rules.\n",
+    );
+    f.commit("seed with a conditional python rule");
+    f.trace(&["cache", "build", "."]).ok();
+
+    // Dirty a file the rule's glob matches.
+    f.write("src/app.py", "def main():\n    if True:\n        return 1\n    return 0\n");
+
+    let r = f.trace(&["context"]);
+    r.ok();
+    assert!(
+        r.stdout.contains("Applies to your changes, not loaded"),
+        "primer must surface an applicable-but-unloaded conditional rule:\n{}",
+        r.stdout
+    );
+    assert!(
+        r.stdout
+            .contains(".claude/rules/python.md (matches **/*.py)"),
+        "the surfaced line must name the rule and the glob that matched:\n{}",
+        r.stdout
+    );
+}
+
+/// The applicable-rules warning is silent when nothing applies: a conditional
+/// rule whose glob does not match any dirty file is not surfaced.
+#[test]
+fn primer_applicable_rules_silent_when_no_dirty_match() {
+    let f = Fixture::new();
+    f.write("src/app.py", "def main():\n    return 1\n");
+    f.write(
+        ".claude/rules/typescript.md",
+        "---\npaths: \"**/*.ts\"\n---\nTypeScript rules.\n",
+    );
+    f.commit("seed with a ts-only conditional rule");
+    f.trace(&["cache", "build", "."]).ok();
+
+    // Dirty a python file — the .ts-scoped rule must not surface.
+    f.write("src/app.py", "def main():\n    if True:\n        return 1\n    return 0\n");
+
+    let r = f.trace(&["context"]);
+    r.ok();
+    assert!(
+        !r.stdout.contains("Applies to your changes, not loaded"),
+        "a conditional rule whose glob matches no dirty file must not surface:\n{}",
+        r.stdout
+    );
+}
+
 #[test]
 fn primer_force_directory_flag_is_quiet() {
     let f = standard_repo();

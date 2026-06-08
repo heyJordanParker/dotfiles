@@ -1,6 +1,7 @@
 //! `trace symbols <file>` — module-level symbols of a file from the
 //! architecture graph.
 
+use crate::commands::enrich;
 use crate::{architecture, cache};
 use anyhow::Result;
 use serde_json::{json, Value};
@@ -11,6 +12,9 @@ pub fn run(file: &Path, as_json: bool) -> Result<Value> {
     let target = cache::absolutize(file);
     let repo_root = cache::worktree_root_for(&target).unwrap_or_else(|| cache::display_root(&target));
     let relative = cache::relative_to_root(&target, &repo_root);
+
+    let shoulder = enrich::file_shoulders(&[relative.clone()], &repo_root)
+        .remove(&relative);
 
     let graph = architecture::get(&repo_root);
     let mut file_symbols: Vec<&architecture::Node> = graph
@@ -33,12 +37,16 @@ pub fn run(file: &Path, as_json: bool) -> Result<Value> {
         .collect();
     let out = json!({
         "file": relative,
+        "shoulder": shoulder,
         "symbols": symbols,
         "symbol_count": file_symbols.len(),
     });
 
     if !as_json {
         println!("Symbols in {relative} ({}):", file_symbols.len());
+        if let Some(s) = &shoulder {
+            println!("  {s}");
+        }
         if file_symbols.is_empty() {
             println!("  (no module-level symbols found in architecture graph)");
             println!("  (file may not have been extracted — check supported extensions via `trace doctor`)");

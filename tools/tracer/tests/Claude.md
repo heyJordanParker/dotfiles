@@ -1,5 +1,4 @@
 # Tracer Test Suite
-v1.8 | Updated: 2026-05-24
 
 ## Why
 
@@ -73,6 +72,9 @@ tests/
     ├── docs_status.rs                `trace docs status` session manifest + per-path
     │                                  loaded/not_loaded partitioning; the docs hint
     │                                  on `trace context <file>`
+    ├── docs_reset.rs                 `trace docs reset` re-surface-after-reset contract;
+    │                                  no-op without a session / on an empty log;
+    │                                  append-only history preserved, view cleared
     ├── docs_graph.rs                 `trace docs --graph` projected from the unified
     │                                  `architecture/` entry: build, cache reuse,
     │                                  doc-mtime + HEAD invalidation, @include edges,
@@ -113,15 +115,3 @@ The suite pins these deliberate behaviors — they are the contract, not acciden
 - Binary-file `read` exits 0 and prints replacement characters rather than rejecting the file
 - `survey` / `status` outside a git repo exit 0 with structurally valid empty JSON rather than erroring
 - Explicit "not found" errors use stderr + exit 2; the suite asserts the exit-2 explicit-error paths
-
-## Ledger
-
-- v1.8: Layout names v5 invariants new tests pin
-- v1.7: Shoulder age the only exempt non-deterministic axis
-- v1.6: Exact-value assertions replace shape checks
-- v1.5: Graph pinned by absence depth and confidence
-- v1.4: Exact per-language complexity and extraction values
-- v1.3: Coverage for the global --filter option
-- v1.2: Coverage for `docs` and the `read` docs toggle
-- v1.1: Suite reframed as the tracer's own behavior contract
-- v1.0: Baseline for the black-box behavior suite

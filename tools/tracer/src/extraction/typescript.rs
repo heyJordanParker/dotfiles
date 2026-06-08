@@ -4,7 +4,7 @@
 //! `#eq?` text predicates, so the `(#eq? @_fn "require")` predicate is
 //! enforced manually below.
 
-use crate::extraction::{Declaration, Export, ExtractionResult, Import, Reference};
+use crate::extraction::{Declaration, Export, ExtractionResult, Import, Reference, RefShape};
 use std::collections::HashMap;
 use tree_sitter::{Node, Parser, Query, QueryCursor, StreamingIterator};
 
@@ -217,12 +217,16 @@ pub fn extract_from_tree(
 
 /// Every named declaration in the tree — top-level, nested, and class
 /// members. Covers function/class/interface/type/enum/method definitions
-/// plus `const`/`let`/`var` declarators (with single-identifier names).
+/// plus `const`/`let`/`var` declarators (with single-identifier names). A
+/// `method_definition` carries the enclosing class name as its `container`;
+/// every other declaration's container is `None`.
 fn walk_declarations(root: Node, source: &[u8]) -> Vec<Declaration> {
     let mut out = Vec::new();
     let mut seen = std::collections::HashSet::new();
-    let mut stack = vec![root];
-    while let Some(n) = stack.pop() {
+    // Stack carries (node, enclosing-class-name) so a method picks up the
+    // class it is declared inside without a second ancestor walk.
+    let mut stack: Vec<(Node, Option<String>)> = vec![(root, None)];
+    while let Some((n, container)) = stack.pop() {
         let kind: Option<&str> = match n.kind() {
             "function_declaration" => Some("function"),
             "class_declaration" => Some("class"),
@@ -235,6 +239,9 @@ fn walk_declarations(root: Node, source: &[u8]) -> Vec<Declaration> {
             "variable_declarator" => Some("constant"),
             _ => None,
         };
+        // The class name this node's children are declared inside. A class
+        // node sets the container for everything below it.
+        let mut child_container = container.clone();
         if let Some(k) = kind {
             if let Some(name_node) = n.child_by_field_name("name") {
                 let name_kind = name_node.kind();
@@ -244,11 +251,23 @@ fn walk_declarations(root: Node, source: &[u8]) -> Vec<Declaration> {
                 {
                     if let Ok(name) = name_node.utf8_text(source) {
                         let line = name_node.start_position().row as i64 + 1;
+                        // A method's container is the enclosing class; every
+                        // other declaration is a top-level / free symbol.
+                        let decl_container =
+                            if k == "function" && n.kind() == "method_definition" {
+                                container.clone()
+                            } else {
+                                None
+                            };
+                        if k == "class" {
+                            child_container = Some(name.to_string());
+                        }
                         if seen.insert((name.to_string(), line)) {
                             out.push(Declaration {
                                 name: name.to_string(),
                                 kind: k.to_string(),
                                 line,
+                                container: decl_container,
                             });
                         }
                     }
@@ -257,37 +276,97 @@ fn walk_declarations(root: Node, source: &[u8]) -> Vec<Declaration> {
         }
         let mut c = n.walk();
         for child in n.children(&mut c) {
-            stack.push(child);
+            stack.push((child, child_container.clone()));
         }
     }
     out.sort_by_key(|d| d.line);
     out
 }
 
-/// Every `call_expression` and `new_expression` in the tree.
+/// Every `call_expression` and `new_expression` in the tree, stamped with
+/// its call shape: a bare `foo()` is `Free`, an `o.foo()` is `Member` (the
+/// object text becomes the receiver), and `new Foo()` is `Static` (the
+/// class name is the receiver).
 fn walk_references(root: Node, source: &[u8]) -> Vec<Reference> {
     let mut out = Vec::new();
-    let mut stack = vec![root];
-    while let Some(n) = stack.pop() {
-        if n.kind() == "call_expression" || n.kind() == "new_expression" {
-            if let Some(func) = n.child_by_field_name("function") {
-                if let Some((name, line)) = callee_name(func, source) {
-                    out.push(Reference { name, line });
-                }
-            } else if let Some(ctor) = n.child_by_field_name("constructor") {
+    // Each stack entry carries the name of the nearest enclosing declared
+    // function symbol — the calling symbol the use site belongs to. The
+    // declaration index resolves three function-bearing shapes: a
+    // `function_declaration` / `method_definition` (named directly) and a
+    // `variable_declarator` whose value is an arrow/function (named by the
+    // declarator). Setting the enclosing for exactly those keeps the edge
+    // source pointing at a node the declaration index actually created.
+    // `None` is module top level.
+    let mut stack: Vec<(Node, Option<String>)> = vec![(root, None)];
+    while let Some((n, enclosing)) = stack.pop() {
+        if n.kind() == "new_expression" {
+            let ctor = n
+                .child_by_field_name("constructor")
+                .or_else(|| n.child_by_field_name("function"));
+            if let Some(ctor) = ctor {
                 if let Some((name, line)) = callee_name(ctor, source) {
-                    out.push(Reference { name, line });
+                    out.push(Reference {
+                        name: name.clone(),
+                        line,
+                        shape: RefShape::Static,
+                        receiver: Some(name),
+                        enclosing: enclosing.clone(),
+                    });
+                }
+            }
+        } else if n.kind() == "call_expression" {
+            if let Some(func) = n.child_by_field_name("function") {
+                if let Some((name, line, shape, receiver)) = call_shape(func, source) {
+                    out.push(Reference {
+                        name,
+                        line,
+                        shape,
+                        receiver,
+                        enclosing: enclosing.clone(),
+                    });
                 }
             }
         }
+        let child_enclosing = enclosing_function_name(n, source).or_else(|| enclosing.clone());
         let mut c = n.walk();
         for child in n.children(&mut c) {
-            stack.push(child);
+            stack.push((child, child_enclosing.clone()));
         }
     }
     out
 }
 
+/// The declared function-symbol name a node introduces as a new enclosing
+/// scope, or `None` if the node is not a function-bearing declaration. A
+/// `function_declaration` / `method_definition` names its own scope; a
+/// `variable_declarator` whose value is an arrow / function expression names
+/// the scope by the declarator (the arrow-const form the declaration index
+/// records). Other nodes introduce no new function scope.
+fn enclosing_function_name(node: Node, source: &[u8]) -> Option<String> {
+    match node.kind() {
+        "function_declaration" | "method_definition" => node
+            .child_by_field_name("name")
+            .and_then(|nm| nm.utf8_text(source).ok())
+            .map(|s| s.to_string()),
+        "variable_declarator" => {
+            let value = node.child_by_field_name("value")?;
+            if matches!(
+                value.kind(),
+                "arrow_function" | "function_expression" | "function"
+            ) {
+                node.child_by_field_name("name")
+                    .filter(|nm| nm.kind() == "identifier")
+                    .and_then(|nm| nm.utf8_text(source).ok())
+                    .map(|s| s.to_string())
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
+
+/// The callee name + line for a `new_expression` constructor node.
 fn callee_name(node: Node, source: &[u8]) -> Option<(String, i64)> {
     match node.kind() {
         "identifier" | "type_identifier" => {
@@ -298,6 +377,40 @@ fn callee_name(node: Node, source: &[u8]) -> Option<(String, i64)> {
             let prop = node.child_by_field_name("property")?;
             let txt = prop.utf8_text(source).ok()?;
             Some((txt.to_string(), prop.start_position().row as i64 + 1))
+        }
+        _ => None,
+    }
+}
+
+/// Name, line, shape, and receiver for a `call_expression`'s function node.
+/// A bare identifier is a `Free` call; a `member_expression` is a `Member`
+/// call whose receiver is the object text (`this`, a variable, or a longer
+/// expression) — the receiver names a value, never a type, so it does not
+/// disambiguate the method's class.
+fn call_shape(node: Node, source: &[u8]) -> Option<(String, i64, RefShape, Option<String>)> {
+    match node.kind() {
+        "identifier" | "type_identifier" => {
+            let txt = node.utf8_text(source).ok()?;
+            Some((
+                txt.to_string(),
+                node.start_position().row as i64 + 1,
+                RefShape::Free,
+                None,
+            ))
+        }
+        "member_expression" => {
+            let prop = node.child_by_field_name("property")?;
+            let txt = prop.utf8_text(source).ok()?;
+            let receiver = node
+                .child_by_field_name("object")
+                .and_then(|o| o.utf8_text(source).ok())
+                .map(|s| s.to_string());
+            Some((
+                txt.to_string(),
+                prop.start_position().row as i64 + 1,
+                RefShape::Member,
+                receiver,
+            ))
         }
         _ => None,
     }

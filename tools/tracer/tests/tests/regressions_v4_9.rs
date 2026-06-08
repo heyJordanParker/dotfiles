@@ -89,23 +89,15 @@ fn architecture_cache_rebuilds_after_schema_shape_change() {
     )
     .unwrap();
 
-    // Stale architecture entry — empty graph at a fabricated fingerprint.
-    // If the bug is present, the rebuilt architecture cache would also
-    // be empty (stale per-file hash → same fingerprint → same lookup);
-    // the recovery here is that on a real schema bump the per-file
-    // hashes change, the fingerprint changes, and a fresh graph builds.
-    let stale_graph = serde_json::json!({
-        "nodes": {},
-        "edges": [],
-        "symbol_index": {},
-        "module_index": {},
-        "file_to_module_id": {},
-    });
-    fs::write(
-        arch_ns.join("stalefp00000000000000000000000000000000000000000000000000000000.json"),
-        serde_json::to_string(&stale_graph).unwrap(),
-    )
-    .unwrap();
+    // Stale architecture entry at a fabricated fingerprint. The graph entry
+    // is a bincode `.bin` file (decoded straight into the struct); its bytes
+    // here are deliberately junk because the recovery is structural, not a
+    // decode: the rebuild's fingerprint differs from this fabricated one, so
+    // a fresh graph is built — and eviction then deletes every superseded
+    // `.bin`, including this stale sibling.
+    let stale_entry =
+        arch_ns.join("stalefp00000000000000000000000000000000000000000000000000000000.bin");
+    fs::write(&stale_entry, b"stale-bincode-bytes-never-decoded").unwrap();
 
     // First query after the "upgrade". No manual cache clear.
     let r = f.trace(&["callers", "b_fn", "--json"]);
@@ -119,6 +111,26 @@ fn architecture_cache_rebuilds_after_schema_shape_change() {
         "b_fn must have at least one caller after a schema-shape upgrade — \
          stale per-file hashes are keeping the architecture cache stale; got {:?}",
         v
+    );
+
+    // Eviction: the fabricated-fingerprint stale entry must be gone after the
+    // rebuild, and the architecture namespace must hold exactly one entry.
+    assert!(
+        !stale_entry.exists(),
+        "stale architecture entry survived the rebuild — eviction did not \
+         delete the superseded fingerprint"
+    );
+    let bins: Vec<_> = fs::read_dir(&arch_ns)
+        .unwrap()
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.extension().and_then(|x| x.to_str()) == Some("bin"))
+        .collect();
+    assert_eq!(
+        bins.len(),
+        1,
+        "architecture namespace must hold exactly one entry after rebuild; \
+         got {bins:?}"
     );
 }
 

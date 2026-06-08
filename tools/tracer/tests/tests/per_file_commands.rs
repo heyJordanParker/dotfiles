@@ -3,6 +3,105 @@
 
 use tracer_cli_tests::{normalize_age, standard_repo, Fixture};
 
+/// Run a raw git command in `root` with the suite's hermetic env plus a
+/// fixed author+committer date, so a fixture can place a commit at an
+/// explicit point in time. The shared `Fixture::git` clears the env and
+/// pins no date; controlling the date here keeps that harness contract
+/// untouched while letting one test span two age buckets.
+fn git_at_date(root: &std::path::Path, date: &str, args: &[&str]) {
+    let status = std::process::Command::new("git")
+        .args(args)
+        .current_dir(root)
+        .env_clear()
+        .env("PATH", "/opt/homebrew/bin:/usr/bin:/bin:/usr/local/bin")
+        .env("HOME", root)
+        .env("GIT_AUTHOR_NAME", "Tracer Test")
+        .env("GIT_AUTHOR_EMAIL", "test@example.com")
+        .env("GIT_COMMITTER_NAME", "Tracer Test")
+        .env("GIT_COMMITTER_EMAIL", "test@example.com")
+        .env("GIT_AUTHOR_DATE", date)
+        .env("GIT_COMMITTER_DATE", date)
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .output()
+        .unwrap_or_else(|e| panic!("git {args:?} failed to spawn: {e}"));
+    assert!(
+        status.status.success(),
+        "git {args:?} failed: {}",
+        String::from_utf8_lossy(&status.stderr)
+    );
+}
+
+#[test]
+fn shoulder_carries_first_seen_range_and_changed_together() {
+    // Proves the two newest signals on the canonical shoulder: the age field
+    // spans `first_seen → last_modified` (created→modified) when the file's
+    // first and last commits fall in different age buckets, and the
+    // `together:` field carries the co-changed files. Two dated commits make
+    // the range deterministic: the file is created ~400 days ago (a `1y…`
+    // bucket) alongside a sibling, then modified today.
+    let f = Fixture::new();
+    f.write("core.py", "def feature(x):\n    if x:\n        return 1\n    return 0\n");
+    f.write("sibling.py", "x = 1\n");
+    // First commit: long ago, both files together (the co-change pair).
+    git_at_date(&f.root, "2024-01-01T12:00:00", &["add", "-A"]);
+    git_at_date(&f.root, "2024-01-01T12:00:00", &["commit", "--quiet", "-m", "create core + sibling"]);
+    // Second commit: today, touching core.py only — moves last_modified to
+    // the `today` bucket while first_seen stays in the old bucket.
+    f.write("core.py", "def feature(x):\n    if x:\n        return 2\n    return 0\n");
+    f.commit("touch core today");
+
+    let r = f.trace(&["read", "core.py", "--json"]);
+    r.ok();
+    let v = r.json();
+    let shoulder = v["passive_context"].as_str().unwrap();
+    // first_seen drives the left side of the age range: an old created bucket
+    // joined by `→` to the fresh modified bucket. The exact old bucket is
+    // time-relative (≈1y); assert the structural range form and that the
+    // right side is a fresh-commit bucket.
+    assert!(
+        shoulder.contains("\u{00b7} age: ")
+            && shoulder.contains('\u{2192}')
+            && (shoulder.contains("\u{2192}today") || shoulder.contains("\u{2192}1d")),
+        "shoulder age must span first_seen \u{2192} last_modified: {shoulder:?}"
+    );
+    // co_changed surfaces as `together: sibling.py` (the only co-change pair).
+    assert!(
+        shoulder.contains("\u{00b7} together: sibling.py \u{00b7}"),
+        "shoulder must carry the changed-together file from co_changed: {shoulder:?}"
+    );
+}
+
+#[test]
+fn shoulder_churn_velocity_diverges_from_lifetime_total() {
+    // The churn field carries BOTH the lifetime commit total and the recent
+    // velocity (commits in the last 30 days) — and they are independent
+    // signals. A file with three lifetime commits, only one of them recent,
+    // must read `churn: 3 commits, 1/30d`: the velocity is NOT the total. This
+    // pins the velocity signal in the case that actually exercises it (an old,
+    // settled file with one recent touch), not the same-run fixture where
+    // total and velocity coincide.
+    let f = Fixture::new();
+    // Two old commits, well outside the 30-day window.
+    f.write("svc.py", "def a(x):\n    if x:\n        return 1\n    return 0\n");
+    git_at_date(&f.root, "2024-01-01T12:00:00", &["add", "-A"]);
+    git_at_date(&f.root, "2024-01-01T12:00:00", &["commit", "--quiet", "-m", "create"]);
+    f.write("svc.py", "def a(x):\n    if x:\n        return 2\n    return 0\n");
+    git_at_date(&f.root, "2024-02-01T12:00:00", &["add", "-A"]);
+    git_at_date(&f.root, "2024-02-01T12:00:00", &["commit", "--quiet", "-m", "old edit"]);
+    // One recent commit, today — inside the 30-day window.
+    f.write("svc.py", "def a(x):\n    if x:\n        return 3\n    return 0\n");
+    f.commit("recent edit");
+
+    let r = f.trace(&["read", "svc.py", "--json"]);
+    r.ok();
+    let v = r.json();
+    let shoulder = v["passive_context"].as_str().unwrap();
+    assert!(
+        shoulder.contains("\u{00b7} churn: 3 commits, 1/30d \u{00b7}"),
+        "churn must carry lifetime total 3 and recent velocity 1 (they diverge): {shoulder:?}"
+    );
+}
+
 #[test]
 fn doctor_reports_all_required_binaries_present() {
     let f = standard_repo();
@@ -42,9 +141,11 @@ fn read_json_shape_is_stable() {
     assert_eq!(v["source"], "worktree");
     // src/util.py is a known four-line file; `read` line-numbers it as
     // L1..L4. The passive_context shoulder is the settled single-commit
-    // hermetic string: new (1 commit), local-only, CCN 2 (one `if`),
-    // the fixed author, the init subject. No age component on this path,
-    // so both are pinned exactly.
+    // hermetic string: new (1 commit), local-only, churn of one commit (in
+    // the last 30 days), CCN 2 (one `if`), the three files committed in the
+    // same "init standard repo" commit as the top changed-together set
+    // (co_changed surfacing in the shoulder), the fixed author, the init
+    // subject. The age component is normalized; the rest is pinned exactly.
     assert_eq!(
         v["content"].as_str().unwrap(),
         "L1: def helper(v):\nL2:     if v > 0:\nL3:         return v + 1\nL4:     return 0\n",
@@ -53,7 +154,7 @@ fn read_json_shape_is_stable() {
     );
     assert_eq!(
         normalize_age(v["passive_context"].as_str().unwrap()),
-        "[git: new (1 commit) \u{00b7} age: <AGE> \u{00b7} presence: local-only \u{00b7} ccn: 2 low \u{00b7} owner: Tracer Test \u{00b7} last: init standard repo]",
+        "[git: new (1 commit) \u{00b7} age: <AGE> \u{00b7} presence: local-only \u{00b7} churn: 1 commit, 1/30d \u{00b7} ccn: 2 low \u{00b7} together: readme.md, widget.php, pyproject.toml \u{00b7} owner: Tracer Test \u{00b7} last: init standard repo]",
         "read passive_context must be the exact settled shoulder: {}",
         v["passive_context"]
     );
@@ -501,10 +602,10 @@ fn info_directory_aggregates_files() {
     assert_eq!(
         serde_json::Value::Array(files_proj),
         serde_json::json!([
-            {"file": "app.py",   "loc": 8, "cyclomatic_complexity_total": 4, "function_count": 1, "rank": "low", "passive_context": "new (1 commit) \u{00b7} <AGE>"},
-            {"file": "consts.ts","loc": 1, "cyclomatic_complexity_total": 0, "function_count": 0, "rank": "low", "passive_context": "new (1 commit) \u{00b7} <AGE>"},
-            {"file": "front.tsx","loc": 3, "cyclomatic_complexity_total": 2, "function_count": 1, "rank": "low", "passive_context": "new (1 commit) \u{00b7} <AGE>"},
-            {"file": "util.py",  "loc": 4, "cyclomatic_complexity_total": 2, "function_count": 1, "rank": "low", "passive_context": "new (1 commit) \u{00b7} <AGE>"}
+            {"file": "app.py",   "loc": 8, "cyclomatic_complexity_total": 4, "function_count": 1, "rank": "low", "passive_context": "[git: new (1 commit) \u{00b7} age: <AGE> \u{00b7} churn: 1 commit, 1/30d \u{00b7} ccn: 4 low]"},
+            {"file": "consts.ts","loc": 1, "cyclomatic_complexity_total": 0, "function_count": 0, "rank": "low", "passive_context": "[git: new (1 commit) \u{00b7} age: <AGE> \u{00b7} churn: 1 commit, 1/30d \u{00b7} ccn: 0 low]"},
+            {"file": "front.tsx","loc": 3, "cyclomatic_complexity_total": 2, "function_count": 1, "rank": "low", "passive_context": "[git: new (1 commit) \u{00b7} age: <AGE> \u{00b7} churn: 1 commit, 1/30d \u{00b7} ccn: 2 low]"},
+            {"file": "util.py",  "loc": 4, "cyclomatic_complexity_total": 2, "function_count": 1, "rank": "low", "passive_context": "[git: new (1 commit) \u{00b7} age: <AGE> \u{00b7} churn: 1 commit, 1/30d \u{00b7} ccn: 2 low]"}
         ]),
         "info directory files[] (minus the per-run abs_path) must be exact: {}",
         v["files"]
@@ -662,41 +763,43 @@ fn structure_exports_are_the_exact_module_level_set() {
 
 #[test]
 fn structure_falls_back_to_ctags_for_non_ast_language() {
-    // Go has a CCN walker but no tree-sitter import/export extractor, so
-    // `exports` is empty while ctags still surfaces the symbols. This pins
-    // the fallback path: structure stays useful for a language the AST
-    // extractor does not cover.
+    // Bash has a CCN walker but no tree-sitter import/export extractor (it is
+    // not in `extraction::supported_extensions`), so `exports` is empty while
+    // ctags still surfaces the symbols. This pins the fallback path:
+    // structure stays useful for a CCN-covered language the architecture
+    // extractor does not cover. (Go was the prior example here; it now has a
+    // first-class extractor, so the no-extractor example moved to bash.)
     let f = Fixture::new();
     f.write(
-        "main.go",
+        "util.sh",
         concat!(
-            "package main\n",
+            "#!/usr/bin/env bash\n",
             "\n",
-            "func Alpha() int {\n",
+            "alpha() {\n",
             "    return 1\n",
             "}\n",
             "\n",
-            "func Beta(x int) int {\n",
-            "    if x > 0 {\n",
-            "        return x\n",
-            "    }\n",
+            "beta() {\n",
+            "    if [ \"$1\" -gt 0 ]; then\n",
+            "        return \"$1\"\n",
+            "    fi\n",
             "    return 0\n",
             "}\n",
         ),
     );
-    f.commit("go file");
-    let r = f.trace(&["structure", "main.go", "--json"]);
+    f.commit("bash file");
+    let r = f.trace(&["structure", "util.sh", "--json"]);
     r.ok();
     let v = r.json();
     assert_eq!(
         v["exports"].as_array().unwrap().len(),
         0,
-        "Go has no tree-sitter export extractor — exports must be empty: {}",
+        "bash has no tree-sitter export extractor — exports must be empty: {}",
         v["exports"]
     );
-    // ctags surfaces exactly three symbols for this Go file, each at its
-    // real line: the `main` package (L1) and funcs Alpha (L3) and Beta
-    // (L7). Pinned as an exact (name, kind, line) set.
+    // ctags surfaces exactly two symbols for this bash file, each at its real
+    // line: the functions alpha (L3) and beta (L7). Pinned as an exact
+    // (name, kind, line) set.
     let mut symbols: Vec<(String, String, i64)> = v["symbols_by_kind"]
         .as_object()
         .unwrap()
@@ -714,17 +817,16 @@ fn structure_falls_back_to_ctags_for_non_ast_language() {
     assert_eq!(
         symbols,
         vec![
-            ("Alpha".to_string(), "func".to_string(), 3),
-            ("Beta".to_string(), "func".to_string(), 7),
-            ("main".to_string(), "package".to_string(), 1),
+            ("alpha".to_string(), "function".to_string(), 3),
+            ("beta".to_string(), "function".to_string(), 7),
         ],
-        "ctags fallback symbol set must be exactly main/Alpha/Beta at their lines: {}",
+        "ctags fallback symbol set must be exactly alpha/beta at their lines: {}",
         v
     );
     assert_eq!(
         v["symbol_count"].as_i64().unwrap(),
-        3,
-        "symbol_count must be exactly the three ctags symbols: {}",
+        2,
+        "symbol_count must be exactly the two ctags symbols: {}",
         v
     );
 }
@@ -760,10 +862,10 @@ fn tree_json_carries_repo_context_and_ranks() {
     assert_eq!(
         serde_json::Value::Array(files_norm),
         serde_json::json!([
-            {"path": "app.py",   "ccn_total": 4, "ccn_max_function": 4, "loc": 8, "rank": "low", "passive_context": "new (1 commit) \u{00b7} <AGE>"},
-            {"path": "consts.ts","ccn_total": 0, "ccn_max_function": 0, "loc": 1, "rank": "low", "passive_context": "new (1 commit) \u{00b7} <AGE>"},
-            {"path": "front.tsx","ccn_total": 2, "ccn_max_function": 2, "loc": 3, "rank": "low", "passive_context": "new (1 commit) \u{00b7} <AGE>"},
-            {"path": "util.py",  "ccn_total": 2, "ccn_max_function": 2, "loc": 4, "rank": "low", "passive_context": "new (1 commit) \u{00b7} <AGE>"}
+            {"path": "app.py",   "ccn_total": 4, "ccn_max_function": 4, "loc": 8, "rank": "low", "passive_context": "[git: new (1 commit) \u{00b7} age: <AGE> \u{00b7} churn: 1 commit, 1/30d \u{00b7} ccn: 4 low]"},
+            {"path": "consts.ts","ccn_total": 0, "ccn_max_function": 0, "loc": 1, "rank": "low", "passive_context": "[git: new (1 commit) \u{00b7} age: <AGE> \u{00b7} churn: 1 commit, 1/30d \u{00b7} ccn: 0 low]"},
+            {"path": "front.tsx","ccn_total": 2, "ccn_max_function": 2, "loc": 3, "rank": "low", "passive_context": "[git: new (1 commit) \u{00b7} age: <AGE> \u{00b7} churn: 1 commit, 1/30d \u{00b7} ccn: 2 low]"},
+            {"path": "util.py",  "ccn_total": 2, "ccn_max_function": 2, "loc": 4, "rank": "low", "passive_context": "[git: new (1 commit) \u{00b7} age: <AGE> \u{00b7} churn: 1 commit, 1/30d \u{00b7} ccn: 2 low]"}
         ]),
         "tree files[] must be the exact four-file fixture set: {}",
         v["files"]
@@ -882,7 +984,7 @@ fn list_directory_json_separates_dirs_and_files() {
     assert_eq!(
         serde_json::Value::Array(root_files),
         serde_json::json!([
-            {"name": "pyproject.toml", "rank": "low", "ccn_total": 0, "passive_context": "new (1 commit) \u{00b7} <AGE>"}
+            {"name": "pyproject.toml", "rank": "low", "ccn_total": 0, "passive_context": "[git: new (1 commit) \u{00b7} age: <AGE> \u{00b7} churn: 1 commit, 1/30d \u{00b7} ccn: 0 low]"}
         ]),
         "list root files must be exactly pyproject.toml: {}",
         v["files"]
@@ -1218,15 +1320,175 @@ fn read_then_docs_share_session_dedupe() {
 }
 
 #[test]
-fn context_file_mode_emits_single_shoulder_line() {
+fn context_file_mode_second_touch_collapses_to_the_shoulder() {
+    // File mode's headline is the passive-context shoulder. On a file's FIRST
+    // surfacing in a session it also emits the once-per-session methods +
+    // directory-listing lines; on the SECOND surfacing those are deduped away
+    // and the output collapses to exactly the shoulder. This pins both the
+    // shoulder-as-headline contract and the per-session first-touch dedup.
     let f = standard_repo();
     // Warm the cache so graph counts are populated.
     f.trace(&["cache", "build", "."]).ok();
-    let r = f.trace(&["context", "src/app.py"]);
-    r.ok();
-    let line = r.stdout.trim();
+    let sid = fresh_session_id("ctx-file-dedup");
+    let env = [("CLAUDE_CODE_SESSION_ID", sid.as_str())];
+
+    // First touch: shoulder + symbols + dir listing (more than one line).
+    let first = f.trace_env(&["context", "src/app.py"], &env);
+    first.ok();
+    assert!(
+        first.stdout.contains("[symbols:") && first.stdout.contains("[dir src/:"),
+        "first surfacing must carry the methods and directory-listing lines:\n{}",
+        first.stdout
+    );
+
+    // Second touch in the same session: collapses to the single shoulder line.
+    let second = f.trace_env(&["context", "src/app.py"], &env);
+    second.ok();
+    let line = second.stdout.trim();
     assert!(line.starts_with("[git:"), "unexpected shoulder:\n{line}");
-    assert_eq!(line.lines().count(), 1, "file mode must emit one line:\n{line}");
+    assert_eq!(
+        line.lines().count(),
+        1,
+        "second surfacing must collapse to one shoulder line:\n{line}"
+    );
+}
+
+/// A repo with a file nested two directories deep alongside a sibling, used
+/// to pin the first-touch methods line, the one-level directory listing, and
+/// the non-recursive (immediate-parent-only) rule.
+fn nested_repo() -> Fixture {
+    let f = Fixture::new();
+    f.write(
+        "app/controllers/orders.py",
+        "def create(x):\n    if x:\n        return 1\n    return 0\n\ndef cancel():\n    return 2\n",
+    );
+    f.write("app/controllers/users.py", "def show():\n    return 9\n");
+    f.write("app/top.py", "x = 1\n");
+    f.commit("init nested repo");
+    f
+}
+
+#[test]
+fn first_touch_of_a_file_surfaces_its_symbols() {
+    // The first time a file is surfaced in a session, its passive context
+    // includes a `[symbols: …]` line naming the file's declarations, so one
+    // touch gives the agent the file's shape without a second structure call.
+    let f = nested_repo();
+    let sid = fresh_session_id("first-symbols");
+    let env = [("CLAUDE_CODE_SESSION_ID", sid.as_str())];
+
+    let r = f.trace_env(&["context", "app/controllers/orders.py"], &env);
+    r.ok();
+    assert!(
+        r.stdout.contains("[symbols: create, cancel]"),
+        "first surfacing must list the file's declarations in source order:\n{}",
+        r.stdout
+    );
+}
+
+#[test]
+fn first_touch_of_a_file_surfaces_its_immediate_directory_listing() {
+    // The first time a file is surfaced, its passive context includes the
+    // one-level listing of the file's immediate parent directory — the file's
+    // neighbours — and only that one directory.
+    let f = nested_repo();
+    let sid = fresh_session_id("first-dir");
+    let env = [("CLAUDE_CODE_SESSION_ID", sid.as_str())];
+
+    let r = f.trace_env(&["context", "app/controllers/orders.py"], &env);
+    r.ok();
+    assert!(
+        r.stdout.contains("[dir controllers/: orders.py, users.py]"),
+        "first surfacing must list the immediate parent directory's files:\n{}",
+        r.stdout
+    );
+}
+
+#[test]
+fn directory_listing_is_immediate_parent_only_never_ancestors() {
+    // A nested file surfaces ONLY its immediate parent directory, never the
+    // ancestor chain. Touching app/controllers/orders.py lists controllers/
+    // and must NOT list app/ or the repo root.
+    let f = nested_repo();
+    let sid = fresh_session_id("non-recursive");
+    let env = [("CLAUDE_CODE_SESSION_ID", sid.as_str())];
+
+    let r = f.trace_env(&["context", "app/controllers/orders.py"], &env);
+    r.ok();
+    assert!(
+        r.stdout.contains("[dir controllers/:"),
+        "the immediate parent directory must be listed:\n{}",
+        r.stdout
+    );
+    assert!(
+        !r.stdout.contains("[dir app/:"),
+        "ancestor directory app/ must NOT be listed (non-recursive rule):\n{}",
+        r.stdout
+    );
+    // Exactly one directory line — never the ancestor chain.
+    let dir_lines = r.stdout.lines().filter(|l| l.starts_with("[dir ")).count();
+    assert_eq!(
+        dir_lines, 1,
+        "exactly one directory line (the immediate parent), never the chain:\n{}",
+        r.stdout
+    );
+}
+
+#[test]
+fn directory_listing_surfaces_once_per_session_across_neighbours() {
+    // The directory listing is deduped per session: surfacing a second file in
+    // the SAME directory does not repeat that directory's listing, while the
+    // second file still gets its own first-touch symbols line.
+    let f = nested_repo();
+    let sid = fresh_session_id("dir-dedup");
+    let env = [("CLAUDE_CODE_SESSION_ID", sid.as_str())];
+
+    let first = f.trace_env(&["context", "app/controllers/orders.py"], &env);
+    first.ok();
+    assert!(
+        first.stdout.contains("[dir controllers/:"),
+        "first file in the directory must surface the listing:\n{}",
+        first.stdout
+    );
+
+    let second = f.trace_env(&["context", "app/controllers/users.py"], &env);
+    second.ok();
+    assert!(
+        !second.stdout.contains("[dir controllers/:"),
+        "a neighbour in the already-surfaced directory must NOT repeat the listing:\n{}",
+        second.stdout
+    );
+    assert!(
+        second.stdout.contains("[symbols: show]"),
+        "the neighbour's own first-touch symbols line must still surface:\n{}",
+        second.stdout
+    );
+}
+
+#[test]
+fn context_directory_argument_surfaces_its_one_level_listing() {
+    // Surfacing a directory directly (not via a file inside it) emits that one
+    // directory's one-level listing on first touch, deduped on the second.
+    let f = nested_repo();
+    let sid = fresh_session_id("dir-arg");
+    let env = [("CLAUDE_CODE_SESSION_ID", sid.as_str())];
+
+    let first = f.trace_env(&["context", "app/controllers"], &env);
+    first.ok();
+    assert_eq!(
+        first.stdout.trim(),
+        "[dir controllers/: orders.py, users.py]",
+        "a directly-touched directory must emit exactly its one-level listing:\n{}",
+        first.stdout
+    );
+
+    let second = f.trace_env(&["context", "app/controllers"], &env);
+    second.ok();
+    assert!(
+        second.stdout.trim().is_empty(),
+        "a second touch of the same directory must emit nothing:\n{}",
+        second.stdout
+    );
 }
 
 // ---- signature fidelity (PHP 8 attributes / 8.4 hooks, TS modifiers, Python annotations) ----

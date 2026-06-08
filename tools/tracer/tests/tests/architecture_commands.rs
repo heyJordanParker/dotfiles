@@ -105,10 +105,11 @@ fn callers_excludes_unrelated_symbol() {
         callers
     );
 
-    // `d_fn`'s only use site is at pkg/c.py:4 (the call inside c_fn). The
-    // architectural source (the edge's source node) is `module::pkg.c` —
-    // never pkg.a / pkg.b / anything else. Asserting the *exact* caller
-    // set catches an over-connected graph.
+    // `d_fn`'s only use site is the call inside `c_fn` at pkg/c.py:4. With
+    // function-granular reference edges the source node is the CALLING
+    // FUNCTION `pkg/c.py::c_fn` — not the module `module::pkg.c` and never
+    // pkg.a / pkg.b. Asserting the *exact* caller set catches both an
+    // over-connected graph and a regression back to module granularity.
     let r = f.trace(&["callers", "d_fn", "--json"]);
     r.ok();
     let v = r.json();
@@ -116,22 +117,142 @@ fn callers_excludes_unrelated_symbol() {
     let ids = node_ids(&v["pkg/d.py::d_fn"]["callers"]);
     assert_eq!(
         ids,
-        vec!["module::pkg.c".to_string()],
-        "d_fn's only caller is module::pkg.c: {:?}",
+        vec!["pkg/c.py::c_fn".to_string()],
+        "d_fn's only caller is the function c_fn (function-granular source): {:?}",
         callers
     );
     assert!(
-        !ids.iter().any(|i| i == "module::pkg.a" || i == "module::pkg.b"),
-        "transitive importers must not appear as direct callers: {:?}",
+        !ids.iter().any(|i| {
+            i == "module::pkg.a"
+                || i == "module::pkg.b"
+                || i == "module::pkg.c"
+                || i == "pkg/b.py::b_fn"
+                || i == "pkg/a.py::a_fn"
+        }),
+        "transitive importers / the module itself must not appear as direct callers: {:?}",
         ids
     );
-    // The use site is the call inside c_fn at pkg/c.py:4.
+    // The use site is the call inside c_fn at pkg/c.py:4; the source node is
+    // the function c_fn, and the count summary reports it as one resolved
+    // caller with none ambiguous.
     let row = callers
         .iter()
         .find(|c| c["source_file"].as_str() == Some("pkg/c.py"))
         .unwrap_or_else(|| panic!("missing pkg/c.py use site: {:?}", callers));
     assert_eq!(row["source_line"].as_i64(), Some(4));
     assert_eq!(row["relation"].as_str(), Some("references"));
+    assert_eq!(row["label"].as_str(), Some("c_fn"));
+    assert_eq!(v["pkg/d.py::d_fn"]["caller_count"].as_i64(), Some(1));
+    assert_eq!(v["pkg/d.py::d_fn"]["resolved_count"].as_i64(), Some(1));
+    assert_eq!(v["pkg/d.py::d_fn"]["ambiguous_count"].as_i64(), Some(0));
+}
+
+#[test]
+fn caller_row_carries_use_site_file_shoulder() {
+    // Each caller row carries the canonical passive-context shoulder of its
+    // use-site file, so a `callers` result tells the agent the file state of
+    // every place the symbol is called without a second `read`/`info` call.
+    // `d_fn`'s sole use site is the call inside `c_fn` at pkg/c.py:4, so the
+    // row's shoulder is pkg/c.py's file-state shoulder — settled single
+    // commit, local-only, the file's CCN, the canonical bracketed form.
+    let f = chain_repo();
+    f.trace(&["cache", "build", "."]).ok();
+    let r = f.trace(&["callers", "d_fn", "--json"]);
+    r.ok();
+    let v = r.json();
+    let row = v["pkg/d.py::d_fn"]["callers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["source_file"].as_str() == Some("pkg/c.py"))
+        .expect("missing pkg/c.py use site");
+    let shoulder = row["shoulder"]
+        .as_str()
+        .expect("caller row must carry a non-null shoulder for an in-repo use-site file");
+    assert!(
+        shoulder.starts_with("[git: new (1 commit) \u{00b7} age:"),
+        "caller-row shoulder must be the canonical bracketed file-state shoulder: {shoulder:?}"
+    );
+    assert!(
+        shoulder.contains("\u{00b7} churn: 1 commit, 1/30d \u{00b7}")
+            && shoulder.contains("\u{00b7} presence: local-only \u{00b7}"),
+        "caller-row shoulder must carry churn + presence from the use-site file's facts: {shoulder:?}"
+    );
+}
+
+#[test]
+fn downstream_dependent_row_carries_file_shoulder() {
+    // A downstream result row carries the canonical shoulder of the
+    // dependent file. In the a→b→c→d chain, d_fn's transitive dependents are
+    // the modules pkg.a/pkg.b/pkg.c; each row's shoulder is that dependent
+    // file's canonical file-state shoulder.
+    let f = chain_repo();
+    f.trace(&["cache", "build", "."]).ok();
+    let r = f.trace(&["downstream", "d_fn", "--json"]);
+    r.ok();
+    let v = r.json();
+    let deps = v["pkg/d.py::d_fn"]["dependents"].as_array().unwrap();
+    let row = deps
+        .iter()
+        .find(|d| d["source_file"].as_str() == Some("pkg/c.py"))
+        .expect("pkg/c.py must be a dependent of d_fn");
+    let shoulder = row["shoulder"]
+        .as_str()
+        .expect("downstream row must carry a non-null shoulder for an in-repo dependent file");
+    assert!(
+        shoulder.starts_with("[git: new (1 commit) \u{00b7} age:")
+            && shoulder.contains("\u{00b7} churn: 1 commit, 1/30d \u{00b7}"),
+        "downstream-row shoulder must be the canonical file-state shoulder: {shoulder:?}"
+    );
+}
+
+#[test]
+fn defines_row_carries_definition_file_shoulder() {
+    // Each `defines` row carries the canonical passive-context shoulder of the
+    // file the symbol is defined in, so a definition lookup also tells the
+    // agent the file state of where the symbol lives. d_fn is defined in
+    // pkg/d.py — a settled single-commit, local-only file.
+    let f = chain_repo();
+    f.trace(&["cache", "build", "."]).ok();
+    let r = f.trace(&["defines", "d_fn", "--json"]);
+    r.ok();
+    let v = r.json();
+    let row = v["definitions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|d| d["source_file"].as_str() == Some("pkg/d.py"))
+        .expect("d_fn must be defined in pkg/d.py");
+    let shoulder = row["shoulder"]
+        .as_str()
+        .expect("defines row must carry a non-null shoulder for an in-repo definition file");
+    assert!(
+        shoulder.starts_with("[git: new (1 commit) \u{00b7} age:")
+            && shoulder.contains("\u{00b7} churn: 1 commit, 1/30d \u{00b7}")
+            && shoulder.contains("\u{00b7} presence: local-only \u{00b7}"),
+        "defines-row shoulder must be the canonical file-state shoulder: {shoulder:?}"
+    );
+}
+
+#[test]
+fn symbols_command_carries_file_shoulder() {
+    // `trace symbols <file>` carries the canonical passive-context shoulder of
+    // the file at the top level, so listing a file's module-level symbols also
+    // surfaces that file's state. pkg/d.py is a settled single-commit file.
+    let f = chain_repo();
+    f.trace(&["cache", "build", "."]).ok();
+    let r = f.trace(&["symbols", "pkg/d.py", "--json"]);
+    r.ok();
+    let v = r.json();
+    let shoulder = v["shoulder"]
+        .as_str()
+        .expect("symbols must carry a non-null shoulder for an in-repo file");
+    assert!(
+        shoulder.starts_with("[git: new (1 commit) \u{00b7} age:")
+            && shoulder.contains("\u{00b7} churn: 1 commit, 1/30d \u{00b7}")
+            && shoulder.contains("\u{00b7} presence: local-only \u{00b7}"),
+        "symbols shoulder must be the canonical file-state shoulder: {shoulder:?}"
+    );
 }
 
 #[test]
@@ -385,6 +506,77 @@ fn downstream_missing_arg_exits_2() {
     let r = f.trace(&["downstream"]);
     r.code_is(2);
     assert!(r.combined().contains("SYMBOL or --path"), "{}", r.combined());
+}
+
+/// Reverse queries served from the reverse-edge index must return the same
+/// complete set a full edge-list scan would. This fan-in fixture has one
+/// target (`core_fn` in `pkg/core.py`) imported and called by five distinct
+/// modules; the reverse-dependent set is therefore exactly those five module
+/// nodes — no fewer (a dropped bucket entry would lose one), no more (a
+/// mis-keyed entry would add an unrelated one), and the island module that
+/// imports nothing internal must be absent. Pinning the exact, complete set
+/// is the black-box equivalent of "the index agrees with the scan."
+#[test]
+fn reverse_query_returns_complete_dependent_set() {
+    let f = Fixture::new();
+    f.write("pkg/__init__.py", "");
+    f.write("pkg/core.py", "def core_fn(x):\n    return x + 1\n");
+    for name in ["one", "two", "three", "four", "five"] {
+        f.write(
+            &format!("pkg/{name}.py"),
+            &format!(
+                "from pkg.core import core_fn\n\ndef {name}_fn(x):\n    return core_fn(x)\n"
+            ),
+        );
+    }
+    // Island: imports nothing internal, depends on nobody in the chain. Must
+    // never surface as a dependent of core_fn.
+    f.write("pkg/island.py", "def island_fn():\n    return 0\n");
+    f.commit("fan-in repo");
+    f.trace(&["cache", "build", "."]).ok();
+
+    let r = f.trace(&["downstream", "core_fn", "--depth", "1", "--json"]);
+    r.ok();
+    let v = r.json();
+    let mut dependents = node_ids(&v["pkg/core.py::core_fn"]["dependents"]);
+    dependents.sort();
+    let mut expected = vec![
+        "module::pkg.one".to_string(),
+        "module::pkg.two".to_string(),
+        "module::pkg.three".to_string(),
+        "module::pkg.four".to_string(),
+        "module::pkg.five".to_string(),
+    ];
+    expected.sort();
+    assert_eq!(
+        dependents, expected,
+        "reverse-index dependent set must be exactly the five importing \
+         modules — the same complete set a full edge scan returns"
+    );
+
+    // callers (reference-edge reverse index) must surface all five use sites
+    // and never the island.
+    let cr = f.trace(&["callers", "core_fn", "--json"]);
+    cr.ok();
+    let cv = cr.json();
+    let callers = cv["pkg/core.py::core_fn"]["callers"]
+        .as_array()
+        .expect("core_fn callers array must exist");
+    let caller_files: std::collections::BTreeSet<&str> = callers
+        .iter()
+        .filter_map(|c| c["source_file"].as_str())
+        .collect();
+    for name in ["one", "two", "three", "four", "five"] {
+        assert!(
+            caller_files.contains(format!("pkg/{name}.py").as_str()),
+            "callers (reference reverse index) dropped a use site in pkg/{name}.py; \
+             got {caller_files:?}"
+        );
+    }
+    assert!(
+        !caller_files.contains("pkg/island.py"),
+        "the island must never appear as a caller of core_fn: {caller_files:?}"
+    );
 }
 
 // ---------------------------------------------------------------------------

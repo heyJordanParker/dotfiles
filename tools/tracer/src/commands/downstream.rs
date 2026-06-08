@@ -4,6 +4,7 @@
 //! Symbol mode: transitive dependents of one symbol (BFS reverse edges).
 //! Path mode: top-N most-depended-on symbols across the path's graph.
 
+use crate::commands::enrich;
 use crate::{architecture, cache};
 use anyhow::Result;
 use serde_json::{json, Map, Value};
@@ -40,6 +41,15 @@ fn symbol_mode(symbol: &str, depth: i64, as_json: bool) -> Result<Value> {
         std::process::exit(2);
     }
 
+    // Canonical file-state shoulder per dependent file, batched across every
+    // matched symbol's transitive-dependent chain.
+    let dep_files: Vec<String> = matches
+        .iter()
+        .flat_map(|m| architecture::transitive_dependents(&graph, &m.id, depth))
+        .filter_map(|(node, _)| node.source_file.clone())
+        .collect();
+    let shoulders = enrich::file_shoulders(&dep_files, &repo_root);
+
     let mut output = Map::new();
     for m in &matches {
         let chain = architecture::transitive_dependents(&graph, &m.id, depth);
@@ -52,6 +62,7 @@ fn symbol_mode(symbol: &str, depth: i64, as_json: bool) -> Result<Value> {
                     "kind": node.kind,
                     "source_file": node.source_file,
                     "depth": d,
+                    "shoulder": node.source_file.as_deref().and_then(|f| shoulders.get(f)),
                 })
             })
             .collect();
@@ -95,6 +106,9 @@ fn symbol_mode(symbol: &str, depth: i64, as_json: bool) -> Result<Value> {
                     _ => "(external)".to_string(),
                 };
                 println!("    [d={d}] {} [{}] @ {}", node.label, node.kind, location);
+                if let Some(s) = node.source_file.as_deref().and_then(|f| shoulders.get(f)) {
+                    println!("        {s}");
+                }
             }
         }
     }
@@ -153,6 +167,12 @@ fn path_mode(path: &Path, depth: i64, limit: i64, as_json: bool) -> Result<Value
     });
     re_ranked.truncate(limit.max(0) as usize);
 
+    let ranked_files: Vec<String> = re_ranked
+        .iter()
+        .filter_map(|id| graph.nodes.get(id).and_then(|n| n.source_file.clone()))
+        .collect();
+    let shoulders = enrich::file_shoulders(&ranked_files, &repo_root);
+
     let mut rows: Vec<Value> = vec![];
     for node_id in &re_ranked {
         let node = match graph.nodes.get(node_id) {
@@ -168,6 +188,7 @@ fn path_mode(path: &Path, depth: i64, limit: i64, as_json: bool) -> Result<Value
             "source_line": node.source_line,
             "direct_dependents": *incoming.get(node_id.as_str()).unwrap_or(&0),
             "transitive_dependents": *transitive_counts.get(node_id).unwrap_or(&0),
+            "shoulder": node.source_file.as_deref().and_then(|f| shoulders.get(f)),
         }));
     }
 
@@ -212,6 +233,9 @@ fn path_mode(path: &Path, depth: i64, limit: i64, as_json: bool) -> Result<Value
                     row["label"].as_str().unwrap_or(""),
                     location,
                 );
+                if let Some(s) = row["shoulder"].as_str() {
+                    println!("        {s}");
+                }
             }
         }
     }

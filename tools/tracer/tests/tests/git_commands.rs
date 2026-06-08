@@ -674,13 +674,16 @@ fn rename_lifecycle_shoulder_reflects_renamed_state() {
         .find(|x| x["path"] == "new_name.py")
         .unwrap();
     // The settled diff-row shoulder is fully deterministic for this
-    // hermetic fixture: renamed-from the prior path, local-only, the
-    // carried-forward CCN of 2 (feature() has one `if`), the fixed
-    // hermetic author, and the rename commit's subject. No age component
-    // is emitted on this path, so the whole string is pinned exactly.
+    // hermetic fixture: renamed-from the prior path, local-only, churn of
+    // two commits (both within 30 days of the hermetic commit time), the
+    // carried-forward CCN of 2 (feature() has one `if`), the co-changed
+    // caller.py (touched in the same rename commit), the fixed hermetic
+    // author, and the rename commit's subject. The age component is
+    // normalized; the rest is pinned exactly — including the churn and
+    // changed-together fields the canonical shoulder now carries.
     assert_eq!(
         normalize_age(row["passive_context"].as_str().unwrap()),
-        "[git: renamed-from old_name.py \u{00b7} age: <AGE> \u{00b7} presence: local-only \u{00b7} ccn: 2 low \u{00b7} owner: Tracer Test \u{00b7} last: rename old_name -> new_name]",
+        "[git: renamed-from old_name.py \u{00b7} age: <AGE> \u{00b7} presence: local-only \u{00b7} churn: 2 commits, 2/30d \u{00b7} ccn: 2 low \u{00b7} together: caller.py \u{00b7} owner: Tracer Test \u{00b7} last: rename old_name -> new_name]",
         "settled rename shoulder must be exact: {}",
         row["passive_context"]
     );
@@ -698,12 +701,13 @@ fn rename_lifecycle_shoulder_reflects_renamed_state() {
         .find(|e| e["state"] == "renamed")
         .expect("uncommitted rename must appear in status as state=renamed");
     // The uncommitted-rename status shoulder is likewise fully
-    // deterministic: renamed (uncommitted), local-only, the one caller
-    // (caller.py imports feature), zero dependents, carried CCN 2. No age
-    // component on this path — pinned exactly.
+    // deterministic: renamed (uncommitted), local-only, churn of zero (the
+    // moved-but-uncommitted path has no commits of its own yet), the one
+    // caller (caller.py imports feature), zero dependents, carried CCN 2.
+    // No age and no changed-together on this path — pinned exactly.
     assert_eq!(
         renamed_entry["shoulder"].as_str().unwrap(),
-        "[git: renamed (uncommitted) \u{00b7} presence: local-only \u{00b7} callers: 1 \u{00b7} dependents: 0 \u{00b7} ccn: 2 low]",
+        "[git: renamed (uncommitted) \u{00b7} presence: local-only \u{00b7} churn: 0 commits, 0/30d \u{00b7} callers: 1 \u{00b7} dependents: 0 \u{00b7} ccn: 2 low]",
         "uncommitted-rename shoulder must be exact: {}",
         renamed_entry["shoulder"]
     );

@@ -6,6 +6,7 @@
 use crate::{architecture, cache, file_facts, git_activity, passive_context};
 use anyhow::Result;
 use serde_json::{json, Value};
+use std::collections::HashMap;
 use std::path::Path;
 
 /// Human-output grouping order; also the tertiary sort key.
@@ -31,11 +32,27 @@ fn entries_for_state(
     states: &[(String, String)],
     graph: Option<&architecture::Graph>,
 ) -> Vec<Value> {
+    // One batch resolve for every existing dirty file — a single mtime-index
+    // load plus parallel extraction — instead of a per-file get() loop that
+    // reloaded the whole mtime index for each dirty file (the dominant cost
+    // on a repo with many uncommitted files).
+    let existing: Vec<std::path::PathBuf> = states
+        .iter()
+        .map(|(relative, _)| repo_root.join(relative))
+        .filter(|abs| abs.exists())
+        .collect();
+    let facts_map: HashMap<String, file_facts::FileFacts> =
+        file_facts::get_batch(&existing, repo_root);
+
     let mut entries = Vec::new();
     for (relative, state) in states {
         let abs_path = repo_root.join(relative);
         let facts = if abs_path.exists() {
-            file_facts::get(&abs_path, repo_root, None)
+            abs_path
+                .canonicalize()
+                .ok()
+                .map(|abs| cache::relative_to_root(&abs, repo_root))
+                .and_then(|rel| facts_map.get(&rel).cloned())
         } else {
             None
         };

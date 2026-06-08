@@ -22,11 +22,14 @@ fn arch_entries(f: &Fixture) -> Vec<std::path::PathBuf> {
     if !dir.is_dir() {
         return vec![];
     }
+    // The architecture graph is a bincode `.bin` entry (decoded straight into
+    // the struct, no JSON parse). One entry per repo state; superseded
+    // fingerprints are evicted on write.
     let mut out: Vec<_> = fs::read_dir(&dir)
         .unwrap()
         .flatten()
         .map(|e| e.path())
-        .filter(|p| p.extension().and_then(|x| x.to_str()) == Some("json"))
+        .filter(|p| p.extension().and_then(|x| x.to_str()) == Some("bin"))
         .collect();
     out.sort();
     out

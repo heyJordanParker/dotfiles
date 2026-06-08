@@ -8,8 +8,9 @@
 use crate::cache;
 use serde_json::{json, Value};
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::{Mutex, OnceLock};
 
 const CACHE_KEY_PREFIX: &str = "repo_context_v3_";
 
@@ -124,7 +125,25 @@ fn median_int(sorted: &[i64]) -> i64 {
     }
 }
 
+/// Process-wide memo of the scc payload, keyed by repo root. The payload is
+/// a function of git HEAD, stable within a single CLI invocation, so the
+/// `git rev-parse HEAD` key lookup, the disk load, and the JSON parse run at
+/// most once per root — `language_summary`, `per_file_metrics`, and
+/// `repo_context` all share it. The lock is held across the compute so a
+/// cold cache runs `scc` exactly once even when parallel callers race.
 fn load_or_compute(repo_root: &Path) -> Value {
+    static MEMO: OnceLock<Mutex<HashMap<PathBuf, Value>>> = OnceLock::new();
+    let memo = MEMO.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut guard = memo.lock().unwrap();
+    if let Some(cached) = guard.get(repo_root) {
+        return cached.clone();
+    }
+    let computed = load_or_compute_uncached(repo_root);
+    guard.insert(repo_root.to_path_buf(), computed.clone());
+    computed
+}
+
+fn load_or_compute_uncached(repo_root: &Path) -> Value {
     match git_head(repo_root) {
         None => compute(repo_root),
         Some(head) => {

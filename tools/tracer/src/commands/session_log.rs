@@ -48,7 +48,9 @@ const AGENT_ID_DEFAULT: &str = "root";
 pub enum EventKind {
     DocInjection,
     ReadFile,
+    DirectorySurfaced,
     ContextPrimeDrift,
+    ContextReset,
 }
 
 /// One log event. Schema fields match the spec:
@@ -271,20 +273,28 @@ pub fn record_emission(memories: &[LoadedMemory], source: &str) {
     let _ = rustix::fs::flock(&lock_fh, rustix::fs::FlockOperation::Unlock);
 }
 
-/// Record a `read_file` event for a path the agent just read. No-op when
-/// the session id is absent, the file is missing, or the same (path, hash)
-/// is already in the view. Dedup-by-content-hash mirrors `record_emission`
-/// so a follow-up doc-injection or read against the same content returns
-/// "already loaded" without re-emitting.
-pub fn record_read(file_path: &std::path::Path, source: &str) {
+/// Record a `read_file` event for a path the agent just read, returning
+/// whether this is the file's first surfacing in the session (so the caller
+/// can attach first-touch-only context like the file's method list). No-op
+/// when the session id is absent, the file is missing, or the same
+/// (path, hash) is already in the view. Dedup-by-content-hash mirrors
+/// `record_emission` so a follow-up doc-injection or read against the same
+/// content returns "already loaded" without re-emitting.
+///
+/// First-touch semantics: a newly-inserted (path, hash) is the first
+/// surfacing → `true`. An unchanged repeat read is not → `false`. With no
+/// active session there is no log to dedup against, so every touch is a
+/// first touch → `true`, keeping standalone `trace context <file>` fully
+/// informative.
+pub fn record_read(file_path: &std::path::Path, source: &str) -> bool {
     let Some(dir) = log_dir() else {
-        return;
+        return true;
     };
     let Ok(content) = fs::read_to_string(file_path) else {
-        return;
+        return false;
     };
     if fs::create_dir_all(&dir).is_err() {
-        return;
+        return true;
     }
 
     let lock_path = dir.join(".lock");
@@ -295,7 +305,7 @@ pub fn record_read(file_path: &std::path::Path, source: &str) {
         .open(&lock_path)
     {
         Ok(fh) => fh,
-        Err(_) => return,
+        Err(_) => return true,
     };
     let _ = rustix::fs::flock(&lock_fh, rustix::fs::FlockOperation::LockExclusive);
 
@@ -310,7 +320,8 @@ pub fn record_read(file_path: &std::path::Path, source: &str) {
         .to_string();
     let hash = content_hash(&content);
 
-    if view.emitted.get(&canonical) != Some(&hash) {
+    let first_touch = view.emitted.get(&canonical) != Some(&hash);
+    if first_touch {
         view.emitted.insert(canonical.clone(), hash.clone());
         let event = Event {
             ts: unix_ms(),
@@ -328,6 +339,67 @@ pub fn record_read(file_path: &std::path::Path, source: &str) {
     }
 
     let _ = rustix::fs::flock(&lock_fh, rustix::fs::FlockOperation::Unlock);
+    first_touch
+}
+
+/// Record a directory's first surfacing in the session, returning whether
+/// this is its first touch (so the caller can attach the one-level file
+/// listing once). The directory is keyed in the same `view.emitted` map as
+/// read files, under a fixed `dir:` marker hash — a directory has no content
+/// to hash, and the marker keeps its key from ever colliding with a file's
+/// content hash at the same path. Mirrors `record_read`'s lock discipline and
+/// no-session semantics: with no active session every touch is a first touch.
+pub fn record_directory_touch(dir_path: &std::path::Path, source: &str) -> bool {
+    let Some(dir) = log_dir() else {
+        return true;
+    };
+    if fs::create_dir_all(&dir).is_err() {
+        return true;
+    }
+
+    let lock_path = dir.join(".lock");
+    let lock_fh = match fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(&lock_path)
+    {
+        Ok(fh) => fh,
+        Err(_) => return true,
+    };
+    let _ = rustix::fs::flock(&lock_fh, rustix::fs::FlockOperation::LockExclusive);
+
+    let view_path = dir.join("view.json");
+    let events_path = dir.join("events.jsonl");
+    let mut view = load_view(&view_path);
+
+    let canonical = dir_path
+        .canonicalize()
+        .unwrap_or_else(|_| dir_path.to_path_buf())
+        .to_string_lossy()
+        .to_string();
+    let marker = content_hash(&format!("dir:{canonical}"));
+
+    let first_touch = view.emitted.get(&canonical) != Some(&marker);
+    if first_touch {
+        view.emitted.insert(canonical.clone(), marker.clone());
+        let event = Event {
+            ts: unix_ms(),
+            path: canonical,
+            kind: EventKind::DirectorySurfaced,
+            source: source.to_string(),
+            size: 0,
+            content_hash: marker,
+            triggering_tool: std::env::var("TRACER_TRIGGERING_TOOL").ok(),
+            triggering_command: std::env::var("TRACER_TRIGGERING_COMMAND").ok(),
+            visible_as: dir_path.to_string_lossy().to_string(),
+        };
+        let _ = append_events(&events_path, &[event]);
+        let _ = save_view(&view_path, &view);
+    }
+
+    let _ = rustix::fs::flock(&lock_fh, rustix::fs::FlockOperation::Unlock);
+    first_touch
 }
 
 /// Record a `context_prime_drift` event and reconcile the view to observed
@@ -400,6 +472,72 @@ pub fn record_context_prime_drift(report: &drift::Report, observed: &drift::Obse
     let _ = save_view(&view_path, &view);
 
     let _ = rustix::fs::flock(&lock_fh, rustix::fs::FlockOperation::Unlock);
+}
+
+/// Reset the surfaced-docs state for the current (session, agent): clear the
+/// view's `emitted` map so a subsequent `trace docs` re-surfaces every doc as
+/// new, and append one `context_reset` event recording the cleared set. The
+/// append-only `events.jsonl` is preserved — only the materialized projection
+/// is reconciled, mirroring `record_context_prime_drift`.
+///
+/// This is the seam the Codex compaction/clear hook drives: after a context
+/// reset drops injected rule text from the model, the surfaced-docs state must
+/// reset so the rules re-inject instead of being skipped as already-loaded.
+///
+/// Returns the number of paths cleared. A clean no-op (returns 0) when the
+/// session id is absent, no repo root is resolvable, or nothing was surfaced —
+/// keeping standalone tracer use valid. Lock failures swallow, matching
+/// `record_emission`.
+pub fn record_context_reset(source: &str) -> usize {
+    let Some(dir) = log_dir() else {
+        return 0;
+    };
+    let view_path = dir.join("view.json");
+    // Nothing surfaced yet (no view on disk) → clean no-op, no event, no dir.
+    if !view_path.is_file() {
+        return 0;
+    }
+
+    let lock_path = dir.join(".lock");
+    let lock_fh = match fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(&lock_path)
+    {
+        Ok(fh) => fh,
+        Err(_) => return 0,
+    };
+    let _ = rustix::fs::flock(&lock_fh, rustix::fs::FlockOperation::LockExclusive);
+
+    let events_path = dir.join("events.jsonl");
+    let mut view = load_view(&view_path);
+    let cleared: Vec<String> = view.emitted.keys().cloned().collect();
+
+    if cleared.is_empty() {
+        let _ = rustix::fs::flock(&lock_fh, rustix::fs::FlockOperation::Unlock);
+        return 0;
+    }
+
+    view.emitted.clear();
+
+    let payload = serde_json::to_string(&cleared).unwrap_or_else(|_| "[]".to_string());
+    let event = Event {
+        ts: unix_ms(),
+        path: String::new(),
+        kind: EventKind::ContextReset,
+        source: source.to_string(),
+        size: payload.len(),
+        content_hash: content_hash(&payload),
+        triggering_tool: std::env::var("TRACER_TRIGGERING_TOOL").ok(),
+        triggering_command: std::env::var("TRACER_TRIGGERING_COMMAND").ok(),
+        visible_as: payload,
+    };
+    let _ = append_events(&events_path, &[event]);
+    let _ = save_view(&view_path, &view);
+
+    let _ = rustix::fs::flock(&lock_fh, rustix::fs::FlockOperation::Unlock);
+    cleared.len()
 }
 
 /// All events in the current (session, agent) log, in

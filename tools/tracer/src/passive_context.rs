@@ -1,9 +1,19 @@
 //! Passive architectural-context shoulder. Pure functions, no I/O. The
-//! one-line lifecycle/complexity shoulder rendered for any FileFacts
+//! one canonical lifecycle/complexity shoulder rendered for any FileFacts
 //! (U+2026 ellipsis, fixed age-bucket thresholds).
+//!
+//! ONE field set, ONE source function (`parts`). `render` joins the full
+//! field set into the bracketed one-liner everywhere a file appears;
+//! `render_compact` is a density variant that selects the headline fields
+//! from the SAME builder — never a parallel hand-written format. The shoulder
+//! carries the complete repo-state picture: lifecycle, both ages
+//! (created → modified), churn (total + 30-day velocity), changed-together,
+//! deploy-branch presence, complexity, owner, last subject, and (when the
+//! caller supplies the graph counts) callers + dependents.
 
 use crate::file_facts::FileFacts;
 use serde_json::Value;
+use std::path::Path;
 
 /// today - last_modified, as days. Civil-day arithmetic on UTC dates.
 fn days_since(last_modified: &str) -> Option<i64> {
@@ -32,10 +42,9 @@ fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
     era * 146097 + doe - 719468
 }
 
-/// Age shoulder from `last_modified`, bucketed (today/Nd/Nw/Nmo/NyNmo).
-fn age(facts: &FileFacts) -> Option<String> {
-    let lm = facts.last_modified.as_ref()?;
-    let days = days_since(lm)?;
+/// A single date string bucketed to an age token (today/Nd/Nw/Nmo/NyNmo).
+fn age_token(date: &str) -> Option<String> {
+    let days = days_since(date)?;
     if days < 0 {
         return None;
     }
@@ -58,6 +67,18 @@ fn age(facts: &FileFacts) -> Option<String> {
             format!("{years}y")
         }
     })
+}
+
+/// Age shoulder spanning the file's lifetime: `<first-seen>→<last-modified>`.
+/// Collapses to a single token when the file was first seen and last touched
+/// in the same age bucket (or when `first_seen` is unknown), so a brand-new
+/// file reads `today` rather than `today→today`.
+fn age(facts: &FileFacts) -> Option<String> {
+    let modified = facts.last_modified.as_ref().and_then(|m| age_token(m))?;
+    match facts.first_seen.as_ref().and_then(|c| age_token(c)) {
+        Some(created) if created != modified => Some(format!("{created}\u{2192}{modified}")),
+        _ => Some(modified),
+    }
 }
 
 /// Lifecycle label: working-tree state if dirty, else commit-count /
@@ -98,23 +119,62 @@ fn clip_subject(subject: &str, max_chars: usize) -> String {
     format!("{}\u{2026}", truncated.trim_end())
 }
 
-/// The full one-line passive-context shoulder. `graph` is the optional
-/// {"callers": int, "depended_on_by_modules": int} map.
-pub fn render(facts: &FileFacts, graph: Option<&Value>) -> String {
-    let state = state_label(facts);
-    let complexity = format!(
-        "ccn: {} {}",
-        facts.cyclomatic_complexity_total, facts.rank
-    );
-    let mut parts: Vec<String> = vec![format!("git: {state}")];
+/// Churn shoulder: total commits plus recent velocity (commits in the last
+/// 30 days). `state_label` carries the commit count only on some lifecycle
+/// states and never the velocity, so this is the one field where both the
+/// lifetime total and the recent rate always appear together.
+fn churn(facts: &FileFacts) -> String {
+    let total = facts.commit_count;
+    let unit = if total == 1 { "commit" } else { "commits" };
+    format!("churn: {total} {unit}, {}/30d", facts.commits_30d)
+}
+
+/// Changed-together shoulder: the basenames of the top files that co-change
+/// with this one. `co_changed` is already ranked by co-change count, so the
+/// top `max` entries are the strongest couplings. Empty when the file has no
+/// recorded co-change history.
+fn changed_together(facts: &FileFacts, max: usize) -> Option<String> {
+    if facts.co_changed.is_empty() {
+        return None;
+    }
+    let names: Vec<String> = facts
+        .co_changed
+        .iter()
+        .take(max)
+        .map(|(path, _)| {
+            Path::new(path)
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_else(|| path.clone())
+        })
+        .collect();
+    Some(format!("together: {}", names.join(", ")))
+}
+
+/// The single source of truth for the shoulder's field set. `graph` is the
+/// optional {"callers": int, "depended_on_by_modules": int} map. When
+/// `dense` is false the full field set is built; when true only the headline
+/// density variant (state · age · churn · ccn) is built — same builder, same
+/// vocabulary, never a parallel format.
+fn parts(facts: &FileFacts, graph: Option<&Value>, dense: bool) -> Vec<String> {
+    let mut parts: Vec<String> = vec![format!("git: {}", state_label(facts))];
     if let Some(a) = age(facts) {
         parts.push(format!("age: {a}"));
+    }
+    if dense {
+        parts.push(churn(facts));
+        parts.push(format!(
+            "ccn: {} {}",
+            facts.cyclomatic_complexity_total, facts.rank
+        ));
+        return parts;
     }
     if !facts.present_in.is_empty() {
         parts.push(format!("presence: {}", facts.present_in.join(", ")));
     } else {
         parts.push("presence: local-only".into());
     }
+    parts.push(churn(facts));
     if let Some(g) = graph {
         let callers = g.get("callers").and_then(|x| x.as_i64()).unwrap_or(0);
         let dep = g
@@ -123,19 +183,32 @@ pub fn render(facts: &FileFacts, graph: Option<&Value>) -> String {
             .unwrap_or(0);
         parts.push(format!("callers: {callers} · dependents: {dep}"));
     }
-    parts.push(complexity);
+    parts.push(format!(
+        "ccn: {} {}",
+        facts.cyclomatic_complexity_total, facts.rank
+    ));
+    if let Some(t) = changed_together(facts, 3) {
+        parts.push(t);
+    }
     if let Some(ta) = &facts.top_author {
         parts.push(format!("owner: {ta}"));
     }
     if let Some(ls) = &facts.last_subject {
         parts.push(format!("last: {}", clip_subject(ls, 60)));
     }
-    format!("[{}]", parts.join(" · "))
+    parts
 }
 
-/// The compact shoulder. Format: `<state> · <age>`.
+/// The canonical one-line passive-context shoulder carrying the complete
+/// repo-state picture. `graph` is the optional {"callers": int,
+/// "depended_on_by_modules": int} map.
+pub fn render(facts: &FileFacts, graph: Option<&Value>) -> String {
+    format!("[{}]", parts(facts, graph, false).join(" · "))
+}
+
+/// The dense density variant — the headline fields (state · age · churn ·
+/// ccn) from the SAME field builder as `render`, for listings where one file
+/// is one line among many. Bracketed identically so the two read alike.
 pub fn render_compact(facts: &FileFacts) -> String {
-    let state = state_label(facts);
-    let a = age(facts).unwrap_or_else(|| "—".to_string());
-    format!("{state} · {a}")
+    format!("[{}]", parts(facts, None, true).join(" · "))
 }

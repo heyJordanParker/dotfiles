@@ -21,6 +21,7 @@
 
 use crate::cache;
 use crate::commands::nested_memory;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
@@ -32,7 +33,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 /// One doc node in the graph. Kinds mirror `LoadedMemory.kind` values
 /// emitted by `nested_memory` (claude_md / local_md / rules_unconditional /
 /// rules_conditional / include) so consumers can filter by source category.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DocNode {
     pub path: String,
     pub kind: String,
@@ -43,7 +44,7 @@ pub struct DocNode {
 
 /// `source` includes `target` via an `@include` directive (or is a rules
 /// file whose conditional `paths:` matched).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DocEdge {
     pub source: String,
     pub target: String,
@@ -101,7 +102,11 @@ pub fn build(repo_root: &Path) -> (DocsGraph, DocsInputs) {
     (graph, inputs)
 }
 
-fn git_head(repo_root: &Path) -> String {
+/// Current git HEAD for the repo — one `git rev-parse`, no tree walk. The
+/// architecture read path (`architecture::load_cached`) calls this to
+/// validate a cached entry's docs side cheaply without re-walking the doc
+/// tree for a full mtime aggregate.
+pub fn git_head(repo_root: &Path) -> String {
     Command::new("git")
         .args(["rev-parse", "HEAD"])
         .current_dir(repo_root)

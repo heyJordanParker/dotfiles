@@ -325,9 +325,12 @@ pub fn standard_repo() -> Fixture {
 /// That UTC-boundary flip is the documented non-deterministic axis: the
 /// tightest stable invariant is "the age token is one of the freshly-
 /// committed buckets". This replaces the live token with the literal
-/// `<AGE>` (in both the verbose ` · age: <tok>` form used by `render` and
-/// the compact `<state> · <tok>` form used by `render_compact`) and panics
-/// if it is not a fresh-commit bucket, so a wrong age still fails loudly.
+/// `<AGE>` in the ` · age: <tok>` form the canonical shoulder uses (both
+/// the full `render` and the dense `render_compact` variant carry the
+/// `age:` field), and panics if it is not a fresh-commit bucket, so a
+/// wrong age still fails loudly. The age token may itself be a
+/// `created→modified` range; the normalizer matches the single fresh-commit
+/// token a hermetic same-run commit always produces.
 pub fn normalize_age(shoulder: &str) -> String {
     // Fresh-commit buckets only: `today` (same UTC day) or `1d` (one UTC
     // midnight crossed mid-run). Anything else is a real bug, not the axis.
@@ -335,10 +338,6 @@ pub fn normalize_age(shoulder: &str) -> String {
         let verbose = format!(" · age: {tok}");
         if shoulder.contains(&verbose) {
             return shoulder.replace(&verbose, " · age: <AGE>");
-        }
-        let compact = format!(" · {tok}");
-        if shoulder.ends_with(&compact) {
-            return shoulder.replace(&compact, " · <AGE>");
         }
     }
     panic!(
