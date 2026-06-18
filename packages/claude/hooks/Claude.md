@@ -1,77 +1,102 @@
 # Claude Code Hooks
-v1.12 | Updated: 2026-05-24
 
 ## Why
 
 Claude Code's hook system is the only place to enforce behavior across every session. The agent forgets, the model drifts, prompts decay — but a hook fires deterministically on every event. Hooks turn instructions into invariants.
 
-The directory's center of gravity is `session-state.sh` — a unified per-session state helper that every other hook reads from or writes to. State scattered across inline jq calls in 8 different hooks caused schema drift, race-window bugs, and made it impossible to add new tracked fields without touching every consumer. Centralizing it behind one helper script with a small public surface fixed the dependency mess and made new state cheap to add.
+The hooks are Python, shared with Codex. Their source of truth is `packages/agents/hooks/<module>.py` (stowed to `~/.agents/hooks/`), and the wiring invokes them by absolute path so one set of hooks serves both harnesses — see the cross-tool sharing section of the repo-root `Claude.md`. This directory holds only the plugin-distributed shell copies (below); the Python hooks live one package over.
+
+The hooks' center of gravity is `lib/session_state.py` — a unified per-session state store every state-recording hook reads from or writes to. State scattered across inline `jq` calls in the wiring caused schema drift, race-window bugs, and made it impossible to add new tracked fields without touching every consumer. Centralizing it behind one module with a small public surface fixed the dependency mess and made new state cheap to add. One hook — `record_session_event.py` — owns every recording event and drives the spine in-process.
 
 ## What
 
-This directory contains the safety, enforcement, and state-tracking hooks wired into Claude Code via `settings.json` and `hooks.json`. Every other hook reads from or writes to the session-state helper.
+Two layers live here, with different homes:
+
+- **The live hooks Claude (and Codex) run** are Python under `packages/agents/hooks/`. Claude wires them in `settings.json` by absolute `~/.agents/hooks/<module>.py` path; Codex wires nearly all of them in its `config.toml` (all but the guards for Claude-only tools and events). This directory does **not** hold them.
+- **This directory (`packages/claude/hooks/`)** holds only the small set of shell hooks the plugin marketplace still distributes to external installs that have no Python layer, plus the plugin wiring file (`hooks.json`) that references them, plus one third-party vendor script, plus this doc.
 
 ### Requirements
 
-- Every state read/write goes through `session-state.sh` — never inline `jq` against `~/.claude/sessions/*/state.json` from a hook
-- Every hook in this directory exits 0 on infrastructure failure (missing state file, parse error, missing tool) — a hook never blocks the agent because of the hook's own brokenness
+- Every hook's state read/write goes through the `session_state.py` spine (Python hooks via its `cmd_*` / `load_state` / `merge_state`), never inline `jq` or hand-rolled JSON. The one exception is the statusline — it is shell, runs on every render, and reads the main session's `state.json` directly at the deterministic path
+- Every recording event routes through `record_session_event.py` — it reads the event JSON once, routes on `hook_event_name`, and drives the spine's `cmd_*` functions in-process. No per-event inline glue
+- Every hook exits 0 on infrastructure failure (missing state file, parse error, missing tool) — a hook never blocks the agent because of the hook's own brokenness
 - New fields added to the state schema also get `// 0` / `// null` defaults at every read site — older session files on disk must keep working
 - Subagent sessions (`session_id` starting with `agent-`) get their own state files under their parent's `subagents/` directory; no global parent-state mutation from a subagent's hook
-- Every persistent file lives under `~/.claude/` (overridable via `$CLAUDE_DATA_ROOT`); never `/tmp/` — sessions must survive reboot
-- Helper hook invocations always redirect stderr to `/tmp/session-state-hook.log` (never `/dev/null`) — silent failures hide the cause
-- Pick the mechanism by the decision's nature — a deterministic predicate over structured input (a flag, a path, an exit code, a `jq` test) is code; a judgment over natural language or intent is an LLM call. Bash cannot classify language — keyword and regex matching on prose is fragile and wrong. An LLM gate on what `jq` can decide is nondeterminism and cost for nothing
+- Every persistent file lives under `~/.claude/` (overridable via `$CLAUDE_DATA_ROOT`); never `/tmp/` — sessions must survive reboot. Session control state (`approach`, `state`, `intent`, `commit_requested`, `notes`, `validation_phase`) lives on the spine record alongside the telemetry, written by the classifier and the plan transition, read by the proposal/commit/solo guards, the completion validator, and the statusline
+- Pick the mechanism by the decision's nature — a deterministic predicate over structured input (a flag, a path, an exit code) is code; a judgment over natural language or intent is an LLM call. Keyword and regex matching on prose is fragile and wrong. An LLM gate on what code can decide is nondeterminism and cost for nothing
 
 ### Boundaries
 
-- Never call `claude -p` (the LLM) from a hook that fires on every event — LLM calls are reserved for `classify-intent.sh`, `validate-completion.sh`, `validate-plan-quality.sh`, and `validate-planning-docs.sh`, all gated by structural pre-filters or rare events
-- Never expose internal helpers (functions prefixed `_`) through the helper's main dispatch — they're implementation details
-- Never count system-injected `UserPromptSubmit` events as human turns (skill expansions, task notifications, slash-command echoes) — use `session-state prompt` which filters via the documented structural predicate
+- Never call the LLM from a hook that fires on every event — model calls are reserved for `classify_intent.py`, `validate_completion.py`, `validate_plan_quality.py`, and `validate_planning_docs.py`, all gated by structural pre-filters or rare events
+- Never expose internal helpers (functions prefixed `_`) through the spine's main dispatch — they're implementation details
+- Never count system-injected `UserPromptSubmit` events as human turns (skill expansions, task notifications, slash-command echoes) — the spine's `prompt` command filters via the documented structural predicate
 - Never relocate or rewrite a session's `role` / `parent_session_id` after `_ensure_session` wrote them — heal corrupt JSON, but don't second-guess the parent linkage once set
-- Never use `jq -e .` to detect "is this valid JSON" — `jq -e` returns 1 for valid JSON `null` / `false`; use `jq empty` or `jq -e 'type == "object"'`
+- Never check "is this valid JSON" by truthiness — a valid JSON `null` / `false` is not the same as a parse failure; the spine distinguishes them explicitly
 
 ## Architecture
 
+### Live hooks (Python — `packages/agents/hooks/`)
+
+The hooks Claude and Codex run. Wired by absolute `~/.agents/hooks/<module>.py` path.
+
 ```
-hooks/
-├── session-state.sh        # unified session-state helper (the API)
-├── session-state-test.sh   # 500+ test harness for the helper
-├── hooks.json              # plugin-distributed wiring (mirrors settings.json)
+packages/agents/hooks/
+├── lib/
+│   ├── session_state.py    # unified per-session state store (the spine; cmd_*, load_state, merge_state)
+│   ├── event.py            # event-payload parsing (read_event, field)
+│   ├── command.py          # bash-command parsing for the Bash guards
+│   ├── transcript.py       # Claude Code transcript layer
+│   ├── model_call.py       # the single LLM-call helper the gate hooks share
+│   └── codex_run.py        # runs codex as a named agent for the `codex-run` wrapper (stores output via the spine)
 │
-├── classify-intent.sh      # UserPromptSubmit — LLM intent classifier
-├── classify-intent-test.sh
+├── record_session_event.py # the one recording hook — routes every state-recording event to the spine
+├── classify_intent.py      # UserPromptSubmit — LLM intent classifier
 │
-├── auto-approve-permissions.sh           # PermissionRequest matcher
-├── block-builtin-subagents.sh            # PreToolUse Agent matcher
-├── block-edits-during-proposal.sh        # PreToolUse Write|Edit|NotebookEdit + Bash matchers
-├── block-enter-worktree.sh               # PreToolUse EnterWorktree matcher
-├── block-git-revert.sh                   # PreToolUse Bash matcher
-├── block-team-deletion.sh                # PreToolUse TeamDelete matcher
-├── block-unauthorized-commits.sh         # PreToolUse Bash matcher
-├── block-unsafe-delete.sh                # PreToolUse Bash matcher
-├── block-worktree-isolation.sh           # PreToolUse Agent matcher
-├── guard-trace.sh                        # PreToolUse Bash matcher — force code reads through trace
+├── block_git_revert.py             # PreToolUse Bash
+├── block_branch_change.py          # PreToolUse Bash — subagent-only (agent_id gate)
+├── block_unsafe_delete.py          # PreToolUse Bash
+├── block_path_assignment.py        # PreToolUse Bash — blocks bare assignment to zsh tied params (path/cdpath/fpath/manpath)
+├── block_unauthorized_commits.py   # PreToolUse Bash
+├── block_edits_during_proposal.py  # PreToolUse Write|Edit|MultiEdit|NotebookEdit + Bash — also blocks interpreter execution (python/node/bash/…) while proposing
+├── block_builtin_subagents.py      # PreToolUse Agent
+├── block_enter_worktree.py         # PreToolUse EnterWorktree
+├── block_team_deletion.py          # PreToolUse TeamDelete
+├── block_worktree_isolation.py     # PreToolUse Agent
+├── protect_session_state.py        # PreToolUse Write|Edit|MultiEdit + Bash
+├── guard_trace.py                  # PreToolUse Bash — force code reads through trace
 │
-├── enforce-background-agents.sh          # PreToolUse Agent matcher
-├── enforce-solo-mode.sh                  # PreToolUse Agent matcher
-├── protect-session-state.sh              # PreToolUse Write|Edit|Bash
+├── enforce_background_codex_run.py # PreToolUse Bash — codex-run must run in background
+├── enforce_solo_mode.py            # PreToolUse Agent + Bash — blocks the Agent tool, and codex/codex-run/claude, in solo
 │
-├── transition-state-after-plan.sh        # PostToolUse ExitPlanMode
-├── validate-completion.sh                # Stop — LLM completion gate
-├── validate-plan-quality.sh              # PreToolUse ExitPlanMode — LLM
-├── validate-planning-docs.sh             # PreToolUse Write|Edit — LLM
-├── validate-ledger-entries.sh            # PreToolUse Write|Edit *.md
-├── block-ledger-only-edits.sh            # PreToolUse Write|Edit Claude.md — ledger entry requires same-edit body change
+├── transition_state_after_plan.py  # PostToolUse ExitPlanMode
+├── validate_completion.py          # Stop — LLM completion gate
+├── validate_plan_quality.py        # PreToolUse ExitPlanMode — LLM
+├── validate_planning_docs.py       # PreToolUse Write|Edit|MultiEdit — LLM
 │
-├── sync-shaping.sh                       # PostToolUse Write|Edit
-├── load-trace-context.sh                 # SessionStart — injects `trace context` primer as additionalContext
-├── reload-harness-context.sh             # SessionStart — runs `trace context prime` so the tracer log mirrors what Claude Code's harness auto-loaded
-├── enrich-on-read.sh                     # PreToolUse Read|Glob|Grep — passive shoulder + docs-awareness on Read; details on Glob
-├── inject-docs.sh                        # PreToolUse Bash — injects project-docs for path-taking `trace` invocations
-├── archive-subagent-log.sh               # subagent-stop signal — moves the subagent's tracer log under archived/
-├── initialize-session-state.sh           # legacy — superseded by session-state start
-│
-└── subagents/                            # subagent-only hooks (gated by .agent_id; local wiring only)
-    └── block-branch-change.sh            # PreToolUse Bash matcher — block branch changes for subagents
+├── sync_shaping.py                 # PostToolUse Write|Edit
+├── load_trace_context.py           # SessionStart — injects `trace context` primer as additionalContext
+├── reload_harness_context.py       # SessionStart — runs `trace context prime` so the tracer log mirrors what the harness auto-loaded
+├── enrich_on_read.py               # PreToolUse Read|Glob|Grep|Edit|Write — passive shoulder on each target; full `trace context` per match on Glob/Grep
+├── inject_docs.py                  # PreToolUse Bash — injects project-docs for path-taking `trace` invocations; blocks the command if the docs load fails
+├── inject_rules.py                 # SessionStart + PreToolUse Read|Write|Edit|apply_patch — Codex-only; injects the nearest Claude.md (Claude loads Claude.md itself)
+├── auto_approve_permissions.py     # PermissionRequest — auto-allow every permission request
+└── archive_subagent_log.py         # subagent-stop signal — moves the subagent's tracer log under archived/
+```
+
+### Plugin-distributed shell copies (this directory — `packages/claude/hooks/`)
+
+The shell hooks the plugin marketplace ships to external installs, which have no Python layer. The plugin wiring file (`hooks.json`) references exactly these five; everything else here is the wiring file itself, this doc, and one third-party vendor script.
+
+```
+packages/claude/hooks/
+├── hooks.json              # plugin-marketplace wiring (${CLAUDE_PLUGIN_ROOT} paths) — references the five below
+├── block-git-revert.sh         # PreToolUse Bash
+├── block-unsafe-delete.sh       # PreToolUse Bash
+├── validate-planning-docs.sh    # PreToolUse Write|Edit|MultiEdit
+├── validate-plan-quality.sh     # PreToolUse ExitPlanMode
+├── sync-shaping.sh              # PostToolUse Write|Edit
+├── herdr-agent-state.sh        # third-party vendor script (agent-state notifications); not ours, not plugin-distributed
+└── Claude.md                   # this file
 ```
 
 ### State storage
@@ -90,14 +115,18 @@ hooks/
     └── <another_main_session_id>/
 ```
 
-### `session-state.sh` public API
+The control fields (`approach`, `state`, `intent`, `commit_requested`, `notes`, `validation_phase`) live on the same `state.json` record — `classify_intent.py` and `transition_state_after_plan.py` write them through the spine's `merge_state`, and the proposal, commit, and solo guards, the completion validator, and the statusline read them back. There is no separate control store; the spine owns control state and telemetry alike.
+
+### `session_state.py` public surface
+
+The spine dispatches these commands (used in-process by `record_session_event.py` and the gate hooks, and runnable directly as `python3 lib/session_state.py <command> [args...]`):
 
 ```
 start <session_id> [--transcript-path <path>]    open/heal session, record session_start
 end <session_id>                                  rm -rf, cascades subagents
 
 get <session_id> <field>                          read field (soft on missing)
-get --path [target]                               resolve a path: <session_id>, data-root, sessions, shaping, or current $CLAUDE_SESSION_ID
+get --path [target]                               resolve a path: <session_id>, data-root, sessions, shaping, or the current session (AGENT_SESSION_ID / CODEX_THREAD_ID / CLAUDE_CODE_SESSION_ID, in that order)
 
 set <session_id> <field> <value>                  atomic single-field
 merge <session_id> <json_fragment>                atomic multi-field
@@ -129,7 +158,7 @@ state                string         proposing | executing | auto — state machi
 intent               string         most recent classified intent
 commit_requested     boolean
 notes                array          surprise/correction notes from classify-intent
-validation_phase     int            counter for validate-completion's max-3 block rule
+validation_phase     int            counter for validate_completion's max-3 block rule
 pane                 string|null    zellij pane id
 tmux-pane            string|null    tmux pane address (transitional during zellij migration)
 session_start        int|null       epoch seconds; set once on first `start`
@@ -145,78 +174,75 @@ Subagent state files omit the intent-classifier fields (`approach`, `state`, `in
 
 ## Workflow
 
-### Hook → command wiring
+### Recording: one hook, in-process
 
-- **SessionStart** — `session-state start "$SESSION_ID" --transcript-path "$TRANSCRIPT"`
-- **UserPromptSubmit** — `printf '%s' "$PROMPT" | session-state prompt "$SESSION_ID"`
-- **Stop** — `session-state stopped "$SESSION_ID"`
-- **PreToolUse `"*"`** — `session-state tool-used "$SESSION_ID"` (literal asterisk; PostToolUse omit-matcher does not fire reliably in 2.1.131)
-- **PreToolUse Read** — `session-state read "$SESSION_ID" "$FILE_PATH"`
-- **PreToolUse Skill** — `session-state skill "$SESSION_ID" "$SKILL_NAME"`
-- **PostCompact** (matchers `manual|auto`) — `session-state compacted "$SESSION_ID"`
-- **SessionStart** (matcher `startup|resume|clear|compact`) — `reload-harness-context.sh` re-runs `trace context prime --reason post_compact` when the source is `compact` and `--reason session_start` otherwise, so the tracer log mirrors what Claude Code's harness auto-loaded; pairs with `load-trace-context.sh` on the same matcher
-- **Subagent stop** (no native event in 2.1.131; signalled by the `<task-notification>` parse on UserPromptSubmit) — after `session-state stopped "agent-$TASK_ID"`, call `archive-subagent-log.sh "$SESSION_ID" "$TASK_ID"` to move the subagent's tracer log from `<repo>/.tracer-cache/sessions/<sid>/<aid>/` to `<repo>/.tracer-cache/sessions/<sid>/archived/<aid>/`. The hook resolves `<repo>` from its inherited cwd via `git -C "$PWD" rev-parse --show-toplevel` and silently exits 0 when cwd is not inside a git repo (matching the tracer's standalone no-op). The tracer's read path falls back to the archived directory when the active one is missing, so queries against the stopped subagent's log keep working
+`record_session_event.py` is wired on every state-recording event and routes each to the spine:
 
-The SessionStart-compact + subagent-stop tracer hooks (`reload-harness-context.sh`, `archive-subagent-log.sh`) are local-only and never appear in `hooks.json` — they share the tracer-local exception with the other tracer hooks.
+- **SessionStart** → `start` (plain session id, passes the transcript path through)
+- **UserPromptSubmit** → `prompt` (plain session id, prompt text on the spine's stdin) — and, when the prompt is a completed `<task-notification>`, `stopped agent-<task-id>` plus an archive of that subagent's tracer log (the one subprocess, reused from `archive_subagent_log.py`)
+- **Stop** → `stopped` (plain session id)
+- **PostCompact** → `compacted` (plain session id)
+- **PostToolUse** → `tool-used` (agent-rewritten session id)
+- **PreToolUse Read** → `read` (agent-rewritten session id, file path; skip if none)
+- **PreToolUse Skill** → `skill` (agent-rewritten session id, skill name; skip if none)
 
-For per-tool-call events, the wiring overwrites `SESSION_ID` with `agent-<agent_id>` when the payload carries `agent_id` (event fires inside a subagent's execution context), otherwise leaves it as the parent's `session_id`:
+The hook spawns no subprocess on the hot path — it imports the spine's `cmd_*` functions and calls them directly, so PostToolUse (once per tool call) stays in-process. It returns 0 on every path, including malformed/empty payloads and a missing session id.
 
-```bash
-SESSION_ID=$(echo "$INPUT" | jq -r '.session_id')
-AGENT_ID=$(echo "$INPUT" | jq -r '.agent_id // empty')
-[ -n "$AGENT_ID" ] && SESSION_ID="agent-$AGENT_ID"
-```
+The agent-id rewrite: when the event carries `agent_id`, the per-tool-call recordings and the task-notification path record against `agent-<agent_id>` so a subagent's events nest under its parent. No `agent_id` → the plain `session_id`. No session id at all → do nothing. `start` / `prompt` / `stopped` / `compacted` always record against the plain session id.
 
-This routes subagent inner tool calls into `<sessions>/<parent>/subagents/agent-<agent_id>/`. The helper's `_resolve_parent_id` then globs Claude Code's transcript layout to populate `parent_session_id` correctly.
+This routes subagent inner tool calls into `<sessions>/<parent>/subagents/agent-<agent_id>/`. The spine's `_resolve_parent_id` then globs Claude Code's transcript layout to populate `parent_session_id` correctly.
 
-`SessionEnd` is intentionally not wired — sessions can be resumed after terminal close, and state must survive reboot. `end` is a manual deletion command, not a lifecycle hook target.
+### Other lifecycle wiring
 
-In Claude Code 2.1.131: `SessionStart` does not fire for subagent sessions; `SubagentStart`/`SubagentStop`/`TaskCreated`/`TaskCompleted` did not appear in any of the 138 debug logs surveyed. Subagent identity reaches hooks only via `agent_id`/`agent_type` payload fields on `PreToolUse`/`PostToolUse` — `session_id` always carries the parent's UUID. The helper's full subagent infrastructure remains in place: it's the wiring's responsibility to construct `agent-<agent_id>` from the payload before calling the helper.
+- **SessionStart** — `record_session_event.py` runs the spine's `start`, creating the session record with control defaults; `load_trace_context.py` and `reload_harness_context.py` (matcher `startup|resume|clear|compact`) inject the tracer primer and mirror the harness auto-loads into the tracer log
+- **Subagent stop** (no native event; signalled by the `<task-notification>` parse on UserPromptSubmit) — `record_session_event.py` records the stop and calls `archive_subagent_log.main([session_id, task_id])` to move the subagent's tracer log from `<repo>/.tracer-cache/sessions/<sid>/<aid>/` to `<repo>/.tracer-cache/sessions/<sid>/archived/<aid>/`. The archive resolves `<repo>` from its inherited cwd via `git -C "$PWD" rev-parse --show-toplevel` and silently no-ops when cwd is not inside a git repo. The tracer's read path falls back to the archived directory when the active one is missing, so queries against the stopped subagent's log keep working
+
+`SessionEnd` is intentionally not wired for state cleanup — sessions can be resumed after terminal close, and state must survive reboot. `end` is a manual deletion command, not a lifecycle hook target.
+
+In Claude Code 2.1.131: `SessionStart` does not fire for subagent sessions; `SubagentStart`/`SubagentStop`/`TaskCreated`/`TaskCompleted` did not appear in any of the 138 debug logs surveyed. Subagent identity reaches hooks only via `agent_id`/`agent_type` payload fields on `PreToolUse`/`PostToolUse` — `session_id` always carries the parent's UUID. The spine's full subagent infrastructure is in place: `record_session_event.py` constructs `agent-<agent_id>` from the payload before driving the spine.
 
 ### Running the test suite
 
+The pytest suite under `tests/hooks/` exercises the Python hooks directly, in-process:
+
 ```sh
-bash session-state-test.sh
+python3 -m pytest tests/hooks/
 ```
 
-Runs ~500 tests in under 60 seconds. Tests isolate `CLAUDE_DATA_ROOT` and `CLAUDE_PROJECTS_ROOT` to a `mktemp -d` per-test; nothing touches the user's real `~/.claude/`. Concurrency tests fork bash subshells; mocked-time tests override `date` via PATH.
+`test_session_state.py` guards the spine's properties (atomic concurrent increments, corrupt/empty/missing-state healing, subagent nesting and resolution, the append-only event logs and their truncation on compaction). `test_record_session_event.py` covers the recording router; `test_local_llm_fallbacks.py` pins the deterministic fallbacks the model-backed hooks take when the local LLM returns no verdict, and `test_enrich_on_read.py` pins which tools `enrich_on_read.py` enriches and over which files; `test_model_call.py`, `test_transcript.py`, and `test_proposal_guard_redirects.py` cover the shared spine and guards. Every test runs against a per-test `CLAUDE_DATA_ROOT` / `CLAUDE_PROJECTS_ROOT` under `tmp_path` — nothing touches the real `~/.claude/`. Time is driven by monkeypatching the spine's two clock functions; concurrency tests use threads.
 
 ### Distribution
 
-Hook scripts live here in dotfiles. Two wiring files reference them:
+The live Python hooks live in `packages/agents/hooks/` and are wired locally for Claude in `settings.json` (by absolute `~/.agents/hooks/<module>.py` path) and for Codex in its `config.toml`. They are never plugin-distributed.
 
-- `settings.json` — local-use wiring via stow (includes tmux integration)
-- `hooks.json` — plugin-marketplace wiring with `${CLAUDE_PLUGIN_ROOT}` paths
+The plugin marketplace distributes the shell copies in this directory. Two facts make this a small, fixed set:
 
-When adding or modifying a non-tmux hook, update both.
+- `hooks.json` is the plugin wiring (`${CLAUDE_PLUGIN_ROOT}` paths). It references exactly five hooks: `block-git-revert.sh`, `block-unsafe-delete.sh`, `validate-planning-docs.sh`, `validate-plan-quality.sh`, `sync-shaping.sh` — the universally-safe subset that needs no Python layer or local workflow assumptions.
+- Tracer hooks, subagent-only hooks, the intent classifier and the state guards that depend on it, and the Claude-only-tool guards (Agent / EnterWorktree / TeamDelete / ExitPlanMode) are all local-only and never plugin-distributed. Plugin users get the tracer binary as a command, not its hooks.
 
-Exception — tracer hooks are local-only. `load-trace-context.sh`, `guard-trace.sh`, `enrich-on-read.sh`, `inject-docs.sh`, `reload-harness-context.sh`, and `archive-subagent-log.sh` are wired in `settings.json` only and must never appear in `hooks.json`. Tracer is our experimental local surface; plugin users get tracer as a command (the launcher in `bin/`), never these hooks. The tracer's session-context store lives at `<repo>/.tracer-cache/sessions/` — same `.tracer-cache/` root as the per-file and architecture namespaces — so `archive-subagent-log.sh` resolves the repo root from its inherited cwd via `git rev-parse --show-toplevel` rather than reading `$HOME`, and silently exits 0 when no repo root resolves (matching the tracer's standalone no-op).
-
-Exception — subagent-exclusive hooks under `subagents/` are local-only. They are wired in `settings.json` only and must never appear in `hooks.json`. The subagent topology and worktree-sharing model they assume are our local workflow; plugin consumers don't run them.
-
-Exception — dispatch-level worktree guards are local-only. `block-worktree-isolation.sh` (PreToolUse Agent matcher) and `block-enter-worktree.sh` (PreToolUse EnterWorktree matcher) are wired in `settings.json` only and must never appear in `hooks.json`. They enforce that all agents share one worktree — a workflow assumption local to this project, not the plugin contract.
+When changing a plugin-distributed hook, update both the Python source (`packages/agents/hooks/<module>.py`) and its shell copy here, and keep `hooks.json` in sync. When changing a local-only hook, only the Python source and the `settings.json` / `config.toml` wiring matter.
 
 ## How
 
 ### Adding a new tracked field to the state schema
 
-1. Add the field to `_default_main_state` and (if applicable) `_default_subagent_state` in `session-state.sh`. Pick a sensible initial value (`null` for nullable scalars, `0` for counters, `[]` for lists).
+1. Add the field to `_default_main_state` and (if applicable) `_default_subagent_state` in `lib/session_state.py`. Pick a sensible initial value (`null` for nullable scalars, `0` for counters, `[]` for lists).
 2. Add a write path — either reuse `set`/`merge`/`_bump`, or add an event command (`cmd_*`) and route it through `_ensure_session` then `_atomic_write`.
-3. At every read site (including external hooks), use `(.field // <default>)` so older session files on disk that predate the field stay readable.
-4. If the field is part of the `stats` snapshot, add it to `cmd_stats`'s jq filter.
+3. At every read site (including external hooks), default the field (`.get("field") or <default>`) so older session files on disk that predate the field stay readable.
+4. If the field is part of the `stats` snapshot, add it to `_stats_obj`.
 5. Add tests covering: the field's initial value, the write path under sequential and concurrent invocation, the read fallback for legacy state files.
 
 ### Adding a new event command
 
-1. Add `cmd_<name>` in `session-state.sh`. Validate `session_id` first; route through `_ensure_session` to lazy-create + heal.
-2. Add a dispatch entry in the `case "$cmd"` block at the bottom.
-3. If the event requires content from stdin, capture it with `content=$(cat)` and pass to internal predicates explicitly via `printf '%s' "$content" | _internal_helper`.
-4. Add tests; for time-dependent behavior, mock `date` via PATH override (the `mock_now` pattern in `session-state-test.sh`).
-5. Document the new command in this file's API surface table.
+1. Add `cmd_<name>` in `lib/session_state.py`. Validate `session_id` first; route through `_ensure_session` to lazy-create + heal.
+2. Add a dispatch entry in `_DISPATCH`.
+3. If the event reads content from stdin, read it inside the command (matching `cmd_prompt`).
+4. Add tests; for time-dependent behavior, monkeypatch the spine's clock functions (the `clock` fixture in `test_session_state.py`).
+5. Document the new command in this file's surface table.
 
 ### Adding a new structural rule to `_human_prompt`
 
-Only add a rule that's backed by a real transcript shape observed in `~/.claude/projects/`. Add the rule, add a positive test (system-injected → returns 1) and a negative test (similar-looking human input → returns 0). Update the comment in `_human_prompt`.
+Only add a rule that's backed by a real transcript shape observed in `~/.claude/projects/`. Add the rule, add a positive test (system-injected → filtered) and a negative test (similar-looking human input → counted). Update the comment in `_human_prompt`.
 
 ### Heal vs clobber
 
@@ -226,9 +252,9 @@ Only add a rule that's backed by a real transcript shape observed in `~/.claude/
 
 ### Race semantics
 
-- `_atomic_write` uses `mktemp + mv` — atomic on the same filesystem; concurrent writers see either the old or new state, never a half-written file
-- All read-modify-write paths (`start`, `set`, `merge`, `prompt`, `stopped`, `tool-used`/`_bump`) acquire a per-state-file mutex via `_with_lock` (atomic `mkdir` of `<state.json>.lock`, 5s timeout). Concurrent invocations serialize through the lock; no increments are lost. Test `concurrent tool-used: 50 increments → tools_used=50 exactly` pins this
-- Append (`read`, `skill`) uses `>> file` — POSIX guarantees atomicity for writes under PIPE_BUF (4KB); JSONL entries are well below that, no lock needed
+- `_atomic_write` uses `mkstemp + os.replace` — atomic on the same filesystem; concurrent writers see either the old or new state, never a half-written file
+- All read-modify-write paths (`start`, `set`, `merge`, `prompt`, `stopped`, `tool-used`/`_bump`) acquire a per-state-file mutex via `_with_lock` (atomic `mkdir` of `<state.json>.lock`, 5s timeout). Concurrent invocations serialize through the lock; no increments are lost. The test `concurrent tool-used loses no increment` pins this
+- Append (`read`, `skill`) uses an append open — POSIX guarantees atomicity for writes under PIPE_BUF (4KB); JSONL entries are well below that, no lock needed
 
 ### `agent-*` session resolution
 
@@ -236,28 +262,8 @@ Subagent session IDs start with `agent-`. Lazy-create paths (`set`, `merge`, `pr
 
 ### Compaction
 
-Claude Code compacts long conversations server-side, summarizing earlier turns when context approaches the limit. After compaction, the agent no longer "has" the pre-compaction history — but `reads.jsonl` and `skills.jsonl` would still show those old events. The PostCompact hook calls `session-state compacted <session_id>` which atomically truncates both logs to zero bytes via `_truncate` (mktemp + mv). State.json fields (`human_turns`, `tools_used`, turn timestamps) are NOT reset — only the append-only event logs that downstream hooks use to gate "events since the agent's effective memory started."
-
-### Ledger scope
-
-`block-ledger-only-edits.sh` enforces that a new ledger entry in a Claude.md only lands when that file's body differs from HEAD in the working tree. The body change can ride in the same edit or in a prior edit during the same turn — the hook reads git state. Sibling-file changes belong in those files' own ledgers, not bolted onto an unrelated Claude.md.
+Claude Code compacts long conversations server-side, summarizing earlier turns when context approaches the limit. After compaction, the agent no longer "has" the pre-compaction history — but `reads.jsonl` and `skills.jsonl` would still show those old events. The PostCompact recording calls the spine's `compacted` command, which atomically truncates both logs to zero bytes via `_truncate` (mkstemp + replace). State.json fields (`human_turns`, `tools_used`, turn timestamps) are NOT reset — only the append-only event logs that downstream hooks use to gate "events since the agent's effective memory started."
 
 ### Tracer log lifecycle
 
-Two hooks own the tracer session log's lifecycle at the harness boundary, separate from `session-state.sh`'s state document. The session-context store lives at `<repo>/.tracer-cache/sessions/` (same root as the per-file and architecture namespaces); both hooks resolve `<repo>` from their inherited cwd. `reload-harness-context.sh` runs on SessionStart matcher `startup|resume|clear|compact` and re-runs `trace context prime --reason {post_compact|session_start}` (picked from the matcher value in the payload's `source` field) so the log mirrors what Claude Code's harness auto-loaded at session start and after compaction alike, keeping the log's "already in context" set in sync with what the agent actually has. `archive-subagent-log.sh` runs on subagent stop (signalled by the `<task-notification>` parse on UserPromptSubmit) and moves the subagent's per-agent directory from `<repo>/.tracer-cache/sessions/<sid>/<aid>/` to `<repo>/.tracer-cache/sessions/<sid>/archived/<aid>/`, with `<repo>` resolved via `git -C "$PWD" rev-parse --show-toplevel` (silent no-op when no repo root resolves). The tracer's read path falls back to `archived/<aid>/` when the active dir is missing, so post-stop log queries keep returning the same data — the archive is a directory rename, not a destructive operation.
-
-## Ledger
-
-- v1.12: Architecture tree names every tracer-local hook
-- v1.11: Ledger hook reads git for body diff vs HEAD
-- v1.10: Tracer session store moves to the repo root
-- v1.9: Tracer log archives on subagent stop
-- v1.8: Ledger scopes to its own Claude.md
-- v1.7: Block agent worktree splits
-- v1.6: Subagent-scoped hooks live under subagents/
-- v1.5: Match hook mechanism to decision type
-- v1.4: guard-trace blocks jq pipes into trace
-- v1.3: Lock RMW paths so concurrent counters land exactly
-- v1.2: Wire helper into Claude Code hook events
-- v1.1: Document compacted command and PostCompact hook
-- v1.0: Document hooks dir centered on session-state helper
+Two hooks own the tracer session log's lifecycle at the harness boundary, separate from the `session_state.py` state document. The session-context store lives at `<repo>/.tracer-cache/sessions/` (same root as the per-file and architecture namespaces); both hooks resolve `<repo>` from their inherited cwd. `reload_harness_context.py` runs on SessionStart matcher `startup|resume|clear|compact` and re-runs `trace context prime --reason {post_compact|session_start}` (picked from the matcher value in the payload's `source` field) so the log mirrors what the harness auto-loaded at session start and after compaction alike, keeping the log's "already in context" set in sync with what the agent actually has. `archive_subagent_log.py` runs on subagent stop (signalled by the `<task-notification>` parse on UserPromptSubmit, driven by `record_session_event.py`) and moves the subagent's per-agent directory from `<repo>/.tracer-cache/sessions/<sid>/<aid>/` to `<repo>/.tracer-cache/sessions/<sid>/archived/<aid>/`, with `<repo>` resolved via `git -C "$PWD" rev-parse --show-toplevel` (silent no-op when no repo root resolves). The tracer's read path falls back to `archived/<aid>/` when the active dir is missing, so post-stop log queries keep returning the same data — the archive is a directory rename, not a destructive operation.

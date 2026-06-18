@@ -1,0 +1,37 @@
+# Dev tooling for the repo's Python automation — the Claude Code / Codex hooks
+# (packages/agents/hooks) and the build scripts (scripts/). The runtime code is
+# stdlib-only and runs under the system python3 by absolute path; nothing here is
+# imported at runtime or shipped to plugin consumers. This declares only the test
+# and lint environment, managed by uv and living in the gitignored .venv/.
+
+[project]
+name = "dotfiles-automation"
+version = "0.0.0"
+requires-python = ">=3.9"
+
+[tool.uv]
+package = false
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "ruff>=0.6",
+]
+
+[tool.pytest.ini_options]
+# Tests live at the repo-level tests/ tree, outside the stow packages, so they
+# never land in ~/.agents. pythonpath puts the runtime code trees on sys.path so
+# tests import `from lib import ...` and the scripts' modules with no install step.
+testpaths = ["tests"]
+pythonpath = ["packages/agents/hooks", "scripts"]
+
+[tool.ruff]
+extend-exclude = [".venv"]
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+# E501 (line length) off: the only long lines are intentional LLM system-prompt
+# and block-message string literals; wrapping them to 120 would mangle the prompts.
+# line-length above stays as the code-width target for `ruff format` if adopted.
+ignore = ["E501"]

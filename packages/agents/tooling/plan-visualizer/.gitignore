@@ -1,0 +1,7 @@
+# Build dependencies — installed once per machine, never distributed. The only
+# runtime directory in this tooling dir; every per-run artifact lives under /tmp.
+# Bare name (no trailing slash) so a symlinked node_modules is ignored too.
+node_modules
+
+# TypeScript incremental build info.
+*.tsbuildinfo

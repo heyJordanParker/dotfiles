@@ -7,3 +7,10 @@
 # tracer plugin launcher's build-from-source artifacts and local-build cache
 /packages/claude/bin/tracer-dist/crate/target/
 /packages/claude/bin/tracer-dist/built/
+
+# Python dev environment, bytecode, and tool caches (dev-only; runtime is stdlib)
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/

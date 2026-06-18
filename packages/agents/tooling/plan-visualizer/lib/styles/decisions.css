@@ -1,0 +1,114 @@
+/* ============================================================================
+   DecisionList — full-width decisions carried by code + a small diagram.
+   Two terse context lines, the one semantic color system only (no rainbow).
+   ============================================================================ */
+
+.decisions {
+  display: grid;
+  gap: 1.75rem;
+}
+
+.decision {
+  display: grid;
+  gap: 0.6rem;
+  align-content: start;
+}
+.decision__head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+}
+.decision__title {
+  font-size: 0.95rem;
+  font-weight: 650;
+  color: var(--ink);
+  line-height: 1.3;
+}
+/* needs-input is signalled by the flag chip alone — amber, the `changed` hue,
+   the one semantic system. No border, no rail, no gradient. */
+.decision__flag {
+  flex: none;
+  font-family: var(--mono);
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--state-changed);
+  background: var(--state-changed-soft);
+  padding: 0.18rem 0.45rem;
+  border-radius: var(--radius-s);
+  white-space: nowrap;
+}
+.decision__line {
+  color: var(--ink-2);
+  font-size: 0.875rem;
+  line-height: 1.55;
+  max-width: 80ch;
+}
+.decision__lead {
+  font-family: var(--mono);
+  font-size: var(--t1);
+  font-weight: 700;
+  color: var(--ink-3);
+  margin-inline-end: 0.3rem;
+}
+.decision__line code {
+  font-family: var(--mono);
+  font-size: 0.82em;
+  color: var(--ink);
+}
+/* Confidence — a settled decision can still show how sure the run is. The same
+   chip a Choice option carries: a number, neutral by default, not a hue. It sits
+   inside the one color system — tabular so it never shifts. */
+.decision__confidence {
+  flex: none;
+  margin-inline-start: auto;
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  padding: 0.12rem 0.45rem;
+  border-radius: var(--radius-s);
+  color: var(--state-added);
+  background: var(--state-added-soft);
+}
+/* needs-input pulls the flag to the right edge; when both show, the flag wins
+   the auto margin and confidence sits flush before it. */
+.decision__head:has(.decision__flag) .decision__confidence {
+  margin-inline-start: auto;
+}
+.decision__head:has(.decision__flag) .decision__flag {
+  margin-inline-start: 0.4rem;
+}
+/* "proven by" — the validation line, the counterpart to a Choice's
+   recommendation. Reads green: this is the call the run now trusts. */
+.decision__line--proven {
+  color: var(--ink);
+}
+.decision__line--proven .decision__lead {
+  color: var(--state-added);
+}
+
+/* The graph and code sit at full width under the lines. */
+.decision .graph,
+.decision .codediff,
+.decision .codeblock {
+  margin-block-start: 0.15rem;
+}
+
+/* ── Banded by the second axis — wave / tier captions over decision groups ─── */
+.decisions--banded {
+  gap: 2.5rem;
+}
+.decisions__band {
+  display: grid;
+  gap: 1rem;
+}
+.decisions__caption {
+  font-family: var(--mono);
+  font-size: var(--t1);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}

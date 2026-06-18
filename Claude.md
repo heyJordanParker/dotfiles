@@ -1,5 +1,4 @@
 # Dotfiles
-v1.9 | Updated: 2026-05-08
 
 ## Why
 
@@ -12,6 +11,7 @@ GNU Stow-managed dotfiles, organized under `packages/`. Each subdirectory of `pa
 ### Requirements
 
 - Every package contains exactly the files that should land in its target — no inner mirror wrappers (`.config/<tool>/`, `.<tool>/`)
+- Packages & tools should be self-contained. Each package owns its own files, configs, ignores — prefer a nested `.gitignore` inside the package over editing the root `.gitignore` to make sure that cleaning up a package is as simple as deleting it.
 - Plugin marketplace must distribute skills, hooks, and commands without leaking local config
 - Must restow with the correct `-t` target after editing — `stow -t <target> <pkg>`
 
@@ -19,7 +19,7 @@ GNU Stow-managed dotfiles, organized under `packages/`. Each subdirectory of `pa
 
 - Never commit `settings.json`, `Claude.md`, or other local config to plugin distribution — these are local only
 - Never put rules in plugin manifest — not supported by plugin schema
-- Never break the per-package target mapping in `setup.sh` — each package needs the correct `-t` so contents land where they belong
+- Never break the per-package target mapping in `scripts/stow.py` — each package needs the correct target so contents land where they belong
 - Never bind custom keybindings to the macOS terminal defaults listed in the Reference section — they're system-wide and overriding them breaks expected shell behavior
 
 ## Architecture
@@ -30,8 +30,9 @@ dotfiles/
 ├── .claude-plugin/
 │   └── marketplace.json              # source: "./packages/claude"
 ├── packages/                         # stow source dir; each child is a stow package
-│   ├── claude/                       # → ~/.claude/      (settings, agents, skills, hooks, rules, Claude.md)
-│   ├── codex/                        # → ~/.codex/       (config, rules, Agents.md, skills/ — per-Claude-skill symlinks)
+│   ├── agents/                       # → ~/.agents/      (source of truth: skills/, agents/*.md, commands/*.md, hooks/*.py, tooling/<name>/)
+│   ├── claude/                       # → ~/.claude/      (settings, rules, Claude.md; skills/ agents/ commands/ → ../agents/*)
+│   ├── codex/                        # → ~/.codex/       (config, rules, Agents.md; agents/ → ../agents/agents, prompts/ → ../agents/commands)
 │   ├── ssh/                          # → ~/.ssh/         (config)
 │   ├── bin/                          # → ~/.local/bin/   (custom shell scripts)
 │   ├── starship/                     # → ~/.config/      (starship.toml)
@@ -42,6 +43,7 @@ dotfiles/
 │   ├── zsh/                          # → ~/              (.zshrc, .zprofile, .zshenv, .zsh_completions.zsh)
 │   ├── atuin/, bat/, borders/, btop/, bun/, delta/, ghostty/, hunk/,
 │   ├── karabiner/, lazygit/, nvim/, opencode/, superfile/, zed/, zellij/   # → ~/.config/<pkg>/
+├── scripts/                          # repo automation (python, stdlib): sync.py = restow + generate codex agents
 ├── Brewfile
 ├── Claude.md                         # this file — repo project docs
 ├── README.md
@@ -51,13 +53,18 @@ dotfiles/
 └── .stow-local-ignore
 ```
 
-### Cross-tool sharing (codex ↔ claude)
+### Cross-tool sharing (agents = source of truth)
 
+- **Skills source of truth: `packages/agents/skills/<name>/SKILL.md`** — real files, open Agent Skills format. One set, read by every tool. Stow lays down the homedir links and a single in-repo symlink bridges Claude — no sync scripts.
+  - `packages/agents/` → stow → `~/.agents/skills/<name>`. `setup.sh` pre-creates `~/.agents/skills` as a real dir so stow links its children per-skill rather than folding the whole dir — that lets foreign tools' skills coexist there. Codex and every Agent-Skills-standard adopter read `~/.agents/skills` natively.
+  - `packages/claude/skills → ../agents/skills` — a committed relative symlink. `stow -t ~/.claude claude` makes `~/.claude/skills → packages/claude/skills → ../agents/skills`, so Claude Code resolves the same source. Claude scans only `~/.claude/skills`; it does NOT read `~/.agents/skills` (confirmed empirically).
+  - Codex needs no skills mirror — it reads `~/.agents/skills` directly, so there is no `packages/codex/skills` and no sync script.
+- **Agents & commands source of truth: `packages/agents/agents/<name>.md`, `packages/agents/commands/<name>.md`** — same model as skills. `packages/claude/agents → ../agents/agents` and `packages/claude/commands → ../agents/commands` bridge Claude; `packages/codex/prompts → ../agents/commands` bridges Codex (it reads command `.md` verbatim — frontmatter is tolerated). Codex subagents need a format transform, not a symlink: `scripts/sync.py` generates two siblings — `<name>.toml` (codex subagent shape — `name`, `description`, body → `developer_instructions`; our `model`/`tools`/`skills`/`color`/`memory` dropped) and `<name>.prompt.md` (the frontmatter-stripped body, usable as base instructions via codex's `model_instructions_file`) — and `packages/codex/agents → ../agents/agents` exposes both. Codex boots every session as the CTO: `packages/codex/config.toml` sets `model_instructions_file = ~/.agents/agents/cto.prompt.md`, which replaces codex's built-in base prompt (a separate request field from the global Claude.md, so both load together — verified against codex 0.137 source). Both generated artifacts are gitignored (`packages/agents/.gitignore`) and rebuilt by `sync.py`, so the `.md` stays the only tracked source. Codex custom prompts are deprecated in favor of skills (already shared), so the command bridge is a thin symlink, not a generator.
+- **Agent tooling: `packages/agents/tooling/<name>/`** — a buildable kit an agent invokes (e.g. the `plan-visualizer` agent's React/Vite review-renderer). Stows whole-dir to `~/.agents/tooling/<name>/`, and the agent references it by that stable absolute path — agents do NOT receive the per-skill "Base directory" line a skill gets, so a relative path would resolve against the user's project, not the kit. This is the same absolute-path-into-stow model as `~/.agents/hooks/<module>.py` and `~/.agents/agents/<name>.prompt.md`. First-use dependency setup is a guarded `[ -d node_modules ] || npm ci` from the committed `package-lock.json`; the kit's own `.gitignore` ignores `node_modules`, build artifacts, and per-run authored inputs. Local-only — agents are not plugin-distributed (`marketplace.json` `"agents": []`), so neither is their tooling.
 - `packages/codex/Agents.md → ../../../.claude/Claude.md` — Codex reads the same global Claude.md as Claude does (post-stow user-global)
-- `packages/codex/skills/<name> → ../../claude/skills/<name>` — one symlink per Claude skill, regenerated by `bin/sync-codex-skill-links` whenever the Claude skills set changes. Per-skill (rather than dir-level) is required because Codex `rm -rf .system && mkdir .system && cp` on every restart; a single dir-level symlink in that path puts the destruction inside `packages/claude/`. Per-skill mirroring keeps `~/.codex/skills/` a stow-folded real dir, so Codex creates `.system/` natively in `$CODEX_HOME` and never touches dotfiles.
-- Codex's bundled `.system/` skills (`imagegen`, `openai-docs`, `plugin-creator`, `skill-creator`, `skill-installer`) are not tracked in dotfiles. Codex writes them to `~/.codex/skills/.system/` on first start and rewrites them on each restart.
-- `bin/sync-codex-skill-links` is idempotent: adds missing per-skill symlinks, removes orphans whose Claude target was deleted. `setup.sh` runs it before stowing the codex package.
-- Skill loading caveat: Codex's loader requires `SKILL.md` (uppercase) in each skill dir. Claude's skills use mixed-case `Skill.md`, so Codex doesn't auto-discover them as skills today even though the symlinks resolve. Renaming Claude `Skill.md` → `SKILL.md` is a separate Claude-side decision that would unlock Codex auto-discovery.
+- Codex's bundled `.system/` skills (`imagegen`, `openai-docs`, `plugin-creator`, `skill-creator`, `skill-installer`) are not tracked in dotfiles. Codex writes them to its own `~/.codex/skills/.system/` on each restart — separate from the shared `~/.agents/skills`.
+- Skill manifest casing: every manifest is named `SKILL.md` (uppercase) — the single source of truth. Codex's loader byte-matches the literal `SKILL.md` and only auto-discovers under that exact name (confirmed empirically); Claude Code finds the manifest either casing on the case-insensitive filesystem. The uppercase name is what makes the shared set surface as real skills in both tools, not just Claude.
+- **Hooks: `packages/agents/hooks/<module>.py`** — shared Python hooks drawn from by both Claude and Codex (same source-of-truth model as skills). Codex's `config.toml` `[hooks]` table wires nearly the whole set by absolute `~/.agents/hooks/<module>.py` path: the recording/classification spine (`record_session_event`, `classify_intent`), the command guards (`block_git_revert`, `block_unsafe_delete`, `block_path_assignment`, `block_branch_change`, `block_unauthorized_commits`, `guard_trace`, `enforce_background_codex_run` — the last forces `codex-run` Bash calls into the background, governing only that wrapper, never raw `codex exec`), the session-state guards (`block_edits_during_proposal`, `protect_session_state`), the file/context injectors (`inject_docs`, `inject_rules`, `enrich_on_read`, `load_trace_context`, `reload_harness_context`), the validators (`validate_planning_docs`, `validate_completion`), `sync_shaping`, and `auto_approve_permissions`. Two single-purpose doc injectors split the work: `inject_docs.py` (both harnesses, PreToolUse `Bash`) ensures a path-taking `trace <subcmd> <path>` command has its target's project docs in context, blocking the command if `trace docs` fails. `inject_rules.py` (Codex-only, since Claude loads Claude.md itself) injects the nearest Claude.md — repo-root rules on SessionStart with a `trace docs reset` on `clear`/`compact`, and the touched file's rules on PreToolUse `Read`/`Write`/`Edit`/`apply_patch`. Both emit a `hookSpecificOutput.additionalContext` envelope (Codex 0.137+ rejects a raw `trace docs` JSON object on SessionStart with "invalid session start JSON output" — it must be wrapped). Excluded from Codex: only the guards for Claude-only tools and events (Agent / EnterWorktree / TeamDelete / ExitPlanMode) — `block_builtin_subagents`, `block_worktree_isolation`, `block_enter_worktree`, `block_team_deletion`, `enforce_solo_mode`, `transition_state_after_plan`, `validate_plan_quality`, and `archive_subagent_log` — which Codex has no event to fire on. Codex resolves the session from env, so the hooks export the payload's `session_id`/`agent_id` as `AGENT_SESSION_ID`/`TRACER_AGENT_ID` — `AGENT_SESSION_ID` is the harness-neutral session carrier `trace` and our own tooling resolve first (before `CODEX_THREAD_ID` and `CLAUDE_CODE_SESSION_ID`). Hook trust is per-command-string in `config.toml`'s `[hooks.state]`, so editing a hook's Python needs no re-approval — only changing the wired command does. Local-only; never plugin-distributed. The only shell hooks left in `packages/claude/hooks/` are the five the plugin marketplace distributes to external installs that have no Python layer (plus one third-party vendor script) — see `packages/claude/hooks/Claude.md`.
 
 ## Workflow
 
@@ -83,15 +90,14 @@ stow -R -t <target> <pkg>     # e.g., stow -R -t ~/.claude claude
 
 The target for each `<pkg>` is the one defined in `setup.sh` — see the per-package mapping in the "Stow Targets" section under How.
 
-Whole-repo restow (after multi-package changes): re-run `setup.sh` from the clone — its `DOTFILES_DIR` derives from the script's own location, so it picks up the right path automatically. `setup.sh` is the single source of truth for the package→target mapping.
+Whole-repo restow (after multi-package changes): run `python3 scripts/sync.py` from the clone (or re-run `setup.sh`, which calls it). `sync.py` restows every package and regenerates the codex agent TOML. The package→target mapping lives in `scripts/stow.py` — the single source.
 
 ### Adding a New Package
 
 1. Create the package directory inside `packages/`
 2. Add the actual config files at the package root (no inner wrappers — the package contents are exactly what should land at the target)
-3. Add a stow line to `setup.sh` with the correct `-t` target — match the target group your tool belongs to (home root, `~/.config/<tool>/`, or special)
-4. If the target dir might not exist on a fresh machine, add `mkdir -p` to setup.sh's mkdir block
-5. Stow it: `stow -t <target> <pkg>`
+3. Add the package → target entry to `scripts/stow.py` (`TARGETS`, or the `CONFIG` list for a `~/.config/<pkg>/` tool)
+4. Run `python3 scripts/sync.py` — it creates the target dir and stows the package
 
 ### Adding/Renaming Files Inside an Existing Package
 
@@ -118,16 +124,26 @@ pipx install <package>
 
 ### Editing the Stow Mapping
 
-`setup.sh`'s stow block is the contract — every package appears there with its target. When the mapping changes, the stow block is the only file that changes. Any helper or workflow tooling needs to read the mapping from this block.
+`scripts/stow.py` holds the mapping — `TARGETS` (package → target dir) plus the `CONFIG` list (each lands in `~/.config/<pkg>/`). When the mapping changes, edit `stow.py`; it's the single source. `setup.sh` and the pre-commit hook both restow through `scripts/sync.py`, which calls it.
 
 ## How
 
+### Repo automation (`scripts/`)
+
+Python (stdlib only, matching the hook convention — no deps, no venv) is the automation language; `setup.sh` is the only bash file and just bootstraps (Homebrew, builds), then guards that `python3` exists and hands off.
+
+- `sync.py` — the one maintenance entry point: restow every package, then regenerate the codex agent TOML. Idempotent. Called by `setup.sh` and the pre-commit hook so there's one implementation, not two.
+- `stow.py` — the package→target mapping and restow (`stow -R` per package).
+- `agents.py` — transforms `packages/agents/agents/*.md` into the codex `<name>.toml` beside each.
+- `frontmatter.py` — shared `---` frontmatter + body parser.
+- `git-hooks/pre-commit` — runs `sync.py` on commit; never blocks. Installed by `setup.sh` via `git config core.hooksPath scripts/git-hooks`, so it is version-controlled and survives a clone.
+
 ### Stow Targets — the explicit per-package mapping
 
-`setup.sh` runs stow once per target group:
+`scripts/stow.py` restows once per package, into these targets:
 
 - Home root (`~/`): `git`, `hyprspace`, `npm`, `tmux`, `zsh`
-- Single-segment dirs: `claude` → `~/.claude/`, `codex` → `~/.codex/`, `ssh` → `~/.ssh/`
+- Single-segment dirs: `agents` → `~/.agents/`, `claude` → `~/.claude/`, `codex` → `~/.codex/`, `ssh` → `~/.ssh/`
 - Special targets: `bin` → `~/.local/bin/`, `starship` → `~/.config/`
 - `~/.config/<tool>/` group (loop): `atuin`, `bat`, `borders`, `btop`, `bun`, `delta`, `ghostty`, `hunk`, `karabiner`, `lazygit`, `nvim`, `opencode`, `superfile`, `zed`, `zellij`
 
@@ -139,23 +155,23 @@ Users install with:
 /plugin install talents@talent-tree
 ```
 
-**Distributed:** Skills (`packages/claude/skills/`), Commands (`packages/claude/commands/`), Hooks (`packages/claude/hooks/hooks.json` with `${CLAUDE_PLUGIN_ROOT}` paths)
+**Distributed:** Skills (physically `packages/agents/skills/`, reached through the committed `packages/claude/skills → ../agents/skills` symlink that the marketplace entry's `"skills": ["./skills/"]` resolves), Commands (physically `packages/agents/commands/`, reached through the committed `packages/claude/commands → ../agents/commands` symlink — same dereference-on-copy as skills), Hooks (`packages/claude/hooks/hooks.json` with `${CLAUDE_PLUGIN_ROOT}` paths). Plugin packaging **dereferences** the skills symlink when copying the source into the plugin cache, so consumers receive every skill as real `SKILL.md` files — verified against a clean install (Claude Code 2.1.162): the installed plugin's `skills/` is a real directory containing all 34 skills, not a dangling link.
 
 **Local-only:** Rules, settings, agents, `settings.json`, `Claude.md`, tmux hooks. Codex's `.system/` defaults are not in dotfiles at all — Codex creates them at `~/.codex/skills/.system/` on each restart, outside the plugin source tree.
 
 ### Dual Hooks Setup
 
-Hook **scripts/content** are shared (single files in `packages/claude/hooks/`). Hook **wiring** exists in two places:
-- `packages/claude/settings.json` — local use via stow (includes tmux hooks)
-- `packages/claude/hooks/hooks.json` — plugin consumers (non-tmux hooks only, uses `${CLAUDE_PLUGIN_ROOT}`)
+The hooks Claude (and Codex) run are Python, shared from `packages/agents/hooks/<module>.py` — `settings.json` wires them for Claude by absolute `~/.agents/hooks/<module>.py` path, and Codex's `config.toml` wires nearly all of them (all but the Claude-only-tool guards). See the cross-tool sharing section above and `packages/claude/hooks/Claude.md` for the full wiring model.
 
-When adding/changing a non-tmux hook, update both files. Exception: tracer hooks (`load-trace-context.sh`, `guard-trace.sh`, `enrich-on-read.sh`, `inject-docs.sh`) are local-only — wired in `settings.json` only, never in `hooks.json`. Tracer is our experimental local surface; plugin users get tracer as a command, never these hooks.
+The plugin marketplace can't run Python hooks, so it ships shell copies. `packages/claude/hooks/hooks.json` is the plugin wiring (`${CLAUDE_PLUGIN_ROOT}` paths); it references exactly five shell hooks in `packages/claude/hooks/`: `block-git-revert.sh`, `block-unsafe-delete.sh`, `validate-planning-docs.sh`, `validate-plan-quality.sh`, `sync-shaping.sh`. Tracer hooks, the intent classifier and its dependent state guards, subagent-only hooks, and Claude-only-tool guards are local-only and never plugin-distributed — plugin users get the tracer binary as a command, not its hooks.
+
+When changing a plugin-distributed hook, update both the Python source and its shell copy here, and keep `hooks.json` in sync. When changing a local-only hook, only the Python source and the `settings.json` / `config.toml` wiring matter.
 
 ### Expanding the Marketplace
 
-- **Add skill:** Create `packages/claude/skills/<name>/Skill.md` — auto-discovered
-- **Add command:** Create `packages/claude/commands/<name>.md` — auto-discovered
-- **Add hook:** Add script to `packages/claude/hooks/`, wire in both `settings.json` and `hooks/hooks.json`
+- **Add skill:** Create `packages/agents/skills/<name>/SKILL.md` (the source of truth) — auto-discovered by all tools via the stow + `claude/skills → ../agents/skills` links
+- **Add command:** Create `packages/agents/commands/<name>.md` (the source of truth) — auto-discovered by Claude via the `claude/commands → ../agents/commands` link and by Codex via `codex/prompts → ../agents/commands`
+- **Add hook:** Add the Python module to `packages/agents/hooks/` and wire it in `settings.json` (and Codex's `config.toml` unless it guards a Claude-only tool/event Codex can't fire on). To make it a plugin hook too, add a shell copy under `packages/claude/hooks/` and reference it in `hooks/hooks.json`
 - **Bump version:** Update `version` in `marketplace.json` plugin entry — required for users to get updates
 - **Validate:** `claude plugin validate .` from repo root
 - **Test locally:** `/plugin marketplace add ./` then `/plugin install talents@talent-tree`
@@ -163,7 +179,7 @@ When adding/changing a non-tmux hook, update both files. Exception: tracer hooks
 ### Plugin Distribution Limitations
 
 - `strict: false` — marketplace entry defines all components, no `plugin.json` needed
-- Entire `./packages/claude` directory gets copied to plugin cache (extra files are inert)
+- Entire `./packages/claude` directory gets copied to plugin cache (extra files are inert); the copy dereferences the `skills → ../agents/skills` symlink, so the out-of-tree skill set lands in the cache as real files rather than a broken link
 - Plugin consumers don't get rules or settings — those go in their own Claude.md/settings
 
 ## Reference
@@ -221,18 +237,4 @@ Two subdirectories with distinct purposes:
   - Setup: `npm install && npm run build && npx playwright install chromium`
   - Run: `npm start` (API + WebSocket + static frontend on :3062)
   - Open: `http://localhost:3062/#session-name`
-  - Skill: `/diagram` (installed at `~/.claude/skills/diagram/Skill.md`)
-
-## Ledger
-
-- v1.9: Added hunk diff viewer
-- v1.8: Scripts derive repo root from canonical script path
-- v1.7: Per-skill codex mirror so Codex owns system natively
-- v1.6: Restow rules documented for content vs shape changes
-- v1.5: Flat packages/ layout with per-target stow
-- v1.4: Added keybindings.json as LOCAL ONLY — per-user shortcuts wire `command:*` to skills (e.g. copy-plan-path, copy-shaping-dir)
-- v1.3: Added agents/ to architecture tree and plugin exclusion list -- agents are local-only, not distributed
-- v1.2: Adopted Why/What/How template with Requirements/Boundaries/Ledger
-- v1.1: Added plugin marketplace with `strict: false` manifest
-</content>
-</invoke>
+  - Skill: `/diagram` (installed at `~/.claude/skills/diagram/SKILL.md`)

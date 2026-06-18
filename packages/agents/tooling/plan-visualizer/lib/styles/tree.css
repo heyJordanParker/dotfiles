@@ -1,0 +1,159 @@
+/* ============================================================================
+   FileTree — a clean nested tree. Indentation by depth, a CSS disclosure
+   triangle, no glyph characters, no stray dots, no duplicated path headers.
+   The opened detail is Pierre code (CodeBlock / CodeDiff), nothing boxed.
+   ============================================================================ */
+
+.tree {
+  display: grid;
+  gap: 1.5rem;
+}
+
+.tree__group {
+  display: grid;
+  gap: 0.5rem;
+}
+.tree__group-label {
+  font-size: var(--t1);
+  font-weight: 600;
+  color: var(--ink-2);
+  letter-spacing: 0.01em;
+}
+.tree__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.05rem;
+}
+
+/* A directory label sitting inside the tree (not openable). */
+.tree__dir {
+  font-family: var(--mono);
+  font-size: var(--t1);
+  color: var(--ink-3);
+  padding-block: 0.2rem;
+  padding-inline-start: calc(0.5rem + var(--depth, 0) * 1.1rem);
+}
+.tree__dir[data-depth="0"] {
+  --depth: 0;
+}
+.tree__dir[data-depth="1"] {
+  --depth: 1;
+}
+
+/* ── Tree row ─────────────────────────────────────────────────────────────── */
+.tree-row {
+  display: grid;
+}
+.tree-row[data-depth="1"] {
+  --depth: 1;
+}
+.tree-row[data-depth="2"] {
+  --depth: 2;
+}
+
+.tree-row__head {
+  appearance: none;
+  border: 0;
+  cursor: default;
+  width: 100%;
+  text-align: left;
+  display: grid;
+  grid-template-columns: 1.1em auto auto 1fr;
+  align-items: baseline;
+  gap: 0.6rem;
+  padding-block: 0.34rem;
+  padding-inline: calc(0.5rem + var(--depth, 0) * 1.1rem) 0.5rem;
+  border-radius: var(--radius-s);
+  background: transparent;
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: var(--t2);
+  transition: background-color 130ms var(--ease);
+}
+/* badge + optional needs-input flag share one cell so the summary stays the
+   last 1fr column whether or not the flag is present. */
+.tree-row__marks {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.4rem;
+}
+/* the needs-input chip on a conceptual row — amber, the one system; tells the
+   architect this row's file path is not pinned without opening it. */
+.tree-row__flag {
+  font-family: var(--mono);
+  font-size: 0.55rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--state-changed);
+  background: var(--state-changed-soft);
+  padding: 0.1rem 0.4rem;
+  border-radius: var(--radius-s);
+  white-space: nowrap;
+}
+.tree-row__head[data-openable="true"] {
+  cursor: pointer;
+}
+@media (hover: hover) and (pointer: fine) {
+  .tree-row__head[data-openable="true"]:hover {
+    background: var(--surface-2);
+  }
+}
+.tree-row__head:focus-visible {
+  outline: 2px solid var(--state-added);
+  outline-offset: -2px;
+}
+
+/* Disclosure triangle — pure CSS, rotates open. Hidden for non-openable rows. */
+.tree-row__disclosure {
+  inline-size: 0;
+  block-size: 0;
+  align-self: center;
+  justify-self: center;
+  border-block: 0.32em solid transparent;
+  border-inline-start: 0.42em solid var(--ink-3);
+  transition: transform 160ms var(--ease);
+}
+.tree-row__head[data-openable="false"] .tree-row__disclosure {
+  visibility: hidden;
+}
+.tree-row[data-open="true"] .tree-row__disclosure {
+  transform: rotate(90deg);
+}
+
+.tree-row__name {
+  font-family: var(--mono);
+  font-weight: 600;
+  color: var(--ink);
+}
+.tree-row__name[data-state="removed"] {
+  color: var(--ink-3);
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in oklch, var(--state-removed) 60%, transparent);
+}
+.tree-row__summary {
+  color: var(--ink-3);
+  font-size: var(--t1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Detail — Pierre code only, indented under its row ────────────────────── */
+.tree-row__detail {
+  padding-block: 0.5rem 0.75rem;
+  padding-inline-start: calc(1.6rem + var(--depth, 0) * 1.1rem);
+  animation: detail-in 200ms var(--ease-out);
+}
+@keyframes detail-in {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+}
+.tree-detail {
+  display: grid;
+  gap: 0.75rem;
+}

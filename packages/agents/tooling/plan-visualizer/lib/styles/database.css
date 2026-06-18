@@ -1,0 +1,233 @@
+/* ============================================================================
+   DatabasePanel — table tabs; the active table renders as Pierre DDL/diff.
+   Collection — the expandable mapping list (route → destination), flat.
+   ============================================================================ */
+
+.db {
+  display: grid;
+  gap: 1rem;
+}
+.db__tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+.db__tab {
+  appearance: none;
+  border: 0;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-family: var(--mono);
+  font-size: var(--t1);
+  font-weight: 600;
+  color: var(--ink-3);
+  background: var(--surface-1);
+  padding: 0.4rem 0.7rem;
+  border-radius: var(--radius-s);
+  box-shadow: var(--shadow-subtle);
+  transition: color 140ms var(--ease), background-color 140ms var(--ease);
+}
+@media (hover: hover) and (pointer: fine) {
+  .db__tab:hover {
+    color: var(--ink);
+    background: var(--surface-2);
+  }
+}
+.db__tab[data-active="true"] {
+  color: var(--ink);
+  background: var(--surface-3);
+  box-shadow: var(--shadow-elevated);
+}
+.db__tab:focus-visible {
+  outline: 2px solid var(--state-added);
+  outline-offset: 2px;
+}
+/* The tab's state badge is small inside the tab; hide it unless active to keep
+   the strip calm — the active table's state is what matters. */
+.db__tab .state-badge {
+  font-size: 0.55rem;
+  padding: 0.06rem 0.32rem;
+}
+
+.db__panel {
+  display: grid;
+  gap: 0.75rem;
+  animation: detail-in 200ms var(--ease-out);
+}
+
+/* ── Banded tabs — the second axis. Each domain caption sits over its own tab
+   strip; one active table across all bands. ───────────────────────────────── */
+.db__bands {
+  display: grid;
+  gap: 0.9rem;
+}
+.db__band {
+  display: grid;
+  gap: 0.4rem;
+}
+.db__band-caption {
+  font-family: var(--mono);
+  font-size: var(--t1);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+/* ── Collection — flat mapping list ───────────────────────────────────────── */
+.collection {
+  display: grid;
+  gap: 0.5rem;
+}
+.collection__head {
+  appearance: none;
+  border: 0;
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+  display: grid;
+  grid-template-columns: 0.8em 1fr auto;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.6rem 0.25rem;
+  background: transparent;
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 0.9rem;
+  font-weight: 600;
+  border-radius: var(--radius-s);
+  transition: color 140ms var(--ease);
+}
+@media (hover: hover) and (pointer: fine) {
+  .collection__head:hover {
+    color: var(--ink);
+  }
+}
+.collection__head:focus-visible {
+  outline: 2px solid var(--state-added);
+  outline-offset: 2px;
+}
+.collection__disclosure {
+  inline-size: 0;
+  block-size: 0;
+  justify-self: center;
+  border-block: 0.32em solid transparent;
+  border-inline-start: 0.42em solid var(--ink-3);
+  transition: transform 160ms var(--ease);
+}
+.collection[data-open="true"] .collection__disclosure {
+  transform: rotate(90deg);
+}
+.collection__count {
+  font-family: var(--mono);
+  font-size: var(--t1);
+  font-weight: 700;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.collection__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0;
+  animation: detail-in 200ms var(--ease-out);
+}
+.collection__item {
+  display: grid;
+}
+
+/* Each row is a button — a row carrying a `change` opens to a Pierre diff. The
+   disclosure triangle is reserved by grid but only inked when the row is
+   openable, so non-openable rows still align. */
+.collection__row {
+  appearance: none;
+  border: 0;
+  width: 100%;
+  text-align: left;
+  cursor: default;
+  display: grid;
+  grid-template-columns: 0.8em minmax(11rem, auto) auto minmax(9rem, 1fr) auto;
+  align-items: baseline;
+  gap: 0.4rem 0.7rem;
+  padding: 0.36rem 0.5rem;
+  border-radius: var(--radius-s);
+  background: transparent;
+  color: var(--ink);
+  font-family: var(--sans);
+  transition: background-color 130ms var(--ease);
+}
+.collection__row[data-openable="true"] {
+  cursor: pointer;
+}
+@media (hover: hover) and (pointer: fine) {
+  .collection__row[data-openable="true"]:hover {
+    background: var(--surface-2);
+  }
+}
+.collection__row:focus-visible {
+  outline: 2px solid var(--state-added);
+  outline-offset: -2px;
+}
+/* the row's disclosure — hidden until the row is openable. */
+.collection__row > .collection__disclosure {
+  align-self: center;
+  visibility: hidden;
+}
+.collection__row[data-openable="true"] > .collection__disclosure {
+  visibility: visible;
+}
+.collection__item[data-open="true"] .collection__disclosure {
+  transform: rotate(90deg);
+}
+.collection__source {
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  color: var(--ink);
+}
+.collection__maps {
+  color: var(--ink-3);
+  font-size: 0.78rem;
+}
+.collection__dest {
+  font-family: var(--mono);
+  font-size: 0.76rem;
+  color: var(--state);
+}
+.collection__note {
+  color: var(--ink-3);
+  font-size: var(--t1);
+}
+.collection__row .state-badge {
+  justify-self: end;
+}
+
+/* the opened route change — Pierre diff/block, indented under its row. */
+.collection__detail {
+  padding: 0.5rem 0.5rem 0.75rem 1.3rem;
+  animation: detail-in 200ms var(--ease-out);
+}
+
+/* ── Banded collection — the second axis: slice / wave captions over row
+   groups. The flat list stays the default; bands only when items carry one. ── */
+.collection__bands {
+  display: grid;
+  gap: 1.1rem;
+  animation: detail-in 200ms var(--ease-out);
+}
+.collection__band {
+  display: grid;
+  gap: 0.3rem;
+}
+.collection__band-caption {
+  font-family: var(--mono);
+  font-size: var(--t1);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  padding-inline-start: 0.5rem;
+}

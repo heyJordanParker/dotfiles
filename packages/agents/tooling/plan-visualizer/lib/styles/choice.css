@@ -1,0 +1,175 @@
+/* ============================================================================
+   ChoiceList — an open choice: a question, two or three traced options each with
+   pros / cons / confidence, and a recommendation. The recommended option reads
+   through the `added` green; confidence is a labelled chip, not a hue. No
+   per-option rainbow — the one semantic color system carries recommended-vs-not.
+   ============================================================================ */
+
+.choices {
+  display: grid;
+  gap: 2.5rem;
+}
+
+.choice {
+  display: grid;
+  gap: 1.25rem;
+  align-content: start;
+}
+.choice__head {
+  display: grid;
+  gap: 0.4rem;
+}
+.choice__question {
+  font-size: var(--t3);
+  font-weight: 660;
+  color: var(--ink);
+  line-height: 1.3;
+}
+.choice__stakes {
+  color: var(--ink-2);
+  font-size: 0.9rem;
+  line-height: 1.55;
+  max-width: 78ch;
+}
+
+/* ── Options — a responsive grid; each option a quiet surface ─────────────── */
+.choice__options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr));
+  gap: 1rem;
+  align-items: start;
+}
+.choice__options > .option {
+  container-type: inline-size;
+}
+
+.option {
+  display: grid;
+  gap: 0.7rem;
+  align-content: start;
+  padding: 1.1rem 1.2rem;
+  border-radius: var(--radius-l);
+  background: var(--surface-1);
+  box-shadow: var(--shadow-subtle);
+}
+/* the recommended option carries the path-forward green via a ring tint only —
+   no left-rail, no gradient. The pick chip + the green ring make the case. */
+.option[data-recommended="true"] {
+  background: color-mix(in oklch, var(--state-added) 6%, var(--surface-1));
+  box-shadow: 0 0 0 1px color-mix(in oklch, var(--state-added) 45%, transparent),
+    var(--shadow-elevated);
+}
+
+.option__head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.6rem;
+}
+.option__label {
+  font-size: 0.95rem;
+  font-weight: 660;
+  color: var(--ink);
+}
+.option__pick {
+  font-family: var(--mono);
+  font-size: 0.55rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--state-added);
+  background: var(--state-added-soft);
+  padding: 0.12rem 0.4rem;
+  border-radius: var(--radius-s);
+}
+.option__confidence {
+  margin-inline-start: auto;
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  padding: 0.12rem 0.45rem;
+  border-radius: var(--radius-s);
+  color: var(--ink-3);
+  background: var(--state-kept-soft);
+}
+/* confidence is a number, not a category — the recommended option's % reads as
+   the document green (the path forward); the rest stay neutral. No per-number
+   rainbow; it sits inside the one system. */
+.option__confidence[data-recommended="true"] {
+  color: var(--state-added);
+  background: var(--state-added-soft);
+}
+
+.option__summary {
+  color: var(--ink-2);
+  font-size: 0.875rem;
+  line-height: 1.55;
+}
+
+.option__weigh {
+  display: grid;
+  gap: 0.5rem;
+}
+.option__pros,
+.option__cons {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.3rem;
+}
+.option__pros li,
+.option__cons li {
+  position: relative;
+  padding-inline-start: 1.1rem;
+  font-size: 0.83rem;
+  line-height: 1.5;
+  color: var(--ink-2);
+}
+.option__pros li::before,
+.option__cons li::before {
+  position: absolute;
+  inset-inline-start: 0;
+  font-family: var(--mono);
+  font-weight: 700;
+}
+.option__pros li::before {
+  content: "+";
+  color: var(--state-added);
+}
+.option__cons li::before {
+  content: "−";
+  color: var(--state-removed);
+}
+
+/* the option's shape as code sits flush under the weigh, full width. */
+.option .codeblock,
+.option .codediff {
+  margin-block-start: 0.25rem;
+}
+
+/* ── Recommendation — the agent's call, terse ─────────────────────────────── */
+.choice__rec {
+  display: grid;
+  gap: 0.3rem;
+  padding: 0.95rem 1.1rem;
+  border-radius: var(--radius-l);
+  background: color-mix(in oklch, var(--state-added) 5%, var(--surface-1));
+  box-shadow: 0 0 0 1px color-mix(in oklch, var(--state-added) 30%, transparent);
+}
+.choice__rec-lead {
+  font-family: var(--mono);
+  font-size: var(--t1);
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--state-added);
+}
+.choice__rec-body {
+  margin: 0;
+  color: var(--ink);
+  font-size: 0.9rem;
+  line-height: 1.55;
+  max-width: 78ch;
+}

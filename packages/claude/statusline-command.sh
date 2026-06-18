@@ -62,8 +62,7 @@ progress_bar=$(printf "\033[90m%s %d%%\033[0m" "$bar" "$percentage")
 session_id=$(echo "$input" | jq -r '.session_id // ""')
 classifier_status=""
 if [ -n "$session_id" ]; then
-  state_file="/tmp/claude-session-state-${session_id}"
-  [ ! -f "$state_file" ] && "$HOME/.claude/hooks/initialize-session-state.sh" "$session_id"
+  state_file="${CLAUDE_DATA_ROOT:-$HOME/.claude}/sessions/${session_id}/state.json"
   if [ -f "$state_file" ]; then
     raw_state=$(jq -r '.state // "proposing"' "$state_file" 2>/dev/null) || raw_state="proposing"
     raw_approach=$(jq -r '.approach // "solo"' "$state_file" 2>/dev/null) || raw_approach="solo"

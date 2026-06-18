@@ -1,0 +1,296 @@
+/* ============================================================================
+   RelationshipGraph — content-sized SVG nodes (no truncation, no overflow),
+   clean edge routing, and a terse popover (a name, one line, dependency rows).
+   ============================================================================ */
+
+.graph {
+  position: relative;
+  background: var(--surface-1);
+  border-radius: var(--radius-l);
+  box-shadow: var(--shadow-subtle);
+  padding: 1.25rem;
+}
+.graph[data-compact="true"] {
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
+}
+
+/* ── Bands — the second axis. Each group is a captioned grid stacked vertically;
+   the change-state color stays the primary axis, the band is orthogonal. ───── */
+.graph__band {
+  position: relative;
+  display: grid;
+  gap: 0.5rem;
+  justify-items: start;
+}
+.graph[data-banded="true"] {
+  display: grid;
+  gap: 1.5rem;
+}
+.graph__band-caption {
+  font-family: var(--mono);
+  font-size: var(--t1);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+/* The viewBox is sized to the content, so width:100% scales it to fit with no
+   clipping; the height follows from the aspect ratio. */
+.graph__svg {
+  display: block;
+  width: 100%;
+  /* Never upscale past the diagram's own pixel width — a lone small node in its
+     own band would otherwise balloon to fill the column. --graph-w is the
+     measured content width set per band; the SVG shrinks below it on narrow
+     screens but never grows past it. */
+  max-inline-size: var(--graph-w, 100%);
+  height: auto;
+}
+
+.graph__node {
+  cursor: pointer;
+}
+.graph[data-compact="true"] .graph__node {
+  cursor: default;
+}
+/* The border IS the node's change-state color, pure — so it matches the legend
+   swatch exactly (added green, changed amber, removed red, kept gray, separate
+   purple). No mix with --line: that blend produced an off-legend teal. */
+.graph__node-box {
+  fill: var(--surface-2);
+  stroke: var(--state);
+  stroke-width: 1.5;
+  transition: stroke-width 160ms var(--ease), fill 160ms var(--ease);
+}
+.graph__node[data-active="true"] .graph__node-box {
+  fill: color-mix(in oklch, var(--state) 12%, var(--surface-2));
+  stroke: var(--state);
+  stroke-width: 2.4;
+}
+@media (hover: hover) and (pointer: fine) {
+  .graph:not([data-compact="true"]) .graph__node:hover .graph__node-box {
+    fill: color-mix(in oklch, var(--state) 8%, var(--surface-2));
+    stroke: var(--state);
+  }
+}
+.graph__node:focus-visible {
+  outline: none;
+}
+.graph__node:focus-visible .graph__node-box {
+  stroke: var(--state);
+  stroke-width: 2;
+}
+/* Sizes here MUST match the px-per-char constants in RelationshipGraph.tsx so
+   the measured box width fits the text exactly. */
+.graph__node-title {
+  fill: var(--ink);
+  font: 600 14px var(--sans);
+}
+.graph__node-sub {
+  fill: var(--ink-3);
+  font: 400 10px var(--mono);
+}
+
+/* ── Signature card — a sparse (1–3 node) diagram shows full signatures in-node.
+   Real HTML through <foreignObject>, so the interior reflows with an @container
+   query: it declares itself a container, and the signature list goes two-column
+   when the card is given the room, single-column when it is narrow. The empty
+   box becomes a readable card. ─────────────────────────────────────────────── */
+.graph__node[data-card="true"] {
+  cursor: pointer;
+}
+.graph__card {
+  container-type: inline-size;
+  block-size: 100%;
+  box-sizing: border-box;
+  padding: 0.7rem 1rem 0.8rem;
+  display: grid;
+  gap: 0.5rem;
+  align-content: start;
+  font-family: var(--sans);
+}
+.graph__card-head {
+  display: grid;
+  gap: 0.1rem;
+}
+.graph__card-name {
+  font-family: var(--mono);
+  font-size: 0.875rem;
+  font-weight: 660;
+  color: var(--ink);
+  line-height: 1.25;
+}
+.graph__card-sub {
+  font-family: var(--mono);
+  font-size: var(--t1);
+  color: var(--ink-3);
+}
+.graph__card-sigs {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.32rem 1.4rem;
+}
+/* Two columns ONLY when the card has room for two FULL signatures side by side.
+   A self-sized card is measured to exactly one signature wide, so it never hits
+   this threshold and stays single-column at full width — every line shows whole.
+   The reflow still fires if the card is ever handed extra room (a wide popover),
+   and even then lines wrap rather than clip, so a signature is never cut. */
+@container (min-width: 46rem) {
+  .graph__card-sigs {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+.graph__card-sig {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  line-height: 1.5;
+  color: var(--ink-2);
+  /* Full signatures, never an ellipsis: a long line wraps onto the next line,
+     and the wrapped continuation hangs indented past the state dot so it reads
+     as one signature, not two. overflow-wrap: anywhere lets a long unbroken
+     token (a type union, a path) break rather than overflow the card. */
+  white-space: normal;
+  overflow-wrap: anywhere;
+  padding-inline-start: 0.84em;
+  text-indent: -0.84em;
+}
+/* The signature lines read as the node's change-state surface accent — the one
+   color system, nothing new. */
+.graph__card[data-state] .graph__card-sig::before {
+  content: "";
+  display: inline-block;
+  inline-size: 0.34em;
+  block-size: 0.34em;
+  border-radius: 50%;
+  background: var(--state);
+  margin-inline-end: 0.5em;
+  vertical-align: 0.12em;
+}
+
+.graph__edge {
+  fill: none;
+  stroke: var(--state);
+  stroke-width: 1.6;
+  opacity: 0.8;
+}
+.graph__edge[data-separate="true"] {
+  stroke-dasharray: 5 5;
+  opacity: 0.55;
+}
+.graph__arrowhead {
+  fill: var(--state);
+}
+
+/* ── Popover — terse: a name, one line, dependency rows. No prose wall. ────── */
+.graph__popover-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-popover);
+  background: oklch(0.1 0.02 var(--hue) / 0.55);
+  backdrop-filter: blur(3px);
+  display: grid;
+  place-items: center;
+  padding: 1.5rem;
+  animation: scrim-in 160ms var(--ease-out);
+}
+@keyframes scrim-in {
+  from {
+    opacity: 0;
+  }
+}
+.graph__popover {
+  width: min(30rem, 100%);
+  max-height: 80vh;
+  overflow: auto;
+  background: var(--surface-1);
+  border-radius: var(--radius-l);
+  box-shadow: var(--shadow-floating);
+  padding: 1.25rem 1.4rem 1.1rem;
+  display: grid;
+  gap: 0.6rem;
+  animation: pop-in 200ms var(--ease-out);
+}
+/* a node carrying a full file detail gets the room a tree detail has — same
+   rich view, opened from the graph. */
+.graph__popover[data-rich="true"] {
+  width: min(52rem, 100%);
+  padding: 1.4rem 1.5rem 1.2rem;
+  gap: 0.9rem;
+}
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+}
+.graph__popover-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+.graph__popover-name {
+  font-family: var(--mono);
+  font-size: var(--t3);
+  font-weight: 660;
+  color: var(--ink);
+}
+.graph__popover-path {
+  font-family: var(--mono);
+  font-size: var(--t1);
+  color: var(--ink-3);
+}
+.graph__popover-summary {
+  color: var(--ink-2);
+  font-size: 0.875rem;
+  line-height: 1.55;
+}
+.graph__popover-deps {
+  list-style: none;
+  margin: 0.15rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.25rem;
+}
+.graph__popover-dep {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+}
+.graph__popover-dep code {
+  font-family: var(--mono);
+  color: var(--ink);
+  font-size: 0.95em;
+}
+.graph__popover-dep-label {
+  font-family: var(--mono);
+  color: var(--state);
+  font-size: var(--t1);
+}
+.graph__popover-close {
+  justify-self: end;
+  margin-top: 0.25rem;
+  appearance: none;
+  border: 0;
+  cursor: pointer;
+  font-family: var(--sans);
+  font-size: var(--t2);
+  font-weight: 600;
+  color: var(--ink-2);
+  background: var(--surface-2);
+  padding: 0.42rem 1rem;
+  border-radius: var(--radius-s);
+  transition: background-color 140ms var(--ease), color 140ms var(--ease);
+}
+@media (hover: hover) and (pointer: fine) {
+  .graph__popover-close:hover {
+    background: var(--surface-3);
+    color: var(--ink);
+  }
+}

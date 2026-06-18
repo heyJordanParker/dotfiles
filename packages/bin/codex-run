@@ -1,0 +1,11 @@
+#!/bin/bash
+# codex-run — run codex as one of our named agents. The mechanical wrapper the
+# codex skill drives; all logic lives in the runner module beside the hooks.
+#
+#   codex-run @<agent> "<prompt>"        run codex as <agent>
+#   codex-run resume <session> "<msg>"   continue a prior run
+#
+# The lib dir holds session_state.py, which the runner imports as a sibling, so
+# it goes on PYTHONPATH rather than being the run target.
+LIB="$HOME/.agents/hooks/lib"
+exec python3 -c "import sys; sys.path.insert(0, '$LIB'); import codex_run; sys.exit(codex_run.main(sys.argv[1:]))" "$@"

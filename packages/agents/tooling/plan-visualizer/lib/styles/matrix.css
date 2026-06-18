@@ -1,0 +1,201 @@
+/* ============================================================================
+   MatrixGrid — an interactive two-axis grid. Click a row to reveal its plain-
+   language detail below the grid. Color is carried by QUIET tinted columns and
+   alternating row bands, never by red/green text in every cell. Sticky row
+   headers keep the row axis readable while scanning across columns.
+   ============================================================================ */
+
+.matrix {
+  display: grid;
+  gap: 0;
+  background: var(--surface-1);
+  border-radius: var(--radius-l);
+  box-shadow: var(--shadow-subtle);
+  overflow: hidden;
+}
+.matrix__scroll {
+  overflow-x: auto;
+  max-inline-size: 100%;
+}
+.matrix__table {
+  inline-size: 100%;
+  border-collapse: collapse;
+  font-size: 0.83rem;
+}
+
+/* ── Column tints — the meaning of each column, kept faint. A subtle wash on the
+   whole column (header + body cells) reads the column's role: caution = the
+   thing that broke (faint red), ok = the thing that closes it (faint green),
+   watch = the thing to keep an eye on (faint amber), neutral = no wash. ─────── */
+.matrix__col[data-tint="caution"],
+.matrix__cell[data-tint="caution"] {
+  background: color-mix(in oklch, var(--state-removed) 7%, transparent);
+}
+.matrix__col[data-tint="ok"],
+.matrix__cell[data-tint="ok"] {
+  background: color-mix(in oklch, var(--state-added) 7%, transparent);
+}
+.matrix__col[data-tint="watch"],
+.matrix__cell[data-tint="watch"] {
+  background: color-mix(in oklch, var(--state-changed) 7%, transparent);
+}
+/* Header tints read a touch stronger so the column meaning lands at a glance. */
+.matrix__col[data-tint="caution"] {
+  background: color-mix(in oklch, var(--state-removed) 14%, var(--surface-sunk));
+}
+.matrix__col[data-tint="ok"] {
+  background: color-mix(in oklch, var(--state-added) 14%, var(--surface-sunk));
+}
+.matrix__col[data-tint="watch"] {
+  background: color-mix(in oklch, var(--state-changed) 14%, var(--surface-sunk));
+}
+
+/* ── Header row — column axis ─────────────────────────────────────────────── */
+.matrix__corner {
+  position: sticky;
+  inset-inline-start: 0;
+  z-index: 1;
+  text-align: start;
+  vertical-align: bottom;
+  padding: 0.7rem 0.9rem;
+  background: var(--surface-sunk);
+  font-family: var(--mono);
+  font-size: var(--t1);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+.matrix__col {
+  text-align: start;
+  vertical-align: bottom;
+  padding: 0.7rem 0.9rem;
+  background: var(--surface-sunk);
+  font-weight: 600;
+  color: var(--ink);
+  min-inline-size: 10rem;
+}
+.matrix__col-label {
+  display: block;
+  line-height: 1.3;
+}
+.matrix__col-note,
+.matrix__row-note {
+  display: block;
+  margin-block-start: 0.15rem;
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: var(--ink-3);
+  line-height: 1.4;
+  white-space: normal;
+}
+
+/* ── Row lines — clickable when they carry a detail ───────────────────────── */
+.matrix__line[data-expandable="true"] {
+  cursor: pointer;
+  transition: background-color 140ms var(--ease);
+}
+@media (hover: hover) and (pointer: fine) {
+  .matrix__line[data-expandable="true"]:hover .matrix__cell,
+  .matrix__line[data-expandable="true"]:hover .matrix__row {
+    background: var(--surface-2);
+  }
+}
+.matrix__line[data-open="true"] .matrix__row {
+  background: var(--surface-3);
+  color: var(--ink);
+}
+
+/* ── Row header — row axis, sticky to the inline start ────────────────────── */
+.matrix__row {
+  position: sticky;
+  inset-inline-start: 0;
+  z-index: 1;
+  vertical-align: top;
+  padding: 0.65rem 0.9rem;
+  background: var(--surface-2);
+  font-weight: 640;
+  color: var(--ink);
+}
+.matrix__row[role="button"] {
+  display: flex;
+  align-items: start;
+  gap: 0.4rem;
+}
+.matrix__row:focus-visible {
+  outline: 2px solid var(--note);
+  outline-offset: -2px;
+}
+.matrix__disclosure {
+  flex: none;
+  inline-size: 0.65rem;
+  block-size: 0.65rem;
+  margin-block-start: 0.2rem;
+  background: var(--ink-3);
+  clip-path: polygon(0 0, 100% 50%, 0 100%);
+  transition: transform 160ms var(--ease);
+}
+.matrix__line[data-open="true"] .matrix__disclosure {
+  transform: rotate(90deg);
+}
+.matrix__row-text {
+  display: grid;
+  gap: 0.05rem;
+}
+.matrix__row-label {
+  line-height: 1.3;
+}
+
+/* Even body rows take a faint band so the eye tracks across without a divider.
+   The tint washes (set above) layer on top of this within the relevant column. */
+.matrix__table tbody tr:nth-child(even) .matrix__row {
+  background: color-mix(in oklch, var(--surface-2) 80%, var(--surface-1));
+}
+
+/* ── Cells — plain-language value, no per-cell state color ────────────────── */
+.matrix__cell {
+  padding: 0.65rem 0.9rem;
+  vertical-align: top;
+  color: var(--ink-2);
+  line-height: 1.5;
+}
+.matrix__table tbody tr:nth-child(even) .matrix__cell {
+  background: color-mix(in oklch, var(--surface-2) 22%, transparent);
+}
+.matrix__cell[data-empty="true"]::before {
+  content: "—";
+  color: var(--ink-3);
+}
+
+/* ── The revealed row detail — full story in plain language, below the grid ── */
+.matrix__detail {
+  display: grid;
+  gap: 0.35rem;
+  padding: 1rem 1.1rem 1.15rem;
+  background: var(--surface-sunk);
+  animation: matrix-detail-in 220ms var(--ease-out);
+}
+.matrix__detail-label {
+  font-size: var(--t1);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.matrix__detail-text {
+  color: var(--ink-2);
+  max-inline-size: 75ch;
+  line-height: 1.6;
+}
+@keyframes matrix-detail-in {
+  from {
+    opacity: 0;
+    transform: translateY(-0.35rem);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .matrix__detail {
+    animation: none;
+  }
+}

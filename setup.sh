@@ -91,22 +91,16 @@ PLIST
   chmod +x /Applications/Docker.app/Contents/MacOS/Docker
 fi
 
-echo "==> Linking dotfiles..."
-mkdir -p "$HOME/.claude" "$HOME/.codex" "$HOME/.codex/skills" "$HOME/.ssh" "$HOME/.local/bin" "$HOME/.config"
-for pkg in atuin bat borders btop bun delta ghostty hunk karabiner lazygit nvim opencode superfile zed zellij; do
-  mkdir -p "$HOME/.config/$pkg"
-done
-"$DOTFILES_DIR/packages/bin/sync-codex-skill-links"
-cd "$DOTFILES_DIR/packages"
-stow -v -t "$HOME" git hyprspace npm tmux zsh
-stow -v -t "$HOME/.claude" claude
-stow -v -t "$HOME/.codex" codex
-stow -v -t "$HOME/.ssh" ssh
-stow -v -t "$HOME/.local/bin" bin
-stow -v -t "$HOME/.config" starship
-for pkg in atuin bat borders btop bun delta ghostty hunk karabiner lazygit nvim opencode superfile zed zellij; do
-  stow -v -t "$HOME/.config/$pkg" "$pkg"
-done
+echo "==> Linking dotfiles & syncing generated files..."
+# All repo maintenance — the stow package->target mapping, restow, and the
+# generated codex files — lives in scripts/sync.py so setup.sh and the
+# pre-commit hook share one implementation. setup.sh stays the only bash file.
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "ERROR: python3 is required for repo maintenance (scripts/sync.py)." >&2
+  exit 1
+fi
+python3 "$DOTFILES_DIR/scripts/sync.py"
+git -C "$DOTFILES_DIR" config core.hooksPath scripts/git-hooks
 cd "$DOTFILES_DIR"
 
 # Pre-grant zellij plugin permissions so zjstatus/autolock render without prompting

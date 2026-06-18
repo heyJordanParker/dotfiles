@@ -23,42 +23,6 @@
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/hooks/validate-planning-docs.sh",
             "timeout": 60
-          },
-          {
-            "type": "command",
-            "if": "Write(**/*.md)",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/validate-ledger-entries.sh",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "if": "Edit(**/*.md)",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/validate-ledger-entries.sh",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "if": "MultiEdit(**/*.md)",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/validate-ledger-entries.sh",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "if": "Write(**/*.md)",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/block-ledger-only-edits.sh",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "if": "Edit(**/*.md)",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/block-ledger-only-edits.sh",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "if": "MultiEdit(**/*.md)",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/block-ledger-only-edits.sh",
-            "timeout": 5
           }
         ]
       },

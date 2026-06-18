@@ -20,20 +20,21 @@ args = [ "--app", "desktop" ]
 
 [mcp_servers.node_repl]
 args = []
-command = "/Applications/Codex.app/Contents/Resources/node_repl"
+command = "/Applications/Codex.app/Contents/Resources/cua_node/bin/node_repl"
 startup_timeout_sec = 120
 
 [mcp_servers.node_repl.env]
 NODE_REPL_NATIVE_PIPE_CONNECT_TIMEOUT_MS = "1000"
-NODE_REPL_NODE_MODULE_DIRS = ""
-NODE_REPL_NODE_PATH = "/Applications/Codex.app/Contents/Resources/node"
+NODE_REPL_NODE_MODULE_DIRS = "/Applications/Codex.app/Contents/Resources/cua_node/lib/node_modules"
+NODE_REPL_NODE_PATH = "/Applications/Codex.app/Contents/Resources/cua_node/bin/node"
 NODE_REPL_TRUSTED_CODE_PATHS = "/Users/jordan/.codex"
 CODEX_HOME = "/Users/jordan/.codex"
-NODE_REPL_TRUSTED_BROWSER_CLIENT_SHA256S = "2de792ebdf729e85542c94275f6654821dddce546d9c7374c915f2297529e313"
-BROWSER_USE_AVAILABLE_BACKENDS = "iab"
+NODE_REPL_TRUSTED_BROWSER_CLIENT_SHA256S = "eb55d24cf065cd5311af6f99b16bade2b7a670790ff2db9accf60d012dd55dd1"
+BROWSER_USE_AVAILABLE_BACKENDS = "chrome,iab"
 NODE_REPL_INSTRUCTIONS_USE_CASE_BROWSER = "Control the in-app browser in conjunction with the Browser Plugin."
+NODE_REPL_INSTRUCTIONS_USE_CASE_CHROME = "Control the Chrome browser in conjunction with the Chrome Plugin. Prefer this method of controlling Chrome over alternatives (such as Computer Use) unless the user explicitly mentions an alternative."
 BROWSER_USE_CODEX_APP_BUILD_FLAVOR = "prod"
-BROWSER_USE_CODEX_APP_VERSION = "26.602.40724"
+BROWSER_USE_CODEX_APP_VERSION = "26.611.62324"
 CODEX_CLI_PATH = "/Applications/Codex.app/Contents/Resources/codex"
 
 [features]
@@ -58,123 +59,215 @@ enabled = true
 [plugins."browser-use@openai-bundled"]
 enabled = true
 
+[plugins."pdf@openai-primary-runtime"]
+enabled = true
+
 [plugins."browser@openai-bundled"]
 enabled = true
 
 # Codex draws from the shared Python hooks in packages/agents/hooks (stowed to
-# ~/.agents/hooks), the same set Claude uses. Only the stateless hooks run here:
-# Codex has no intent classifier, so the intent/session-state layer is excluded,
-# and hooks that guard Claude-only tools (Agent/EnterWorktree/TeamDelete/
-# ExitPlanMode) have no event to fire on. Local-only; never plugin-distributed.
-[[hooks.SessionStart]]
-[[hooks.SessionStart.hooks]]
+# ~/.agents/hooks), the same set Claude uses. Nearly the whole set runs here,
+# including the intent classifier and the session-state guards; only the hooks
+# that guard Claude-only tools (Agent/EnterWorktree/TeamDelete/ExitPlanMode) have
+# no event to fire on and are excluded. Local-only; never plugin-distributed.
+[[hooks.permission_request]]
+[[hooks.permission_request.hooks]]
 type = "command"
-command = "python3 /Users/jordan/.agents/hooks/load_trace_context.py"
-timeout = 15
-[[hooks.SessionStart.hooks]]
-type = "command"
-command = "python3 /Users/jordan/.agents/hooks/reload_harness_context.py"
-timeout = 15
-[[hooks.SessionStart.hooks]]
-type = "command"
-command = "python3 /Users/jordan/.agents/hooks/inject_docs.py"
-timeout = 15
+command = "python3 /Users/jordan/.agents/hooks/auto_approve_permissions.py"
 
-[[hooks.PreToolUse]]
-[[hooks.PreToolUse.hooks]]
+[[hooks.post_compact]]
+[[hooks.post_compact.hooks]]
+type = "command"
+command = "python3 /Users/jordan/.agents/hooks/record_session_event.py"
+
+[[hooks.post_tool_use]]
+[[hooks.post_tool_use.hooks]]
+type = "command"
+command = "python3 /Users/jordan/.agents/hooks/record_session_event.py"
+[[hooks.post_tool_use.hooks]]
+type = "command"
+command = "python3 /Users/jordan/.agents/hooks/sync_shaping.py"
+timeout = 5
+
+[[hooks.pre_tool_use]]
+[[hooks.pre_tool_use.hooks]]
+type = "command"
+command = "python3 /Users/jordan/.agents/hooks/block_branch_change.py"
+timeout = 5
+[[hooks.pre_tool_use.hooks]]
 type = "command"
 command = "python3 /Users/jordan/.agents/hooks/block_git_revert.py"
 timeout = 5
-[[hooks.PreToolUse.hooks]]
+[[hooks.pre_tool_use.hooks]]
+type = "command"
+command = "python3 /Users/jordan/.agents/hooks/block_path_assignment.py"
+timeout = 5
+[[hooks.pre_tool_use.hooks]]
+type = "command"
+command = "python3 /Users/jordan/.agents/hooks/block_unauthorized_commits.py"
+timeout = 5
+[[hooks.pre_tool_use.hooks]]
 type = "command"
 command = "python3 /Users/jordan/.agents/hooks/block_unsafe_delete.py"
 timeout = 5
-[[hooks.PreToolUse.hooks]]
+[[hooks.pre_tool_use.hooks]]
+type = "command"
+command = "python3 /Users/jordan/.agents/hooks/enforce_background_codex_run.py"
+timeout = 5
+[[hooks.pre_tool_use.hooks]]
 type = "command"
 command = "python3 /Users/jordan/.agents/hooks/guard_trace.py"
 timeout = 5
-[[hooks.PreToolUse.hooks]]
-type = "command"
-command = "python3 /Users/jordan/.agents/hooks/validate_planning_docs.py"
-timeout = 60
-[[hooks.PreToolUse.hooks]]
-type = "command"
-command = "python3 /Users/jordan/.agents/hooks/enrich_on_read.py"
-timeout = 10
-[[hooks.PreToolUse.hooks]]
+[[hooks.pre_tool_use.hooks]]
 type = "command"
 command = "python3 /Users/jordan/.agents/hooks/inject_docs.py"
 timeout = 15
-
-[[hooks.PermissionRequest]]
-[[hooks.PermissionRequest.hooks]]
+[[hooks.pre_tool_use.hooks]]
 type = "command"
-command = "python3 /Users/jordan/.agents/hooks/auto_approve_permissions.py"
+command = "python3 /Users/jordan/.agents/hooks/block_edits_during_proposal.py"
 timeout = 5
+[[hooks.pre_tool_use.hooks]]
+type = "command"
+command = "python3 /Users/jordan/.agents/hooks/enrich_on_read.py"
+timeout = 30
+[[hooks.pre_tool_use.hooks]]
+type = "command"
+command = "python3 /Users/jordan/.agents/hooks/inject_rules.py"
+timeout = 15
+[[hooks.pre_tool_use.hooks]]
+type = "command"
+command = "python3 /Users/jordan/.agents/hooks/protect_session_state.py"
+timeout = 5
+[[hooks.pre_tool_use.hooks]]
+type = "command"
+command = "python3 /Users/jordan/.agents/hooks/record_session_event.py"
+[[hooks.pre_tool_use.hooks]]
+type = "command"
+command = "python3 /Users/jordan/.agents/hooks/validate_planning_docs.py"
+timeout = 60
+
+[[hooks.session_start]]
+[[hooks.session_start.hooks]]
+type = "command"
+command = "python3 /Users/jordan/.agents/hooks/inject_rules.py"
+timeout = 15
+[[hooks.session_start.hooks]]
+type = "command"
+command = "python3 /Users/jordan/.agents/hooks/record_session_event.py"
+[[hooks.session_start.hooks]]
+type = "command"
+command = "python3 /Users/jordan/.agents/hooks/load_trace_context.py"
+timeout = 20
+[[hooks.session_start.hooks]]
+type = "command"
+command = "python3 /Users/jordan/.agents/hooks/reload_harness_context.py"
+timeout = 20
+
+[[hooks.stop]]
+[[hooks.stop.hooks]]
+type = "command"
+command = "python3 /Users/jordan/.agents/hooks/record_session_event.py"
+[[hooks.stop.hooks]]
+type = "command"
+command = "python3 /Users/jordan/.agents/hooks/validate_completion.py"
+timeout = 90
+
+[[hooks.user_prompt_submit]]
+[[hooks.user_prompt_submit.hooks]]
+type = "command"
+command = "python3 /Users/jordan/.agents/hooks/classify_intent.py"
+timeout = 60
+[[hooks.user_prompt_submit.hooks]]
+type = "command"
+command = "python3 /Users/jordan/.agents/hooks/record_session_event.py"
 
 [hooks.state]
 
-[hooks.state."/Users/jordan/.codex/hooks.json:session_start:0:0"]
-trusted_hash = "sha256:f4b442791c92f3225ddc5348949562e73b5f37e7fd7ad150adc2f5a66030cbbd"
+[hooks.state."/Users/jordan/.codex/config.toml:permission_request:0:0"]
+trusted_hash = "sha256:243048aae7cf95898107aab016dbb2417b2a189446ea0a3f5e637b6fe4a32eb6"
 
-[hooks.state."/Users/jordan/.codex/hooks.json:stop:0:0"]
-trusted_hash = "sha256:f9ddb26e14b04fe884321d89a0f63a5c9694069832c28c4c0ab651d53c3932ef"
+[hooks.state."/Users/jordan/.codex/config.toml:post_compact:0:0"]
+trusted_hash = "sha256:f88f679b4edeedb486d10907505bdfe72416ac7360555f00fe23b0690ae173a3"
 
-[hooks.state."/Users/jordan/.codex/hooks.json:user_prompt_submit:0:0"]
-trusted_hash = "sha256:c854cc01f2e3de10c2b4f02de063d4b2465f250e700bb392e376bfb8bb319407"
+[hooks.state."/Users/jordan/.codex/config.toml:post_tool_use:0:0"]
+trusted_hash = "sha256:f88f679b4edeedb486d10907505bdfe72416ac7360555f00fe23b0690ae173a3"
 
-[hooks.state."/Users/jordan/.codex/hooks.json:pre_tool_use:0:0"]
-trusted_hash = "sha256:60d3caefc6eefde1e3c1b3f5fcd0b050fa8ab87c1831019ffd5962a93eb74967"
-
-[hooks.state."/Users/jordan/.codex/hooks.json:permission_request:0:0"]
-trusted_hash = "sha256:254f60581d1502007746ec6310ff7dc7a5cc540f08d1e7d77ef48abee34c6199"
-
-[hooks.state."/Users/jordan/.codex/hooks.json:session_start:1:0"]
-trusted_hash = "sha256:f4b442791c92f3225ddc5348949562e73b5f37e7fd7ad150adc2f5a66030cbbd"
-
-[hooks.state."/Users/jordan/.codex/hooks.json:user_prompt_submit:1:0"]
-trusted_hash = "sha256:c854cc01f2e3de10c2b4f02de063d4b2465f250e700bb392e376bfb8bb319407"
-
-[hooks.state."/Users/jordan/.codex/hooks.json:stop:1:0"]
-trusted_hash = "sha256:f9ddb26e14b04fe884321d89a0f63a5c9694069832c28c4c0ab651d53c3932ef"
+[hooks.state."/Users/jordan/.codex/config.toml:post_tool_use:0:1"]
+trusted_hash = "sha256:f0ece1cc0aff4d769b37e2d0d6dffffadcbf9c01b5be3b4c7a45880e547b719f"
 
 [hooks.state."/Users/jordan/.codex/config.toml:pre_tool_use:0:0"]
-trusted_hash = "sha256:d8f943b66e12f96fb18c45aa4c586080e84663455c2379a8c8eb107ccbd4961e"
-
-[hooks.state."/Users/jordan/.codex/config.toml:session_start:0:0"]
-trusted_hash = "sha256:26033258364ab7ea9ffe5d8661d8b568e9e2fc9408390b845834c4c9aef277ec"
+trusted_hash = "sha256:5517977142c6a11d5eea55727bfc12fed11053f0491e3be43c96a637f8b1d356"
 
 [hooks.state."/Users/jordan/.codex/config.toml:pre_tool_use:0:1"]
-trusted_hash = "sha256:0e6dc40d548f5b20f993582ae75ab7ed1182cfbafbfc3d5cb892aaa92adbcffc"
+trusted_hash = "sha256:8709074d5936d8ffaf7cd0154f9e86604eee5f01ef88d507fcce3115d19a0d64"
 
 [hooks.state."/Users/jordan/.codex/config.toml:pre_tool_use:0:2"]
-trusted_hash = "sha256:cb31995bb92d153c57bd181151e935bf55a61af094d88aadf779ec31f8ef8caf"
+trusted_hash = "sha256:ed236edb3b4918d304d02e73b345ebd0f715d6b51d9898221fb79077c9063eb5"
 
 [hooks.state."/Users/jordan/.codex/config.toml:pre_tool_use:0:3"]
-trusted_hash = "sha256:62438d53594895454b0c90cc2c81f963c4665f406b1c675ea7b9562fc5b447c4"
+trusted_hash = "sha256:71fae9dcbb56aa23524cf3b23766c2f7deb09f7521aaa377bfc2a0b692686d40"
 
 [hooks.state."/Users/jordan/.codex/config.toml:pre_tool_use:0:4"]
-trusted_hash = "sha256:43eb3600085e05633551a931584e052d6aa87445ddc72644d3b83415f933c3ee"
+trusted_hash = "sha256:2069b1e74771c202a01582111fa4715cea9acb341eee7e1ad3f71b4773d229f8"
 
 [hooks.state."/Users/jordan/.codex/config.toml:pre_tool_use:0:5"]
-trusted_hash = "sha256:38c182971c3ef7e64952d3271816b21bc40bdca91988f2e1ed3e0568c265bf87"
+trusted_hash = "sha256:ed860fc55450424544a4840f67ef5713690d9311d9f5f8b6d0fb385515f5a514"
 
-[hooks.state."/Users/jordan/.codex/config.toml:permission_request:0:0"]
-trusted_hash = "sha256:51f48d6580aca2e6ea2bb51dd1a885ff2cae8e5e48208ef30e8641839843328a"
+[hooks.state."/Users/jordan/.codex/config.toml:pre_tool_use:0:6"]
+trusted_hash = "sha256:78f6f30ff5e32da1135f0586ef66e5f705f0788fe581b2f8075e2e292419208d"
+
+[hooks.state."/Users/jordan/.codex/config.toml:pre_tool_use:0:7"]
+trusted_hash = "sha256:a887e2af1d28abed0d543b7e508e39656f78a6c2932145cf7ad38b8d40a132d6"
+
+[hooks.state."/Users/jordan/.codex/config.toml:pre_tool_use:0:8"]
+trusted_hash = "sha256:7edac50d02b9b85c4918347a5adc98b0c8748f59d4363493e2a7ef9d959aaae4"
+
+[hooks.state."/Users/jordan/.codex/config.toml:pre_tool_use:0:9"]
+trusted_hash = "sha256:e8a74b0ca9b01fb903757ba0d619927e93a5a9969fadef315f7c1e3d4f813def"
+
+[hooks.state."/Users/jordan/.codex/config.toml:pre_tool_use:0:10"]
+trusted_hash = "sha256:0f9b8c41ffe192ca27456ee0c068fc944469ca20f961108b50b4ceb9cf9ec991"
+
+[hooks.state."/Users/jordan/.codex/config.toml:pre_tool_use:0:11"]
+trusted_hash = "sha256:12caa390c89c69a3372050488e5a39bc0349853e3fa41341fa5f1203aa4f31b2"
+
+[hooks.state."/Users/jordan/.codex/config.toml:pre_tool_use:0:12"]
+trusted_hash = "sha256:f88f679b4edeedb486d10907505bdfe72416ac7360555f00fe23b0690ae173a3"
+
+[hooks.state."/Users/jordan/.codex/config.toml:pre_tool_use:0:13"]
+trusted_hash = "sha256:91c5bc7210adf3aed6f7eb4d79ff61facce646232a3222e1da852c9c98cda7c5"
+
+[hooks.state."/Users/jordan/.codex/config.toml:session_start:0:0"]
+trusted_hash = "sha256:0f9b8c41ffe192ca27456ee0c068fc944469ca20f961108b50b4ceb9cf9ec991"
 
 [hooks.state."/Users/jordan/.codex/config.toml:session_start:0:1"]
-trusted_hash = "sha256:007ffbad63080d96be5658e96ef49b7f5dcd3be8ed2d6b2318902592c094cda9"
+trusted_hash = "sha256:f88f679b4edeedb486d10907505bdfe72416ac7360555f00fe23b0690ae173a3"
 
 [hooks.state."/Users/jordan/.codex/config.toml:session_start:0:2"]
-trusted_hash = "sha256:f3a22d4ba51fd9dfe6e9fd7ed59c4d3d07934ae1bd86c1a7f08d7c8b73546cd2"
+trusted_hash = "sha256:fd6a93d66318ab20fd9c1b6be05ab55c4622541dbf96046455f688c7e72c22a9"
+
+[hooks.state."/Users/jordan/.codex/config.toml:session_start:0:3"]
+trusted_hash = "sha256:13e499504fbd3735c1e27767f5005c7b89c5046b8d9bd7734dd6b02229fd9d7a"
+
+[hooks.state."/Users/jordan/.codex/config.toml:stop:0:0"]
+trusted_hash = "sha256:f88f679b4edeedb486d10907505bdfe72416ac7360555f00fe23b0690ae173a3"
+
+[hooks.state."/Users/jordan/.codex/config.toml:stop:0:1"]
+trusted_hash = "sha256:bc65ea63d30f7e7cef3286d73303a89d7659777eb7e0714339c7778bd0c25262"
+
+[hooks.state."/Users/jordan/.codex/config.toml:user_prompt_submit:0:0"]
+trusted_hash = "sha256:cdca74a3336dc9c23df28688348131e080a2f324bdf527a141c5a139e655bea9"
+
+[hooks.state."/Users/jordan/.codex/config.toml:user_prompt_submit:0:1"]
+trusted_hash = "sha256:f88f679b4edeedb486d10907505bdfe72416ac7360555f00fe23b0690ae173a3"
 
 [marketplaces.openai-bundled]
-last_updated = "2026-06-06T08:58:05Z"
+last_updated = "2026-06-18T09:29:48Z"
 source_type = "local"
 source = "/Users/jordan/.codex/.tmp/bundled-marketplaces/openai-bundled"
 
 [marketplaces.openai-primary-runtime]
-last_updated = "2026-06-01T18:55:03Z"
+last_updated = "2026-06-15T00:54:40Z"
 source_type = "local"
 source = "/Users/jordan/.cache/codex-runtimes/codex-primary-runtime/plugins/openai-primary-runtime"
 
@@ -208,6 +301,12 @@ trust_level = "trusted"
 [projects."/private/var/folders/t0/0bwlr70s62g8frgryzv4p4fr0000gn/T/tmp.cX00oQXgWz"]
 trust_level = "trusted"
 
+[projects."/Users/jordan/Developer/codemap"]
+trust_level = "trusted"
+
+[projects."/private/tmp"]
+trust_level = "trusted"
+
 [desktop]
 appearanceTheme = "dark"
 sansFontSize = 15
@@ -238,10 +337,10 @@ diffRemoved = "#fa423e"
 skill = "#3183d8"
 
 [desktop.open-in-target-preferences]
-global = "zed"
+global = "vscode"
 
 [desktop.open-in-target-preferences.perPath]
-"/Users/jordan/Developer/creator-income-blueprint" = "zed"
+"/Users/jordan/Developer/creator-income-blueprint" = "vscode"
 
 [memories]
 generate_memories = true
