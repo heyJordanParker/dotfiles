@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Block rm commands outside whitelisted directories.
+r"""Block rm commands outside whitelisted directories.
 
 The whitelist is resolved relative to the repo root, three levels up from this
 file (packages/agents/hooks/). block-unsafe-delete.sh is the plugin-distributed
