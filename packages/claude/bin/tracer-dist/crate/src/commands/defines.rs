@@ -1,6 +1,7 @@
 //! `trace defines <symbol>` — where a symbol is defined, via the architecture
 //! graph.
 
+use crate::commands::enrich;
 use crate::{architecture, cache};
 use anyhow::Result;
 use serde_json::{json, Value};
@@ -17,6 +18,10 @@ pub fn run(symbol: &str, as_json: bool) -> Result<Value> {
         std::process::exit(2);
     }
 
+    let source_files: Vec<String> =
+        matches.iter().filter_map(|m| m.source_file.clone()).collect();
+    let shoulders = enrich::file_shoulders(&source_files, &repo_root);
+
     let definitions: Vec<_> = matches
         .iter()
         .map(|m| {
@@ -26,6 +31,7 @@ pub fn run(symbol: &str, as_json: bool) -> Result<Value> {
                 "kind": m.kind,
                 "source_file": m.source_file,
                 "source_line": m.source_line,
+                "shoulder": m.source_file.as_deref().and_then(|f| shoulders.get(f)),
             })
         })
         .collect();
@@ -47,6 +53,9 @@ pub fn run(symbol: &str, as_json: bool) -> Result<Value> {
                     .map(|l| l.to_string())
                     .unwrap_or_else(|| "None".into()),
             );
+            if let Some(s) = m.source_file.as_deref().and_then(|f| shoulders.get(f)) {
+                println!("      {s}");
+            }
         }
     }
     Ok(out)

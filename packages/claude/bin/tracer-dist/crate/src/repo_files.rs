@@ -1,5 +1,10 @@
-//! Repo file enumeration.
-//! `tracked_files` (git ls-files) and `walk_files` (SKIP_DIRS-bounded walk).
+//! Repo file enumeration. The single source of truth for "which files does
+//! the repo contain" — every file-listing command routes through here so
+//! they agree on the deletion policy (a path in git's index but absent from
+//! disk is excluded).
+//! `tracked_files` (git ls-files, repo-root-relative) and `tracked_paths`
+//! (the same set as absolute paths) plus `walk_files` (SKIP_DIRS-bounded
+//! walk) for the non-git fallback.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -22,8 +27,14 @@ pub fn skip_dirs() -> HashSet<&'static str> {
     .collect()
 }
 
-/// git-tracked files under `base`. None when git is unavailable or `base`
-/// is outside `repo_root`.
+/// git-tracked files under `base`, repo-root-relative. None when git is
+/// unavailable or `base` is outside `repo_root`.
+///
+/// Deletion policy — the single source of truth every file-listing command
+/// shares: a path in git's index but absent from disk (`rm`'d from the
+/// working tree but never `git rm`'d) is excluded. `git ls-files` reports
+/// the stale index entry; the on-disk existence check drops it so the
+/// listing reflects the working tree, never git's index.
 pub fn tracked_files(repo_root: &Path, base: Option<&Path>) -> Option<Vec<String>> {
     let mut args: Vec<String> = vec![
         "ls-files".into(),
@@ -55,9 +66,19 @@ pub fn tracked_files(repo_root: &Path, base: Option<&Path>) -> Option<Vec<String
         String::from_utf8_lossy(&out.stdout)
             .lines()
             .filter(|l| !l.is_empty())
+            .filter(|l| repo_root.join(l).exists())
             .map(|l| l.to_string())
             .collect(),
     )
+}
+
+/// The same set as `tracked_files`, returned as absolute paths joined onto
+/// `repo_root` — the shape `find` / `glob` / the architecture graph need.
+/// Routes through `tracked_files` so the deletion policy lives in exactly
+/// one place. None when git is unavailable or `base` is outside `repo_root`.
+pub fn tracked_paths(repo_root: &Path, base: Option<&Path>) -> Option<Vec<PathBuf>> {
+    tracked_files(repo_root, base)
+        .map(|rels| rels.into_iter().map(|r| repo_root.join(r)).collect())
 }
 
 /// Filesystem walk under `base`, pruning SKIP_DIRS and hidden dirs/files.

@@ -10,7 +10,6 @@ use anyhow::Result;
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 const SKIP_DIRS: &[&str] = &[
     ".git",
@@ -58,20 +57,13 @@ fn walk(base: &Path, include_dirs: bool) -> Vec<PathBuf> {
     out
 }
 
-/// Candidate files: git ls-files from `base`, falling back to the
-/// SKIP_DIRS walk.
-fn list_files(base: &Path, include_dirs: bool) -> Vec<PathBuf> {
-    let out = Command::new("git")
-        .args(["ls-files", "--cached", "--others", "--exclude-standard"])
-        .current_dir(base)
-        .output();
-    match out {
-        Ok(o) if o.status.success() => {
-            let files: Vec<PathBuf> = String::from_utf8_lossy(&o.stdout)
-                .lines()
-                .filter(|l| !l.is_empty())
-                .map(|l| base.join(l))
-                .collect();
+/// Candidate files: the shared `git ls-files` enumeration scoped to `base`
+/// (deleted-in-index paths already excluded), falling back to the SKIP_DIRS
+/// walk. `include_dirs` synthesizes the parent directories of the matched
+/// files, stopping at `base`.
+fn list_files(repo_root: &Path, base: &Path, include_dirs: bool) -> Vec<PathBuf> {
+    match crate::repo_files::tracked_paths(repo_root, Some(base)) {
+        Some(files) => {
             if include_dirs {
                 let mut dirs: BTreeSet<PathBuf> = BTreeSet::new();
                 for f in &files {
@@ -91,7 +83,7 @@ fn list_files(base: &Path, include_dirs: bool) -> Vec<PathBuf> {
                 files
             }
         }
-        _ => walk(base, include_dirs),
+        None => walk(base, include_dirs),
     }
 }
 
@@ -145,7 +137,7 @@ pub fn run(
     let base_path = base_abs.clone();
     let repo_root = cache::worktree_root_for(&base_abs).unwrap_or_else(|| cache::display_root(&base_abs));
     let include_dirs = type_filter.to_lowercase() == "d";
-    let candidates = list_files(&base_abs, include_dirs);
+    let candidates = list_files(&repo_root, &base_abs, include_dirs);
 
     let candidates: Vec<PathBuf> = candidates
         .into_iter()

@@ -522,11 +522,16 @@ fn find_includes(line: &str) -> Vec<String> {
 
 /// Session id resolved from the standard env chain. The single resolution
 /// point shared by `nested_memory` and `session_log`.
+///
+/// Order: `AGENT_SESSION_ID` (the harness-neutral carrier our hooks set) →
+/// `CODEX_THREAD_ID` → `CLAUDE_CODE_SESSION_ID` — neutral first, then the
+/// innermost harness session before the outer, so a codex run nested under a
+/// Claude launcher keys on its own thread.
 pub fn session_id() -> Option<String> {
-    std::env::var("CLAUDE_CODE_SESSION_ID")
+    std::env::var("AGENT_SESSION_ID")
         .ok()
-        .or_else(|| std::env::var("CLAUDE_SESSION_ID").ok())
-        .or_else(|| std::env::var("TRACER_SESSION_ID").ok())
+        .or_else(|| std::env::var("CODEX_THREAD_ID").ok())
+        .or_else(|| std::env::var("CLAUDE_CODE_SESSION_ID").ok())
 }
 
 /// Render the nested-memory header block for `trace read` output.

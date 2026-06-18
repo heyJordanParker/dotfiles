@@ -1,6 +1,6 @@
 //! Python tree-sitter extraction: module-level imports and definitions.
 
-use crate::extraction::{Declaration, Export, ExtractionResult, Import, Reference};
+use crate::extraction::{Declaration, Export, ExtractionResult, Import, Reference, RefShape};
 use std::collections::HashMap;
 use tree_sitter::{Node, Parser, Query, QueryCursor, StreamingIterator};
 
@@ -164,26 +164,47 @@ pub fn extract_from_tree(
 
 /// Every `function_definition` and `class_definition` in the tree —
 /// top-level, methods on classes, and definitions nested inside other
-/// functions. Source-order, deduped (one entry per (name, line) pair).
+/// functions. Source-order, deduped (one entry per (name, line) pair). A
+/// function defined directly inside a class body is a method and carries
+/// that class as its `container`; a top-level function or one nested inside
+/// another function has none.
 fn walk_declarations(root: Node, source: &[u8]) -> Vec<Declaration> {
     let mut out = Vec::new();
     let mut seen = std::collections::HashSet::new();
-    let mut stack = vec![root];
-    while let Some(n) = stack.pop() {
+    // Carries the enclosing class name only when the parent is a class body
+    // — a function nested inside another function is not a method, so the
+    // container resets to None when descending into a function.
+    let mut stack: Vec<(Node, Option<String>)> = vec![(root, None)];
+    while let Some((n, container)) = stack.pop() {
         let kind = match n.kind() {
             "function_definition" => Some("function"),
             "class_definition" => Some("class"),
             _ => None,
         };
+        let mut child_container = container.clone();
         if let Some(k) = kind {
             if let Some(name_node) = n.child_by_field_name("name") {
                 if let Ok(name) = name_node.utf8_text(source) {
                     let line = name_node.start_position().row as i64 + 1;
+                    let decl_container = if n.kind() == "function_definition" {
+                        container.clone()
+                    } else {
+                        None
+                    };
+                    // A class scopes its direct method children; descending
+                    // into a function clears the class scope (inner defs are
+                    // free functions, not methods).
+                    child_container = match n.kind() {
+                        "class_definition" => Some(name.to_string()),
+                        "function_definition" => None,
+                        _ => container.clone(),
+                    };
                     if seen.insert((name.to_string(), line)) {
                         out.push(Declaration {
                             name: name.to_string(),
                             kind: k.to_string(),
                             line,
+                            container: decl_container,
                         });
                     }
                 }
@@ -191,7 +212,7 @@ fn walk_declarations(root: Node, source: &[u8]) -> Vec<Declaration> {
         }
         let mut c = n.walk();
         for child in n.children(&mut c) {
-            stack.push(child);
+            stack.push((child, child_container.clone()));
         }
     }
     out.sort_by_key(|d| d.line);
@@ -206,33 +227,71 @@ fn walk_declarations(root: Node, source: &[u8]) -> Vec<Declaration> {
 /// matters for reference resolution against the declaration index.
 fn walk_references(root: Node, source: &[u8]) -> Vec<Reference> {
     let mut out = Vec::new();
-    let mut stack = vec![root];
-    while let Some(n) = stack.pop() {
+    // Each stack entry carries the name of the nearest enclosing
+    // `function_definition` — the calling symbol a use site belongs to. A
+    // function node sets the enclosing for its subtree; a nested function
+    // overrides it with its own name (innermost wins). `None` is module top
+    // level, where the edge keeps the importer-module source.
+    let mut stack: Vec<(Node, Option<String>)> = vec![(root, None)];
+    while let Some((n, enclosing)) = stack.pop() {
         if n.kind() == "call" {
             if let Some(func) = n.child_by_field_name("function") {
-                if let Some((name, line)) = callee_name(func, source) {
-                    out.push(Reference { name, line });
+                if let Some((name, line, shape, receiver)) = call_shape(func, source) {
+                    out.push(Reference {
+                        name,
+                        line,
+                        shape,
+                        receiver,
+                        enclosing: enclosing.clone(),
+                    });
                 }
             }
         }
+        let child_enclosing = if n.kind() == "function_definition" {
+            n.child_by_field_name("name")
+                .and_then(|nm| nm.utf8_text(source).ok())
+                .map(|s| s.to_string())
+                .or_else(|| enclosing.clone())
+        } else {
+            enclosing.clone()
+        };
         let mut c = n.walk();
         for child in n.children(&mut c) {
-            stack.push(child);
+            stack.push((child, child_enclosing.clone()));
         }
     }
     out
 }
 
-fn callee_name(node: Node, source: &[u8]) -> Option<(String, i64)> {
+/// Name, line, shape, and receiver for a call's function node. A bare
+/// `foo()` is `Free`; an `obj.foo()` is `Member` with the object text
+/// (`self`, a variable, a longer expression) as the receiver. Python names
+/// no class at a member call site, so the receiver names a value, not a
+/// type, and does not disambiguate the method's class.
+fn call_shape(node: Node, source: &[u8]) -> Option<(String, i64, RefShape, Option<String>)> {
     match node.kind() {
         "identifier" => {
             let txt = node.utf8_text(source).ok()?;
-            Some((txt.to_string(), node.start_position().row as i64 + 1))
+            Some((
+                txt.to_string(),
+                node.start_position().row as i64 + 1,
+                RefShape::Free,
+                None,
+            ))
         }
         "attribute" => {
             let attr = node.child_by_field_name("attribute")?;
             let txt = attr.utf8_text(source).ok()?;
-            Some((txt.to_string(), attr.start_position().row as i64 + 1))
+            let receiver = node
+                .child_by_field_name("object")
+                .and_then(|o| o.utf8_text(source).ok())
+                .map(|s| s.to_string());
+            Some((
+                txt.to_string(),
+                attr.start_position().row as i64 + 1,
+                RefShape::Member,
+                receiver,
+            ))
         }
         _ => None,
     }

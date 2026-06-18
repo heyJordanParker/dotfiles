@@ -1,23 +1,29 @@
 //! Worktree-anchored disk cache for the two repo-state namespaces.
 //!
-//! `.tracer-cache/{file,architecture}/{key}.json` at the worktree root —
-//! the main-repo root for a normal checkout, or the linked-worktree's own
-//! root for a `git worktree add` checkout. A tracer cache exists ONLY at
-//! a worktree root. Outside any worktree, reads still return live results
-//! but nothing persists — the `cache::save` chokepoint hard-gates on
-//! `worktree_root_for` and no-ops when it returns `None`.
+//! `.tracer-cache/file/{key}.json` and `.tracer-cache/architecture/{key}.bin`
+//! at the worktree root — the main-repo root for a normal checkout, or the
+//! linked-worktree's own root for a `git worktree add` checkout. A tracer
+//! cache exists ONLY at a worktree root. Outside any worktree, reads still
+//! return live results but nothing persists — the `cache::save` /
+//! `cache::save_entry` chokepoints hard-gate on `worktree_root_for` and
+//! no-op when it returns `None`.
 //!
 //! The namespaces never read each other. The third namespace, `sessions/`,
 //! lives under the same `.tracer-cache/` at the worktree root and is owned
-//! by `commands::session_log`. Cache entries are written as a single line
-//! of JSON (no indent, the `jsonfmt` byte format).
+//! by `commands::session_log`. File-namespace entries are written as a
+//! single line of JSON (no indent, the `jsonfmt` byte format) via `save`.
 //!
 //! `architecture/` holds the unified architecture graph — code
 //! symbols/modules with their cross-file `imports` and `references` edges,
 //! plus doc-file nodes (CLAUDE.md / Claude.md / .claude/rules/*.md) with
-//! their `@include` edges. Single entry per repo state, fingerprinted over
-//! per-file content hashes AND the doc-file mtime aggregate (plus git
-//! HEAD), so an edit to either input invalidates the unified graph.
+//! their `@include` edges. It is a bincode-encoded `Graph` written as a
+//! single `.bin` entry via `save_entry` and decoded straight into the
+//! struct on load — no JSON parse, no intermediate `Value` tree. Exactly
+//! one entry per repo state: a write evicts every superseded fingerprint's
+//! `.bin` sibling, so the namespace never grows without bound across HEAD
+//! moves or doc changes. Fingerprinted over per-file content hashes AND the
+//! doc-file mtime aggregate (plus git HEAD), so an edit to either input
+//! invalidates the unified graph.
 //!
 //! File cache key:
 //!   sha256("v{SCHEMA_VERSION}|ccn:{backend}\0" + contents + "\0" + relpath)
@@ -43,7 +49,7 @@ pub const NAMESPACE_ARCHITECTURE: &str = "architecture";
 /// Bump whenever extraction, `FileFacts` shape, or the unified
 /// architecture-graph shape changes — old entries become unreachable
 /// automatically across all namespaces.
-pub const SCHEMA_VERSION: u32 = 10;
+pub const SCHEMA_VERSION: u32 = 14;
 
 /// Active CCN backend. There is exactly one backend — the tree-sitter
 /// AST decision-node walker — so cache identity is unconditionally
@@ -190,6 +196,11 @@ pub fn architecture_fingerprint(
     hex::encode(hasher.finalize())
 }
 
+/// On-disk extension for the architecture namespace's bincode entry. Every
+/// other namespace stays JSON; the architecture graph is the one binary
+/// entry, decoded straight into its struct with no JSON parse.
+pub const ARCHITECTURE_ENTRY_EXTENSION: &str = "bin";
+
 /// Load a cache entry as a serde_json::Value. None when missing or corrupt.
 pub fn load(namespace: &str, key: &str, repo_root: &Path) -> Option<serde_json::Value> {
     let dir = namespace_dir(namespace, repo_root).ok()?;
@@ -199,6 +210,43 @@ pub fn load(namespace: &str, key: &str, repo_root: &Path) -> Option<serde_json::
     }
     let bytes = fs::read(&entry).ok()?;
     serde_json::from_slice(&bytes).ok()
+}
+
+/// Load a raw `.bin` entry's bytes. None when missing. Used by the
+/// architecture namespace, whose entry is a bincode-encoded graph rather
+/// than JSON.
+pub fn load_bytes(namespace: &str, key: &str, repo_root: &Path) -> Option<Vec<u8>> {
+    let dir = namespace_dir(namespace, repo_root).ok()?;
+    let entry = dir.join(format!("{key}.{ARCHITECTURE_ENTRY_EXTENSION}"));
+    if !entry.exists() {
+        return None;
+    }
+    fs::read(&entry).ok()
+}
+
+/// The single `.bin` entry in a namespace, returned as `(key, bytes)` where
+/// `key` is the filename stem (the fingerprint). Eviction keeps exactly one
+/// architecture entry per repo, so the read path reads the sole entry and
+/// validates it against the current code side without recomputing the full
+/// fingerprint up front — and without re-walking the doc tree. Returns
+/// `None` when the namespace has no `.bin` entry. When more than one exists
+/// (a torn write that eviction has not yet collapsed), the
+/// lexicographically-first is returned deterministically.
+pub fn load_sole_entry(namespace: &str, repo_root: &Path) -> Option<(String, Vec<u8>)> {
+    let dir = namespace_dir(namespace, repo_root).ok()?;
+    let mut entries: Vec<PathBuf> = fs::read_dir(&dir)
+        .ok()?
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| {
+            p.extension().and_then(|x| x.to_str()) == Some(ARCHITECTURE_ENTRY_EXTENSION)
+        })
+        .collect();
+    entries.sort();
+    let entry = entries.into_iter().next()?;
+    let key = entry.file_stem()?.to_string_lossy().to_string();
+    let bytes = fs::read(&entry).ok()?;
+    Some((key, bytes))
 }
 
 /// Atomic save: write a temp file in the same dir, fsync, rename into place.
@@ -254,6 +302,56 @@ pub fn save(
     Ok(())
 }
 
+/// Atomic save of a raw `.bin` entry, then evict every stale sibling so the
+/// namespace holds exactly the current fingerprint's entry. Same
+/// worktree-root gate and atomic temp-then-rename as `save`. The architecture
+/// namespace is keyed by a whole-repo fingerprint, so each HEAD move or doc
+/// change would otherwise leave the prior fingerprint's entry behind to
+/// accumulate without bound; deleting the siblings after the rename keeps one
+/// entry per repo. Eviction runs after the rename so a crash mid-write never
+/// removes the only good entry.
+pub fn save_entry(
+    namespace: &str,
+    key: &str,
+    bytes: &[u8],
+    repo_root: &Path,
+) -> Result<()> {
+    debug_assert!(
+        repo_root.join(".git").exists(),
+        "cache::save_entry called with non-worktree repo_root: {}",
+        repo_root.display()
+    );
+    if !repo_root.join(".git").exists() {
+        return Ok(());
+    }
+    let dir = namespace_dir(namespace, repo_root)?;
+    let entry = dir.join(format!("{key}.{ARCHITECTURE_ENTRY_EXTENSION}"));
+    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let tmp = dir.join(format!("{key}.{}.{n}.tmp", std::process::id()));
+    {
+        let mut f = fs::File::create(&tmp)?;
+        f.write_all(bytes)?;
+    }
+    fs::rename(&tmp, &entry)?;
+    // Evict stale siblings: every other cache entry is a superseded
+    // fingerprint — in any format, so a schema bump that changed the on-disk
+    // format (e.g. `.json` → `.bin`) leaves no orphaned prior-format entry
+    // behind. Keep only the one just written; never touch temp/lock files.
+    if let Ok(rd) = fs::read_dir(&dir) {
+        for e in rd.flatten() {
+            let p = e.path();
+            if p == entry {
+                continue;
+            }
+            if is_cache_entry(&p) {
+                let _ = fs::remove_file(&p);
+            }
+        }
+    }
+    Ok(())
+}
+
 #[derive(Debug, Clone)]
 pub struct CacheStats {
     pub namespace: String,
@@ -279,7 +377,7 @@ pub fn stats(repo_root: &Path) -> Result<Vec<CacheStats>> {
         if let Ok(rd) = fs::read_dir(&dir) {
             for e in rd.flatten() {
                 let p = e.path();
-                if p.extension().and_then(|x| x.to_str()) == Some("json") {
+                if is_cache_entry(&p) {
                     count += 1;
                     size += e.metadata().map(|m| m.len()).unwrap_or(0);
                 }
@@ -310,7 +408,7 @@ pub fn clear(namespace: Option<&str>, repo_root: &Path) -> Result<usize> {
         if let Ok(rd) = fs::read_dir(&dir) {
             for e in rd.flatten() {
                 let p = e.path();
-                if p.extension().and_then(|x| x.to_str()) == Some("json") {
+                if is_cache_entry(&p) {
                     fs::remove_file(&p)?;
                     removed += 1;
                 }
@@ -320,7 +418,7 @@ pub fn clear(namespace: Option<&str>, repo_root: &Path) -> Result<usize> {
     Ok(removed)
 }
 
-/// Remove the entire cache tree, returning the count of *.json entries.
+/// Remove the entire cache tree, returning the count of cache entries.
 pub fn clear_all(repo_root: &Path) -> Result<usize> {
     let root = repo_root.join(CACHE_DIR_NAME);
     if !root.is_dir() {
@@ -329,8 +427,18 @@ pub fn clear_all(repo_root: &Path) -> Result<usize> {
     let count = walkdir::WalkDir::new(&root)
         .into_iter()
         .filter_map(|e| e.ok())
-        .filter(|e| e.path().extension().and_then(|x| x.to_str()) == Some("json"))
+        .filter(|e| is_cache_entry(e.path()))
         .count();
     fs::remove_dir_all(&root)?;
     Ok(count)
+}
+
+/// A persisted cache entry is a `.json` (file namespace + mtime index) or a
+/// `.bin` (the architecture graph). Temp files and lock files are excluded so
+/// `stats` / `clear` count only durable entries.
+fn is_cache_entry(p: &Path) -> bool {
+    matches!(
+        p.extension().and_then(|x| x.to_str()),
+        Some("json") | Some(ARCHITECTURE_ENTRY_EXTENSION)
+    )
 }

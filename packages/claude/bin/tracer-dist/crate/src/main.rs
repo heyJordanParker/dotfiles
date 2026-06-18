@@ -309,6 +309,19 @@ enum DocsCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Clear the surfaced-docs state for the current session so a subsequent
+    /// `trace docs <path>` re-surfaces docs as new. Driven by the Codex
+    /// compaction/clear hook: a context reset drops injected rule text from
+    /// the model, so the surfaced-docs state must reset to re-inject it.
+    /// Append-only history is preserved — only the materialized view is cleared.
+    Reset {
+        /// Names the calling surface (e.g. `codex_compact_hook`). Lands
+        /// verbatim in the log event's `source` field.
+        #[arg(long, default_value = "trace_docs_reset")]
+        source: String,
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -505,6 +518,9 @@ fn main() -> Result<()> {
             }),
             Some(DocsCommand::Status { path, json }) => output::run_value(json, filter, || {
                 commands::docs::run_status(path.as_deref(), json)
+            }),
+            Some(DocsCommand::Reset { source, json }) => output::run_value(json, filter, || {
+                commands::docs::run_reset(&source, json)
             }),
             None if graph => output::run_value(json, filter, || {
                 commands::docs::run_graph(path.as_deref(), json)

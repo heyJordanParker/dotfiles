@@ -19,7 +19,7 @@
 //!
 //! Subagent stop archives the active log to
 //! `<repo>/.tracer-cache/sessions/<session_id>/archived/<agent_id>/` via the
-//! `archive-subagent-log.sh` hook. The move is a directory rename at the
+//! `archive_subagent_log.py` hook. The move is a directory rename at the
 //! harness layer — this module never writes the archived path, only reads
 //! it as a fallback when the active path is absent. Writes
 //! (`record_emission`, `record_read`) always target the active directory.
@@ -111,7 +111,7 @@ fn log_dir() -> Option<PathBuf> {
 
 /// Archived log directory for the current (session, agent).
 /// Subagent stores are moved here on subagent stop by the
-/// `archive-subagent-log.sh` hook so the active sessions directory stays
+/// `archive_subagent_log.py` hook so the active sessions directory stays
 /// bounded over a long-running orchestrator's lifetime. Reads fall back
 /// here when the active directory is absent — writes never target this
 /// path.

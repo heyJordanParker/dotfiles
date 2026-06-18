@@ -1,7 +1,7 @@
 //! `--filter` — an in-process jq program over a command's JSON value.
 //!
 //! The agent must never pipe `trace` output into `jq` (or any text
-//! trimmer); the `guard-trace.sh` hook enforces that. This module is the
+//! trimmer); the `guard_trace.py` hook enforces that. This module is the
 //! in-binary replacement: `jaq` (a pure-Rust jq) runs the program over the
 //! command's JSON value, keeping `trace` a single static binary with no
 //! external `jq` dependency. Output goes back through `jsonfmt` so the

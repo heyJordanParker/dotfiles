@@ -152,16 +152,17 @@ fn custom_source_lands_on_the_reset_response() {
 
 #[test]
 fn reset_is_a_clean_noop_when_no_session_is_active() {
-    // Standalone tracer use: no CLAUDE_CODE_SESSION_ID → the log no-ops, so
-    // reset succeeds with a structured "nothing cleared" answer rather than
-    // erroring or writing any cache.
+    // Standalone tracer use: no AGENT_SESSION_ID / CODEX_THREAD_ID /
+    // CLAUDE_CODE_SESSION_ID → the log no-ops, so reset succeeds with a
+    // structured "nothing cleared" answer rather than erroring or writing any
+    // cache.
     let f = docs_repo();
     let r = std::process::Command::new(trace_bin())
         .args(["docs", "reset", "--json"])
         .current_dir(&f.root)
+        .env_remove("AGENT_SESSION_ID")
+        .env_remove("CODEX_THREAD_ID")
         .env_remove("CLAUDE_CODE_SESSION_ID")
-        .env_remove("CLAUDE_SESSION_ID")
-        .env_remove("TRACER_SESSION_ID")
         .output()
         .expect("spawn trace");
     assert!(

@@ -1380,8 +1380,8 @@ fn first_touch_of_a_file_surfaces_its_symbols() {
     let r = f.trace_env(&["context", "app/controllers/orders.py"], &env);
     r.ok();
     assert!(
-        r.stdout.contains("[symbols: create, cancel]"),
-        "first surfacing must list the file's declarations in source order:\n{}",
+        r.stdout.contains("[symbols: create(x) ccn=2; cancel() ccn=1]"),
+        "first surfacing must list the file's declarations, with signatures, in source order:\n{}",
         r.stdout
     );
 }
@@ -1459,7 +1459,7 @@ fn directory_listing_surfaces_once_per_session_across_neighbours() {
         second.stdout
     );
     assert!(
-        second.stdout.contains("[symbols: show]"),
+        second.stdout.contains("[symbols: show() ccn=1]"),
         "the neighbour's own first-touch symbols line must still surface:\n{}",
         second.stdout
     );
@@ -1820,5 +1820,89 @@ fn structure_existing_fields_remain_with_their_existing_shapes() {
         main["cyclomatic_complexity"].is_i64(),
         "cyclomatic_complexity must remain an integer: {}",
         main
+    );
+}
+
+/// A path committed to git but then deleted from the working tree (without
+/// `git rm`) lingers in git's index. `git ls-files` still reports it, but it
+/// is gone from disk. Every file-listing command must agree with the working
+/// tree, never with the stale index: `list` and `tree` must not show the
+/// deleted file or a directory whose only content was deleted, and `find`
+/// must agree. This pins the single shared deletion policy across the
+/// commands that route through the file enumerator.
+#[test]
+fn listing_commands_exclude_files_deleted_from_disk_but_kept_in_index() {
+    let f = Fixture::new();
+    f.write("hooks/kept.sh", "#!/bin/sh\necho kept\n");
+    f.write("hooks/ghost.sh", "#!/bin/sh\necho ghost\n");
+    f.write("hooks/gone-dir/orphan.sh", "#!/bin/sh\necho orphan\n");
+    f.commit("commit hooks");
+
+    // Delete from disk WITHOUT staging the deletion — the index keeps the
+    // entries, mirroring an `rm`'d-but-never-`git rm`'d working tree.
+    std::fs::remove_file(f.root.join("hooks/ghost.sh")).unwrap();
+    std::fs::remove_dir_all(f.root.join("hooks/gone-dir")).unwrap();
+
+    // git's index still carries all three — the condition under test.
+    let r = f.trace(&["list", "hooks", "--json"]);
+    r.ok();
+    let v = r.json();
+
+    let files: Vec<&str> = v["files"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| e["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        files,
+        vec!["kept.sh"],
+        "list must show only the on-disk file, never the deleted-in-index ghost: {}",
+        v["files"]
+    );
+    let dirs: Vec<&str> = v["directories"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| e["name"].as_str().unwrap())
+        .collect();
+    assert!(
+        dirs.is_empty(),
+        "list must not show a directory whose only content was deleted: {}",
+        v["directories"]
+    );
+
+    // tree routes through the same enumerator — same survivor set.
+    let rt = f.trace(&["tree", "hooks", "--json"]);
+    rt.ok();
+    let vt = rt.json();
+    let tree_files: Vec<&str> = vt["files"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| e["path"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        tree_files,
+        vec!["kept.sh"],
+        "tree must agree with the working tree, not the stale index: {}",
+        vt["files"]
+    );
+
+    // find was already correct and must stay correct.
+    let rf = f.trace(&["find", "*.sh", "hooks", "--json"]);
+    rf.ok();
+    let vf = rf.json();
+    let found: Vec<&str> = vf["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| e["path"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        found,
+        vec!["hooks/kept.sh"],
+        "find must return only the on-disk match: {}",
+        vf["entries"]
     );
 }

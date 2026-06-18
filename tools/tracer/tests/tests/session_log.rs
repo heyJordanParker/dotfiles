@@ -362,15 +362,14 @@ fn second_context_call_does_not_re_record_unchanged_read() {
 #[test]
 fn no_session_id_means_no_log_is_written() {
     let f = docs_repo();
-    // No CLAUDE_CODE_SESSION_ID / CLAUDE_SESSION_ID / TRACER_SESSION_ID
-    // set — standalone tracer use must still render docs and never write
-    // a log.
+    // No AGENT_SESSION_ID / CODEX_THREAD_ID / CLAUDE_CODE_SESSION_ID set —
+    // standalone tracer use must still render docs and never write a log.
     let r = Command::new(trace_bin())
         .args(["docs", "sub/util.py"])
         .current_dir(&f.root)
+        .env_remove("AGENT_SESSION_ID")
+        .env_remove("CODEX_THREAD_ID")
         .env_remove("CLAUDE_CODE_SESSION_ID")
-        .env_remove("CLAUDE_SESSION_ID")
-        .env_remove("TRACER_SESSION_ID")
         .output()
         .expect("spawn trace");
     assert!(
@@ -438,7 +437,7 @@ fn no_repo_root_means_no_log_is_written() {
 
 // --- archive lifecycle (subagent stop) -------------------------------------
 //
-// Contract being pinned: when `archive-subagent-log.sh` moves a
+// Contract being pinned: when `archive_subagent_log.py` moves a
 // subagent's active log from `sessions/<sid>/<aid>/` to
 // `sessions/<sid>/archived/<aid>/`, the on-disk events and view survive
 // the move and the tracer's read path follows them — `trace docs` against
@@ -461,20 +460,20 @@ fn dotfiles_root() -> PathBuf {
 
 fn archive_hook() -> PathBuf {
     dotfiles_root()
-        .join("packages/claude/hooks/archive-subagent-log.sh")
+        .join("packages/agents/hooks/archive_subagent_log.py")
 }
 
 /// Spawn the archive hook with cwd = the test's repo root, which is how
 /// the harness invokes it in production (the hook resolves the repo root
 /// via `git -C "$PWD" rev-parse --show-toplevel`).
 fn run_archive_hook(repo_root: &Path, session_id: &str, agent_id: &str) {
-    let status = Command::new("bash")
+    let status = Command::new("python3")
         .arg(archive_hook())
         .arg(session_id)
         .arg(agent_id)
         .current_dir(repo_root)
         .status()
-        .expect("spawn archive-subagent-log.sh");
+        .expect("spawn archive_subagent_log.py");
     assert!(
         status.success(),
         "archive hook exited non-zero for sid={session_id} aid={agent_id}"

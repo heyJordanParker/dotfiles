@@ -1,6 +1,6 @@
 //! PHP tree-sitter extraction: `use` statements and class/interface/function defs.
 
-use crate::extraction::{Declaration, Export, ExtractionResult, Import, Reference};
+use crate::extraction::{Declaration, Export, ExtractionResult, Import, Reference, RefShape};
 use std::collections::HashMap;
 use tree_sitter::{Node, Parser, Query, QueryCursor, StreamingIterator};
 
@@ -146,12 +146,14 @@ pub fn extract_from_tree(
 
 /// Every named declaration: class / interface / trait / enum / function /
 /// method, anywhere in the tree (including methods inside classes and
-/// functions declared inside other functions).
+/// functions declared inside other functions). A `method_declaration`
+/// carries its enclosing class/interface/trait/enum name as `container`;
+/// a `function_definition` and the type declarations themselves have none.
 fn walk_declarations(root: Node, source: &[u8]) -> Vec<Declaration> {
     let mut out = Vec::new();
     let mut seen = std::collections::HashSet::new();
-    let mut stack = vec![root];
-    while let Some(n) = stack.pop() {
+    let mut stack: Vec<(Node, Option<String>)> = vec![(root, None)];
+    while let Some((n, container)) = stack.pop() {
         let kind: Option<&str> = match n.kind() {
             "class_declaration" => Some("class"),
             "interface_declaration" => Some("interface"),
@@ -161,15 +163,32 @@ fn walk_declarations(root: Node, source: &[u8]) -> Vec<Declaration> {
             "method_declaration" => Some("function"),
             _ => None,
         };
+        let mut child_container = container.clone();
         if let Some(k) = kind {
             if let Some(name_node) = n.child_by_field_name("name") {
                 if let Ok(name) = name_node.utf8_text(source) {
                     let line = name_node.start_position().row as i64 + 1;
+                    let decl_container = if n.kind() == "method_declaration" {
+                        container.clone()
+                    } else {
+                        None
+                    };
+                    // A class/interface/trait/enum scopes its members.
+                    if matches!(
+                        n.kind(),
+                        "class_declaration"
+                            | "interface_declaration"
+                            | "trait_declaration"
+                            | "enum_declaration"
+                    ) {
+                        child_container = Some(name.to_string());
+                    }
                     if seen.insert((name.to_string(), line)) {
                         out.push(Declaration {
                             name: name.to_string(),
                             kind: k.to_string(),
                             line,
+                            container: decl_container,
                         });
                     }
                 }
@@ -177,7 +196,7 @@ fn walk_declarations(root: Node, source: &[u8]) -> Vec<Declaration> {
         }
         let mut c = n.walk();
         for child in n.children(&mut c) {
-            stack.push(child);
+            stack.push((child, child_container.clone()));
         }
     }
     out.sort_by_key(|d| d.line);
@@ -190,94 +209,171 @@ fn walk_declarations(root: Node, source: &[u8]) -> Vec<Declaration> {
 /// return type hints, and property type declarations.
 fn walk_references(root: Node, source: &[u8]) -> Vec<Reference> {
     let mut out = Vec::new();
-    let mut stack = vec![root];
-    while let Some(n) = stack.pop() {
+    // Each stack entry carries the name of the nearest enclosing function /
+    // method / anonymous-function — the calling symbol the use site belongs
+    // to. A function-shaped node sets the enclosing for its subtree (its own
+    // parameters and body), so a parameter type hint resolves to the
+    // declaring function. `None` is module top level.
+    let mut stack: Vec<(Node, Option<String>)> = vec![(root, None)];
+    while let Some((n, enclosing)) = stack.pop() {
         let line = n.start_position().row as i64 + 1;
+        // The enclosing scope for THIS node's children. A function-shaped
+        // node names its own scope; its return type and body are emitted
+        // under that name, not the parent's.
+        let child_enclosing = if matches!(
+            n.kind(),
+            "function_definition"
+                | "method_declaration"
+                | "anonymous_function"
+                | "anonymous_function_creation_expression"
+                | "arrow_function"
+        ) {
+            n.child_by_field_name("name")
+                .and_then(|nm| nm.utf8_text(source).ok())
+                .map(|s| s.to_string())
+                .or_else(|| enclosing.clone())
+        } else {
+            enclosing.clone()
+        };
         match n.kind() {
             "function_call_expression" => {
                 if let Some(func) = n.child_by_field_name("function") {
                     if let Some(name) = last_name_segment(func, source) {
-                        out.push(Reference { name, line });
+                        out.push(Reference {
+                            name,
+                            line,
+                            shape: RefShape::Free,
+                            receiver: None,
+                            enclosing: enclosing.clone(),
+                        });
                     }
                 }
             }
-            "member_call_expression" | "scoped_call_expression" => {
+            // `$x->foo()` — a method call on an object value. The receiver
+            // is a variable/expression, never a class name, so it carries
+            // no class to disambiguate against.
+            "member_call_expression" => {
                 if let Some(method) = n.child_by_field_name("name") {
                     if let Ok(name) = method.utf8_text(source) {
                         out.push(Reference {
                             name: name.to_string(),
                             line: method.start_position().row as i64 + 1,
+                            shape: RefShape::Member,
+                            receiver: None,
+                            enclosing: enclosing.clone(),
                         });
                     }
                 }
-                // `Foo::class` (class_constant_access_expression with a
-                // `class` keyword as the constant name) — the class name is
-                // the scope target. tree-sitter-php surfaces this same
-                // production as `scoped_call_expression` in some grammars,
-                // so we also pick the scope identifier up here when the
-                // child name is the literal `class`.
-                if let Some(scope) = n.child_by_field_name("scope") {
-                    if let Some(name_node) = n.child_by_field_name("name") {
-                        if name_node.utf8_text(source).ok() == Some("class") {
-                            if let Some(name) = last_name_segment(scope, source) {
-                                out.push(Reference { name, line });
-                            }
+            }
+            // `Foo::bar()` — a static call. The scope names the class, so
+            // the receiver is that class name.
+            "scoped_call_expression" => {
+                let scope_class = n
+                    .child_by_field_name("scope")
+                    .and_then(|s| last_name_segment(s, source));
+                if let Some(method) = n.child_by_field_name("name") {
+                    if let Ok(name) = method.utf8_text(source) {
+                        out.push(Reference {
+                            name: name.to_string(),
+                            line: method.start_position().row as i64 + 1,
+                            shape: RefShape::Static,
+                            receiver: scope_class.clone(),
+                            enclosing: enclosing.clone(),
+                        });
+                    }
+                }
+                // `Foo::class` surfaced as a scoped_call_expression in some
+                // grammars — the class name is the scope.
+                if let Some(name_node) = n.child_by_field_name("name") {
+                    if name_node.utf8_text(source).ok() == Some("class") {
+                        if let Some(name) = scope_class {
+                            out.push(Reference {
+                                name: name.clone(),
+                                line,
+                                shape: RefShape::Static,
+                                receiver: Some(name),
+                                enclosing: enclosing.clone(),
+                            });
                         }
                     }
                 }
             }
             "class_constant_access_expression" => {
                 // `Foo::CONST` and `Foo::class`. The scope is the class
-                // identifier — emit a reference to it either way so a
-                // class-name query catches the use site.
+                // identifier — a Static use that names the class.
                 let mut c = n.walk();
                 let mut children: Vec<Node> = n.children(&mut c).collect();
                 if let Some(first) = children.first_mut() {
                     if matches!(first.kind(), "name" | "qualified_name") {
                         if let Some(name) = last_name_segment(*first, source) {
-                            out.push(Reference { name, line });
+                            out.push(Reference {
+                                name: name.clone(),
+                                line,
+                                shape: RefShape::Static,
+                                receiver: Some(name),
+                                enclosing: enclosing.clone(),
+                            });
                         }
                     }
                 }
             }
             "object_creation_expression" => {
-                // `new Foo(...)` — the class name is the constructor target.
+                // `new Foo(...)` — the class name is the constructor target,
+                // a Static use that names the class.
                 let mut c = n.walk();
                 for child in n.children(&mut c) {
                     if matches!(child.kind(), "name" | "qualified_name") {
                         if let Some(name) = last_name_segment(child, source) {
-                            out.push(Reference { name, line });
+                            out.push(Reference {
+                                name: name.clone(),
+                                line,
+                                shape: RefShape::Static,
+                                receiver: Some(name),
+                                enclosing: enclosing.clone(),
+                            });
                         }
                         break;
                     }
                 }
             }
             "binary_expression" => {
-                // `$x instanceof Foo` — tree-sitter-php models instanceof
-                // as a binary_expression with the `instanceof` operator;
-                // the right operand is the class name.
+                // `$x instanceof Foo` — the right operand names the class.
                 if let Some(op) = n.child_by_field_name("operator") {
                     if op.utf8_text(source).ok() == Some("instanceof") {
                         if let Some(right) = n.child_by_field_name("right") {
                             if let Some(name) = type_name(right, source) {
-                                out.push(Reference { name, line });
+                                out.push(Reference {
+                                    name: name.clone(),
+                                    line,
+                                    shape: RefShape::Static,
+                                    receiver: Some(name),
+                                    enclosing: enclosing.clone(),
+                                });
                             }
                         }
                     }
                 }
             }
             // Type hints carry class names: parameter types (covers
-            // constructor injection), return types, property types.
+            // constructor injection), return types, property types. A
+            // parameter sits inside the declaring function, so its type use
+            // belongs to that function (`child_enclosing` of the function is
+            // already in scope here as `enclosing`).
             "simple_parameter"
             | "variadic_parameter"
             | "property_promotion_parameter" => {
                 if let Some(type_node) = n.child_by_field_name("type") {
-                    push_named_type(type_node, source, &mut out);
+                    push_named_type(type_node, source, enclosing.as_deref(), &mut out);
                 }
             }
-            "function_definition" | "method_declaration" => {
+            "function_definition"
+            | "method_declaration"
+            | "anonymous_function"
+            | "anonymous_function_creation_expression"
+            | "arrow_function" => {
                 if let Some(ret) = n.child_by_field_name("return_type") {
-                    push_named_type(ret, source, &mut out);
+                    // The return type belongs to the function being declared.
+                    push_named_type(ret, source, child_enclosing.as_deref(), &mut out);
                 }
             }
             "property_declaration" => {
@@ -287,7 +383,7 @@ fn walk_references(root: Node, source: &[u8]) -> Vec<Reference> {
                         child.kind(),
                         "named_type" | "primitive_type" | "union_type" | "nullable_type" | "intersection_type" | "optional_type"
                     ) {
-                        push_named_type(child, source, &mut out);
+                        push_named_type(child, source, enclosing.as_deref(), &mut out);
                     }
                 }
             }
@@ -295,7 +391,7 @@ fn walk_references(root: Node, source: &[u8]) -> Vec<Reference> {
         }
         let mut c = n.walk();
         for child in n.children(&mut c) {
-            stack.push(child);
+            stack.push((child, child_enclosing.clone()));
         }
     }
     out
@@ -303,16 +399,20 @@ fn walk_references(root: Node, source: &[u8]) -> Vec<Reference> {
 
 /// Recursively emit references for every `name`/`qualified_name` found
 /// inside a type node — handles `named_type`, `nullable_type`, `union_type`,
-/// `intersection_type`, and `optional_type`.
-fn push_named_type(node: Node, source: &[u8], out: &mut Vec<Reference>) {
+/// `intersection_type`, and `optional_type`. A type hint names a class, so
+/// each is a Static use whose receiver is the class itself.
+fn push_named_type(node: Node, source: &[u8], enclosing: Option<&str>, out: &mut Vec<Reference>) {
     let mut stack = vec![node];
     while let Some(n) = stack.pop() {
         match n.kind() {
             "name" | "qualified_name" => {
                 if let Some(name) = last_name_segment(n, source) {
                     out.push(Reference {
-                        name,
+                        name: name.clone(),
                         line: n.start_position().row as i64 + 1,
+                        shape: RefShape::Static,
+                        receiver: Some(name),
+                        enclosing: enclosing.map(|s| s.to_string()),
                     });
                 }
             }

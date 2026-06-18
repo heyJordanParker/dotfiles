@@ -25,7 +25,6 @@ use crate::file_facts::{self, FileFacts};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::sync::{Mutex, OnceLock};
 
 pub const CONFIDENCE_EXTRACTED: &str = "EXTRACTED";
@@ -198,11 +197,13 @@ fn file_to_module(relative_path: &str, language: Option<&str>) -> String {
     }
 }
 
-/// Files to feed the graph: git ls-files, else a SKIP_DIRS-bounded walk;
-/// filtered to supported extensions, symlinks excluded.
+/// Files to feed the graph: the shared `git ls-files` enumeration (deleted-
+/// in-index paths already excluded), else a SKIP_DIRS-bounded walk; filtered
+/// to supported extensions, symlinks excluded.
 pub fn discover_files(repo_root: &Path) -> Vec<PathBuf> {
     let exts = extraction::supported_extensions();
-    let files = git_ls_files(repo_root).unwrap_or_else(|| walk_files(repo_root));
+    let files =
+        crate::repo_files::tracked_paths(repo_root, None).unwrap_or_else(|| walk_files(repo_root));
     files
         .into_iter()
         .filter(|f| {
@@ -214,25 +215,6 @@ pub fn discover_files(repo_root: &Path) -> Vec<PathBuf> {
             ok_ext && !f.is_symlink()
         })
         .collect()
-}
-
-fn git_ls_files(repo_root: &Path) -> Option<Vec<PathBuf>> {
-    let out = Command::new("git")
-        .args(["ls-files", "--cached", "--others", "--exclude-standard"])
-        .current_dir(repo_root)
-        .output()
-        .ok()?;
-    if !out.status.success() {
-        return None;
-    }
-    Some(
-        String::from_utf8_lossy(&out.stdout)
-            .lines()
-            .filter(|l| !l.is_empty())
-            .map(|l| repo_root.join(l))
-            .filter(|p| p.is_file())
-            .collect(),
-    )
 }
 
 fn walk_files(repo_root: &Path) -> Vec<PathBuf> {

@@ -417,17 +417,17 @@ fn default_source_when_flag_omitted() {
 
 #[test]
 fn no_session_id_means_load_still_returns_shape_and_writes_no_log() {
-    // Standalone tracer use: no CLAUDE_CODE_SESSION_ID → the
-    // log is a no-op, but `load` still returns the response
-    // shape so a calling hook gets a structured "nothing was new, nothing
-    // was loaded" answer instead of an error.
+    // Standalone tracer use: no AGENT_SESSION_ID / CODEX_THREAD_ID /
+    // CLAUDE_CODE_SESSION_ID → the log is a no-op, but `load` still returns the
+    // response shape so a calling hook gets a structured "nothing was new,
+    // nothing was loaded" answer instead of an error.
     let f = docs_repo();
     let r = std::process::Command::new(tracer_cli_tests::trace_bin())
         .args(["docs", "load", "sub/util.py", "--source", "trace_inject_hook", "--json"])
         .current_dir(&f.root)
+        .env_remove("AGENT_SESSION_ID")
+        .env_remove("CODEX_THREAD_ID")
         .env_remove("CLAUDE_CODE_SESSION_ID")
-        .env_remove("CLAUDE_SESSION_ID")
-        .env_remove("TRACER_SESSION_ID")
         .output()
         .expect("spawn trace");
     assert!(

@@ -156,7 +156,7 @@ fn file_mode(p: &Path) -> Result<()> {
     // First touch of this file: surface its symbol surface so one read gives
     // the agent the file's shape without a second `trace structure` call.
     if first_touch {
-        let line = symbols_line(&facts);
+        let line = symbols_line(p);
         if !line.is_empty() {
             println!("{line}");
         }
@@ -170,24 +170,109 @@ fn file_mode(p: &Path) -> Result<()> {
     Ok(())
 }
 
-/// One-line symbol surface for a file: the names of its module-level
-/// declarations (functions, classes, methods) drawn from the cached
-/// tree-sitter extraction — the same declaration set `trace structure` falls
-/// back to. Empty string when the file has no extracted declarations.
-fn symbols_line(facts: &file_facts::FileFacts) -> String {
-    let extraction = match &facts.extraction {
-        Some(e) => e,
-        None => return String::new(),
+/// One-line symbol surface for a file: every declared symbol rendered with
+/// its full signature — the same per-method surface `trace structure`
+/// produces, drawn from `structure::run`'s JSON so the signature surface has
+/// one source of truth and isn't recomputed here. Each symbol reads
+/// `[visibility] name<signature> -> <return> [ccn=N]`, joined by `; `. Empty
+/// string when the file has no extracted symbols or structure fails.
+fn symbols_line(path: &Path) -> String {
+    let value = match super::structure::run(path, true) {
+        Ok(v) => v,
+        Err(_) => return String::new(),
     };
-    if extraction.declarations.is_empty() {
+    let by_kind = match value.get("symbols_by_kind").and_then(|v| v.as_object()) {
+        Some(m) if !m.is_empty() => m,
+        _ => return String::new(),
+    };
+    let mut entries: Vec<(i64, String)> = Vec::new();
+    for symbols in by_kind.values() {
+        let arr = match symbols.as_array() {
+            Some(a) => a,
+            None => continue,
+        };
+        for s in arr {
+            let line_no = s.get("line").and_then(|l| l.as_i64()).unwrap_or(0);
+            entries.push((line_no, render_symbol(s)));
+        }
+    }
+    if entries.is_empty() {
         return String::new();
     }
-    let names: Vec<String> = extraction
-        .declarations
-        .iter()
-        .map(|d| d.name.clone())
-        .collect();
-    format!("[symbols: {}]", names.join(", "))
+    // Source order — same ordering the structure view presents.
+    entries.sort_by_key(|(line_no, _)| *line_no);
+    let rendered: Vec<String> = entries.into_iter().map(|(_, text)| text).collect();
+    format!("[symbols: {}]", rendered.join("; "))
+}
+
+/// One symbol from `structure`'s per-symbol JSON rendered to its callable
+/// surface: visibility prefix, name, the parameter/return signature (the
+/// ctags `signature` string when present, else reconstructed from the
+/// tree-sitter `parameters`/`return_type` fields for languages ctags leaves
+/// bare), and cyclomatic complexity. Mirrors the structure text view's
+/// per-symbol line.
+fn render_symbol(s: &Value) -> String {
+    let name = s.get("name").and_then(|n| n.as_str()).unwrap_or("");
+    let mut text = String::new();
+    if let Some(vis) = s.get("visibility").and_then(|v| v.as_str()) {
+        text.push_str(vis);
+        text.push(' ');
+    }
+    text.push_str(name);
+    text.push_str(&signature_surface(s));
+    if let Some(ccn) = s.get("cyclomatic_complexity").and_then(|c| c.as_i64()) {
+        let _ = write!(text, " ccn={ccn}");
+    }
+    text
+}
+
+/// The parameter + return portion of a symbol's signature. Prefers the ctags
+/// `signature` string (already a complete `(params) -> ret` for languages
+/// ctags covers). When ctags left it null, reconstructs `(type name, …)` from
+/// the tree-sitter `parameters` array and ` -> <return_type>` from
+/// `return_type` so PHP / TypeScript / Python symbols carry their surface
+/// rather than degrading to a bare name. Empty string for symbols with
+/// neither (e.g. a property or class node with no callable shape).
+fn signature_surface(s: &Value) -> String {
+    if let Some(sig) = s.get("signature").and_then(|v| v.as_str()) {
+        if !sig.is_empty() {
+            return if sig.starts_with('(') {
+                sig.to_string()
+            } else {
+                format!(" {sig}")
+            };
+        }
+    }
+    let mut out = String::new();
+    if let Some(params) = s.get("parameters").and_then(|p| p.as_array()) {
+        let rendered: Vec<String> = params.iter().map(render_parameter).collect();
+        out.push('(');
+        out.push_str(&rendered.join(", "));
+        out.push(')');
+    }
+    if let Some(ret) = s.get("return_type").and_then(|r| r.as_str()) {
+        if !ret.is_empty() {
+            let _ = write!(out, " -> {}", ret.trim_start_matches(':').trim());
+        }
+    }
+    out
+}
+
+/// One parameter from a tree-sitter `parameters` entry as `type name` (either
+/// part may be absent). A trailing `= default` is appended when present.
+fn render_parameter(p: &Value) -> String {
+    let type_part = p.get("type").and_then(|t| t.as_str()).unwrap_or("");
+    let name_part = p.get("name").and_then(|n| n.as_str()).unwrap_or("");
+    let mut out = match (type_part.is_empty(), name_part.is_empty()) {
+        (false, false) => format!("{type_part} {name_part}"),
+        (true, false) => name_part.to_string(),
+        (false, true) => type_part.to_string(),
+        (true, true) => String::new(),
+    };
+    if let Some(default) = p.get("default").and_then(|d| d.as_str()) {
+        let _ = write!(out, " = {default}");
+    }
+    out
 }
 
 /// Emit the one-level file listing for `directory` the first time it is
@@ -205,30 +290,38 @@ fn emit_directory_line_on_first_touch(directory: &Path) {
     }
 }
 
-/// One-line listing of a single directory's files (one level, non-recursive),
-/// drawn from `commands::list_` in JSON mode so the listing logic is reused
-/// rather than re-derived. Empty string when the directory holds no files.
+/// One-line listing of a single directory's contents (one level,
+/// non-recursive): its sub-directories (each suffixed `/`) followed by its
+/// files, drawn from `commands::list_` in JSON mode so the listing logic is
+/// reused rather than re-derived. Empty string when the directory holds
+/// neither sub-directories nor files.
 fn directory_files_line(directory: &Path) -> String {
     let value = match super::list_::run(directory, false, true) {
         Ok(v) => v,
         Err(_) => return String::new(),
     };
-    let files = match value.get("files").and_then(|f| f.as_array()) {
-        Some(f) if !f.is_empty() => f,
-        _ => return String::new(),
+    let names_of = |key: &str| -> Vec<String> {
+        value
+            .get(key)
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|e| e.get("name").and_then(|n| n.as_str()).map(String::from))
+                    .collect()
+            })
+            .unwrap_or_default()
     };
-    let names: Vec<String> = files
-        .iter()
-        .filter_map(|f| f.get("name").and_then(|n| n.as_str()).map(String::from))
-        .collect();
-    if names.is_empty() {
+    let mut entries: Vec<String> =
+        names_of("directories").into_iter().map(|d| format!("{d}/")).collect();
+    entries.extend(names_of("files"));
+    if entries.is_empty() {
         return String::new();
     }
     let dir_name = directory
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_else(|| directory.to_string_lossy().to_string());
-    format!("[dir {}/: {}]", dir_name, names.join(", "))
+    format!("[dir {}/: {}]", dir_name, entries.join(", "))
 }
 
 /// One-line context-awareness hint: how many Claude.md / rules ancestors
@@ -1382,4 +1475,132 @@ fn spine_section(repo_root: &Path) -> String {
         );
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    /// A throwaway git worktree — `git init` makes `cache::worktree_root_for`
+    /// resolve to the fixture root, the same precondition the production read
+    /// path always runs under. Dropped — and removed from disk — at scope end.
+    struct Fixture {
+        root: std::path::PathBuf,
+    }
+
+    impl Fixture {
+        fn new() -> Self {
+            // Per-fixture unique suffix: tests run in parallel threads of one
+            // process, so the pid is shared and `now_secs()` is second-granular
+            // — a monotonic counter is what keeps two fixtures from colliding.
+            use std::sync::atomic::{AtomicU64, Ordering};
+            static SEQ: AtomicU64 = AtomicU64::new(0);
+            let root = std::env::temp_dir().join(format!(
+                "tracer_ctx_test_{}_{}_{}",
+                std::process::id(),
+                now_secs(),
+                SEQ.fetch_add(1, Ordering::Relaxed),
+            ));
+            fs::create_dir_all(&root).unwrap();
+            let status = Command::new("git")
+                .args(["init", "-q"])
+                .current_dir(&root)
+                .status()
+                .expect("git init");
+            assert!(status.success(), "git init failed in {}", root.display());
+            Fixture { root }
+        }
+
+        fn write(&self, rel: &str, contents: &str) {
+            let path = self.root.join(rel);
+            if let Some(parent) = path.parent() {
+                fs::create_dir_all(parent).unwrap();
+            }
+            fs::write(path, contents).unwrap();
+        }
+
+        /// Stage every file so `git ls-files` (the listing's tracked-file
+        /// source) sees the tree. Git cannot track an empty directory, so a
+        /// sub-directory only surfaces in the listing once it holds a tracked
+        /// file — the same as in a real repo.
+        fn stage(&self) {
+            let status = Command::new("git")
+                .args(["add", "-A"])
+                .current_dir(&self.root)
+                .status()
+                .expect("git add");
+            assert!(status.success(), "git add failed");
+        }
+    }
+
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.root);
+        }
+    }
+
+    // The richer symbol surface: the methods line carries each symbol's full
+    // signature (parameters + return type) and per-method cyclomatic
+    // complexity — the fidelity of `trace structure`'s per-method view — not
+    // bare names.
+    #[test]
+    fn symbols_line_carries_signatures_not_bare_names() {
+        let fx = Fixture::new();
+        fx.write(
+            "sample.rs",
+            "pub fn greet(name: &str, times: u32) -> String {\n\
+             \x20   let mut out = String::new();\n\
+             \x20   for _ in 0..times { out.push_str(name); }\n\
+             \x20   out\n\
+             }\n\
+             \n\
+             fn helper(x: i64) -> i64 {\n\
+             \x20   if x > 0 { x } else { -x }\n\
+             }\n",
+        );
+
+        let line = symbols_line(&fx.root.join("sample.rs"));
+
+        assert!(line.starts_with("[symbols: "), "got: {line}");
+        // Full parameter + return signature, not a bare `greet`.
+        assert!(
+            line.contains("greet(name: &str, times: u32) -> String"),
+            "expected greet's full signature, got: {line}"
+        );
+        assert!(
+            line.contains("helper(x: i64) -> i64"),
+            "expected helper's full signature, got: {line}"
+        );
+        // Per-method cyclomatic complexity is joined in, as in the structure view.
+        assert!(line.contains("ccn="), "expected per-method ccn, got: {line}");
+    }
+
+    // The directory listing surfaces sub-directories alongside files: each
+    // sub-directory is suffixed `/` and listed ahead of the files.
+    #[test]
+    fn directory_line_lists_subdirectories_and_files() {
+        let fx = Fixture::new();
+        // Git can't track an empty directory; a tracked file inside each
+        // sub-directory is what makes it surface — same as a real repo.
+        fx.write("sub_one/a.rs", "fn a() {}\n");
+        fx.write("sub_two/b.rs", "fn b() {}\n");
+        fx.write("readme.md", "x");
+        fx.write("other.rs", "fn t() {}\n");
+        fx.stage();
+
+        let line = directory_files_line(&fx.root);
+
+        assert!(line.starts_with("[dir "), "got: {line}");
+        // Sub-directories present, suffixed `/`.
+        assert!(line.contains("sub_one/"), "expected sub_one/, got: {line}");
+        assert!(line.contains("sub_two/"), "expected sub_two/, got: {line}");
+        // Files still present.
+        assert!(line.contains("readme.md"), "expected readme.md, got: {line}");
+        assert!(line.contains("other.rs"), "expected other.rs, got: {line}");
+        // Sub-directories ordered ahead of files.
+        let sub_one = line.find("sub_one/").unwrap();
+        let readme = line.find("readme.md").unwrap();
+        assert!(sub_one < readme, "sub-dirs should precede files, got: {line}");
+    }
 }

@@ -225,9 +225,11 @@ fn extract_facts(
                 } else if let Some(tree) = parser.parse(source_bytes, None) {
                     let facts =
                         ccn::facts_from_tree(&tree, source_bytes, lang_name);
-                    // Reuse the tree for extraction ONLY when the extractor
-                    // uses the same grammar (py/ts/php). The grammar id is
-                    // `lang_name`; map it to the extractor's tree reader.
+                    // Reuse the tree for extraction whenever the extractor
+                    // uses the same grammar `ccn::lang_for_path` resolved —
+                    // every supported extension now shares its CCN grammar
+                    // with its extractor, so this eliminates the second parse
+                    // for all of them.
                     let lower = path_str.to_lowercase();
                     let extr = if extraction::is_supported(path) {
                         if lower.ends_with(".py") {
@@ -252,6 +254,16 @@ fn extract_facts(
                                 source_bytes,
                                 is_tsx,
                             ))
+                        } else if lower.ends_with(".rs") {
+                            Some(extraction::rust::extract_from_tree(&tree, source_bytes))
+                        } else if lower.ends_with(".go") {
+                            Some(extraction::go::extract_from_tree(&tree, source_bytes))
+                        } else if lower.ends_with(".rb") {
+                            Some(extraction::ruby::extract_from_tree(&tree, source_bytes))
+                        } else if lower.ends_with(".java") {
+                            Some(extraction::java::extract_from_tree(&tree, source_bytes))
+                        } else if lower.ends_with(".c") || lower.ends_with(".h") {
+                            Some(extraction::c::extract_from_tree(&tree, source_bytes))
                         } else {
                             // is_supported but not a shared-grammar ext:
                             // fall back to its own parse (rare/none).
@@ -490,16 +502,20 @@ pub fn get_batch(
     }
     let mut jobs: Vec<Job> = Vec::with_capacity(paths.len());
     for p in paths {
-        let abs = match p.canonicalize() {
-            Ok(a) if a.is_file() => a,
+        // Resolve to (abs, rel) without a per-file `canonicalize()` syscall.
+        // Batch inputs are tracked paths under `repo_root` (git-ls-files
+        // results joined onto the root, or `repo_root.join(rel)` from command
+        // code), so the absolute path and the repo-relative key follow
+        // lexically. `fs::metadata` (one stat the loop already needs) both
+        // confirms the file exists and supplies mtime + size; its `is_file`
+        // replaces the canonicalize-time `a.is_file()` non-file filter.
+        let (abs, rel) = resolve_under_root(p, repo_root);
+        let md = match fs::metadata(&abs) {
+            Ok(m) if m.is_file() => m,
             _ => continue,
         };
-        let md = match fs::metadata(&abs) {
-            Ok(m) => m,
-            Err(_) => continue,
-        };
         jobs.push(Job {
-            rel: cache::relative_to_root(&abs, repo_root),
+            rel,
             mtime_ns: mtime_ns_of(&md),
             size: md.len() as i64,
             abs,
@@ -615,15 +631,37 @@ pub fn get_batch(
 /// index write, in-memory fast-path).
 pub fn get_many(paths: &[PathBuf], repo_root: &Path) -> Vec<FileFacts> {
     let mut map = get_batch(paths, repo_root);
-    // Preserve input order for callers that relied on it.
+    // Preserve input order for callers that relied on it. The rel key is the
+    // same lexical resolution `get_batch` keyed the map by — no canonicalize.
     paths
         .iter()
         .filter_map(|p| {
-            let abs = p.canonicalize().ok()?;
-            let rel = cache::relative_to_root(&abs, repo_root);
+            let (_, rel) = resolve_under_root(p, repo_root);
             map.remove(&rel)
         })
         .collect()
+}
+
+/// Resolve a batch input path to `(absolute, repo-relative)` lexically — no
+/// `canonicalize()` syscall. Batch inputs are tracked paths under
+/// `repo_root`: an absolute path keeps its bytes and strips `repo_root` for
+/// the rel key; a relative path is joined onto `repo_root` (the batch
+/// resolver's paths are repo-relative). When the path is not under
+/// `repo_root` the absolute path string is the rel key, matching the
+/// long-standing `relative_to_root` fallback so out-of-root inputs behave
+/// unchanged. The lexical strip uses `repo_root` as given; callers pass the
+/// worktree root, which is already canonical from `worktree_root_for`.
+fn resolve_under_root(p: &Path, repo_root: &Path) -> (PathBuf, String) {
+    let abs = if p.is_absolute() {
+        p.to_path_buf()
+    } else {
+        repo_root.join(p)
+    };
+    let rel = match abs.strip_prefix(repo_root) {
+        Ok(r) => r.to_string_lossy().to_string(),
+        Err(_) => abs.to_string_lossy().to_string(),
+    };
+    (abs, rel)
 }
 
 /// relpath -> file hash, using the mtime index fast path for unchanged

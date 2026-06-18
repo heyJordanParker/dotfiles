@@ -8,7 +8,6 @@ use anyhow::Result;
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 const SKIP_DIRS: &[&str] = &[
     ".git",
@@ -28,26 +27,15 @@ const SKIP_DIRS: &[&str] = &[
 ];
 
 /// Absolute resolved paths git considers tracked-or-not-ignored under
-/// `base`. None when not in a git repo.
-fn tracked_universe(base: &Path) -> Option<BTreeSet<PathBuf>> {
-    let out = Command::new("git")
-        .args(["ls-files", "--cached", "--others", "--exclude-standard"])
-        .current_dir(base)
-        .output()
-        .ok()?;
-    if !out.status.success() {
-        return None;
-    }
-    Some(
-        String::from_utf8_lossy(&out.stdout)
-            .lines()
-            .filter(|l| !l.is_empty())
-            .map(|l| {
-                let p = base.join(l);
-                p.canonicalize().unwrap_or(p)
-            })
-            .collect(),
-    )
+/// `base`, via the shared `git ls-files` enumeration (deleted-in-index
+/// paths already excluded). None when not in a git repo.
+fn tracked_universe(repo_root: &Path, base: &Path) -> Option<BTreeSet<PathBuf>> {
+    crate::repo_files::tracked_paths(repo_root, Some(base)).map(|paths| {
+        paths
+            .into_iter()
+            .map(|p| p.canonicalize().unwrap_or(p))
+            .collect()
+    })
 }
 
 /// SKIP_DIRS-bounded filesystem walk under `base` — the non-git fallback
@@ -84,8 +72,8 @@ fn walk_universe(base: &Path) -> BTreeSet<PathBuf> {
 /// pure-Rust matcher ripgrep uses — preserves the single-static-binary
 /// property. Glob semantics: `/`-segmented, `**` = zero-or-more
 /// directories, `*`/`?`/`[...]` never cross `/` (`literal_separator(true)`).
-fn resolve_glob(pattern: &str, base: &Path) -> (Vec<PathBuf>, &'static str) {
-    let (universe, policy) = match tracked_universe(base) {
+fn resolve_glob(pattern: &str, repo_root: &Path, base: &Path) -> (Vec<PathBuf>, &'static str) {
+    let (universe, policy) = match tracked_universe(repo_root, base) {
         Some(u) => (u, "gitignore"),
         None => (walk_universe(base), "skip_dirs"),
     };
@@ -153,8 +141,8 @@ pub fn run(pattern: &str, base: &str, details: bool, as_json: bool) -> Result<Va
     let base_abs = abs.canonicalize().unwrap_or(abs);
     let base_path = base_abs.clone();
 
-    let (matches, ignore_policy) = resolve_glob(pattern, &base_abs);
     let repo_root = cache::worktree_root_for(&base_abs).unwrap_or_else(|| cache::display_root(&base_abs));
+    let (matches, ignore_policy) = resolve_glob(pattern, &repo_root, &base_abs);
 
     // Build the value once; the human view reads from it (no second
     // file_facts pass for `--details`).

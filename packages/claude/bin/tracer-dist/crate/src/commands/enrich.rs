@@ -2,11 +2,17 @@
 //! file_complexity, git_context, and the `nearest_doc` walk (in
 //! `crate::digest`). One parse per file even with many matches, via the
 //! per-file cache.
+//!
+//! Also the shared `file_shoulders` join used by the architecture commands
+//! (`callers`, `downstream`, `defines`, `symbols`) to attach the canonical
+//! passive-context shoulder to each result's `source_file` — a render-time
+//! join of `file/` facts onto `architecture/` results, batched and deduped
+//! by path so a file appearing in many rows is resolved once.
 
-use crate::{cache, digest, file_facts};
+use crate::{cache, digest, file_facts, passive_context};
 use serde_json::{json, Value};
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 pub struct Match {
     pub file: String,
@@ -76,6 +82,7 @@ pub fn enrich(matches: &[Match], repo_root: &Path) -> (Vec<Value>, usize) {
                     "file_complexity": file_complexity(facts.as_ref()),
                     "nearest_doc": digest::nearest_doc(&abs),
                     "git": git_context(facts.as_ref()),
+                    "shoulder": facts.as_ref().map(|f| passive_context::render(f, None)),
                 }),
             );
         }
@@ -87,6 +94,7 @@ pub fn enrich(matches: &[Match], repo_root: &Path) -> (Vec<Value>, usize) {
             "file_complexity": fc["file_complexity"],
             "nearest_doc": fc["nearest_doc"],
             "git": fc["git"],
+            "shoulder": fc["shoulder"],
         }));
     }
     let files_matched = file_cache.len();
@@ -104,18 +112,12 @@ pub fn render_human(enriched: &[Value], files_matched: usize, repo_ctx: &Value) 
     for m in enriched {
         let file = m["file"].as_str().unwrap_or("").to_string();
         if Some(&file) != current_file.as_ref() {
-            let ccn = &m["file_complexity"];
             let doc = m["nearest_doc"].as_str().unwrap_or("(no doc)");
-            let last = m["git"]["last_modified"].as_str().unwrap_or("null");
             println!();
-            println!(
-                "{}  [ccn={} {}, last={}, doc={}]",
-                file,
-                ccn["ccn_total"].as_i64().unwrap_or(0),
-                ccn["rank"].as_str().unwrap_or(""),
-                last,
-                doc,
-            );
+            match m["shoulder"].as_str() {
+                Some(s) => println!("{file}  {s}  [doc={doc}]"),
+                None => println!("{file}  [doc={doc}]"),
+            }
             current_file = Some(file);
         }
         println!(
@@ -131,4 +133,29 @@ pub fn render_human(enriched: &[Value], files_matched: usize, repo_ctx: &Value) 
         files_matched,
         repo_ctx["complexity_p95"].as_i64().unwrap_or(0),
     );
+}
+
+/// Canonical passive-context shoulder per `source_file`, batched and deduped.
+/// Maps each unique repo-relative source file in `rel_files` to its shoulder
+/// string. Files with no resolvable facts (external nodes, deleted files) are
+/// absent from the map, so a caller looks up by path and renders nothing when
+/// the entry is missing. The architecture commands carry a `source_file` per
+/// result row; this lets each result carry the same file-state shoulder the
+/// per-file commands emit, without recomputing facts per row.
+pub fn file_shoulders(
+    rel_files: &[String],
+    repo_root: &Path,
+) -> HashMap<String, String> {
+    let mut unique: Vec<String> = rel_files.to_vec();
+    unique.sort();
+    unique.dedup();
+    let abs: Vec<PathBuf> = unique.iter().map(|r| repo_root.join(r)).collect();
+    let facts_map = file_facts::get_batch(&abs, repo_root);
+    let mut out = HashMap::with_capacity(unique.len());
+    for rel in unique {
+        if let Some(f) = facts_map.get(&rel) {
+            out.insert(rel, passive_context::render(f, None));
+        }
+    }
+    out
 }

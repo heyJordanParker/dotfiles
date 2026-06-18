@@ -109,9 +109,9 @@ fn session_status_without_session_id_reports_inactive_session() {
     let r = std::process::Command::new(tracer_cli_tests::trace_bin())
         .args(["docs", "status", "--json"])
         .current_dir(&f.root)
+        .env_remove("AGENT_SESSION_ID")
+        .env_remove("CODEX_THREAD_ID")
         .env_remove("CLAUDE_CODE_SESSION_ID")
-        .env_remove("CLAUDE_SESSION_ID")
-        .env_remove("TRACER_SESSION_ID")
         .output()
         .expect("spawn trace");
     assert!(
