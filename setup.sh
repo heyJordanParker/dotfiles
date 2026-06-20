@@ -91,6 +91,32 @@ PLIST
   chmod +x /Applications/Docker.app/Contents/MacOS/Docker
 fi
 
+# iai-mcp memory engine — persistent cross-session memory for Claude + Codex.
+# Needs Python 3.11/3.12 (system python is newer); python@3.12 came from the
+# Brewfile above. Pre-create the venv with it so the repo's own idempotent
+# scripts/install.sh skips venv creation and builds against the right
+# interpreter — it handles the editable install, Rust compile, npm wrapper
+# build, ~/.local/bin/iai-mcp symlink, crypto key, and the launchd sleep daemon.
+IAI_DIR="$SERVICES_DIR/iai-personal-memory-engine"
+if [ ! -d "$IAI_DIR" ]; then
+  git clone git@github.com:heyJordanParker/iai-personal-memory-engine.git "$IAI_DIR"
+fi
+if [ ! -d "$IAI_DIR/.venv" ]; then
+  /opt/homebrew/opt/python@3.12/bin/python3.12 -m venv "$IAI_DIR/.venv"
+fi
+(cd "$IAI_DIR" && bash scripts/install.sh)
+# install.sh symlinks ~/.local/bin/iai-mcp but not the `iai` terminal CLI
+# (recall/ask/status) — link it too so those commands are globally callable.
+ln -sf "$IAI_DIR/.venv/bin/iai" "$HOME/.local/bin/iai"
+# Register the memory server with Claude (user scope). ~/.claude.json is
+# Claude's own untracked state, so this registration is imperative, not stowed.
+if command -v claude >/dev/null 2>&1 && ! claude mcp list 2>/dev/null | grep -q "iai-mcp"; then
+  claude mcp add iai-mcp -s user \
+    -e IAI_MCP_PYTHON="$IAI_DIR/.venv/bin/python" \
+    -e IAI_MCP_STORE="$HOME/.iai-mcp" \
+    -- node "$IAI_DIR/mcp-wrapper/dist/index.js"
+fi
+
 echo "==> Linking dotfiles & syncing generated files..."
 # All repo maintenance — the stow package->target mapping, restow, and the
 # generated codex files — lives in scripts/sync.py so setup.sh and the

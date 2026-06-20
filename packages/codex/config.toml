@@ -29,13 +29,25 @@ NODE_REPL_NODE_MODULE_DIRS = "/Applications/Codex.app/Contents/Resources/cua_nod
 NODE_REPL_NODE_PATH = "/Applications/Codex.app/Contents/Resources/cua_node/bin/node"
 NODE_REPL_TRUSTED_CODE_PATHS = "/Users/jordan/.codex"
 CODEX_HOME = "/Users/jordan/.codex"
-NODE_REPL_TRUSTED_BROWSER_CLIENT_SHA256S = "eb55d24cf065cd5311af6f99b16bade2b7a670790ff2db9accf60d012dd55dd1"
+NODE_REPL_TRUSTED_BROWSER_CLIENT_SHA256S = "4cfaeb70b54d114e1cd56bc0f85d04e1b344a5049cddb729e2b1161b9ff3008a"
 BROWSER_USE_AVAILABLE_BACKENDS = "chrome,iab"
 NODE_REPL_INSTRUCTIONS_USE_CASE_BROWSER = "Control the in-app browser in conjunction with the Browser Plugin."
 NODE_REPL_INSTRUCTIONS_USE_CASE_CHROME = "Control the Chrome browser in conjunction with the Chrome Plugin. Prefer this method of controlling Chrome over alternatives (such as Computer Use) unless the user explicitly mentions an alternative."
 BROWSER_USE_CODEX_APP_BUILD_FLAVOR = "prod"
-BROWSER_USE_CODEX_APP_VERSION = "26.611.62324"
+BROWSER_USE_CODEX_APP_VERSION = "26.616.41845"
 CODEX_CLI_PATH = "/Applications/Codex.app/Contents/Resources/codex"
+
+# iai-mcp memory engine — clone-and-run service in ~/Developer/services.
+# The wrapper talks to the launchd daemon over ~/.iai-mcp/.daemon.sock and
+# spawns the core via IAI_MCP_PYTHON when needed. Codex gets the memory tools;
+# automatic turn capture is Claude-only (ships Claude hooks).
+[mcp_servers.iai-mcp]
+command = "node"
+args = ["/Users/jordan/Developer/services/iai-personal-memory-engine/mcp-wrapper/dist/index.js"]
+
+[mcp_servers.iai-mcp.env]
+IAI_MCP_PYTHON = "/Users/jordan/Developer/services/iai-personal-memory-engine/.venv/bin/python"
+IAI_MCP_STORE = "/Users/jordan/.iai-mcp"
 
 [features]
 multi_agent = true
@@ -262,12 +274,12 @@ trusted_hash = "sha256:cdca74a3336dc9c23df28688348131e080a2f324bdf527a141c5a139e
 trusted_hash = "sha256:f88f679b4edeedb486d10907505bdfe72416ac7360555f00fe23b0690ae173a3"
 
 [marketplaces.openai-bundled]
-last_updated = "2026-06-18T09:29:48Z"
+last_updated = "2026-06-20T09:28:47Z"
 source_type = "local"
 source = "/Users/jordan/.codex/.tmp/bundled-marketplaces/openai-bundled"
 
 [marketplaces.openai-primary-runtime]
-last_updated = "2026-06-15T00:54:40Z"
+last_updated = "2026-06-20T03:55:17Z"
 source_type = "local"
 source = "/Users/jordan/.cache/codex-runtimes/codex-primary-runtime/plugins/openai-primary-runtime"
 

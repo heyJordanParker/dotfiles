@@ -154,7 +154,7 @@
         "hooks": [
           {
             "type": "prompt",
-            "prompt": "Evaluate this subagent dispatch for over-instruction. The prompt being sent to a subagent is in tool_input.prompt from $ARGUMENTS.\n\nBlock if ANY of these are true:\n1. Contains pre-researched file contents (quoted code blocks with file paths, command output dumps, or content that looks copied from a file read)\n2. Specifies implementation steps \u2014 line numbers to change, specific code to write, step-by-step HOW instructions (exception: mechanical tasks like bulk renames are fine)\n3. Scoped too narrowly \u2014 asks the agent to review a single method or line instead of the module/feature/service boundary\n4. Prescribes the agent's investigation or implementation path \u2014 tells it which files to read in what order, which functions to trace, or what conclusions to reach, instead of letting it explore from the goal\n\nDo NOT block if:\n- The prompt communicates WHY (user story, business context, motivation) and WHAT (goal, deliverable, acceptance criteria)\n- It describes scope \u2014 which areas are involved, what changed and why, or what the goal is. This is goal-setting, not pre-research\n- It includes an annotated file tree (paths with brief annotations \u2014 this is navigation, not pre-research)\n- It includes a unique finding the subagent won't realistically discover (e.g., a runtime behavior observed in logs, a user-reported symptom, a constraint from a conversation with the user)\n- It uses Story/Business/Goal/DoD structure\n\nReturn JSON:\n- Pass: {\"decision\": \"approve\"}\n- Fail: {\"decision\": \"block\", \"reason\": \"[What's wrong]. Fix: [How to fix the prompt].\"}",
+            "prompt": "Evaluate this subagent dispatch for over-instruction. The prompt being sent to a subagent is in tool_input.prompt from $ARGUMENTS.\n\nBlock if ANY of these are true:\n1. Contains pre-researched file contents (quoted code blocks with file paths, command output dumps, or content that looks copied from a file read)\n2. Specifies implementation steps — line numbers to change, specific code to write, step-by-step HOW instructions (exception: mechanical tasks like bulk renames are fine)\n3. Scoped too narrowly — asks the agent to review a single method or line instead of the module/feature/service boundary\n4. Prescribes the agent's investigation or implementation path — tells it which files to read in what order, which functions to trace, or what conclusions to reach, instead of letting it explore from the goal\n\nDo NOT block if:\n- The prompt communicates WHY (user story, business context, motivation) and WHAT (goal, deliverable, acceptance criteria)\n- It describes scope — which areas are involved, what changed and why, or what the goal is. This is goal-setting, not pre-research\n- It includes an annotated file tree (paths with brief annotations — this is navigation, not pre-research)\n- It includes a unique finding the subagent won't realistically discover (e.g., a runtime behavior observed in logs, a user-reported symptom, a constraint from a conversation with the user)\n- It uses Story/Business/Goal/DoD structure\n\nReturn JSON:\n- Pass: {\"decision\": \"approve\"}\n- Fail: {\"decision\": \"block\", \"reason\": \"[What's wrong]. Fix: [How to fix the prompt].\"}",
             "timeout": 15,
             "statusMessage": "Validating subagent prompt quality..."
           }
@@ -165,7 +165,7 @@
         "hooks": [
           {
             "type": "prompt",
-            "prompt": "Question quality gate. Evaluate the question in tool_input from $ARGUMENTS.\n\nReject if:\n\n1. Asks permission to act: \"Can I proceed?\", \"Want me to continue?\", \"Shall I?\", \"Would you like me to...\". Act or present information \u2014 don't ask to act.\n\n2. Hedges about unverified state: \"probably\", \"likely\", \"I think\", \"should be\", \"might be\". Verify first, then ask.\n\n3. Fewer than 4 distinct options. Yes/no and single-option approval (\"does this work?\") waste the tool. Present 4+ meaningfully different alternatives with tradeoffs.\n\n4. Dumps decisions without research: \"What next?\", \"How should I handle this?\". Research and present concrete options.\n\n5. Not self-contained: Requires reading external context \u2014 \"as mentioned above\", \"the plan I showed\", \"as discussed\". Include all necessary context inline.\n\n6. Prompts the user to respond: Flattery (\"Great question\"), directive closing (\"Which one?\", \"Which do you prefer?\"), or nudges (\"Let me know\", \"Thoughts?\", \"Sound good?\"). Present options and stop.\n\n7. Batches multiple independent decisions. One question = one decision.\n\nReturn JSON only:\n- Pass: {\"ok\": true}\n- Fail: {\"ok\": false, \"reason\": \"[Specific issue]. Fix: [What to do].\"}",
+            "prompt": "Question quality gate. Evaluate the question in tool_input from $ARGUMENTS.\n\nReject if:\n\n1. Asks permission to act: \"Can I proceed?\", \"Want me to continue?\", \"Shall I?\", \"Would you like me to...\". Act or present information — don't ask to act.\n\n2. Hedges about unverified state: \"probably\", \"likely\", \"I think\", \"should be\", \"might be\". Verify first, then ask.\n\n3. Fewer than 4 distinct options. Yes/no and single-option approval (\"does this work?\") waste the tool. Present 4+ meaningfully different alternatives with tradeoffs.\n\n4. Dumps decisions without research: \"What next?\", \"How should I handle this?\". Research and present concrete options.\n\n5. Not self-contained: Requires reading external context — \"as mentioned above\", \"the plan I showed\", \"as discussed\". Include all necessary context inline.\n\n6. Prompts the user to respond: Flattery (\"Great question\"), directive closing (\"Which one?\", \"Which do you prefer?\"), or nudges (\"Let me know\", \"Thoughts?\", \"Sound good?\"). Present options and stop.\n\n7. Batches multiple independent decisions. One question = one decision.\n\nReturn JSON only:\n- Pass: {\"ok\": true}\n- Fail: {\"ok\": false, \"reason\": \"[Specific issue]. Fix: [What to do].\"}",
             "timeout": 60
           }
         ]
@@ -406,6 +406,16 @@
         "hooks": [
           {
             "type": "command",
+            "command": "IAI_MCP_SESSION_RECALL_CLI=$HOME/.local/bin/iai-mcp $HOME/Developer/services/iai-personal-memory-engine/src/iai_mcp/_deploy/hooks/iai-mcp-session-recall.sh",
+            "timeout": 15
+          }
+        ]
+      },
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
             "command": "python3 ~/.agents/hooks/load_trace_context.py",
             "timeout": 20
           },
@@ -456,6 +466,15 @@
         "hooks": [
           {
             "type": "command",
+            "command": "IAI_MCP_SESSION_CAPTURE_CLI=$HOME/.local/bin/iai-mcp $HOME/Developer/services/iai-personal-memory-engine/src/iai_mcp/_deploy/hooks/iai-mcp-session-capture.sh",
+            "timeout": 35
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
             "command": "python3 ~/.agents/hooks/record_session_event.py"
           },
           {
@@ -497,6 +516,15 @@
         "hooks": [
           {
             "type": "command",
+            "command": "$HOME/Developer/services/iai-personal-memory-engine/src/iai_mcp/_deploy/hooks/iai-mcp-turn-capture.sh",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
             "command": "python3 ~/.agents/hooks/classify_intent.py",
             "timeout": 60
           },
@@ -527,5 +555,6 @@
   "fileCheckpointingEnabled": false,
   "teammateMode": "in-process",
   "remoteControlAtStartup": true,
-  "voiceEnabled": true
+  "voiceEnabled": true,
+  "autoMemoryEnabled": false
 }
