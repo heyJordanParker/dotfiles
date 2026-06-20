@@ -81,6 +81,8 @@ alias nvim-astro='NVIM_APPNAME=nvim-astro nvim'
 alias nvim-chad='NVIM_APPNAME=nvim-chad nvim'
 alias cld="USER_TYPE=ant CLAUDE_CODE_NO_FLICKER=1 CLAUDE_CODE_ENABLE_TASKS=true EDITOR=prompt-editor claude --dangerously-skip-permissions --teammate-mode in-process --agent cto"
 alias cld45="cld --model claude-opus-4-5"
+alias cldcopy="USER_TYPE=ant CLAUDE_CODE_NO_FLICKER=1 CLAUDE_CODE_ENABLE_TASKS=true EDITOR=prompt-editor CLAUDE_CONFIG_DIR=$HOME/.claude/profiles/copywriter claude --dangerously-skip-permissions --teammate-mode in-process --mcp-config $HOME/.claude/profiles/copywriter/.mcp.json --strict-mcp-config"
+alias cldexp="USER_TYPE=ant CLAUDE_CODE_NO_FLICKER=1 CLAUDE_CODE_ENABLE_TASKS=true EDITOR=prompt-editor CLAUDE_CONFIG_DIR=$HOME/.claude/profiles/experimental claude --dangerously-skip-permissions --teammate-mode in-process --mcp-config $HOME/.claude/profiles/experimental/.mcp.json"
 alias python='python3'
 alias pip='pip3'
 f() { find . -iname "*$1*" }
