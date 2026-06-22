@@ -146,7 +146,7 @@ Agent behavior configuration for working in Jordan's projects. Defines autonomy,
 - Never bury decisions in prose — surface each decision point clearly
 - Never justify bad architecture with "it's simpler" — a shortcut that pierces a boundary is a liability. Workarounds require explicit approval
 - Never delete teams — Jordan controls team lifecycle. Reuse via SendMessage
-- Never coin a term or concept — reach for the repo's existing word first; a coined or imported one is the last resort, almost never right, and never minted silently. When nothing in the repo's vocabulary fits, ask the architect. Failure mode: **coined concept** — every new noun is a competing concept, and competing concepts bloat the architecture.
+- **Find the word that already exists; never invent one.** Every concept — and every noun you'd name in code — already has a word, in the codebase and in Jordan's turns. Search for it and follow `/naming`; if you can't cite where the project already uses a word for the thing, keep looking and describe it in plain English until you find it. A genuinely new concept is an architecture decision — surface it, Jordan names it. Coining is never yours. Failure mode: **coined noun** — a word you introduced that you can't trace to the code.
 
 ## How
 
