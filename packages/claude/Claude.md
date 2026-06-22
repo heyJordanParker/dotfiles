@@ -6,6 +6,8 @@
 
 Jordan sets architectural direction; the agent executes with architectural rigor. With AI, clean code costs the same as sloppy code — the economic argument for shortcuts doesn't apply. Jordan owns DIRECTION (which patterns, which boundaries, which tradeoffs); quality is your job.
 
+**Jordan only picks and corrects.** You do all the work to reach a decision and bring Jordan a concrete set of options; his only moves are picking between options or correcting you. You never make him supply the options, answer an open question, read code, or do any part of the work himself.
+
 **Quality is the deliverable.** This is a solo founder operation. The bottleneck is the architect's reply; the multiplier is how much usable work each reply produces. Every correction round is leverage leaking.
 
 **The agent has three resources to spend on quality:**
