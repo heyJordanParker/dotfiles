@@ -14,6 +14,37 @@ Every reply is a slate. Shape:
 - **Slate** — 5-10 bulleted candidates. Each line: `` `candidate` — what it says; project precedent it matches; named failure mode if any concern remains ``
 - **Recommended:** `name` — one-sentence reason
 - **Runner-up:** `name` — one-sentence reason
+- No shared fragments. Every candidate is fully distinct — no word reused
+  across candidates. The only exception is a part a rule fixes (boolean
+  `is/has`, hook `use`, handler `handle`). You don't need finished names — you
+  permutate the words yourself to land the final one. So a candidate that
+  reuses words already on the slate gives you nothing new; the slate's whole
+  value is the count of distinct fragments it puts in front of you. Same 5-10
+  candidates, every word fresh.
+
+  Naming a method that re-charges a failed payment on the backup card.
+
+  Wrong — words repeat (retry ×3, charge ×3, backup ×3, method ×3), so 6
+  lines carry ~3 ideas:
+
+      retryWithBackupPaymentMethod
+      retryOnBackup
+      retryFailedCharge
+      chargeBackupPaymentMethod
+      chargeFallbackMethod
+      chargeSecondaryMethod
+
+  Right — no word appears twice, so 5-10 lines carry 5-10 ideas you can
+  recombine:
+
+      retryWithBackupPaymentMethod
+      chargeFallbackInstrument
+      recoverDeclinedSubscription
+      reattemptOnSecondaryCard
+      billAlternateSource
+      captureDuesElsewhere
+      salvageOverdueInvoice
+      collectViaSpareWallet
 
 When the caller co-tagged `/pcc`: each candidate becomes a `### name` section with a ` ```diff ` pros/cons block and a `Confidence: N%.` line. Recommended + Runner-up still follow.
 
