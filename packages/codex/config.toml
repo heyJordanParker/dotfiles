@@ -274,7 +274,7 @@ trusted_hash = "sha256:cdca74a3336dc9c23df28688348131e080a2f324bdf527a141c5a139e
 trusted_hash = "sha256:f88f679b4edeedb486d10907505bdfe72416ac7360555f00fe23b0690ae173a3"
 
 [marketplaces.openai-bundled]
-last_updated = "2026-06-21T09:04:43Z"
+last_updated = "2026-06-22T16:12:39Z"
 source_type = "local"
 source = "/Users/jordan/.codex/.tmp/bundled-marketplaces/openai-bundled"
 
