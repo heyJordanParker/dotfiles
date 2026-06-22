@@ -117,3 +117,34 @@ File trees show structure. A relationship diagram shows runtime flow: how compon
 
 - **File tree.** Where code lives, what files change.
 - **Relationship diagram.** How it works end to end, data flow, ownership, call order.
+
+## Markers and equations
+
+Three narrow uses. Each symbol earns its place by carrying a specific shape — not as general shorthand inside prose.
+
+**Checklist state with `○` / `●`:**
+
+```
+release readiness
+● schema migration applied
+● checkout endpoint live
+○ frontend wired to the new endpoint
+○ end-to-end test passing
+```
+
+**A two-way relationship with `↔`:**
+
+```
+┌──────────────┐      ┌─────────────┐
+│ CheckoutView │  ↔   │ CartService │
+└──────────────┘      └─────────────┘
+```
+
+**A relation or formula with `= ≠ ≈ ≤ ≥ ± ×`:**
+
+```
+order.user_id = user.id            each order belongs to one user
+order.line_items ≥ 1               an order has at least one line
+tax = subtotal × 0.2               tax is 20% of subtotal
+total = subtotal + tax - discount
+```
