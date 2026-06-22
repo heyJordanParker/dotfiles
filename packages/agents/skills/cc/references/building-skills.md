@@ -64,6 +64,16 @@ Structure skill execution in phases:
 
 Keep files under 100 lines — split or trim if longer. "Use X" not "consider using X."
 
+**Embed auto-run context** — a line whose content is a backtick-wrapped command prefixed with `!` runs at skill load and inlines its stdout into the skill, with no agent action. Use it to put live state in front of the agent automatically instead of telling the agent to go fetch it.
+
+````markdown
+## Current Changes
+
+!`git changes`
+````
+
+The agent reads the output already there; it never runs the command itself. The `/commit` skill front-loads `!git changes`, `!git diff HEAD`, and `!git log --oneline -10` this way so the diff and history are in context before it writes the message. Reach for project status aliases (`git changes`) and `trace` over raw git. This runs at expansion time, ahead of the agent's Bash tool, so the trace/git guard hooks do not intercept it.
+
 **Structure References** - References are opt-in. The agent may never open them. Never put mission-critical information in a reference — if the agent produces wrong output without it, it belongs in SKILL.md.
 
 - **The 80% test:** "Does the agent need this for 80%+ of invocations?" If yes → SKILL.md. If no → reference for that specific sub-task

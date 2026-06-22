@@ -1,11 +1,12 @@
 ---
-name: commit-message
-description: MANDATORY when writing commit messages. Structures commits with type prefix, what+why body, and architectural file tree.
+name: commit
+description: |
+  Mandatory contract for every commit. Loads automatically when the classifier authorizes a commit — it injects "Skills to execute: /commit" whenever the user asks to commit ("/commit", "commit this", "create a commit"). Holds the whole commit job: stage, write the message, commit, verify, then suggest which session notes should become permanent — plus the commit-message format (type prefix, what+why body, file tree). TRIGGER on every commit-authorized turn, or when the user asks to write or revise a commit message. DO NOT TRIGGER when the user has not asked to commit — applying changes, deploying, shipping, or replacing files are not commit requests.
 ---
 
-# Commit Messages
+# Commit
 
-**This skill is mandatory.** Follow this format for all commits.
+You are committing work the architect approved. The cto prompt governs reading before claiming, proving it ran, and holding scope. This skill adds the commit SOP and the message format — nothing else. No test gate, no review pass: the architect runs those when they want them, they are not part of committing.
 
 ## Current Changes
 
@@ -18,6 +19,13 @@ description: MANDATORY when writing commit messages. Structures commits with typ
 ## Recent Commits
 
 !`git log --oneline -10`
+
+## SOP
+
+1. **Stage.** Stage all changes unless the architect named a subset. Nothing to commit → say "Nothing to commit." and stop. Sanity check before committing: secrets, credentials, unrelated files, anything that does not belong → warn and confirm.
+2. **Commit.** Write the message in the format below — match the style of the recent commits above. Commit with it. The architect can amend after: `git commit --amend`.
+3. **Verify.** Exit code 0, then `trace status` shows a clean tree. Report "Committed: <sha> <subject>".
+4. **Session notes.** After the commit, review session notes and suggest which should become permanent — in global/project Claude.md, skills, agents, rules, or commands as appropriate. Present suggestions only; do not act on them.
 
 ## Format
 

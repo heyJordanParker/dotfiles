@@ -20,7 +20,7 @@ Invoked as `/talents:<name>`:
 - **cc** — Work with Claude Code skills, hooks, settings
 - **code-first** — Autonomous async execution mode for AFK / overnight handoffs
 - **codex** — Drive codex CLI runs as your agents
-- **commit-message** — Structured commits with type prefix and file tree
+- **commit** — Stage, write the message, commit, verify; structured commits with type prefix and file tree
 - **debate** — N independent architects debate architectural options through structured rounds with cross-pollination
 - **debug** — Systematic debugging with root cause tracing
 - **design** — UI components, styling, and interaction decisions

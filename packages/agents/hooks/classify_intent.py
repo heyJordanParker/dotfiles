@@ -157,7 +157,7 @@ def evaluation_prompt(prompt, session_notes_context, conversation_block,
 'You are classifying INTENT only. The state machine transitions are handled separately — you do not decide the agent\'s state.\n'
 '\n'
 'Intent types:\n'
-'- "approval" — user is approving/accepting a specific proposal or plan that the agent just presented. Requires a preceding proposal to approve. Message can be pure ("yes", "go ahead") OR compound — an approval/acknowledgement signal followed by imperative scope directing execution of the just-proposed work ("okay, update those using /cc", "perfect, commit this with /commit-message"). In compound form, intent stays "approval" AND the imperative tail is extracted into instructions[] with mode: "execute" — the approval signal is primary, the imperative is scope attached to it, not a separate directive. "just fix it" or "do it" as a standalone directive without a preceding proposal → instructions, not approval. An approval lead word followed by a pivot to unrelated new work ("okay, now let\'s do X instead") → instructions — the lead word only carries approval weight when the remainder references the standing proposal.\n'
+'- "approval" — user is approving/accepting a specific proposal or plan that the agent just presented. Requires a preceding proposal to approve. Message can be pure ("yes", "go ahead") OR compound — an approval/acknowledgement signal followed by imperative scope directing execution of the just-proposed work ("okay, update those using /cc", "perfect, commit this with /commit"). In compound form, intent stays "approval" AND the imperative tail is extracted into instructions[] with mode: "execute" — the approval signal is primary, the imperative is scope attached to it, not a separate directive. "just fix it" or "do it" as a standalone directive without a preceding proposal → instructions, not approval. An approval lead word followed by a pivot to unrelated new work ("okay, now let\'s do X instead") → instructions — the lead word only carries approval weight when the remainder references the standing proposal.\n'
 '- "question" — user is asking a question that requires an answer. No action should be taken.\n'
 '- "instructions" — user is giving the agent new work to do with action language ("fix", "add", "change", "implement", "update", "remove", "refactor"). Also standalone constraints and boundaries ("don\'t use third-party libraries") when there is no previous agent output being refined.\n'
 '- "correction" — user is correcting or giving feedback on previous agent output ("that\'s wrong", "no, use X instead", "this is fine", "this is a non-issue"). Requires previous agent output being refined — a standalone constraint like "don\'t use third-party libraries" without the agent having proposed or used them is instructions (a boundary), not correction.\n'
@@ -197,8 +197,8 @@ def evaluation_prompt(prompt, session_notes_context, conversation_block,
 '- "go ahead, also fix the related issue" → {"intent": "approval", "instructions": [{"text": "also fix the related issue", "mode": "execute"}], ...}\n'
 '- "okay, update those using /cc" → {"intent": "approval", "instructions": [{"text": "update those using /cc", "mode": "execute"}], "skills": ["/cc"], ...}\n'
 '- "sure, and also update our /cc references to mention those conditionals" → {"intent": "approval", "instructions": [{"text": "also update our /cc references to mention those conditionals", "mode": "execute"}], "skills": ["/cc"], ...}\n'
-'- "perfect, commit this with /commit-message" → {"intent": "approval", "instructions": [{"text": "commit this with /commit-message", "mode": "execute"}], "skills": ["/commit-message"], ...}\n'
-'- "approved\\n\\nwhen done, commit with /commit-message and push" → {"intent": "approval", "instructions": [{"text": "when done, commit with /commit-message and push", "mode": "execute"}], "skills": ["/commit-message"], ...}\n'
+'- "perfect, commit this with /commit" → {"intent": "approval", "instructions": [{"text": "commit this with /commit", "mode": "execute"}], "skills": ["/commit"], ...}\n'
+'- "approved\\n\\nwhen done, commit with /commit and push" → {"intent": "approval", "instructions": [{"text": "when done, commit with /commit and push", "mode": "execute"}], "skills": ["/commit"], ...}\n'
 '- "yeah, reread the /cc skill & then update" → {"intent": "approval", "instructions": [{"text": "reread the /cc skill & then update", "mode": "execute"}], "skills": ["/cc"], ...}\n'
 '- "yes. make sure you don\'t touch the tmux infrastructure at all; we are NOT migrating" → {"intent": "approval", "instructions": [{"text": "make sure you don\'t touch the tmux infrastructure at all; we are NOT migrating", "mode": "execute"}], ...}\n'
 '- "fine. implement & test this; I want to see it completely working after I\'m back" → {"intent": "approval", "instructions": [{"text": "implement & test this; I want to see it completely working after I\'m back", "mode": "execute"}], ...}\n'
@@ -248,12 +248,7 @@ def fallback_context(forced_state, forced_approach):
     return fallback
 
 
-COMMIT_DIRECTIVE = (
-    "Skills to execute: /commit-message\n\nAfter completing the commit, review "
-    "session notes and suggest which should become permanent — in global/project "
-    "Claude.md, skills, agents, rules, or commands as appropriate. Present "
-    "suggestions only, do not act on them."
-)
+COMMIT_DIRECTIVE = "Skills to execute: /commit"
 
 
 # --- instruction formatting ----------------------------------------------------

@@ -74,10 +74,7 @@ EXECUTE_FALLBACK = ("This is an executing-state turn. Load the /execute skill no
                     "work under its contract: implement the approved work, and the moment "
                     "it needs an architectural change, stop and escalate with /pcc.")
 TEAM_FALLBACK = "Load the /team skill now."
-COMMIT_FALLBACK = ("Skills to execute: /commit-message\n\nAfter completing the commit, review "
-                   "session notes and suggest which should become permanent — in global/project "
-                   "Claude.md, skills, agents, rules, or commands as appropriate. Present "
-                   "suggestions only, do not act on them.")
+COMMIT_FALLBACK = "Skills to execute: /commit"
 
 # stdout each classify_intent case emits, as the additionalContext envelope.
 def _ctx(text):
@@ -115,7 +112,7 @@ CASES = [
      {"prompt": "/propose", "transcript_path": ""}, None, None,
      (0, "", "", None)),
     # Typed /commit with the LLM down: forces commit_requested via the fallback
-    # path; the /commit-message contract is emitted and the flag persists.
+    # path; the /commit contract is emitted and the flag persists.
     ("ci_commit", "classify_intent.py",
      {"prompt": "/commit", "transcript_path": ""}, "p_ci1", None,
      (0, _ctx(COMMIT_FALLBACK), "",
@@ -126,8 +123,8 @@ CASES = [
      {"prompt": "/execute /commit", "transcript_path": ""}, "p_ci1", None,
      (0, _ctx(EXECUTE_FALLBACK + "\n\n" + COMMIT_FALLBACK), "",
       {**CI_DEFAULT_STATE, "state": "executing", "commit_requested": True})),
-    # /commit-message must NOT trip the /commit forced command — the hyphen
-    # boundary keeps the longer skill name distinct; LLM down, nothing forced.
+    # A /commit-suffixed token (e.g. /commit-foo) must NOT trip the /commit
+    # forced command — the hyphen boundary keeps a longer name distinct.
     ("ci_commit_message_no_force", "classify_intent.py",
      {"prompt": "/commit-message", "transcript_path": ""}, "p_ci1", None,
      (0, "", "", CI_DEFAULT_STATE)),

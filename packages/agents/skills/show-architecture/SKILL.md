@@ -30,7 +30,7 @@ directory/
 
 1. **Box-drawing:** `├──`, `└──`, `│` for structure
 2. **Annotations:** `<-` arrow, brief (3-5 words)
-3. **Changed files:** mark with `*` suffix (like commit-message)
+3. **Changed files:** mark with `*` suffix (like commit)
 4. **Context-dependent:** adapt annotations to purpose
 5. **Skip irrelevant:** only show relevant files, omit the rest entirely
 6. **Never write to files.** Output inline only. No exceptions.
