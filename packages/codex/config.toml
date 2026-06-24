@@ -29,12 +29,12 @@ NODE_REPL_NODE_MODULE_DIRS = "/Applications/Codex.app/Contents/Resources/cua_nod
 NODE_REPL_NODE_PATH = "/Applications/Codex.app/Contents/Resources/cua_node/bin/node"
 NODE_REPL_TRUSTED_CODE_PATHS = "/Users/jordan/.codex"
 CODEX_HOME = "/Users/jordan/.codex"
-NODE_REPL_TRUSTED_BROWSER_CLIENT_SHA256S = "2c20141b13bec5a64cd2874d8e2df011430d5b1a70e4f5425aa10d01743311a8"
+NODE_REPL_TRUSTED_BROWSER_CLIENT_SHA256S = "5504c0782b5c86b7dd08314045b9843e973a230e1be8f7e2e0ba3716fc63c55e"
 BROWSER_USE_AVAILABLE_BACKENDS = "chrome,iab"
 NODE_REPL_INSTRUCTIONS_USE_CASE_BROWSER = "Control the in-app browser in conjunction with the Browser Plugin."
 NODE_REPL_INSTRUCTIONS_USE_CASE_CHROME = "Control the Chrome browser in conjunction with the Chrome Plugin. Prefer this method of controlling Chrome over alternatives (such as Computer Use) unless the user explicitly mentions an alternative."
 BROWSER_USE_CODEX_APP_BUILD_FLAVOR = "prod"
-BROWSER_USE_CODEX_APP_VERSION = "26.616.51431"
+BROWSER_USE_CODEX_APP_VERSION = "26.616.81150"
 CODEX_CLI_PATH = "/Applications/Codex.app/Contents/Resources/codex"
 
 # iai-mcp memory engine — clone-and-run service in ~/Developer/services.
@@ -75,6 +75,9 @@ enabled = true
 enabled = true
 
 [plugins."browser@openai-bundled"]
+enabled = true
+
+[plugins."template-creator@openai-primary-runtime"]
 enabled = true
 
 # Codex draws from the shared Python hooks in packages/agents/hooks (stowed to
@@ -188,10 +191,13 @@ timeout = 90
 [[hooks.user_prompt_submit.hooks]]
 type = "command"
 command = "python3 /Users/jordan/.agents/hooks/classify_intent.py"
-timeout = 60
 [[hooks.user_prompt_submit.hooks]]
 type = "command"
 command = "python3 /Users/jordan/.agents/hooks/record_session_event.py"
+[[hooks.user_prompt_submit.hooks]]
+type = "command"
+command = "python3 /Users/jordan/.agents/hooks/update_goal.py"
+timeout = 70
 
 [hooks.state]
 
@@ -273,13 +279,16 @@ trusted_hash = "sha256:cdca74a3336dc9c23df28688348131e080a2f324bdf527a141c5a139e
 [hooks.state."/Users/jordan/.codex/config.toml:user_prompt_submit:0:1"]
 trusted_hash = "sha256:f88f679b4edeedb486d10907505bdfe72416ac7360555f00fe23b0690ae173a3"
 
+[hooks.state."/Users/jordan/.codex/config.toml:user_prompt_submit:0:2"]
+trusted_hash = "sha256:bb3f08b7aaf69d6b86fc0a5c1b7be812a2e7b6853ce28ebb24e02978c556be28"
+
 [marketplaces.openai-bundled]
-last_updated = "2026-06-22T16:12:39Z"
+last_updated = "2026-06-24T09:22:42Z"
 source_type = "local"
 source = "/Users/jordan/.codex/.tmp/bundled-marketplaces/openai-bundled"
 
 [marketplaces.openai-primary-runtime]
-last_updated = "2026-06-20T03:55:17Z"
+last_updated = "2026-06-24T05:54:43Z"
 source_type = "local"
 source = "/Users/jordan/.cache/codex-runtimes/codex-primary-runtime/plugins/openai-primary-runtime"
 

@@ -525,12 +525,16 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 ~/.agents/hooks/classify_intent.py",
-            "timeout": 60
+            "command": "python3 ~/.agents/hooks/classify_intent.py"
           },
           {
             "type": "command",
             "command": "python3 ~/.agents/hooks/record_session_event.py"
+          },
+          {
+            "type": "command",
+            "command": "python3 ~/.agents/hooks/update_goal.py",
+            "timeout": 70
           }
         ]
       }

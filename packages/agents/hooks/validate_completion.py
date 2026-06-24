@@ -118,7 +118,6 @@ def main():
 
     state = load_state(session_id)
     current_state = state.get("state") or "proposing"
-    current_intent = state.get("intent") or "instructions"
     commit_requested = bool(state.get("commit_requested", False))
     validation_phase = state.get("validation_phase") or 0
 
@@ -159,10 +158,7 @@ def main():
         if '"name":"Edit"' in line or '"name":"Write"' in line or '"name":"MultiEdit"' in line
     )
 
-    has_deliverable_text = False
-    if current_intent in ("proposal_request", "instructions", "correction"):
-        if transcript.assistant_text_len(turn) > 1500:
-            has_deliverable_text = True
+    has_deliverable_text = transcript.assistant_text_len(turn) > 1500
 
     # No phrase AND low mutations AND not a deliverable turn → allow stop
     if not has_phrase and mutations < 3 and not has_deliverable_text:
@@ -182,13 +178,13 @@ def main():
         plan_context = "Plan for this session:\n%s\n---\n" % plan_content
 
     session_context = (
-        "Session state: state=%s, intent=%s, commit_requested=%s\n"
+        "Session state: state=%s, commit_requested=%s\n"
         "ExitPlanMode in current turn: %s\n"
         "Permission-seeking phrase detected: %s\n"
         "File mutations this session: %s\n"
         "---\n"
     ) % (
-        current_state, current_intent, _shell_bool(commit_requested),
+        current_state, _shell_bool(commit_requested),
         _shell_bool(has_recent_plan_exit), _shell_bool(has_phrase), mutations,
     )
 
@@ -247,7 +243,7 @@ def _eval_prompt(plan_context, session_context, recent_user_msgs, last_msg, curr
         '6. BURIED DELIVERABLE — the agent sent more than one response this turn and the final message drops the full reply that an earlier response already gave. The last message is the deliverable the user acts on; a reply stranded in an earlier response of the turn does not count as delivered. Compare the full current-turn content above against the last message: if the substantive deliverable lives only in an earlier response, or the last message points at it with "above" / "earlier" / "the list below" while that content is not actually inside the last message, that\'s burial. Block.\n\n'
         '7. ACCEPT-FRAMING IN A PROPOSAL — the agent frames a con or downside as something the user should accept, absorb, or live with, rather than as a problem the option attacks or as outstanding work the option still owes. Signals inside a /pcc, proposal, options block, or recommendation in the last message: "accept the", "accepting this", "live with", "the price we pay", "tradeoff we absorb", "you\'ll need to accept", "this trades X for Y" used to ask the user to swallow Y. A con is a problem to solve; AI cost makes solving it cheap. Block so the agent either folds the solve into the option or surfaces the con as outstanding work, never as a compromise the user signs off on.\n'
         '   Exception: word-as-content is fine — "you accepted X earlier", "the API accepts JSON", reporting that the user has already taken a tradeoff. The block is on framing a fresh con as inevitable.\n\n'
-        '8. PROPOSAL-FAILURE (proposing-intent turns only — intent=\'proposal_request\') — judge the agent\'s last message against the seven named proposal failures defined in the /propose skill. Block when any of the seven applies. This rule fires ONLY when intent is \'proposal_request\'; for other intents, skip to the ALLOW gates.\n\n'
+        '8. PROPOSAL-FAILURE (proposing-state turns only — state=\'proposing\') — judge the agent\'s last message against the seven named proposal failures defined in the /propose skill. Block when any of the seven applies. This rule fires ONLY when state is \'proposing\'; in any other state, skip to the ALLOW gates.\n\n'
         '   - vacuous-proposal: the proposal uses proposal shape (headings, slices, choice blocks) but the content carries no architectural decision. Restating the brief in proposal layout; steps shaped like \'investigate\', \'consider\', \'evaluate\' with no concrete change; choice blocks with two unspecified directions. Block.\n'
         '   - capability-loss: a removal in the proposal does not name what it removed, or does not name where the protected capability now lives. The proposal pursues the brief but silently deletes a guard, code path, validation, or behavior. Block.\n'
         '   - worse-option-shipped: the agent shipped an option it itself identifies as suboptimal. Signals: \'Going with A. B would be cleaner but...\', \'A is simpler though B is more correct\', any footnote pointing at a better option than the one shipped. Block.\n'

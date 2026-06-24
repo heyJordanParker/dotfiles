@@ -22,12 +22,12 @@ Two layers live here, with different homes:
 - Every hook exits 0 on infrastructure failure (missing state file, parse error, missing tool) — a hook never blocks the agent because of the hook's own brokenness
 - New fields added to the state schema also get `// 0` / `// null` defaults at every read site — older session files on disk must keep working
 - Subagent sessions (`session_id` starting with `agent-`) get their own state files under their parent's `subagents/` directory; no global parent-state mutation from a subagent's hook
-- Every persistent file lives under `~/.claude/` (overridable via `$CLAUDE_DATA_ROOT`); never `/tmp/` — sessions must survive reboot. Session control state (`approach`, `state`, `intent`, `commit_requested`, `notes`, `validation_phase`) lives on the spine record alongside the telemetry, written by the classifier and the plan transition, read by the proposal/commit/solo guards, the completion validator, and the statusline
+- Every persistent file lives under `~/.claude/` (overridable via `$CLAUDE_DATA_ROOT`); never `/tmp/` — sessions must survive reboot. Session control state (`approach`, `state`, `commit_requested`, `validation_phase`) and the session goal (`goal`, `requirements`, `boundaries`) live on the spine record alongside the telemetry — `classify_intent.py` writes the control state from typed mode-commands, `update_goal.py` writes the goal triplet, the plan transition writes `state` — read by the proposal/commit/solo guards, the completion validator, and the statusline
 - Pick the mechanism by the decision's nature — a deterministic predicate over structured input (a flag, a path, an exit code) is code; a judgment over natural language or intent is an LLM call. Keyword and regex matching on prose is fragile and wrong. An LLM gate on what code can decide is nondeterminism and cost for nothing
 
 ### Boundaries
 
-- Never call the LLM from a hook that fires on every event — model calls are reserved for `classify_intent.py`, `validate_completion.py`, `validate_plan_quality.py`, and `validate_planning_docs.py`, all gated by structural pre-filters or rare events
+- Never call the LLM from a hook that fires on every event — model calls are reserved for `update_goal.py`, `validate_completion.py`, `validate_plan_quality.py`, and `validate_planning_docs.py`, all gated by structural pre-filters or rare events
 - Never expose internal helpers (functions prefixed `_`) through the spine's main dispatch — they're implementation details
 - Never count system-injected `UserPromptSubmit` events as human turns (skill expansions, task notifications, slash-command echoes) — the spine's `prompt` command filters via the documented structural predicate
 - Never relocate or rewrite a session's `role` / `parent_session_id` after `_ensure_session` wrote them — heal corrupt JSON, but don't second-guess the parent linkage once set
@@ -50,7 +50,8 @@ packages/agents/hooks/
 │   └── codex_run.py        # runs codex as a named agent for the `codex-run` wrapper (stores output via the spine)
 │
 ├── record_session_event.py # the one recording hook — routes every state-recording event to the spine
-├── classify_intent.py      # UserPromptSubmit — LLM intent classifier
+├── classify_intent.py      # UserPromptSubmit — typed mode-command → state/approach/commit (deterministic, no LLM)
+├── update_goal.py          # UserPromptSubmit — LLM; maintains goal/requirements/boundaries on the spine
 │
 ├── block_git_revert.py             # PreToolUse Bash
 ├── block_branch_change.py          # PreToolUse Bash — subagent-only (agent_id gate)
@@ -115,7 +116,7 @@ packages/claude/hooks/
     └── <another_main_session_id>/
 ```
 
-The control fields (`approach`, `state`, `intent`, `commit_requested`, `notes`, `validation_phase`) live on the same `state.json` record — `classify_intent.py` and `transition_state_after_plan.py` write them through the spine's `merge_state`, and the proposal, commit, and solo guards, the completion validator, and the statusline read them back. There is no separate control store; the spine owns control state and telemetry alike.
+The control fields (`approach`, `state`, `commit_requested`, `validation_phase`) and the session goal (`goal`, `requirements`, `boundaries`) live on the same `state.json` record — `classify_intent.py` writes the control state from typed mode-commands, `update_goal.py` writes the goal triplet, and `transition_state_after_plan.py` writes `state`, all through the spine's `merge_state`; the proposal, commit, and solo guards, the completion validator, and the statusline read them back. There is no separate control store; the spine owns control state and telemetry alike.
 
 ### `session_state.py` public surface
 
@@ -153,11 +154,12 @@ is-long-running <session_id> [thresholds]         gate; defaults --turns 5 --sec
 session_id           string         the session's UUID (or agent-<hex> for subagents)
 role                 main|subagent
 parent_session_id    string|null    only set for subagents
-approach             string         solo | subagents | team — set by classify-intent
-state                string         proposing | executing | auto — state machine
-intent               string         most recent classified intent
+approach             string         solo | subagents | team — set by classify_intent from typed commands
+state                string         proposing | executing | auto — set by classify_intent / plan transition
+goal                 string|null    one-paragraph session goal — set by update_goal
+requirements         array          what the work must do — set by update_goal (capped at 10)
+boundaries           array          what the work must never do — set by update_goal (capped at 10)
 commit_requested     boolean
-notes                array          surprise/correction notes from classify-intent
 validation_phase     int            counter for validate_completion's max-3 block rule
 pane                 string|null    zellij pane id
 tmux-pane            string|null    tmux pane address (transitional during zellij migration)
@@ -170,7 +172,7 @@ tools_used           int            count of tool invocations
 schema_version       int            currently 1
 ```
 
-Subagent state files omit the intent-classifier fields (`approach`, `state`, `intent`, `commit_requested`, `notes`, `validation_phase`).
+Subagent state files omit the control + goal fields (`approach`, `state`, `goal`, `requirements`, `boundaries`, `commit_requested`, `validation_phase`).
 
 ## Workflow
 

@@ -63,7 +63,7 @@ def _run(hook, payload, env):
 
 # Executing-state control store: the state validate_completion reads to decide
 # whether a deliverable-shaped turn warrants the LLM gate it can't reach offline.
-S = {"state": "executing", "intent": "instructions", "commit_requested": False, "validation_phase": 0}
+S = {"state": "executing", "commit_requested": False, "validation_phase": 0}
 
 # Forced-command fallback strings classify_intent emits when the LLM is down but
 # a typed /propose | /execute | /team | /commit is present (fallback_context()
@@ -84,8 +84,8 @@ def _ctx(text):
 
 # Default control fields classify_intent writes for a non-skipped session before
 # its (offline-unreachable) classifier runs: the spine's _default_main_state.
-CI_DEFAULT_STATE = {"approach": "subagents", "state": "proposing", "intent": "instructions",
-                    "commit_requested": False, "notes": [], "validation_phase": 0}
+CI_DEFAULT_STATE = {"approach": "subagents", "state": "proposing", "commit_requested": False,
+                    "goal": None, "requirements": [], "boundaries": [], "validation_phase": 0}
 
 # name, hook, payload, session_id (None → agent- skip), pre-state,
 # expected (rc, stdout, stderr, post-state)
@@ -215,3 +215,22 @@ def test_fallback_behavior(name, hook, payload, sid, pre, expected, local_llm, s
         for k, v in exp_state.items():
             assert state is not None and state.get(k) == v, \
                 f"{name}: control field {k}={state.get(k) if state else None}, expected {v}"
+
+
+def test_validate_completion_reaches_eval_without_crash(local_llm, spine_root, write_transcript):
+    """The eval-prompt builder must not reference a removed state field. A turn with
+    >=3 mutations bypasses the early-allow gate and reaches session_context; with the
+    LLM down the hook returns 0 — it must build that context without crashing."""
+    sid = "vc_eval"
+    _reset_state(spine_root, sid, dict(S))
+
+    def edit(i):
+        return {"type": "assistant", "message": {"content": [
+            {"type": "tool_use", "name": "Edit", "id": str(i), "input": {"file_path": "f%d" % i}}]}}
+
+    tpath = write_transcript([{"type": "user", "message": {"content": "go"}},
+                              edit(1), edit(2), edit(3)])
+    body = json.dumps({"session_id": sid, "last_assistant_message": "All good.",
+                       "transcript_path": tpath})
+    rc, out, err = _run("validate_completion.py", body, dict(os.environ))
+    assert rc == 0, f"validate_completion crashed reaching the eval builder: {err}"

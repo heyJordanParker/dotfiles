@@ -92,9 +92,10 @@ def test_start_creates_main_state_with_defaults(root, clock):
     assert st["parent_session_id"] is None
     assert st["approach"] == "subagents"
     assert st["state"] == "proposing"
-    assert st["intent"] == "instructions"
     assert st["commit_requested"] is False
-    assert st["notes"] == []
+    assert st["goal"] is None
+    assert st["requirements"] == []
+    assert st["boundaries"] == []
     assert st["validation_phase"] == 0
     assert st["pane"] is None
     assert st["tmux-pane"] is None
@@ -138,8 +139,8 @@ def test_subagent_nests_under_parent(root, clock):
     assert st["role"] == "subagent"
     assert st["session_id"] == "agent-xyz"
     assert st["parent_session_id"] == "parent"
-    # subagent state omits the classifier-only fields
-    for omitted in ("approach", "state", "intent", "notes",
+    # subagent state omits the main-only control + goal fields
+    for omitted in ("approach", "state", "goal", "requirements", "boundaries",
                     "validation_phase", "commit_requested"):
         assert omitted not in st
 
