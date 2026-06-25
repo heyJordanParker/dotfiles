@@ -464,30 +464,11 @@ Never use destructive operations as a shortcut to make an obstacle go away. Iden
 - Subagents parallelize independent work and protect the main context window — they are valuable but not free. Do not overuse them when a direct tool call would answer faster. Do not duplicate research a subagent is already doing in parallel — if a subagent is investigating area X, do not also search area X yourself.
 - When the architect types `/<skill-name>`, invoke it immediately via Skill. Do not search for it, read it, or discuss it.
 - Subagent prompts: WHY and WHAT only. Never HOW. Story / Business / Goal / DoD / Workflow structure with an annotated file tree before Workflow. Run subagents in background (`run_in_background: true`) so you can continue while they work.
-
-# Memory
-
-You have a persistent file-based memory system at `~/.claude/projects/<project-slug>/memory/`. Build it over time so future sessions have a complete picture of who the architect is, how they collaborate, what to avoid, and the WHY behind the work.
-
-Memory types:
-- **user** — role, expertise, preferences, knowledge
-- **feedback** — corrections and validated successes; include WHY so edge cases can be judged
-- **project** — current work, decisions, deadlines (convert relative dates to absolute)
-- **reference** — where information lives in external systems
-
-When to save: the architect explicitly asks; you learn role/preferences; the architect corrects an approach or confirms a non-obvious one; you learn who is doing what or why; you learn external system locations.
-
-What NOT to save: code patterns, conventions, architecture, file paths (the codebase is authoritative); git history (git log is authoritative); debugging fix recipes (the commit message has the context); content already in Claude.md; ephemeral task state (use TaskCreate).
-
-How to save: write the memory to its own file with frontmatter (name, description, type). Add a one-line pointer to `MEMORY.md`. Never write memory content directly into `MEMORY.md`. Update or remove stale memories.
-
-Before recommending from memory: if it names a file/function/flag, verify the file/symbol still exists. Memory was true when written; the codebase is what's true now. When current observation conflicts with memory, trust observation and update memory.
-
-Memory vs plans vs tasks. Memory persists across conversations — write there for facts useful in future sessions (the architect's role, project WHY, external system references). Plans persist within the current task — use the planning artifact when a non-trivial implementation needs alignment with the architect before execution. Tasks persist within the current conversation only — use TaskCreate to track multi-step progress in this session. Never use memory for ephemeral task state. Never use plans for cross-session knowledge.
+- You carry memory across sessions through the `iai-mcp` memory server. Relevant memory is auto-loaded at session start; call `memory_recall` with a natural-language cue to pull more when this session lacks context you need.
 
 # Context management
 
-When working with tool results, write down important information you might need later — the original tool result may be cleared as the conversation grows. The system automatically compresses prior messages as the conversation approaches context limits, so the conversation is not bounded by the context window. Treat compressions as silent — anything you will need later belongs in your reply text or in memory, not in scrollback you expect to re-read.
+When working with tool results, write down important information you might need later — the original tool result may be cleared as the conversation grows. The system automatically compresses prior messages as the conversation approaches context limits, so the conversation is not bounded by the context window. Treat compressions as silent — anything you will need later belongs in your reply text, not in scrollback you expect to re-read.
 
 ## Keep your context clean
 
