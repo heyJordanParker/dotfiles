@@ -127,10 +127,6 @@ command = "python3 /Users/jordan/.agents/hooks/block_unsafe_delete.py"
 timeout = 5
 [[hooks.pre_tool_use.hooks]]
 type = "command"
-command = "python3 /Users/jordan/.agents/hooks/enforce_background_codex_run.py"
-timeout = 5
-[[hooks.pre_tool_use.hooks]]
-type = "command"
 command = "python3 /Users/jordan/.agents/hooks/guard_trace.py"
 timeout = 5
 [[hooks.pre_tool_use.hooks]]
@@ -191,6 +187,7 @@ timeout = 90
 [[hooks.user_prompt_submit.hooks]]
 type = "command"
 command = "python3 /Users/jordan/.agents/hooks/classify_intent.py"
+timeout = 60
 [[hooks.user_prompt_submit.hooks]]
 type = "command"
 command = "python3 /Users/jordan/.agents/hooks/record_session_event.py"
@@ -229,30 +226,27 @@ trusted_hash = "sha256:71fae9dcbb56aa23524cf3b23766c2f7deb09f7521aaa377bfc2a0b69
 trusted_hash = "sha256:2069b1e74771c202a01582111fa4715cea9acb341eee7e1ad3f71b4773d229f8"
 
 [hooks.state."/Users/jordan/.codex/config.toml:pre_tool_use:0:5"]
-trusted_hash = "sha256:ed860fc55450424544a4840f67ef5713690d9311d9f5f8b6d0fb385515f5a514"
-
-[hooks.state."/Users/jordan/.codex/config.toml:pre_tool_use:0:6"]
 trusted_hash = "sha256:78f6f30ff5e32da1135f0586ef66e5f705f0788fe581b2f8075e2e292419208d"
 
-[hooks.state."/Users/jordan/.codex/config.toml:pre_tool_use:0:7"]
+[hooks.state."/Users/jordan/.codex/config.toml:pre_tool_use:0:6"]
 trusted_hash = "sha256:a887e2af1d28abed0d543b7e508e39656f78a6c2932145cf7ad38b8d40a132d6"
 
-[hooks.state."/Users/jordan/.codex/config.toml:pre_tool_use:0:8"]
+[hooks.state."/Users/jordan/.codex/config.toml:pre_tool_use:0:7"]
 trusted_hash = "sha256:7edac50d02b9b85c4918347a5adc98b0c8748f59d4363493e2a7ef9d959aaae4"
 
-[hooks.state."/Users/jordan/.codex/config.toml:pre_tool_use:0:9"]
+[hooks.state."/Users/jordan/.codex/config.toml:pre_tool_use:0:8"]
 trusted_hash = "sha256:e8a74b0ca9b01fb903757ba0d619927e93a5a9969fadef315f7c1e3d4f813def"
 
-[hooks.state."/Users/jordan/.codex/config.toml:pre_tool_use:0:10"]
+[hooks.state."/Users/jordan/.codex/config.toml:pre_tool_use:0:9"]
 trusted_hash = "sha256:0f9b8c41ffe192ca27456ee0c068fc944469ca20f961108b50b4ceb9cf9ec991"
 
-[hooks.state."/Users/jordan/.codex/config.toml:pre_tool_use:0:11"]
+[hooks.state."/Users/jordan/.codex/config.toml:pre_tool_use:0:10"]
 trusted_hash = "sha256:12caa390c89c69a3372050488e5a39bc0349853e3fa41341fa5f1203aa4f31b2"
 
-[hooks.state."/Users/jordan/.codex/config.toml:pre_tool_use:0:12"]
+[hooks.state."/Users/jordan/.codex/config.toml:pre_tool_use:0:11"]
 trusted_hash = "sha256:f88f679b4edeedb486d10907505bdfe72416ac7360555f00fe23b0690ae173a3"
 
-[hooks.state."/Users/jordan/.codex/config.toml:pre_tool_use:0:13"]
+[hooks.state."/Users/jordan/.codex/config.toml:pre_tool_use:0:12"]
 trusted_hash = "sha256:91c5bc7210adf3aed6f7eb4d79ff61facce646232a3222e1da852c9c98cda7c5"
 
 [hooks.state."/Users/jordan/.codex/config.toml:session_start:0:0"]

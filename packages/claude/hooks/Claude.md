@@ -66,7 +66,6 @@ packages/agents/hooks/
 ├── protect_session_state.py        # PreToolUse Write|Edit|MultiEdit + Bash
 ├── guard_trace.py                  # PreToolUse Bash — force code reads through trace
 │
-├── enforce_background_codex_run.py # PreToolUse Bash — codex-run must run in background
 ├── enforce_solo_mode.py            # PreToolUse Agent + Bash — blocks the Agent tool, and codex/codex-run/claude, in solo
 │
 ├── transition_state_after_plan.py  # PostToolUse ExitPlanMode

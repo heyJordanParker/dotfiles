@@ -34,6 +34,7 @@ A specialist gives better domain framing, the right tool set, and Opus-level rea
   tester             — feature verification: API curls, UI walks, flow tracing (read-only)
   ux-tester          — pure user-perspective UX walkthroughs (no code reading)
   context-engineer   — Claude.md maintenance, hooks, skills, plugin work
+  codex              — faster but overengineers code; great for research and quick prototypes
 
 Set subagent_type to one of the above. Brief with Story / Business / Goal / DoD per /subagents."""
 

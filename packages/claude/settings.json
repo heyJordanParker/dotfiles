@@ -210,11 +210,6 @@
           },
           {
             "type": "command",
-            "command": "python3 ~/.agents/hooks/enforce_background_codex_run.py",
-            "timeout": 5
-          },
-          {
-            "type": "command",
             "command": "python3 ~/.agents/hooks/guard_trace.py",
             "timeout": 5
           },
@@ -525,7 +520,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 ~/.agents/hooks/classify_intent.py"
+            "command": "python3 ~/.agents/hooks/classify_intent.py",
+            "timeout": 60
           },
           {
             "type": "command",
