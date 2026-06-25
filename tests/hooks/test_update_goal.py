@@ -3,7 +3,7 @@
 The LLM call and memory recall are stubbed, so these pin the deterministic shell
 around them: the structural skips, the hard 10-item list cap, the spine write, and
 the message built back from the spine (goal/requirements/boundaries from state,
-skills + optional note from the model).
+skills + take + optional note from the model).
 """
 
 import pytest
@@ -94,3 +94,15 @@ def test_carries_goal_forward_when_model_omits_lists(monkeypatch, spine_root):
     assert st["goal"] == "G2."
     assert st["requirements"] == ["a"]
     assert st["boundaries"] == ["b"]
+
+
+def test_take_emitted_with_inference_framing(monkeypatch, spine_root):
+    _, text = _run(monkeypatch,
+                   {"session_id": "ug1", "prompt": "no, narrow it to X"},
+                   {"goal": "Do x.", "requirements": [], "boundaries": [],
+                    "take": "The user is correcting the agent toward narrowing the boundary."})
+    assert "The user is correcting the agent toward narrowing the boundary." in text
+    # framed as the hook's inference, not the architect's own words
+    assert "inference" in text and "not the architect's words" in text
+    # the take is the last line — the freshest signal for the main agent
+    assert text.rstrip().endswith("narrowing the boundary.")

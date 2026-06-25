@@ -6,8 +6,10 @@ memory, and updates the session's goal (one paragraph), requirements (what the
 work must do), and boundaries (what it must never do) on the spine — translating
 only what the user expressed, never inventing or padding. Each list is hard-capped
 at 10 in code. It then hands the main agent the current goal/requirements/
-boundaries read back from the spine, the skills the user invoked this turn, and an
-optional one-line note when one would prevent confusion.
+boundaries read back from the spine, the skills the user invoked this turn, a
+one-line take on what the user is doing this turn relative to the goal (the hook's
+inference, framed as such), and an optional one-line note when one would prevent
+confusion.
 
 This is the renamed intent classifier: the model call moved here, pointed at the
 goal instead of mode-switching. The user drives modes by hand through typed
@@ -66,48 +68,6 @@ def is_system_prompt(prompt):
     return False
 
 
-# --- transcript conversation-context extraction --------------------------------
-
-def conversation_context(transcript_path):
-    stream_lines = transcript.conversation_stream(transcript.records(transcript_path))
-    if not stream_lines:
-        return ""
-
-    turn_line = 0
-    for idx, line in enumerate(stream_lines, start=1):
-        if line.startswith("U|"):
-            turn_line = idx
-
-    recent_turns = ""
-    agent_response = ""
-    if turn_line > 0:
-        after = stream_lines[turn_line:]
-        agent_blocks = [ln[2:] for ln in after if ln.startswith("A|")]
-        agent_response = "\n".join(agent_blocks[-5:])
-        if turn_line > 1:
-            before = stream_lines[:turn_line - 1]
-            recent = before[-8:]
-            recent_turns = "\n".join(
-                ("[User] " + ln[2:]) if ln.startswith("U|")
-                else ("[Agent] " + ln[2:]) if ln.startswith("A|")
-                else ln
-                for ln in recent
-            )
-    else:
-        agent_blocks = [ln[2:] for ln in stream_lines if ln.startswith("A|")]
-        agent_response = "\n".join(agent_blocks[-5:])
-
-    if not recent_turns and not agent_response:
-        return ""
-    parts = ""
-    if recent_turns:
-        parts = "Recent conversation (background):\n%s\n\n---\n" % recent_turns
-    if agent_response:
-        parts = ("%sAgent's last response (what the user is responding to):\n%s\n\n---\n"
-                 % (parts, agent_response))
-    return parts
-
-
 # --- cross-session memory recall (iai-mcp) -------------------------------------
 
 def recall_memory(session_id):
@@ -136,8 +96,9 @@ JSON_SCHEMA = ('{"type":"object","properties":'
                '"requirements":{"type":"array","items":{"type":"string"}},'
                '"boundaries":{"type":"array","items":{"type":"string"}},'
                '"skills":{"type":"array","items":{"type":"string"}},'
+               '"take":{"type":"string"},'
                '"note":{"type":"string"}},'
-               '"required":["goal","requirements","boundaries"]}')
+               '"required":["goal","requirements","boundaries","take"]}')
 
 
 def _block(label, items):
@@ -164,6 +125,7 @@ def evaluation_prompt(prompt, goal, requirements, boundaries, memory, conversati
 '- boundaries: what the work must NEVER do — each specific and testable, e.g. "never stores passwords in plaintext", never vague like "do not break things". Honor the user\'s own framing: when the user states a constraint as a prohibition ("must never", "don\'t", "no more than", "under no circumstances", "never"), it is a BOUNDARY, not a requirement. Do not flip a prohibition into a positive requirement to make it sound like a feature — keep it where the user put it.\n'
 '- skills: every /skill the user invokes in THIS message (telling you to use or run it now). '
 'Preserve the leading slash. Empty when none.\n'
+'- take: a one-line take on what the user is doing with their latest message in relation to the goal.\n'
 '- note: OPTIONAL. Include a single short note ONLY when it would save the main agent from a real '
 'confusion this turn. Never include a note to fill the field. Omit it on almost every turn.\n'
 '\n'
@@ -205,6 +167,10 @@ def build_message(state, result):
     note = result.get("note")
     if isinstance(note, str) and note.strip():
         parts.append(note.strip())
+    take = result.get("take")
+    if isinstance(take, str) and take.strip():
+        parts.append("Goal-tracker's read of this turn (the hook's inference, "
+                     "not the architect's words): " + take.strip().splitlines()[0].strip())
     if not parts:
         return ""
     body = "\n\n".join(parts)
@@ -236,7 +202,7 @@ def main():
     boundaries = state.get("boundaries") or []
 
     memory = recall_memory(session_id)
-    conversation = conversation_context(transcript_path)
+    conversation = transcript.conversation_context(transcript_path)
     eval_prompt = evaluation_prompt(prompt, goal, requirements, boundaries, memory, conversation)
 
     result = run_model(SYSTEM_PROMPT, eval_prompt, JSON_SCHEMA,
