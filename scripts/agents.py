@@ -11,6 +11,7 @@ model names aren't codex models. Both artifacts are gitignored; this regenerates
 import glob
 import os
 
+import files
 import frontmatter
 
 
@@ -60,5 +61,4 @@ def _read(path):
 
 
 def _write(path, text):
-    with open(path, "w", encoding="utf-8") as f:
-        f.write(text)
+    files.write_if_changed(path, text)

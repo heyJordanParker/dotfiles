@@ -28,6 +28,8 @@ import json
 import os
 import re
 
+import files
+
 CLAUDE_HOOK_DIR = "~/.agents/hooks"
 CODEX_HOOK_DIR = "/Users/jordan/.agents/hooks"
 
@@ -267,12 +269,8 @@ def generate(hooks_dir, claude_settings_path, codex_config_path):
     with open(claude_settings_path, encoding="utf-8") as f:
         settings = json.load(f)
     settings = render_claude(settings, bindings)
-    with open(claude_settings_path, "w", encoding="utf-8") as f:
-        json.dump(settings, f, indent=2)
-        f.write("\n")
+    files.write_if_changed(claude_settings_path, json.dumps(settings, indent=2) + "\n")
 
     with open(codex_config_path, encoding="utf-8") as f:
         config_text = f.read()
-    config_text = render_codex(config_text, bindings)
-    with open(codex_config_path, "w", encoding="utf-8") as f:
-        f.write(config_text)
+    files.write_if_changed(codex_config_path, render_codex(config_text, bindings))

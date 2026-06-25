@@ -14,7 +14,10 @@ prior run. An unknown agent exits non-zero listing the available agents.
 
 Our shared Python guards govern the run, not codex's sandbox — the architect does
 not want codex sandboxes — so every run passes
-`--dangerously-bypass-approvals-and-sandbox`.
+`--dangerously-bypass-approvals-and-sandbox`. Our hooks are our own vetted
+sources, so every run also passes `--dangerously-bypass-hook-trust`, which runs
+them without codex's per-command trust gate (and without reading or writing its
+trust table).
 
 Output (the final answer and the raw event stream) lands in the session's own
 directory via the session-state helper, never `/tmp`, with collision-free names
@@ -49,9 +52,11 @@ AGENTS_DIR = os.path.expanduser("~/.agents/agents")
 # config.toml uses to boot the CTO, set here per-agent instead.
 _INSTRUCTIONS_KEY = "model_instructions_file"
 
-# No sandbox: our shared Python guards govern the run instead of codex's sandbox.
+# No sandbox and no hook-trust gate: our shared Python guards govern the run, and
+# the hooks are our own vetted sources.
 _BASE_FLAGS = ["--json", "--skip-git-repo-check",
-               "--dangerously-bypass-approvals-and-sandbox"]
+               "--dangerously-bypass-approvals-and-sandbox",
+               "--dangerously-bypass-hook-trust"]
 
 # Delimits the answer from the metadata trailer on stdout, so the result reads
 # cleanly with no downstream parsing: everything above the line is codex's answer,
