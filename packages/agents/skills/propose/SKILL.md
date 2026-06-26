@@ -1,7 +1,7 @@
 ---
 name: propose
 description: |
-  Mandatory contract for every proposing-state turn. Loads automatically when the session state is proposing — the classifier injects "load /propose" on every proposing turn, and the rules here are the contract for what the agent emits. Covers the seven named proposal failures (vacuous-proposal, capability-loss, worse-option-shipped, requirement-drop, contradiction-elision, mixed-layer-pcc, hedged-proposal), the shape of the proposal (Why, the plan, choices in place), and what a decision is. TRIGGER on every proposing-state turn — the classifier mandates this. DO NOT TRIGGER for executing turns (the agent is implementing, not proposing) or auto turns (mixed intents resolve action first). For ranking shape only, /pcc covers the pros/cons/confidence format the choices in this skill use.
+  Mandatory contract for every proposing-state turn. Loads automatically when the session state is proposing — the classifier injects "load /propose" on every proposing turn, and the rules here are the contract for what the agent emits. Covers the eight named proposal failures (vacuous-proposal, capability-loss, worse-option-shipped, requirement-drop, contradiction-elision, mixed-layer-pcc, hedged-proposal, no-precedent), the shape of the proposal (Why, the plan, choices in place), and what a decision is. TRIGGER on every proposing-state turn — the classifier mandates this. DO NOT TRIGGER for executing turns (the agent is implementing, not proposing) or auto turns (mixed intents resolve action first). For ranking shape only, /pcc covers the pros/cons/confidence format the choices in this skill use.
 ---
 
 # Proposal
@@ -12,9 +12,9 @@ The quality bar is clean readable markdown at full width, plain headings, honest
 
 The cto agent prompt covers verification, no hedging, full reads, no regression. The rules below add to those, never replace them.
 
-## The seven named failures
+## The eight named failures
 
-Every rejected proposal is one of these seven shapes. Each has a name so the agent can catch itself producing it and so the architect can name what they're rejecting.
+Every rejected proposal is one of these eight shapes. Each has a name so the agent can catch itself producing it and so the architect can name what they're rejecting.
 
 ### 1. vacuous-proposal
 
@@ -92,6 +92,16 @@ Self-check before sending: every claim about what code does, returns, calls, con
 
 The exception is genuine unknown: "I have not checked X" is allowed and correct when the agent has not read X. The ban is on hedge words substituting for reading.
 
+### 8. no-precedent
+
+Presenting a decision without the precedent it builds on. Architecture is done by precedent first, not invented. Every decision — a choice-block option or a structural step — names the exact file or system whose architecture it follows, with its full path, or carries the research proving no such precedent exists. A decision with no named precedent reads as invention the architect can't tell apart from convention.
+
+**Bad:** "Add a `HeldRegistration` class to own the deferred records" — no named precedent, so the architect cannot tell whether this follows an existing pattern or invents one.
+
+**Good:** "Add a `HeldRegistration` class to own the deferred records, following `app/Tenant/Membership/PendingInvitation.php` — it owns its data and is read through the same repository contract." Or, when no precedent exists: "Read `app/Tenant/Membership` and `app/Registration`; neither owns deferred records. This is new ground, which makes it an architecture decision."
+
+Self-check before sending: every decision names the file or system it builds on, with its path, or states the research that found no precedent. A decision with no named precedent is not finished — find the precedent, or prove it absent, then propose.
+
 ## The shape of a proposal
 
 Three parts, in order. No other top-level sections. No "verified facts", no "flagged claims", no list of decisions.
@@ -138,18 +148,20 @@ picks. The existing service is already large and unrelated to this concern.
 
 **Option A — on the existing service.** What it is, concretely, in our code.
 
+- precedent: the exact file or system this builds on, named with its full path — or the research proving no such precedent exists
 - pro: how it solves the stated problem
 - con: the concrete cost it adds, the one not foreseen until it bites
 - confidence: 55%
 
 **Option B — a new single-purpose class.** What it is, concretely.
 
+- precedent: ...
 - pro: ...
 - con: ...
 - confidence: 78%
 ```
 
-Option name and one-line description on the heading line. Pros, cons, confidence as separate `-` bullets. A con states a real cost the option adds — never a cross-reference to another option, never normal implementation effort dressed up as a flaw, never filler to balance the format. If an option has no real con, say so.
+Option name and one-line description on the heading line. Precedent, pros, cons, confidence as separate `-` bullets. A con states a real cost the option adds — never a cross-reference to another option, never normal implementation effort dressed up as a flaw, never filler to balance the format. If an option has no real con, say so.
 
 Confidences differ by more than 10 points. Equal-ish confidence means the analysis is unfinished — read more code, do not adjust the numbers. Forced pros, forced cons, or clustered confidences are the signal that you have not read enough; fix them by reading, never by renumbering. No recommendation, no pick, no "later steps assume A".
 
@@ -211,7 +223,7 @@ Ends at the last confidence number or the last step's last sentence. No closing 
 
 ## Self-check before sending
 
-Before emitting the proposal, walk the seven failures and confirm none apply:
+Before emitting the proposal, walk the eight failures and confirm none apply:
 
 1. **vacuous-proposal** — every step names a concrete change, every choice is a real alternative
 2. **capability-loss** — every removal names what it removed and where the protected capability now lives
@@ -220,5 +232,6 @@ Before emitting the proposal, walk the seven failures and confirm none apply:
 5. **contradiction-elision** — every conflict is surfaced as a decision the architect makes
 6. **mixed-layer-pcc** — every decision is independent of the others
 7. **hedged-proposal** — no hedge words; every code claim was validated against the source this turn
+8. **no-precedent** — every decision names the file or system it builds on, with its path, or carries the research proving none exists
 
 If any check fails, rewrite before sending.

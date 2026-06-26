@@ -485,6 +485,7 @@ Summary of big changes followed by affordances broken down by component:
 - Opens with `## Big Changes` bullet list — 1-3 sentence summaries of architectural shifts
 - Then one `## ComponentName (NEW/MODIFIED)` subsection per component
 - Each subsection: bullet list of methods with signatures and wiring
+- `Builds on:` the existing component or system whose architecture it follows, named with its path (e.g. `Builds on: app/Tenant/AuthController.php`), or the research proving this doesn't already exist
 - `Uses:` line listing dependencies
 - `Registered:` line for service providers / DI
 - Keep to interface-level detail — no implementation specifics

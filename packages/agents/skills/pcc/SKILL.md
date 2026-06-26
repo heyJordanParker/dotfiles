@@ -24,5 +24,6 @@ When presenting alternatives, options, or approaches, use this format. When the 
 
 **Option N: [Name]** (X% confident)
 - What: 1-2 sentences
+- Precedent: the exact file or system this option builds on, named with its full path — or the research proving none exists
 - Pros: bullets
 - Cons: bullets

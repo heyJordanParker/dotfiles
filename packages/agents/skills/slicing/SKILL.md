@@ -108,7 +108,7 @@ For each slice, generate as sane defaults. Present to user for confirmation.
 
 **Regression** — "Existing [behavior] in [file] still works after changes." Name the behavior, the file, how to verify. If tests exist: "Existing test suite passes." If no tests: "Manual verification of [specific behavior]"
 
-**Dependency audit** — "Verified [module] exists and exposes [method] before using." "No duplicate implementation — checked [locations] for existing [capability]"
+**Dependency audit** — "Verified [module] exists and exposes [method] before using." "No duplicate implementation — checked [locations] for existing [capability]." When a slice introduces an unprecedented pattern, this search is the proof the `Precedent` field cites — record where you looked and that no precedent exists.
 
 **Boundary** — "Does not modify [out-of-scope area]." "Does not introduce [pattern/dependency] outside plan boundaries"
 
@@ -175,6 +175,9 @@ shaping: true
 **Reuses:**
 - [Existing module/component] from [location]
 
+**Precedent:**
+- [Each architectural pick — file structure, pattern followed, data ownership] builds on `exact/path/to/precedent` — or: searched [locations], no precedent exists (unprecedented; flag for approval)
+
 **Regression scope:**
 - [Existing behavior] in [file] — verify [how]
 
@@ -233,6 +236,9 @@ accounts
 **Files:**
 - Create: `exact/path/to/file.ext`
 - Modify: `exact/path/to/existing.ext`
+
+**Precedent:**
+- [Each structural choice] builds on `exact/path/to/precedent` — or the search proving none exists
 
 **Step 1:** [Action — exact code or specific instruction]
 
@@ -297,6 +303,7 @@ Before presenting the plan to the user, verify:
 - [ ] Every modified file has regression criteria
 - [ ] Every slice has validation requirements
 - [ ] No ⚠️ flags remain on shape parts
+- [ ] Every architectural pick in every slice names the file or system it builds on, or records the search proving none exists
 - [ ] slices.md and all V*-plan.md files written
 - [ ] Symlinks created
 - [ ] Every slice passes the demo test (can a user see this working?)

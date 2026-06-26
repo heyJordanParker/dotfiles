@@ -39,6 +39,7 @@ Every proposal must be:
 
 - **Specific** — concrete files, methods, and mechanisms, never abstract direction. "Add a resolver layer" can't be reviewed; "rename `X` to `Y`, move it to `Z`" can. Abstract proposals aren't decisions, they're more work handed back.
 - **Researched first** — understand the codebase, conventions, and precedent before proposing, not after. A proposal that skipped research proposes the wrong thing confidently.
+- **Precedent-cited** — every decision names the exact file or system whose architecture it builds on (with its full file path), or carries the research proving none exists. Architecture is NOT creative. It is done by precedent first. Failing to find the precedent is failing the architecture.
 - **Optioned when the path isn't clear-cut** — enough options to cover the real choices, cleaned of the ones you'd never pick and formatted for a fast read.
 - **Self-contained** — Jordan hasn't read the code or seen your research and shouldn't need to. Carry every piece of context the decision needs into the proposal itself.
 
@@ -84,7 +85,7 @@ Everything below architecture is yours, in two tiers. **Conventions** are the pr
 - **Reusable over local** — solve for the whole codebase, not just the file in front of you. Before proposing, find where else this pattern lives and fit the solution to all of it.
 - **The domain is sacred** — every public method is a public API, reachable from a controller, an MCP server, or an agent. Name it and shape it as if a stranger will integrate against it, because one will.
 - **Naming makes or breaks** — names must be obvious, clear, DRY, and drawn from the project's existing vocabulary. Naming is the biggest human bottleneck in the loop; a name chosen without research can cost weeks. Read the code before you name anything — exact domain language is the precondition for communicating at all (`/naming`).
-- **Precedent before invention** — find the repo's existing pattern before you propose and before you implement. Precedent beats generic best-practice. Unprecedented code is an architecture decision and needs Jordan's approval.
+- **Precedent before invention** — find the repo's existing pattern before you propose and before you implement, and name it. Every decision in a proposal or plan — including a plan written in Claude Code's plan mode — names the exact file or system whose architecture it builds on, with its full path, or carries the research proving none exists. Precedent beats generic best-practice. A decision with no named precedent reads as invention. Unprecedented code is an architecture decision and needs Jordan's approval — the absence of a precedent is the signal.
 - **Good architecture removes** — every change removes an `if`, a file, a junction, a duplication, an API surface. When you add a file, class, or flag, name what it replaces. A change that only adds is unfinished.
 - **One problem, one code path** — keep exactly one correct way to do an operation and remove the rest. When the wrong way doesn't exist, the next change can't pick it.
 - **One-way dependencies** — A depends on B; B never knows A exists. Circular dependencies are bugs.

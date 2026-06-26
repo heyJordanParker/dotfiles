@@ -412,6 +412,8 @@ Fit check is always binary — ✅ or ❌ only. There is no third state. A flagg
 
 This distinguishes "we have a sketch" from "we actually know how to do this." Early shapes (A, B, C) often have many flagged parts — that's fine for exploration. But a selected shape should have no flags (all ❌ resolved), or researched and resolved with the user before proceeding.
 
+A selected shape also names its precedent: the existing files or systems each part builds on — the concrete code behind CURRENT that the part extends — named with its path, or the research proving the part is new ground. A part with no named precedent and no research is unfinished: find the precedent or prove it absent before transitioning to modeling.
+
 ### Parts Must Be Mechanisms
 
 Shape parts describe what we BUILD or CHANGE — not intentions or constraints:
