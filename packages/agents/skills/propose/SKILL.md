@@ -1,205 +1,174 @@
 ---
 name: propose
 description: |
-  Mandatory contract for every proposing-state turn. Loads automatically when the session state is proposing — the classifier injects "load /propose" on every proposing turn, and the rules here are the contract for what the agent emits. Covers the eight named proposal failures (vacuous-proposal, capability-loss, worse-option-shipped, requirement-drop, contradiction-elision, mixed-layer-pcc, hedged-proposal, no-precedent), the shape of the proposal (Why, the plan, choices in place), and what a decision is. TRIGGER on every proposing-state turn — the classifier mandates this. DO NOT TRIGGER for executing turns (the agent is implementing, not proposing) or auto turns (mixed intents resolve action first). For ranking shape only, /pcc covers the pros/cons/confidence format the choices in this skill use.
+  Mandatory contract for every proposing-state turn. Loads automatically when the session state is proposing — the classifier injects "load /propose" on every proposing turn, and the rules here are the contract for what the agent emits. Builds the proposal as a decision tree — parent decision gating child, dominant call on top, siblings as genuine peers — with the work breakdown tagged onto decisions rather than used as the skeleton. Opens with a whole-change annotated map, shows code instead of prose about code, and carries the /pcc shape (pros, cons, confidence) on every decision node. Covers the seven named proposal failures (vacuous-proposal, capability-loss, worse-option-shipped, requirement-drop, contradiction-elision, mixed-layer-pcc, hedged-proposal) plus no-hedging, options-figured-out-first, unanswered-questions-persist, one-complete-response, no-requirement-echo. TRIGGER on every proposing-state turn — the classifier mandates this. DO NOT TRIGGER for executing turns (the agent is implementing, not proposing) or auto turns (mixed intents resolve action first). For the pros/cons/confidence ranking a decision node uses, /pcc is canonical; for the maps it opens with, /show-architecture is canonical.
 ---
 
 # Proposal
 
-The contract for every change proposal, in any codebase, for any problem. The classifier loads this skill on every proposing-state turn. The rules apply to the whole proposal, not just to a section of it.
+The contract for every change proposal, in any codebase, for any problem. The classifier loads this skill on every proposing-state turn. The rules apply to the whole proposal, not just a section of it.
 
-The quality bar is clean readable markdown at full width, plain headings, honest options. Match it. Every rule below removes a way proposals get worse.
+The architect reviews decisions all day. A flat list of same-level items forces them to rebuild — every proposal — which call gates which. This format does that work for them once. **The proposal is the decision hierarchy.** The architect reads it top-down: the dominant call first, its dependents nested beneath it, genuine peers side by side. Most of their corrections land on concrete artifacts — file paths, method and API names, schema changes — so those are shown for scanning, never buried in prose that describes code instead of showing it.
+
+The quality bar is clean readable markdown at full width: a whole-change map, a visible decision tree, real code in fenced blocks, honest options. Every rule below removes a way proposals get worse.
 
 The cto agent prompt covers verification, no hedging, full reads, no regression. The rules below add to those, never replace them.
 
-## The eight named failures
+## The decision tree is the proposal
 
-Every rejected proposal is one of these eight shapes. Each has a name so the agent can catch itself producing it and so the architect can name what they're rejecting.
+Decisions are the skeleton. The work breakdown — slices, steps, files — tags onto each decision; it is never the organizing structure.
 
-### 1. vacuous-proposal
+Build the tree the architect would otherwise build in their head:
 
-Proposing nothing of substance. The reply uses proposal shape — headings, slices, choice blocks — but the content carries no architectural decision the architect can act on. Restating the brief in proposal layout is vacuous. Listing every file you read is vacuous. Three steps that say "investigate", "consider", "evaluate" with no concrete change is vacuous.
+- **Dominant call on top.** The decision that shapes the most surface — the most files, the widest dependency, the largest cost swing — is first.
+- **Parent gates child.** When deciding the parent one way deletes the child decision entirely, the child nests under the parent. Heading depth mirrors gate depth.
+- **Siblings are genuine peers.** Two decisions are peers only when the architect's answer to one does not change the meaning of the other. Peers sit at the same heading level.
 
-**Bad:** A "proposal" whose Why summarizes the brief, whose plan lists "review the auth module", "look at the session flow", "consider tradeoffs", and whose choice blocks ask the architect to pick between two unspecified directions.
+Importance and dependency are shown by structure, never asserted in prose. Never write "the most important decision is" or "this gates that" — the position and nesting say it.
 
-**Good:** A proposal that names the change concretely in the Why, decomposes it into slices with concrete steps, and surfaces only real architectural choices the brief left open.
-
-Self-check before sending: every step names a concrete change to our code. Every choice block names a real alternative with a real cost difference. If a step or a choice is shaped like investigation, you have not finished the work — finish it, then propose.
-
-### 2. capability-loss
-
-Silently regressing a user-facing or system capability. A regression is loss of capability: the user can no longer X, or our system can no longer Y. The proposal pursues the brief but deletes a guard, a code path, a validation, or a behavior that protected something real, and never says so.
-
-**Bad:** "Replace the validator with a simpler check" — without naming the input shape the old validator rejected that the new check accepts.
-
-**Good:** "Replace the validator with a simpler check. The old validator rejected nested arrays deeper than two levels; the new check does not. Two call sites depend on that rejection; both are updated to enforce the depth limit in the caller."
-
-Self-check before sending: every removal in the proposal names what it removed and where the capability the old code protected now lives. Backwards compatibility (old call sites, data shapes, interfaces) is not a capability — replacing a whole system and deleting its legacy is the preferred path when no capability is lost.
-
-### 3. worse-option-shipped
-
-Shipping an option the agent itself knows is suboptimal. The agent identified a better option while drafting and shipped the worse one anyway — sometimes with a footnote pointing at the better one, sometimes silently because the worse one was easier to write.
-
-**Bad:** "Going with Option A. Option B would be cleaner but is more invasive."
-
-**Good:** Option B, shipped. If diff size was the reason for picking A, that reason is invalid — diff size is not a quality axis (see rule 19 of the cto prompt).
-
-Self-check before sending: of every option in the proposal, the one shipped is the one the agent believes is most correct. If a better option exists, ship it. Never propose the worse one with a footnote.
-
-### 4. requirement-drop
-
-Breaking a stated requirement. The architect named a requirement; the proposal silently relaxes it, narrows its scope, defers it, or works around it. The proposal looks complete but the requirement that did not survive is the headline.
-
-**Bad:** Brief says "all three integrations must use the new auth flow". Proposal covers integrations one and two and adds a comment saying integration three "is out of scope for this pass".
-
-**Good:** Proposal covers all three. If one is genuinely harder, the proposal names what makes it harder and proposes the path that still meets the requirement — never relaxes the requirement to fit a path.
-
-Self-check before sending: every requirement the architect stated appears in the proposal, met. If a requirement conflicts with the chosen path, escalate the conflict in the choice block — never silently drop it to make the path work.
-
-### 5. contradiction-elision
-
-Silently resolving a contradiction in requirements or in code reality instead of surfacing it. Two requirements conflict, or a requirement contradicts what the code actually does, and the proposal picks a side without naming the conflict.
-
-**Bad:** Brief says "use the existing session store"; code shows the session store does not support the access pattern the brief needs. Proposal writes a wrapper that papers over the gap without saying the gap exists.
-
-**Good:** Proposal names the contradiction in the choice block: "The brief asks for X; the existing session store does not support the access pattern X requires. Two paths: extend the session store (touches Y callers), or introduce a separate store for this access pattern (splits the source of truth). Pick one."
-
-Self-check before sending: every assumption the proposal makes about contradictory inputs is surfaced as a decision the architect makes, not as a silent resolution. The agent does not pick which requirement wins — the architect does.
-
-### 6. mixed-layer-pcc
-
-Batching nested same-level proposals where a parent decision would obliterate a child. The proposal asks the architect to decide three things at once where deciding the first one differently makes the second and third meaningless. The architect reads work that the answer to question one will discard.
-
-**Bad:** A single proposal with three choice blocks: "Should we cache?", "What cache backend?", "Cache invalidation strategy?". Deciding "no cache" on question one discards questions two and three.
-
-**Good:** Surface question one alone. Get the call. Then propose two and three — and only if the answer to one warrants them. Architecture is layered; do not flatten a layered decision into one giant proposal.
-
-Self-check before sending: of the decisions in the proposal, every one is independent of the others — the architect's answer to any one of them does not change the meaning of the others. If decisions cascade, surface only the gate.
-
-### 7. hedged-proposal
-
-Using "likely", "may", "should", "probably", "might", "could", "perhaps" because the agent skipped the code-reading work. These words are confessions — they appear when the agent has not read the source and is writing from training prior or pattern matching instead.
-
-**Banned phrases in any proposal:**
-
-- "likely", "may", "should" (in the sense of expected behavior), "probably", "might", "could", "perhaps"
-- "I would expect", "in theory", "it appears that", "it seems"
-- "this probably means", "this likely indicates", "this may suggest"
-
-**Good:** Open the file. Read the function. Then write what is. "The handler calls `loadSession()` which throws `SessionNotFoundError` when the row is missing" — read, then stated.
-
-Self-check before sending: every claim about what code does, returns, calls, contains, or causes was validated against the source this turn. If a hedge survives, the work was not done — go read the code, then rewrite.
-
-The exception is genuine unknown: "I have not checked X" is allowed and correct when the agent has not read X. The ban is on hedge words substituting for reading.
-
-### 8. no-precedent
-
-Presenting a decision without the precedent it builds on. Architecture is done by precedent first, not invented. Every decision — a choice-block option or a structural step — names the exact file or system whose architecture it follows, with its full path, or carries the research proving no such precedent exists. A decision with no named precedent reads as invention the architect can't tell apart from convention.
-
-**Bad:** "Add a `HeldRegistration` class to own the deferred records" — no named precedent, so the architect cannot tell whether this follows an existing pattern or invents one.
-
-**Good:** "Add a `HeldRegistration` class to own the deferred records, following `app/Tenant/Membership/PendingInvitation.php` — it owns its data and is read through the same repository contract." Or, when no precedent exists: "Read `app/Tenant/Membership` and `app/Registration`; neither owns deferred records. This is new ground, which makes it an architecture decision."
-
-Self-check before sending: every decision names the file or system it builds on, with its path, or states the research that found no precedent. A decision with no named precedent is not finished — find the precedent, or prove it absent, then propose.
-
-## The shape of a proposal
-
-Three parts, in order. No other top-level sections. No "verified facts", no "flagged claims", no list of decisions.
-
-### Open with the title
-
-The first character of your response is `#`, the title. No "I have what I need", no "the proposal follows", no summary of what you read. The verification happened; its only trace is a correct proposal. A line of any kind before the title is a failure.
-
-### Why
-
-Three to five sentences. The architectural change: what our code does after this that it did not before, which dependency relationship changes, what new contract or boundary that creates, and what is genuinely difficult about it (stated as the difficulty, in domain terms, not as framework mechanism). No third-party internals. No list of upcoming decisions.
-
-### The plan
-
-The change is one or more slices. A slice is a coherent piece of the architecture — a responsibility that moves, a boundary that forms, a capability that changes owner. Slices decompose the change the way the architecture decomposes, not the way the framework's boot sequence runs.
-
-A slice heading is the plain name of what the slice does to our architecture. It never contains the word "Slice". It is never numbered.
-
-Each slice holds its own steps, numbered from 1 within that slice. `Step 1`, `Step 2` restart in the next slice. There is no global step count across the proposal.
-
-A step is one short full-width paragraph: what our code change is and the effect on our system. Readable prose, not a labelled block, not a collapsed bullet, not a narrow column.
-
-At most one file tree per slice, and only when the slice touches enough of our files that prose alone is ambiguous. Many slices need no tree. Never a tree per step. Never a tree per file. A tree lists only our files the slice creates or changes, with a short role note and `<- (NEW)` for new ones:
+**Bad — flat, importance-ordered, same-level peers the architect must untangle:**
 
 ```
-app/Tenant/SomeArea/
-├── Thing.php*        <- (NEW) one-line role
-└── Other.php         <- what changes in it
+The plan, importance-ordered:
+
+1. Lazy variant generation — store original only, generate on first request.
+2. Hybrid R2 keys — {hash}-{slug}.webp.
+3. WP attachment sync — store_id on the media table.
+4. Specialized media_folders table.
+5. Dedup — hash before processing.
 ```
 
-Order slices, and steps within them, so each one's context was delivered by the ones before. Never forward-reference a later step.
+Five items read as equal weight. Nothing tells the architect that item 1 gates the variant-addressing work, or that item 3 is independent of all the rest. They reconstruct the tree themselves.
 
-No step exists only to undo or correct a previous step. If a step would do something a later step walks back, the plan is wrong — do it correctly once, in the right place. "Do X everywhere, then remove X where it was not needed" is two steps doing one job badly; state the rule for where X belongs and apply it once.
-
-### Choices, in place
-
-A choice appears once, inside the step where the decision is made, where the reader reaches it. The heading is the plain question — no "Decide:", no "Fork", no "Choice:" prefix. Then one or two sentences of what is at stake, including the concrete cost not visible until after an option is built — in domain terms, about our code, never framework mechanism. Then the options:
+**Good — the tree is built; the gate is visible:**
 
 ```
-Should the held registrations live on the existing service or a new class?
+When are sized variants made?               lazy  vs  pre-generate  vs  Cloudflare
+└── How does a variant URL resolve?         redirect-to-R2  vs  proxy-bytes
+How does WP see a file with no attach row?  store_id  vs  join-table  vs  postmeta
+What is the R2 object key?                  hash+slug  vs  hash-only  vs  folder-path
+└── How does a folder move rewrite keys?    leave-keys  vs  rewrite-keys
+What table holds folders?                   specialized  vs  generic-typed
+Where is the dedup hash taken?              before-processing  vs  after-upload
+```
 
-The reader who has to find where this behavior lives opens whichever this
-picks. The existing service is already large and unrelated to this concern.
+Each row is one decision: the question, then its options separated by `vs`. The options are ordered highest-confidence first, so the leftmost is the call the agent leans to. `vs` marks them mutually exclusive — pick one.
 
+Indentation is gating. Choosing Cloudflare on variant delivery deletes the variant-addressing row, so that row nests under it. The architect never reads work the top answer discards (mixed-layer-pcc, prevented structurally).
+
+Whether each call is settled or still open is stated at its node, never on the map. The map carries the candidates and their rank — nothing else.
+
+A decision node organizes work but is not itself plumbing. Pure plumbing that carries no open choice — the picker grid, the edit panel — lives in the whole-change map only. Never manufacture a decision node for it. Never present a settled mandate as a choice.
+
+## Maps are mandatory
+
+Every proposal opens with one whole-change annotated file tree, `/show-architecture` style: every file the change creates or touches, `<- (NEW)` on new ones, a 3-5 word role note on each. This is the architect's single view of the full surface before any decision.
+
+The decision tree opens with a decision-hierarchy map — the indented tree above: every decision is one row, its options `vs`-separated and ordered highest-confidence first, gating shown by nesting. The whole structure and every option set is seen at a glance before any node is read. The map carries the candidates and their rank; the node heading carries whether the call is settled or open.
+
+Each decision opens with its own map where it aids review: a scoped file tree for a decision that moves files, a relationship diagram (`/show-architecture` boxes-and-arrows) for a decision about how data moves or who owns what. A decision whose shape is obvious from its code block needs no map — never add a decorative one.
+
+## Show code, not prose about code
+
+Concrete artifacts are shown for scanning, in fenced blocks: real file paths (`app/Tenant/Media/MediaController.php`), method and public-API names with signatures, route strings, and database changes as DDL — tables, columns, indices. Prose is reserved for the architectural why: why a boundary sits here, why a dependency runs this direction, why a difficulty is hard. Prose never narrates what a code block already shows.
+
+**Bad — prose describing code the architect must parse back into structure:**
+
+> The MediaController gains a finalize endpoint that downloads the temporary object from R2, validates the MIME type and magic bytes, checks dimensions and size, strips EXIF, sanitizes any SVG, converts to WebP, re-uploads under the hybrid key, and creates the Media record. A new content_hash column stores the SHA-256, a key column holds the hybrid key, and store_id maps the WordPress attachment.
+
+**Good — artifacts shown, prose carries only the why:**
+
+```
+POST /media/finalize  →  MediaController::finalize()  →  MediaService::ingest()
+
+MediaService::ingest(string $tempKey, array $context): Media
+  // validate(mime, magic-bytes, ≤5000×5000, ≤20MB) → stripExif → sanitizeSvg
+  // → toWebP (skip GIF) → putObject({hash}-{slug}.webp) → deleteObject($tempKey)
+```
+
+```sql
+ALTER TABLE media
+  ADD content_hash char(64) NOT NULL,   -- SHA-256 of raw bytes, dedup key
+  ADD key          varchar  NOT NULL,   -- hybrid R2 key {hash}-{slug}.webp
+  ADD store_id     integer  UNIQUE;     -- WP attachment post id, nullable
+CREATE INDEX media_content_hash_idx ON media (content_hash);
+```
+
+Validation runs server-side after the presigned PUT because the browser cannot be trusted to enforce the 20MB / 20MP ingest ceiling — the only why the prose owes.
+
+## Each decision node
+
+A decision node is the unit the tree is built from. Each one carries, in order:
+
+1. **The question, as a plain heading, tagged with its state.** No "Decide:", "Fork:", "Choice:" prefix. The heading ends with `(settled, NN%)` when the agent broke the design and one option won, or `(open — your call)` when the architect must weigh context the code cannot answer. Nesting (peer or gated) is already set by the tree.
+2. **A map**, where it aids review (see Maps).
+3. **The artifacts in play**, shown in fenced blocks (see Show code).
+4. **The options, in the /pcc shape** — two or more genuine alternatives, each with precedent, pro, con, confidence:
+
+```
 **Option A — on the existing service.** What it is, concretely, in our code.
 
-- precedent: the exact file or system this builds on, named with its full path — or the research proving no such precedent exists
+- precedent: the exact file or system this builds on, full path — or research proving none exists
 - pro: how it solves the stated problem
-- con: the concrete cost it adds, the one not foreseen until it bites
-- confidence: 55%
+- con: the real cost it adds, the one not foreseen until it bites
+- confidence: 82%
 
 **Option B — a new single-purpose class.** What it is, concretely.
 
 - precedent: ...
 - pro: ...
-- con: ...
-- confidence: 78%
+- con: the one cost that ruled it out
+- confidence: 55%
 ```
 
-Option name and one-line description on the heading line. Precedent, pros, cons, confidence as separate `-` bullets. A con states a real cost the option adds — never a cross-reference to another option, never normal implementation effort dressed up as a flaw, never filler to balance the format. If an option has no real con, say so.
+5. **The work it tags** — one line naming the files, methods, and slice this decision lands in. This is the work breakdown hanging off the decision, not the skeleton.
 
-Confidences differ by more than 10 points. Equal-ish confidence means the analysis is unfinished — read more code, do not adjust the numbers. Forced pros, forced cons, or clustered confidences are the signal that you have not read enough; fix them by reading, never by renumbering. No recommendation, no pick, no "later steps assume A".
+A con states a real cost the option adds — never a cross-reference to another option, never normal implementation effort dressed as a flaw, never filler to balance the format. If an option has no real con, say so. Confidences differ by more than 10 points; clustered confidences mean the analysis is unfinished — read more code, never renumber. No recommendation line, no "later steps assume A" — the shipped direction is the work-tag.
 
-A slice with no decision has no choice block and says nothing about it. Never announce the absence of a choice. Never point at a choice made in another slice — a choice appears once, where it is made.
+Every node is **settled** or **open**, and the heading says which.
 
-The choice block uses the same pros/cons/confidence shape /pcc defines; /pcc is the canonical ranking shape, and this skill is its proposal-shape home.
+**Settled** — the agent ran the options through the requirements and one survived. Name the surviving direction first, in full: precedent, pro, con, confidence. The options it beat follow, each at its own lower confidence, carrying only the one con that killed it. The survivor ships because it is most correct, never because it is smaller; the rejected options are shown so the architect can overturn the call in one glance, never as footnoted regret. If the call has no real alternative, the survivor stands alone — never invent one to fill the shape.
 
-## Who you are. Who the architect is.
+**Open** — the architect must weigh business or scope context the code cannot answer. The options are genuine peers, each in full, ordered highest-confidence first, no direction named. The agent never picks an open decision for the architect.
 
-You are the architect six months from now, alone, debugging at 11pm. You wrote this; the wiring has faded; past-you owes you clarity.
+An open parent collapses its children. Name the gated children under it, but do not expand them — no options, no code — until the parent is settled. Expanding work the open answer might delete is the waste the gate exists to prevent.
 
-The architect knows the domain. They do not know this change yet, and they will not open the codebase to learn it. They are reviewing an architecture decision, not reading a tutorial.
+## The shape of a proposal
 
-They care about: what our code does, which of our components own which responsibility, where our boundaries move, and whether a third-party dependency is the right choice for the job. They do not care how the third-party library works internally. How a framework boots, which framework file requires which, the framework's internal call sequence — that is your knowledge for getting the proposal right. It never appears in the proposal. Not in the Why, not in a step, not in a choice. If a sentence explains the mechanism of third-party code, delete it. State only what our code does and what we depend on the third party to do — never how the third party does it.
+In order, no other top-level sections:
 
-Write at the level of someone who knows the domain. Do not explain basics. Do not narrate a sequence of framework events. State the architectural change: which component now owns what, which dependency relationship inverts, what contract that creates.
+1. **Title** — the first character of the response is `#`. No "I have what I need", no summary of what you read. A line of any kind before the title is a failure.
+2. **Why** — three to five sentences. What our code does after this that it did not before, which dependency relationship changes, what new contract that creates, and what is genuinely difficult — in domain terms, not framework mechanism. No third-party internals. No list of upcoming decisions.
+3. **The whole change** — the opening whole-change map.
+4. **The decisions** — the decision-hierarchy map, then the decision nodes in tree order.
+
+## The seven named failures
+
+Every rejected proposal is one of these. Each has a name so the agent catches itself and the architect names what they reject.
+
+1. **vacuous-proposal** — proposal shape, no architectural decision in it. Restating the brief in tree layout, listing files read, decision nodes shaped like "investigate / consider / evaluate". Fix: every node names a concrete change and a real alternative.
+2. **capability-loss** — silently regressing a capability (user can no longer X, system can no longer Y). Every removal names what it removed and where the protected capability now lives. Backwards compatibility is not a capability.
+3. **worse-option-shipped** — tagging the work to an option the agent knows is suboptimal, sometimes with a footnote pointing at the better one. The work-tag points at the option the agent believes most correct. Diff size is never the reason.
+4. **requirement-drop** — a stated requirement silently relaxed, narrowed, or deferred. Every requirement appears, met. A conflict is surfaced as a decision, never resolved by dropping the requirement.
+5. **contradiction-elision** — silently papering over a conflict between requirements, or between a requirement and what the code does. Surface it as the architect's decision; the agent does not pick which requirement wins.
+6. **mixed-layer-pcc** — batching decisions where a parent answer obliterates a child. Prevented structurally here: gated decisions nest, so a parent's answer visibly deletes its children. Never flatten a gate into peers.
+7. **hedged-proposal** — "likely", "may", "should" (expected-behavior sense), "probably", "might", "could", "perhaps", "I would expect", "in theory", "it appears that", "it seems". These are confessions that the code was not read. **Banned in any proposal.** Open the file, read the function, write what is. The one exception is a genuine, stated unknown: "I have not checked X" is correct when X was not read.
 
 ## What is and is not a decision
 
-A decision is a point where the brief left a real open choice and picking one option makes the work under the other wrong.
+A decision is a point where the brief left a real open choice and picking one option makes the work under the other wrong — fundamentally different mechanisms, boundaries, data flows, or dependencies. The brief's own mandate is never a decision; a change the brief asks for is the work, not a question. When the architect asked for an audit, gaps, or errors, deliver the findings each with its place and impact — never manufacture options. When the architect already picked an option and asks to refine one part, apply the refinement and nothing else.
 
-The brief's own mandate is never a decision. If the brief says to make a change, that change is the work, not a question. Never reframe an instruction as something to decide.
-
-A decision is an architectural alternative the architect is choosing between — fundamentally different mechanisms, boundaries, data flows, or dependencies. It is not every finding, gap, error, or bug you surface. When the architect asked for an investigation, an audit, gaps, or errors, deliver the findings: each with its place and its impact, and nothing else. Never manufacture options for items the architect asked you to surface. When the architect already picked an option and asks to refine one part of it, apply the refinement and nothing else — never regenerate variants of the part they kept.
-
-Do not pre-announce decisions. The Why never lists "the decisions are X and Y". A decision appears once, where it is made, and nowhere else — not foreshadowed, not summarized, not repeated. Stating it twice is a defect.
+A decision appears once, where it is made — never foreshadowed in the Why, never summarized, never repeated.
 
 ## Unanswered questions never disappear
 
-Every choice you put to the architect that they did not answer reappears, in full, in every later version of the proposal, until they answer it. Never drop a question because the proposal moved on. Never assume an answer to keep going. An unanswered question silently removed is the same failure as a guess written as fact.
+Every question the architect did not answer reappears, in full, in every later version until they answer it. Never drop a question because the proposal moved on. Never assume an answer to keep going.
 
-Emit a question only when a real external-context gap exists — an environment, prerequisite, constraint, or scope boundary the code cannot answer — and state what flips in the proposal under each answer. Never invent an assumption to fill the slot; an assumption tail fabricates context and rots across every later turn. Never rephrase an option-pick as a question. Never ask a motivation probe, an open-ended "thoughts?", an obvious confirmation, or anything that points at something the architect cannot recall. If no real gap exists, write "No open questions."
+Emit a question only for a real external-context gap — an environment, prerequisite, constraint, or scope boundary the code cannot answer — and state what flips under each answer. Never invent an assumption to fill the slot. Never rephrase an option-pick as a question. If no real gap exists, write "No open questions."
 
 ## No metaphor. No jargon. No hype. No importance-in-prose.
 
-Every word names the actual thing. Banned analogy-words: "cutover", "fork", "harvest", "leverage", "surface" (verb), "bridge", "glue", "wire up", "hang off", "ride on", "load-bearing", "safety net". Say the action.
-
-Importance is carried by order, never stated. The first slice and the first step in it are the most important. Never write "the genuinely hard part", "the key one", "the biggest lever".
+Every word names the actual thing. Banned analogy-words: "cutover", "fork", "harvest", "leverage", "surface" (verb), "bridge", "glue", "wire up", "hang off", "ride on", "load-bearing", "safety net". Say the action. Importance is carried by tree position, never stated — never "the genuinely hard part", "the key one", "the biggest lever".
 
 ## Readability
 
@@ -207,31 +176,28 @@ Full width. Short sentences, one idea each. Blank line between ideas. No paragra
 
 ## One response, complete
 
-Deliver the entire proposal in one response. No progressive disclosure — the architect corrects direction, they do not discover it one piece at a time. When the response is a proposal, the whole current proposal is in it; the architect never scrolls back or rebuilds state from an earlier message. As it evolves, prune resolved and superseded sections and re-emit the live proposal — never an "everything else unchanged" handoff.
+Deliver the entire proposal in one response. No progressive disclosure. As it evolves, prune resolved and superseded nodes and re-emit the live tree — never an "everything else unchanged" handoff.
 
 ## Options are figured out before they are written
 
-Run every option through the requirements yourself before you write a word of it. An option that fails a requirement is dropped, or stated as rejected with the reason already worked out. Never discover a flaw mid-sentence. If you catch yourself writing "actually", "wait", "hmm", or "X does not actually Y" inside the proposal, that option was not figured out — delete it and rewrite with clean, pre-validated options. The architect receives conclusions, never your scratch work.
+Run every option through the requirements yourself before writing a word of it. An option that fails a requirement is dropped or stated as rejected with the reason worked out. Never discover a flaw mid-sentence. If you catch yourself writing "actually", "wait", "hmm", or "X does not actually Y", that option was not figured out — delete it and rewrite with clean, pre-validated options.
 
 ## Don't echo the requirements
 
-Never hand the requirements back reworded as the plan — state the concrete change, the code paths, the data flow.
+Never hand the requirements back reworded as the plan. State the concrete change, the code paths, the data flow.
 
 ## How it ends
 
-Ends at the last confidence number or the last step's last sentence. No closing sentence, no summary of the plan's safety.
+Ends at the last work-tag, the last confidence number, or the last node's last sentence. No closing sentence, no summary of the plan's safety.
 
 ## Self-check before sending
 
-Before emitting the proposal, walk the eight failures and confirm none apply:
-
-1. **vacuous-proposal** — every step names a concrete change, every choice is a real alternative
-2. **capability-loss** — every removal names what it removed and where the protected capability now lives
-3. **worse-option-shipped** — the option shipped is the one the agent believes most correct
-4. **requirement-drop** — every stated requirement appears and is met
-5. **contradiction-elision** — every conflict is surfaced as a decision the architect makes
-6. **mixed-layer-pcc** — every decision is independent of the others
-7. **hedged-proposal** — no hedge words; every code claim was validated against the source this turn
-8. **no-precedent** — every decision names the file or system it builds on, with its path, or carries the research proving none exists
+1. **decisions-as-skeleton** — the structure is the decision tree; slices and files tag onto decisions, never organize the proposal.
+2. **visible hierarchy** — dominant on top, gated decisions nested, peers at one level; importance shown by position, never asserted.
+3. **maps present** — a whole-change map opens; the decision tree opens with a hierarchy map; each decision that needs one has its own.
+4. **artifacts shown** — file paths, signatures, route strings, DDL in fenced blocks; prose only for the why.
+5. **/pcc on every decision** — precedent, pro, con, confidence; confidences differ by >10 points. Settled nodes lead with the surviving option and show what it beat at lower confidence; open nodes show peers with no direction named; neither invents an option to fill the shape.
+6. **the seven failures** — none apply.
+7. **questions persist** — every unanswered question is still here, or "No open questions".
 
 If any check fails, rewrite before sending.
