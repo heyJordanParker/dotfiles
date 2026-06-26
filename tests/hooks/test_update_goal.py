@@ -81,7 +81,7 @@ def test_note_omitted_when_absent(monkeypatch, spine_root):
     _, text = _run(monkeypatch,
                    {"session_id": "ug1", "prompt": "do x"},
                    {"goal": "Do x.", "requirements": [], "boundaries": []})
-    assert "restating what the architect asked" in text  # every-turn opener directive
+    assert "Read the architect literally and follow exactly" in text  # every-turn opener directive
     assert text.endswith("Session goal:\nDo x.")          # goal last, no note appended
 
 

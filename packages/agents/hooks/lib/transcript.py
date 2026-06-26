@@ -164,6 +164,28 @@ def turn_evidence(turn_recs):
     return "\n".join(stream)
 
 
+def edited_paths(turn_recs):
+    """Distinct file paths the turn edited via the edit tools, in first-seen order.
+
+    The blind-edit completion check reads this to learn which files the turn
+    changed; read-coverage and callers are then looked up per path. Mirrors
+    `turn_evidence`'s edit-tool iteration — same EDIT_TOOLS set, same
+    file_path/notebook_path target extraction."""
+    out, seen = [], set()
+    for r in turn_recs:
+        if r.get("type") != "assistant":
+            continue
+        for b in blocks(r, "tool_use"):
+            if b.get("name") not in EDIT_TOOLS:
+                continue
+            inp = b.get("input") or {}
+            path = inp.get("file_path") or inp.get("notebook_path") or ""
+            if path and path not in seen:
+                seen.add(path)
+                out.append(path)
+    return out
+
+
 def assistant_text_len(recs):
     """Total assistant text length, +1 per block (a jq -r per-value newline), for
     the deliverable-shaped-turn threshold."""
@@ -250,3 +272,47 @@ def conversation_stream(recs, user_cap=200, assistant_cap=300):
             if texts:
                 lines.append("A|" + clamp(" ".join(texts).replace("\n", " "), assistant_cap))
     return lines
+
+
+def conversation_context(path):
+    """Formatted background block for the every-prompt classifiers: the recent
+    conversation, then the agent's last response (what the latest user message is
+    replying to). Empty string when the transcript yields nothing. Both
+    UserPromptSubmit model calls — intent and goal — build their context from this."""
+    stream_lines = conversation_stream(records(path))
+    if not stream_lines:
+        return ""
+
+    turn_line = 0
+    for idx, line in enumerate(stream_lines, start=1):
+        if line.startswith("U|"):
+            turn_line = idx
+
+    recent_turns = ""
+    agent_response = ""
+    if turn_line > 0:
+        after = stream_lines[turn_line:]
+        agent_blocks = [ln[2:] for ln in after if ln.startswith("A|")]
+        agent_response = "\n".join(agent_blocks[-5:])
+        if turn_line > 1:
+            before = stream_lines[:turn_line - 1]
+            recent = before[-8:]
+            recent_turns = "\n".join(
+                ("[User] " + ln[2:]) if ln.startswith("U|")
+                else ("[Agent] " + ln[2:]) if ln.startswith("A|")
+                else ln
+                for ln in recent
+            )
+    else:
+        agent_blocks = [ln[2:] for ln in stream_lines if ln.startswith("A|")]
+        agent_response = "\n".join(agent_blocks[-5:])
+
+    if not recent_turns and not agent_response:
+        return ""
+    parts = ""
+    if recent_turns:
+        parts = "Recent conversation (background):\n%s\n\n---\n" % recent_turns
+    if agent_response:
+        parts = ("%sAgent's last response (what the user is responding to):\n%s\n\n---\n"
+                 % (parts, agent_response))
+    return parts

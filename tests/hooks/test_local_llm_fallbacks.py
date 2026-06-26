@@ -22,6 +22,8 @@ import subprocess
 import pytest
 from conftest import PY_HOOKS
 
+import classify_intent
+
 
 def _session_dir(root, sid):
     return os.path.join(str(root), "sessions", sid)
@@ -63,7 +65,7 @@ def _run(hook, payload, env):
 
 # Executing-state control store: the state validate_completion reads to decide
 # whether a deliverable-shaped turn warrants the LLM gate it can't reach offline.
-S = {"state": "executing", "commit_requested": False, "validation_phase": 0}
+S = {"state": "executing", "commit_requested": False}
 
 # Forced-command fallback strings classify_intent emits when the LLM is down but
 # a typed /propose | /execute | /team | /commit is present (fallback_context()
@@ -82,10 +84,19 @@ def _ctx(text):
         "hookEventName": "UserPromptSubmit", "additionalContext": text}}) + "\n"
 
 
+# classify_intent appends the standing behavioral reminders to every non-skipped
+# turn, so each emitting case carries them after its forced-command directive.
+STANDING = classify_intent.STANDING_REMINDERS
+
+
+def _ctx_standing(text):
+    return _ctx(text + "\n\n" + STANDING) if text else _ctx(STANDING)
+
+
 # Default control fields classify_intent writes for a non-skipped session before
 # its (offline-unreachable) classifier runs: the spine's _default_main_state.
 CI_DEFAULT_STATE = {"approach": "subagents", "state": "proposing", "commit_requested": False,
-                    "goal": None, "requirements": [], "boundaries": [], "validation_phase": 0}
+                    "goal": None, "requirements": [], "boundaries": [], "notes": []}
 
 # name, hook, payload, session_id (None → agent- skip), pre-state,
 # expected (rc, stdout, stderr, post-state)
@@ -94,13 +105,13 @@ CASES = [
     # the fallback path; proposing-state contract emitted, state persisted.
     ("ci_propose", "classify_intent.py",
      {"prompt": "/propose", "transcript_path": ""}, "p_ci1", None,
-     (0, _ctx(PROPOSE_FALLBACK), "",
+     (0, _ctx_standing(PROPOSE_FALLBACK), "",
       {**CI_DEFAULT_STATE, "state": "proposing"})),
     # Compound typed command: /execute forces executing state, /team forces team
     # approach — both fallbacks compose, both mutations persist.
     ("ci_execute_team", "classify_intent.py",
      {"prompt": "okay /execute and /team this", "transcript_path": ""}, "p_ci1", None,
-     (0, _ctx(EXECUTE_FALLBACK + "\n\n" + TEAM_FALLBACK), "",
+     (0, _ctx_standing(EXECUTE_FALLBACK + "\n\n" + TEAM_FALLBACK), "",
       {**CI_DEFAULT_STATE, "state": "executing", "approach": "team"})),
     # XML-tagged system message: structurally detected, hook no-ops before any
     # state file is touched.
@@ -115,33 +126,27 @@ CASES = [
     # path; the /commit contract is emitted and the flag persists.
     ("ci_commit", "classify_intent.py",
      {"prompt": "/commit", "transcript_path": ""}, "p_ci1", None,
-     (0, _ctx(COMMIT_FALLBACK), "",
+     (0, _ctx_standing(COMMIT_FALLBACK), "",
       {**CI_DEFAULT_STATE, "commit_requested": True})),
     # Compound typed command: /execute forces executing state, /commit forces the
     # commit — both fallbacks compose, both mutations persist.
     ("ci_execute_commit", "classify_intent.py",
      {"prompt": "/execute /commit", "transcript_path": ""}, "p_ci1", None,
-     (0, _ctx(EXECUTE_FALLBACK + "\n\n" + COMMIT_FALLBACK), "",
+     (0, _ctx_standing(EXECUTE_FALLBACK + "\n\n" + COMMIT_FALLBACK), "",
       {**CI_DEFAULT_STATE, "state": "executing", "commit_requested": True})),
     # A /commit-suffixed token (e.g. /commit-foo) must NOT trip the /commit
     # forced command — the hyphen boundary keeps a longer name distinct.
     ("ci_commit_message_no_force", "classify_intent.py",
      {"prompt": "/commit-message", "transcript_path": ""}, "p_ci1", None,
-     (0, "", "", CI_DEFAULT_STATE)),
+     (0, _ctx_standing(""), "", CI_DEFAULT_STATE)),
     # Plain prompt, no typed command, LLM down: nothing to emit, but the session
     # state file is initialized to defaults before the classifier is attempted.
     ("ci_plain", "classify_intent.py",
      {"prompt": "just some text", "transcript_path": ""}, "p_ci1", None,
-     (0, "", "", CI_DEFAULT_STATE)),
+     (0, _ctx_standing(""), "", CI_DEFAULT_STATE)),
 
-    # validate_completion — loop breaker: validation_phase >= 3 allows the stop
-    # before any gate runs; state untouched.
-    ("vc_loop_breaker", "validate_completion.py",
-     {"last_assistant_message": "shall i proceed", "transcript_path": ""}, "p_vc1",
-     {**S, "validation_phase": 3},
-     (0, "", "", {**S, "validation_phase": 3})),
     # Deterministic forwarded-recommendation gate: blocks (exit 2) with the
-    # forwarded-block message and increments validation_phase 0 -> 1.
+    # forwarded-block message; state untouched.
     ("vc_forwarded", "validate_completion.py",
      {"last_assistant_message": "The subagent recommends option B.", "transcript_path": ""}, "p_vc1",
      dict(S),
@@ -151,7 +156,7 @@ CASES = [
       "re-rank the survivors with your own /pcc, and recommend one in\n"
       "your own voice. The subagent saw a slice; you hold the project.\n"
       'See /subagents "You do the ranking. Subagents do not."',
-      {**S, "validation_phase": 1})),
+      dict(S))),
     # The same phrase inside double quotes is stripped by _strip_markdown, so the
     # forwarded gate does NOT fire: allow, phase unchanged.
     ("vc_forwarded_quoted", "validate_completion.py",

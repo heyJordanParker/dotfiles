@@ -2,8 +2,8 @@
 
 The classifier and the three validators each used to shell out to the same
 `claude -p` call and parse the result, copy-pasted four times. They now all go
-through `run_model(system_prompt, user_prompt, schema)`, which resolves the
-backend, calls it, and returns the parsed JSON dict (or None on any failure).
+through `run_model(effort, *, system_prompt, user_prompt, schema)`, which resolves
+the backend, calls it, and returns the parsed JSON dict (or None on any failure).
 
 Backends (default `openai`, set via MODEL_CALL_BACKEND):
 - openai — direct ChatGPT Responses API, several times faster. Reads codex's
@@ -38,6 +38,14 @@ import urllib.request
 # --- backend resolution ---------------------------------------------------------
 
 DEFAULT_BACKEND = "openai"
+
+# One unified effort vocabulary, translated to each provider's own accepted value.
+# OpenAI reasoning.effort accepts none/minimal/low/medium/high/xhigh; Anthropic
+# (claude --effort) accepts low/medium/high/xhigh/max with no "none", so our
+# "none" floor clamps up to claude's "low".
+EFFORT_LEVELS = ("none", "low", "medium", "high", "max")
+_OPENAI_EFFORT = {"none": "none", "low": "low", "medium": "medium", "high": "high", "max": "xhigh"}
+_CLAUDE_EFFORT = {"none": "low", "low": "low", "medium": "medium", "high": "high", "max": "max"}
 
 
 def _resolve_backend(backend):
@@ -80,10 +88,10 @@ def _extract_json(text):
 CLAUDE_MODEL = "opus"
 
 
-def _call_claude(system_prompt, user_prompt, schema, raw):
+def _call_claude(effort, system_prompt, user_prompt, schema, raw):
     env = dict(os.environ)
     env["CLAUDE_SESSION_HOOK"] = "true"
-    cmd = ["claude", "-p", "--model", CLAUDE_MODEL, "--effort", "low",
+    cmd = ["claude", "-p", "--model", CLAUDE_MODEL, "--effort", _CLAUDE_EFFORT[effort],
            "--output-format", "json", "--setting-sources", "", "--disallowedTools", "*"]
     # raw = all extra features off: drop the system prompt entirely.
     if not raw:
@@ -124,7 +132,7 @@ _OPENAI_ORIGINATOR = "openclaw"
 _OPENAI_URL = "https://chatgpt.com/backend-api/codex/responses"
 
 
-def _call_openai(system_prompt, user_prompt, schema, raw):
+def _call_openai(effort, system_prompt, user_prompt, schema, raw):
     try:
         auth = json.load(open(os.path.expanduser("~/.codex/auth.json")))
         tok = auth["tokens"]["access_token"]
@@ -135,7 +143,7 @@ def _call_openai(system_prompt, user_prompt, schema, raw):
     body = {"model": OPENAI_MODEL, "store": False, "stream": True,
             "input": [{"type": "message", "role": "user",
                        "content": [{"type": "input_text", "text": prompt}]}],
-            "reasoning": {"effort": "none", "summary": "auto"},
+            "reasoning": {"effort": _OPENAI_EFFORT[effort], "summary": "auto"},
             "include": ["reasoning.encrypted_content"]}
     # raw = all extra features off: drop the system instructions.
     if not raw:
@@ -184,7 +192,7 @@ _LOCAL_UNSUPPORTED = ("local backend (review-prompt) cannot serve general "
                       "instructions")
 
 
-def _call_local(system_prompt, user_prompt, schema, raw):
+def _call_local(effort, system_prompt, user_prompt, schema, raw):
     """The review-prompt CLI refuses to run without review instructions, so it
     cannot answer a classification or a bare run. Explicit, not silent."""
     raise NotImplementedError(_LOCAL_UNSUPPORTED)
@@ -195,19 +203,22 @@ _ADAPTERS = {"claude": _call_claude, "openai": _call_openai, "local": _call_loca
 
 # --- the one entrypoint the four hooks call -------------------------------------
 
-def run_model(system_prompt, user_prompt, schema, backend=None,
+def run_model(effort="none", *, system_prompt, user_prompt, schema, backend=None,
               measure=False, raw=False, session_id="", hook=""):
     """Resolve the backend, run one model call, return the parsed JSON dict or None.
 
-    system_prompt / user_prompt / schema are what every caller passes. The backend
-    defaults to openai. With measure on, one normalized event is
-    recorded to the per-session log; with measure off, nothing is written. raw runs
-    the backend with its extra features off (claude drops the system prompt).
+    effort is one of EFFORT_LEVELS (default "none"), translated to the backend's own
+    accepted value. system_prompt / user_prompt / schema are keyword-only and
+    required. The backend defaults to openai. With measure on, one normalized event
+    is recorded to the per-session log; with measure off, nothing is written. raw
+    runs the backend with its extra features off (claude drops the system prompt).
     """
+    if effort not in EFFORT_LEVELS:
+        raise ValueError("unknown effort %r; valid: %s" % (effort, ", ".join(EFFORT_LEVELS)))
     name = _resolve_backend(backend)
     adapter = _ADAPTERS[name]
     started = time.monotonic()
-    parsed, model, raw_flag, inp, out = adapter(system_prompt, user_prompt, schema, raw)
+    parsed, model, raw_flag, inp, out = adapter(effort, system_prompt, user_prompt, schema, raw)
     latency = round(time.monotonic() - started, 3)
     if measure:
         _record(session_id, hook, name, model, raw_flag, latency, inp, out,

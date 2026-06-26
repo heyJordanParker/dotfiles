@@ -22,7 +22,7 @@ Two layers live here, with different homes:
 - Every hook exits 0 on infrastructure failure (missing state file, parse error, missing tool) — a hook never blocks the agent because of the hook's own brokenness
 - New fields added to the state schema also get `// 0` / `// null` defaults at every read site — older session files on disk must keep working
 - Subagent sessions (`session_id` starting with `agent-`) get their own state files under their parent's `subagents/` directory; no global parent-state mutation from a subagent's hook
-- Every persistent file lives under `~/.claude/` (overridable via `$CLAUDE_DATA_ROOT`); never `/tmp/` — sessions must survive reboot. Session control state (`approach`, `state`, `commit_requested`, `validation_phase`) and the session goal (`goal`, `requirements`, `boundaries`) live on the spine record alongside the telemetry — `classify_intent.py` writes the control state from typed mode-commands, `update_goal.py` writes the goal triplet, the plan transition writes `state` — read by the proposal/commit/solo guards, the completion validator, and the statusline
+- Every persistent file lives under `~/.claude/` (overridable via `$CLAUDE_DATA_ROOT`); never `/tmp/` — sessions must survive reboot. Session control state and the session goal (see the State schema) live on the spine record alongside the telemetry — `classify_intent.py` writes the control state from typed mode-commands, `update_goal.py` writes the goal triplet, the plan transition writes `state` — read by the proposal/commit/solo guards, the completion validator, and the statusline
 - Pick the mechanism by the decision's nature — a deterministic predicate over structured input (a flag, a path, an exit code) is code; a judgment over natural language or intent is an LLM call. Keyword and regex matching on prose is fragile and wrong. An LLM gate on what code can decide is nondeterminism and cost for nothing
 
 ### Boundaries
@@ -115,7 +115,7 @@ packages/claude/hooks/
     └── <another_main_session_id>/
 ```
 
-The control fields (`approach`, `state`, `commit_requested`, `validation_phase`) and the session goal (`goal`, `requirements`, `boundaries`) live on the same `state.json` record — `classify_intent.py` writes the control state from typed mode-commands, `update_goal.py` writes the goal triplet, and `transition_state_after_plan.py` writes `state`, all through the spine's `merge_state`; the proposal, commit, and solo guards, the completion validator, and the statusline read them back. There is no separate control store; the spine owns control state and telemetry alike.
+The control fields and the session goal live on the same `state.json` record — `classify_intent.py` writes the control state from typed mode-commands, `update_goal.py` writes the goal triplet, and `transition_state_after_plan.py` writes `state`, all through the spine's `merge_state`; the proposal, commit, and solo guards, the completion validator, and the statusline read them back. There is no separate control store; the spine owns control state and telemetry alike.
 
 ### `session_state.py` public surface
 
@@ -159,7 +159,6 @@ goal                 string|null    one-paragraph session goal — set by update
 requirements         array          what the work must do — set by update_goal (capped at 10)
 boundaries           array          what the work must never do — set by update_goal (capped at 10)
 commit_requested     boolean
-validation_phase     int            counter for validate_completion's max-3 block rule
 pane                 string|null    zellij pane id
 tmux-pane            string|null    tmux pane address (transitional during zellij migration)
 session_start        int|null       epoch seconds; set once on first `start`
@@ -171,7 +170,7 @@ tools_used           int            count of tool invocations
 schema_version       int            currently 1
 ```
 
-Subagent state files omit the control + goal fields (`approach`, `state`, `goal`, `requirements`, `boundaries`, `commit_requested`, `validation_phase`).
+Subagent state files omit the control + goal fields (`approach`, `state`, `goal`, `requirements`, `boundaries`, `commit_requested`).
 
 ## Workflow
 

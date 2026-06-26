@@ -213,3 +213,26 @@ def test_conversation_stream_skips_non_string_user_content():
     ]
     lines = transcript.conversation_stream(recs)
     assert lines == ["U|real question", "A|answer"]
+
+
+def test_edited_paths_collects_edit_tools_dedups_and_keeps_order():
+    turn = [
+        {"type": "assistant", "message": {"content": [
+            {"type": "tool_use", "name": "Edit", "input": {"file_path": "/r/a.py"}},
+            {"type": "tool_use", "name": "Read", "input": {"file_path": "/r/never.py"}},
+            {"type": "tool_use", "name": "Write", "input": {"file_path": "/r/b.py"}}]}},
+        {"type": "assistant", "message": {"content": [
+            {"type": "tool_use", "name": "MultiEdit", "input": {"file_path": "/r/a.py"}},
+            {"type": "tool_use", "name": "NotebookEdit",
+             "input": {"notebook_path": "/r/c.ipynb"}}]}},
+    ]
+    # Edit/Write/MultiEdit/NotebookEdit targets, first-seen order, /r/a.py once;
+    # the Read target is not an edit and is excluded.
+    assert transcript.edited_paths(turn) == ["/r/a.py", "/r/b.py", "/r/c.ipynb"]
+
+
+def test_edited_paths_empty_without_edits():
+    turn = [{"type": "assistant", "message": {"content": [
+        {"type": "tool_use", "name": "Read", "input": {"file_path": "/r/x.py"}},
+        {"type": "text", "text": "no edits this turn"}]}}]
+    assert transcript.edited_paths(turn) == []

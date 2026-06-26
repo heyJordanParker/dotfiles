@@ -86,8 +86,8 @@ def main():
     if not is_planning:
         return 0
 
-    result = run_model(SYSTEM_PROMPT, _eval_prompt(file_path, content), JSON_SCHEMA,
-                       session_id=session_id, hook="validate_planning_docs")
+    result = run_model(system_prompt=SYSTEM_PROMPT, user_prompt=_eval_prompt(file_path, content),
+                       schema=JSON_SCHEMA, session_id=session_id, hook="validate_planning_docs")
     if not result:
         return 0
     if result.get("ok") is False:

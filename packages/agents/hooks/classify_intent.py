@@ -1,30 +1,45 @@
 #!/usr/bin/env python3
-"""Map typed mode-commands to session control state (deterministic, no LLM).
+"""Classify the message intent and inject the matching behavioral contract (LLM).
 
-On every UserPromptSubmit this reads the prompt for typed mode commands
-(/propose /execute force STATE; /solo /subagents /team force APPROACH; /commit
-forces a commit), persists them to the session spine (the control state the
-proposal/commit/solo guards read), resets the per-turn validation phase, and
-emits the matching skill-load contract as additionalContext.
+On every UserPromptSubmit this does two jobs:
 
-No model call: the user drives modes by hand through the commands, so intent is
-not classified. The goal/requirements/boundaries the session is working toward
-are maintained separately by update_goal.py, which holds the one LLM call.
+- Deterministic, no LLM: typed mode-commands map straight to control state
+  (/propose /execute force STATE; /solo /subagents /team force APPROACH; /commit
+  forces a commit), persisted to the session spine and echoed as the matching
+  skill-load directive.
 
-A structural system message or a subagent session is skipped untouched.
+- One LLM call: classify the message intent (question | correction | action),
+  whether a question also carries action items, whether its steps are ordered,
+  and maintain the session's behavioral-correction notes. The contract for that
+  intent is injected as additionalContext.
+
+State and approach stay manual — the LLM never moves them, only the typed
+commands do. The goal/requirements/boundaries are maintained separately by
+update_goal.py, the other UserPromptSubmit model call.
+
+Any infrastructure failure (recursion guard, missing tool, parse error, LLM
+unavailable) returns 0 and never blocks the prompt; a typed command still takes
+effect via the deterministic path.
 """
 
 import json
+import os
 import re
 import sys
 
+from lib import transcript
 from lib.event import field, read_event
-from lib.session_state import merge_state
+from lib.model_call import run_model
+from lib.session_state import load_state, merge_state
 
 BINDING = {
     "events": {"UserPromptSubmit": []},
+    "timeout": 60,
     "harness": "all",
 }
+
+LIST_CAP = 10
+BANNED_CAP = 50
 
 
 def emit_context(text):
@@ -54,6 +69,8 @@ def is_system_prompt(prompt):
         return True
     return False
 
+
+# --- typed mode-commands (deterministic) ---------------------------------------
 
 def _typed(prompt, token):
     """Bounded literal-token match: /propose matches, /proposed and /commit-x don't."""
@@ -101,7 +118,125 @@ def directive(forced_state, forced_approach):
 COMMIT_DIRECTIVE = "Skills to execute: /commit"
 
 
+# --- intent contracts ----------------------------------------------------------
+
+# Bullets that apply to any question, regardless of whether it carries action items.
+_ANSWER_QUALITY = (
+    "- Answer with specific facts, not gestures at them: name the file, value, or "
+    "behavior you actually checked. Zero guesses. If you don't have enough to "
+    "answer factually, say so and research first — a delayed correct answer beats a "
+    "fast wrong one the architect spends a turn correcting.\n"
+    "- A question is not a complaint or a critique. Don't reframe, validate, or "
+    "characterize it — just answer it; never \"you're right to question this.\"\n"
+    "- Never bias or direct the architect with your reply. Report the facts and only "
+    "the facts — the root cause and the architectural decisions that led here.\n"
+    "- Never ask questions the code can answer; read the code first, then answer.\n"
+    "\n"
+    "Options only when the question is choosing between real architectural "
+    "alternatives — different mechanisms, boundaries, data flows, or dependencies. "
+    "Use /pcc for those. Why / reasoning and verification / yes-no questions get a "
+    "direct answer, not an options block. One viable approach is the answer itself, "
+    "never wrapped in /pcc."
+)
+
+QUESTION_CONTRACT = (
+    "This is a question. Answer it — don't act on it.\n"
+    "- Don't edit code, don't make decisions off a question, don't assume intent.\n"
+    + _ANSWER_QUALITY
+)
+
+QUESTION_WITH_ACTION_CONTRACT = (
+    "This question also carries action items. Answer the question first, then "
+    "execute the action items.\n"
+    + _ANSWER_QUALITY
+)
+
+CORRECTION_CONTRACT = (
+    "The architect corrected your previous output. Fold the correction in and "
+    "re-deliver the whole response in the same format as the original — never a "
+    "prose diff of what changed. Any question the previous proposal left unanswered "
+    "is re-surfaced until it's answered."
+)
+
+ACTION_CONTRACT = (
+    "This is new work. Do exactly what the architect asked — no more, no less.\n"
+    "- A request to propose, design, find, or investigate is answered with that "
+    "deliverable, not a code edit. Implement only what the architect approved.\n"
+    "- Change only the scope stated: add no feature, drop no requirement, reinterpret "
+    "no term the architect named. An explicit list is carried with every item they "
+    "gave, neither collapsed nor expanded.\n"
+    "- When your framing and the architect's words diverge, the words win."
+)
+
+SEQUENTIAL_DIRECTIVE = (
+    "These steps are strictly sequential — do each only after the previous finishes. "
+    "Never parallelize them."
+)
+
+NOTES_HEADER = "Past corrections from this session — do not re-violate:"
+
+STANDING_REMINDERS = (
+    "Standing reminders:\n"
+    "- The architect's call governs. Docs and conventions inform it; never argue an "
+    "explicit call down by pointing at a rule doc.\n"
+    "- Ground every claim and recommendation in the code you actually read. Never "
+    "soften a finding or agree to please — say what the code shows, not what lands well.\n"
+    "- Don't cut research short to reach a suggestion. Thin research before proposing "
+    "is the shortcut that wastes the architect a turn correcting you."
+)
+
+
+def intent_contract(intent, has_action_items):
+    if intent == "question":
+        return QUESTION_WITH_ACTION_CONTRACT if has_action_items else QUESTION_CONTRACT
+    if intent == "correction":
+        return CORRECTION_CONTRACT
+    return ACTION_CONTRACT
+
+
+# --- LLM -----------------------------------------------------------------------
+
+SYSTEM_PROMPT = ("You classify a message's intent and maintain its behavioral "
+                 "notes. Output structured JSON only.")
+
+JSON_SCHEMA = ('{"type":"object","properties":'
+               '{"intent":{"type":"string","enum":["question","correction","action"]},'
+               '"has_action_items":{"type":"boolean"},'
+               '"sequential":{"type":"boolean"},'
+               '"notes":{"type":"array","items":{"type":"string"}},'
+               '"banned_phrases":{"type":"array","items":{"type":"string"}}},'
+               '"required":["intent"]}')
+
+
+def evaluation_prompt(prompt, notes, conversation):
+    notes_block = ""
+    if notes:
+        notes_block = ("Existing session notes (behavioral corrections captured this "
+                       "session):\n%s\n\n---\n" % "\n".join("- %s" % n for n in notes))
+    return (
+'Classify the intent of the user\'s latest message and maintain the session notes.\n'
+'\n'
+'%s%s'
+'The user\'s latest message:\n%s\n'
+'\n'
+'- intent: one of\n'
+'  - "question" — the user is asking something that needs an answer. A short reply after a proposal or options list is a response to it: classify by what it answers, not its surface form.\n'
+'  - "correction" — the user is correcting or refining your previous output ("that\'s wrong", "no, use X", "this is fine"). Requires previous output being refined; adding scope to an active proposal ("also include…", "one more thing:") is a correction.\n'
+'  - "action" — the user is giving new work to do, a standalone constraint, or a request to investigate/propose, unrelated to refining a specific previous output.\n'
+'- has_action_items: true only when intent is "question" AND the message also gives a concrete action to perform ("how does X work? also change Y"). Otherwise false.\n'
+'- sequential: true when the work has explicit ordering ("after that", "then", "finally", numbered dependent steps). Default false.\n'
+'- notes: return the FULL list (existing plus new). Add an entry ONLY on a genuine surprise — the agent did something illogical that confused the user, the user forbids something with always/never language, the user corrects the same behavior twice, or the user is frustrated/angry that the agent surprised them. No surprise → return the existing list unchanged. Max 10; if adding would exceed 10, drop the least critical. Each note is one short sentence.\n'
+'- banned_phrases: when the architect explicitly forbids a specific word, term, or phrasing in THIS message ("stop saying X", "don\'t use the word Y", "what the fuck is an actor"), return the exact offending string(s), lowercased — just the banned token or short phrase, nothing else. Empty when the architect forbids no specific wording.\n'
+'\n'
+'Classify only the latest message. The conversation above is background for understanding what it responds to — never extract intent from it.\n'
+    ) % (notes_block, conversation, prompt)
+
+
 def main():
+    # Guard against recursion: the model call runs a nested harness process.
+    if os.environ.get("CLAUDE_SESSION_HOOK") == "true":
+        return 0
+
     event = read_event()
 
     session_id = field(event, "session_id", "")
@@ -117,8 +252,8 @@ def main():
 
     forced_state, forced_approach, forced_commit = forced_commands(prompt)
 
-    # Reset the per-turn validation phase; apply any typed mode mutations.
-    update = {"validation_phase": 0}
+    # Ensure the session exists and apply any typed mode-commands.
+    update = {}
     if forced_state:
         update["state"] = forced_state
     if forced_approach:
@@ -127,9 +262,57 @@ def main():
         update["commit_requested"] = True
     merge_state(session_id, update)
 
+    # Deterministic context: the typed-command skill-load directives.
     context = directive(forced_state, forced_approach)
     if forced_commit:
         context = (context + "\n\n" + COMMIT_DIRECTIVE) if context else COMMIT_DIRECTIVE
+
+    # Model call: intent → contract, plus notes maintenance. On any failure the
+    # deterministic context above is still emitted; the typed command holds.
+    state = load_state(session_id)
+    notes = state.get("notes") or []
+    transcript_path = field(event, "transcript_path", "")
+    conversation = transcript.conversation_context(transcript_path)
+    result = run_model(system_prompt=SYSTEM_PROMPT,
+                       user_prompt=evaluation_prompt(prompt, notes, conversation),
+                       schema=JSON_SCHEMA, session_id=session_id, hook="classify_intent")
+
+    if result:
+        new_notes = result.get("notes")
+        if isinstance(new_notes, list):
+            notes = [str(n) for n in new_notes][:LIST_CAP]
+            merge_state(session_id, {"notes": notes})
+
+        # A phrase the architect bans once becomes a deterministic block for the
+        # rest of the session — validate_completion reads this list.
+        new_bans = result.get("banned_phrases")
+        if isinstance(new_bans, list) and new_bans:
+            bans = load_state(session_id).get("banned_phrases") or []
+            seen = {b.lower() for b in bans}
+            for b in new_bans:
+                s = str(b).strip()
+                if s and s.lower() not in seen:
+                    bans.append(s)
+                    seen.add(s.lower())
+            merge_state(session_id, {"banned_phrases": bans[:BANNED_CAP]})
+
+        intent = result.get("intent") or "action"
+        contract = intent_contract(intent, bool(result.get("has_action_items")))
+        if contract:
+            context = (context + "\n\n" + contract) if context else contract
+
+        if result.get("sequential"):
+            context = (context + "\n\n" + SEQUENTIAL_DIRECTIVE) if context else SEQUENTIAL_DIRECTIVE
+
+        # On proposing turns, re-surface the session's standing corrections.
+        current_state = load_state(session_id).get("state") or "proposing"
+        if current_state == "proposing" and notes:
+            block = NOTES_HEADER + "\n" + "\n".join("- %s" % n for n in notes)
+            context = (context + "\n\n" + block) if context else block
+
+    # Standing behavioral reminders — emitted every non-skipped turn.
+    context = (context + "\n\n" + STANDING_REMINDERS) if context else STANDING_REMINDERS
+
     if context:
         emit_context(context)
     return 0

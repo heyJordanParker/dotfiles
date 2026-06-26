@@ -28,7 +28,8 @@ RETRIES = 4   # API flakiness: a None result is a transport failure, not a verdi
 def _call(standing_goal, reqs, bounds, message):
     prompt = update_goal.evaluation_prompt(message, standing_goal, reqs, bounds, "", "")
     for _ in range(RETRIES):
-        r = run_model(update_goal.SYSTEM_PROMPT, prompt, update_goal.JSON_SCHEMA, hook="goal_eval")
+        r = run_model(system_prompt=update_goal.SYSTEM_PROMPT, user_prompt=prompt,
+                      schema=update_goal.JSON_SCHEMA, hook="goal_eval")
         if r is not None:
             return r
         time.sleep(2)

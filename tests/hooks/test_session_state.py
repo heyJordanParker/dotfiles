@@ -96,7 +96,9 @@ def test_start_creates_main_state_with_defaults(root, clock):
     assert st["goal"] is None
     assert st["requirements"] == []
     assert st["boundaries"] == []
-    assert st["validation_phase"] == 0
+    assert st["notes"] == []
+    assert st["banned_phrases"] == []
+    assert st["gate_blocks"] == {}
     assert st["pane"] is None
     assert st["tmux-pane"] is None
     assert st["schema_version"] == 1
@@ -141,7 +143,7 @@ def test_subagent_nests_under_parent(root, clock):
     assert st["parent_session_id"] == "parent"
     # subagent state omits the main-only control + goal fields
     for omitted in ("approach", "state", "goal", "requirements", "boundaries",
-                    "validation_phase", "commit_requested"):
+                    "notes", "banned_phrases", "gate_blocks", "commit_requested"):
         assert omitted not in st
 
 
@@ -278,10 +280,10 @@ def test_get_on_corrupt_state_is_soft(root, clock, capsys):
 def test_set_parses_json_scalars(root, clock):
     _run(["start", "s", "--transcript-path", "/foo/s.jsonl"])
     _run(["set", "s", "commit_requested", "true"])
-    _run(["set", "s", "validation_phase", "3"])
+    _run(["set", "s", "tools_used", "3"])
     st = _read(_state(root, "s"))
     assert st["commit_requested"] is True
-    assert st["validation_phase"] == 3
+    assert st["tools_used"] == 3
 
 
 def test_set_falls_back_to_string(root, clock):
@@ -715,3 +717,37 @@ def test_merge_state_non_dict_fragment_returns_false(root, clock):
     _run(["start", "ms3", "--transcript-path", "/foo/ms3.jsonl"])
     assert session_state.merge_state("ms3", "not a dict") is False
     assert session_state.merge_state("ms3", None) is False
+
+
+# ---------------------------------------------------------------------------
+# Stop-gate block counter — per-turn, per-gate; resets when the turn advances
+# ---------------------------------------------------------------------------
+
+def test_gate_block_count_zero_before_any_block(root, clock):
+    _run(["start", "g", "--transcript-path", "/foo/g.jsonl"])
+    assert session_state.gate_block_count("g", "validate_completion") == 0
+
+
+def test_bump_gate_block_counts_within_a_turn(root, clock):
+    _run(["start", "g", "--transcript-path", "/foo/g.jsonl"])
+    session_state.merge_state("g", {"current_turn_start": 100})
+    assert session_state.bump_gate_block("g", "validate_completion") == 1
+    assert session_state.bump_gate_block("g", "validate_completion") == 2
+    assert session_state.gate_block_count("g", "validate_completion") == 2
+
+
+def test_gate_block_count_resets_when_turn_advances(root, clock):
+    _run(["start", "g", "--transcript-path", "/foo/g.jsonl"])
+    session_state.merge_state("g", {"current_turn_start": 100})
+    session_state.bump_gate_block("g", "validate_completion")
+    assert session_state.gate_block_count("g", "validate_completion") == 1
+    session_state.merge_state("g", {"current_turn_start": 200})  # next human turn
+    assert session_state.gate_block_count("g", "validate_completion") == 0
+
+
+def test_gate_blocks_are_isolated_per_gate(root, clock):
+    _run(["start", "g", "--transcript-path", "/foo/g.jsonl"])
+    session_state.merge_state("g", {"current_turn_start": 100})
+    session_state.bump_gate_block("g", "validate_completion")
+    assert session_state.gate_block_count("g", "babysitter") == 0
+    assert session_state.gate_block_count("g", "validate_completion") == 1

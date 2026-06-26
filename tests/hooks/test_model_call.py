@@ -36,7 +36,7 @@ def _stub_adapter(monkeypatch, result, name="claude"):
     """Replace one backend adapter with a stub returning a fixed result tuple, so
     no subprocess or network call ever happens. Tests pass backend=name to
     run_model so resolution lands on the stub regardless of the default."""
-    monkeypatch.setitem(model_call._ADAPTERS, name, lambda sp, up, sc, raw: result)
+    monkeypatch.setitem(model_call._ADAPTERS, name, lambda effort, sp, up, sc, raw: result)
 
 
 # ---------------------------------------------------------------------------
@@ -53,13 +53,13 @@ def test_backend_resolution_order(root, monkeypatch):
 def test_run_model_dispatches_to_resolved_backend(root, monkeypatch):
     seen = {}
 
-    def stub(sp, up, sc, raw):
+    def stub(effort, sp, up, sc, raw):
         seen["called"] = True
         return ({"ok": 1}, "model-x", raw, 10, 5)
 
     monkeypatch.setitem(model_call._ADAPTERS, "openai", stub)
     monkeypatch.setenv("MODEL_CALL_BACKEND", "openai")
-    out = model_call.run_model("sys", "user", {"k": "v"})
+    out = model_call.run_model(system_prompt="sys", user_prompt="user", schema={"k": "v"})
     assert out == {"ok": 1}
     assert seen["called"] is True
 
@@ -70,12 +70,14 @@ def test_run_model_dispatches_to_resolved_backend(root, monkeypatch):
 
 def test_failed_call_returns_none(root, monkeypatch):
     _stub_adapter(monkeypatch, (None, "opus", False, None, None))
-    assert model_call.run_model("sys", "user", {}, backend="claude") is None
+    assert model_call.run_model(system_prompt="sys", user_prompt="user", schema={},
+                                backend="claude") is None
 
 
 def test_failed_call_without_measure_writes_nothing(root, monkeypatch):
     _stub_adapter(monkeypatch, (None, "opus", False, None, None))
-    model_call.run_model("sys", "user", {}, backend="claude", session_id="sess-1")
+    model_call.run_model(system_prompt="sys", user_prompt="user", schema={},
+                         backend="claude", session_id="sess-1")
     # measure defaults off → no model_calls.jsonl anywhere
     assert not os.path.isdir(os.path.join(str(root), "sessions"))
 
@@ -86,8 +88,8 @@ def test_failed_call_without_measure_writes_nothing(root, monkeypatch):
 
 def test_measure_records_one_event(root, monkeypatch):
     _stub_adapter(monkeypatch, ({"x": 1}, "opus", False, 120, 30))
-    out = model_call.run_model("sys", "user", {"k": "v"}, backend="claude",
-                               measure=True, session_id="sess-1", hook="classify")
+    out = model_call.run_model(system_prompt="sys", user_prompt="user", schema={"k": "v"},
+                               backend="claude", measure=True, session_id="sess-1", hook="classify")
     assert out == {"x": 1}
     log = os.path.join(str(root), "sessions", "sess-1", "model_calls.jsonl")
     with open(log) as fh:
@@ -107,8 +109,8 @@ def test_measure_records_one_event(root, monkeypatch):
 
 def test_measure_records_parse_fail_on_failed_call(root, monkeypatch):
     _stub_adapter(monkeypatch, (None, "opus", False, None, None))
-    model_call.run_model("sys", "user", {}, backend="claude", measure=True,
-                         session_id="sess-1", hook="classify")
+    model_call.run_model(system_prompt="sys", user_prompt="user", schema={}, backend="claude",
+                         measure=True, session_id="sess-1", hook="classify")
     log = os.path.join(str(root), "sessions", "sess-1", "model_calls.jsonl")
     with open(log) as fh:
         event = json.loads(fh.readline())
@@ -119,28 +121,28 @@ def test_measure_records_parse_fail_on_failed_call(root, monkeypatch):
 
 def test_measure_without_session_id_records_nothing(root, monkeypatch):
     _stub_adapter(monkeypatch, ({"x": 1}, "opus", False, 1, 1))
-    model_call.run_model("sys", "user", {}, backend="claude",
-                         measure=True, session_id="")
+    model_call.run_model(system_prompt="sys", user_prompt="user", schema={},
+                         backend="claude", measure=True, session_id="")
     assert not os.path.isdir(os.path.join(str(root), "sessions"))
 
 
 def test_measure_rejects_invalid_session_id(root, monkeypatch):
     _stub_adapter(monkeypatch, ({"x": 1}, "opus", False, 1, 1))
-    model_call.run_model("sys", "user", {}, backend="claude",
-                         measure=True, session_id="../escape")
+    model_call.run_model(system_prompt="sys", user_prompt="user", schema={},
+                         backend="claude", measure=True, session_id="../escape")
     assert not os.path.isdir(os.path.join(str(root), "sessions", "..", "escape"))
 
 
 def test_raw_flag_threads_into_event(root, monkeypatch):
     captured = {}
 
-    def stub(sp, up, sc, raw):
+    def stub(effort, sp, up, sc, raw):
         captured["raw"] = raw
         return ({"x": 1}, "opus", raw, 1, 1)
 
     monkeypatch.setitem(model_call._ADAPTERS, "claude", stub)
-    model_call.run_model("sys", "user", {}, backend="claude", raw=True,
-                         measure=True, session_id="sess-1")
+    model_call.run_model(system_prompt="sys", user_prompt="user", schema={}, backend="claude",
+                         raw=True, measure=True, session_id="sess-1")
     assert captured["raw"] is True
     log = os.path.join(str(root), "sessions", "sess-1", "model_calls.jsonl")
     with open(log) as fh:
@@ -188,5 +190,50 @@ def test_shape_line_serializes_dict_schema():
 
 def test_local_backend_raises_explicit_error(root):
     with pytest.raises(NotImplementedError) as exc:
-        model_call._call_local("sys", "user", {}, False)
+        model_call._call_local("none", "sys", "user", {}, False)
     assert "review-prompt" in str(exc.value)
+
+
+# ---------------------------------------------------------------------------
+# Effort: threaded to the adapter, translated per provider, validated
+# ---------------------------------------------------------------------------
+
+def test_effort_threads_to_adapter(root, monkeypatch):
+    captured = {}
+
+    def stub(effort, sp, up, sc, raw):
+        captured["effort"] = effort
+        return ({"x": 1}, "opus", raw, 1, 1)
+
+    monkeypatch.setitem(model_call._ADAPTERS, "claude", stub)
+    model_call.run_model("high", system_prompt="sys", user_prompt="user", schema={},
+                         backend="claude")
+    assert captured["effort"] == "high"
+
+
+def test_effort_defaults_to_none(root, monkeypatch):
+    captured = {}
+
+    def stub(effort, sp, up, sc, raw):
+        captured["effort"] = effort
+        return ({"x": 1}, "opus", raw, 1, 1)
+
+    monkeypatch.setitem(model_call._ADAPTERS, "claude", stub)
+    model_call.run_model(system_prompt="sys", user_prompt="user", schema={}, backend="claude")
+    assert captured["effort"] == "none"
+
+
+def test_unknown_effort_raises(root):
+    with pytest.raises(ValueError):
+        model_call.run_model("ultra", system_prompt="sys", user_prompt="user", schema={})
+
+
+def test_effort_maps_cover_every_level():
+    for level in model_call.EFFORT_LEVELS:
+        assert level in model_call._OPENAI_EFFORT
+        assert level in model_call._CLAUDE_EFFORT
+    # our floor has no OpenAI-less translation; claude has no "none", clamps to low
+    assert model_call._OPENAI_EFFORT["none"] == "none"
+    assert model_call._CLAUDE_EFFORT["none"] == "low"
+    assert model_call._OPENAI_EFFORT["max"] == "xhigh"
+    assert model_call._CLAUDE_EFFORT["max"] == "max"

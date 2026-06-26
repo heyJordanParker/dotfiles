@@ -147,9 +147,15 @@ def evaluation_prompt(prompt, goal, requirements, boundaries, memory, conversati
 # --- message to the main agent --------------------------------------------------
 
 OPENING_DIRECTIVE = (
+    "Read the architect literally and follow exactly — their words are the spec, and where "
+    "your paraphrase diverges from them, their words win. A request to propose, design, or "
+    "find is answered with a proposal, not an edit.\n\n"
     "Every turn you MUST open your reply with both of the following, in order — neither is "
     "optional:\n"
-    "1. One line restating what the architect asked, in your own words, not a verbatim echo.\n"
+    "1. Restate what the architect asked — in their voice, vocabulary, and order, following "
+    "their intent. Keep every requirement, constraint, count, and listed item they stated, "
+    "and add nothing they did not. One line when the ask is single; an enumerated list when "
+    "the architect stated several requirements.\n"
     "2. The goal below as a `# Goal` block: a `# Goal` heading, the goal in prose, then a `>` "
     "blockquote for why it matters.\n"
     "Then start the work."
@@ -205,8 +211,8 @@ def main():
     conversation = transcript.conversation_context(transcript_path)
     eval_prompt = evaluation_prompt(prompt, goal, requirements, boundaries, memory, conversation)
 
-    result = run_model(SYSTEM_PROMPT, eval_prompt, JSON_SCHEMA,
-                       session_id=session_id, hook="update_goal")
+    result = run_model(system_prompt=SYSTEM_PROMPT, user_prompt=eval_prompt,
+                       schema=JSON_SCHEMA, session_id=session_id, hook="update_goal")
     if not result:
         return 0
 

@@ -190,7 +190,9 @@ def _default_main_state(session_id):
         "goal": None,
         "requirements": [],
         "boundaries": [],
-        "validation_phase": 0,
+        "notes": [],
+        "banned_phrases": [],
+        "gate_blocks": {},
         "pane": None,
         "tmux-pane": None,
         "session_start": None,
@@ -546,6 +548,48 @@ def merge_state(session_id, fragment):
             return False
         state.update(fragment)
         return _atomic_write(state_file, _dump(state))
+    finally:
+        _release_lock(state_file)
+
+
+def gate_block_count(session_id, gate):
+    """How many times a stop gate has blocked the stop in the current turn.
+
+    Kept per turn, keyed to current_turn_start: a fresh human turn (which advances
+    current_turn_start) reads as 0 again, so a gate flags an issue once per turn,
+    then yields. Pure read."""
+    state = load_state(session_id)
+    rec = (state.get("gate_blocks") or {}).get(gate) or {}
+    if rec.get("turn") != state.get("current_turn_start"):
+        return 0
+    return rec.get("count") or 0
+
+
+def bump_gate_block(session_id, gate):
+    """Record one stop-gate block for the current turn and return the new count.
+
+    Lock-guarded read-modify-write so the two stop gates blocking on the same Stop
+    don't clobber each other's counts in the shared gate_blocks map."""
+    if not _is_valid_session_id(session_id):
+        return 0
+    session_dir = _ensure_session(session_id)
+    if session_dir is None:
+        return 0
+    state_file = os.path.join(session_dir, "state.json")
+    if not _with_lock(state_file):
+        return 0
+    try:
+        state = _read_json(state_file)
+        if not isinstance(state, dict):
+            return 0
+        turn = state.get("current_turn_start")
+        blocks = state.get("gate_blocks") or {}
+        rec = blocks.get(gate) or {}
+        count = ((rec.get("count") or 0) if rec.get("turn") == turn else 0) + 1
+        blocks[gate] = {"turn": turn, "count": count}
+        state["gate_blocks"] = blocks
+        _atomic_write(state_file, _dump(state))
+        return count
     finally:
         _release_lock(state_file)
 
