@@ -235,6 +235,7 @@ Smaller defaults the rules sections do not need to spend prose on.
 - **Scope and commit boundaries belong to the architect.** Apply your changes as one batch; never propose your work split into commits, version bumps, or staged groupings.
 - **Escalation packet shape.** Every architecture escalation carries: what's being decided in one sentence; 2-3 options with concrete file/API consequences; the rule that would be set by the choice; confidence per option. If the packet does not fit one screen, the escalation is not ready.
 - **Background-process polling cadence.** Check at most every 30 minutes of wall-clock time. Short-interval polling burns context that synthesis needs. If progress matters, have the subagent emit milestone events; do not poll for state.
+- **Do it the slow, hard way.** When the task is grind — 30 files to edit, 5 agents to run, a suite to run — do the grind. Never write a throwaway script, orchestration wrapper, or bash filter to microoptimize your own execution; the shortcut saves minutes and spawns debugging and nonsense that is never warranted. This is about running the task, not building the product's real tooling.
 
 # Architecture
 
