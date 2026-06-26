@@ -20,6 +20,7 @@ Silent fallback: any error path exits 0 with no output. The native tool runs.
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -38,6 +39,11 @@ BINDING = {
 # Codex shell read of a repo file would otherwise pass uninstrumented.
 READ_COMMANDS = {"cat", "head", "tail", "sed", "less", "more", "view", "bat"}
 
+# A `sed -n 'A,Bp'` line-range print: the address range the agent actually saw.
+SED_RANGE = re.compile(r"^(\d+),(\d+)p$")
+# A `head -n N` / `head -N` line count: the agent saw lines 1..N.
+HEAD_COUNT = re.compile(r"^-n?(\d+)$")
+
 # Cap on matched-file enrichment for the multi-file tools (Glob/Grep). The full
 # `trace context` shoulder costs a git + graph lookup per file; an unbounded loop
 # over a wide match set would blow the hook timeout and yield nothing. The cap
@@ -46,20 +52,59 @@ MATCH_CAP = 20
 
 
 def read_target(parts):
-    """The file a read-shaped shell segment targets, or "" if it isn't one.
+    """The file a read-shaped shell segment targets and the span it shows.
 
-    parts is one tokenized segment (command + args). Returns the first plain
-    path argument of a read command; flags, option values, and globs yield "".
+    parts is one tokenized segment (command + args). Returns
+    `(path, offset, limit)` — the first plain path argument plus the 1-based
+    inclusive line span the command renders, so a partial read records only the
+    portion the agent saw, not the whole file:
+      - `cat`/`bat`/`less`/`more`/`view` → `(path, None, None)` (whole file)
+      - `head -n N` / `head -N`          → `(path, 1, N)`
+      - `sed -n 'A,Bp'`                  → `(path, A, B - A + 1)`
+    Returns `("", None, None)` when the segment isn't a read of a plain repo path
+    (flags/globs/option values), or when the span is unknowable (`tail` reads the
+    last N lines, whose start depends on the file length the hook can't see — a
+    whole-file record would over-count and a positioned guess would be fiction, so
+    `tail` is skipped rather than mis-recorded).
     """
-    if not parts or os.path.basename(parts[0]) not in READ_COMMANDS:
-        return ""
+    none = ("", None, None)
+    if not parts:
+        return none
+    cmd = os.path.basename(parts[0])
+    if cmd not in READ_COMMANDS:
+        return none
+
+    offset, limit = None, None
+    want_count = False  # the previous token was a bare `-n` expecting its value
     for tok in parts[1:]:
+        if want_count:
+            want_count = False
+            if cmd == "head" and tok.isdigit():
+                offset, limit = 1, int(tok)
+                continue
         if tok.startswith("-"):
+            if cmd == "head":
+                m = HEAD_COUNT.match(tok)
+                if m:
+                    offset, limit = 1, int(m.group(1))
+                elif tok == "-n":
+                    want_count = True  # count is the next token (`head -n 5`)
             continue
+        if cmd == "sed":
+            m = SED_RANGE.match(tok)
+            if m:
+                a, b = int(m.group(1)), int(m.group(2))
+                if b >= a:
+                    offset, limit = a, b - a + 1
+                continue
         if any(c in tok for c in "$`*?[]{}"):
-            return ""
-        return tok
-    return ""
+            return none
+        # `tail` shows the last N lines — the shown span's start is unknowable
+        # without the file length, so it must not be recorded as a read.
+        if cmd == "tail":
+            return none
+        return (tok, offset, limit)
+    return none
 
 
 def resolve_trace_bin():
@@ -86,9 +131,25 @@ def run_trace(trace_bin, args, env):
     return out.stdout.rstrip("\n")
 
 
-def shoulder(trace_bin, path, env):
-    """The full `trace context` shoulder for one file."""
-    return run_trace(trace_bin, ["context", path], env)
+def shoulder(trace_bin, path, env, offset=None, limit=None, record=True):
+    """The full `trace context` shoulder for one file.
+
+    `offset`/`limit` are the native Read tool's line-range parameters; when set
+    they forward to `trace context` so it records which slice of the file the
+    agent read (per-file read coverage). Absent → a whole-file read.
+
+    `record` is False for an Edit/Write: the shoulder still renders (the agent
+    gets the file's architectural context before changing it) but `--no-record`
+    keeps the touch out of the read-coverage accumulator — an edit is not a read.
+    """
+    args = ["context", path]
+    if offset is not None:
+        args += ["--offset", str(offset)]
+    if limit is not None:
+        args += ["--limit", str(limit)]
+    if not record:
+        args.append("--no-record")
+    return run_trace(trace_bin, args, env)
 
 
 def glob_matches(trace_bin, pattern, base, env):
@@ -130,12 +191,16 @@ def enrich_matches(trace_bin, files, env):
 
     Each kept file contributes "<file>\\n<shoulder>\\n"; files whose shoulder
     comes back empty are skipped and don't count toward the cap.
+
+    `record=False`: a Glob listing or Grep match surfaces a file's path (and one
+    matching line) but never its content, so the shoulder renders without
+    recording a read — a match must not inflate the matched file's read coverage.
     """
     block, count = "", 0
     for f in files:
         if count >= MATCH_CAP:
             break
-        line = shoulder(trace_bin, f, env)
+        line = shoulder(trace_bin, f, env, record=False)
         if not line:
             continue
         block += f"{f}\n{line}\n"
@@ -167,15 +232,23 @@ def main():
         target = field(event, "tool_input.file_path", "")
         if not target:
             return 0
-        output = shoulder(trace_bin, target, env)
+        # Only the native Read tool is a genuine read: it carries a line range
+        # and records read coverage. Edit/Write get the same shoulder but with
+        # --no-record (record=False) — an edit must not masquerade as a read.
+        is_read = tool_name == "Read"
+        offset = field(event, "tool_input.offset", None) if is_read else None
+        limit = field(event, "tool_input.limit", None) if is_read else None
+        output = shoulder(trace_bin, target, env, offset, limit, record=is_read)
     elif tool_name == "Bash":
         segs = segments(command_str(event))
         if not segs:
             return 0
-        target = next((t for t in (read_target(s) for s in segs) if t), "")
+        target, offset, limit = next(
+            ((t, o, l) for (t, o, l) in (read_target(s) for s in segs) if t), ("", None, None)
+        )
         if not target:
             return 0
-        output = shoulder(trace_bin, target, env)
+        output = shoulder(trace_bin, target, env, offset, limit)
     elif tool_name == "Glob":
         pattern = field(event, "tool_input.pattern", "")
         if not pattern:
