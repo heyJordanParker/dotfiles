@@ -55,7 +55,7 @@ trace history <file> | --contains <p>   Whole-file log, function-line history, o
 trace blame <file> [<symbol>]      Symbol-aware blame; collapsed regions with commit subjects
 trace diff [--base <ref>] [--symbols]    Files or module-level symbols changed vs a base ref, load-bearing first
 trace status [--state <s>]         Working-tree dirty set ordered by blast radius
-trace context [<path>]             Session-start primer (no args) or single-file enrichment (path arg)
+trace context [<path>] [--offset N] [--limit N] [--no-record]   Session-start primer (no args) or single-file enrichment (path arg); --offset/--limit record which line range was read, accumulating per-file read coverage; --no-record renders the shoulder without recording a read (the enrich hook sets it for Edit/Write — an edit is not a read)
 ```
 
 `read`, `list`, `tree`, and `info` annotate each file with a one-line passive-context shoulder showing lifecycle state (new / renamed / modified / settled), age, and complexity rank — letting an AI agent calibrate its conclusions about how settled a file is before drawing them.

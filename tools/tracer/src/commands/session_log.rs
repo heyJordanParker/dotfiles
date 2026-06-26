@@ -72,9 +72,79 @@ pub struct Event {
 /// Materialized view: emitted documents in this (session, agent) scope keyed
 /// by canonical path → content hash. Anything already present is considered
 /// already-surfaced; the same path with new content gets re-emitted.
+///
+/// `coverage` is the parallel per-file read-coverage accumulator keyed by the
+/// same canonical path: how much of each file the agent has actually read this
+/// session. `#[serde(default)]` keeps older `view.json` files (written before
+/// coverage existed) loadable as an empty map.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct View {
     pub emitted: std::collections::BTreeMap<String, String>,
+    #[serde(default)]
+    pub coverage: std::collections::BTreeMap<String, ReadCoverage>,
+}
+
+/// Accumulated line-read coverage for one file in this (session, agent) scope.
+/// `total_lines` is the file's line count at the recorded content; `read` is
+/// the union of every 1-based inclusive line range the agent has read, kept
+/// sorted and disjoint so the covered-line count is the plain sum of each
+/// range's length. The accumulator resets to the latest read when the file's
+/// content changes (a new content state starts coverage fresh).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ReadCoverage {
+    pub total_lines: usize,
+    pub read: Vec<[usize; 2]>,
+}
+
+impl ReadCoverage {
+    /// Lines read so far — the sum of the disjoint ranges' lengths.
+    pub fn lines_read(&self) -> usize {
+        self.read.iter().map(|[s, e]| e - s + 1).sum()
+    }
+
+    /// Fraction of the file's lines read, in `[0.0, 1.0]`. A zero-line file is
+    /// trivially fully read.
+    pub fn fraction(&self) -> f64 {
+        if self.total_lines == 0 {
+            1.0
+        } else {
+            self.lines_read() as f64 / self.total_lines as f64
+        }
+    }
+}
+
+/// Merge a 1-based inclusive `[start, end]` line range into a sorted, disjoint
+/// set of ranges, coalescing any overlap OR adjacency so the set stays minimal
+/// and the covered-line count is the plain sum of each range's length. Reading
+/// 1–60 then 40–80 yields `[[1, 80]]` (80 lines), never a double-counted 1–60
+/// plus 40–80.
+fn merge_range(ranges: &mut Vec<[usize; 2]>, start: usize, end: usize) {
+    let mut merged_start = start;
+    let mut merged_end = end;
+    let mut out: Vec<[usize; 2]> = Vec::with_capacity(ranges.len() + 1);
+    let mut inserted = false;
+    for &[s, e] in ranges.iter() {
+        if e + 1 < merged_start {
+            // Existing range lies entirely before the new one — keep as-is.
+            out.push([s, e]);
+        } else if merged_end + 1 < s {
+            // Existing range lies entirely after the merged one. Flush the
+            // merged range once, then keep the rest.
+            if !inserted {
+                out.push([merged_start, merged_end]);
+                inserted = true;
+            }
+            out.push([s, e]);
+        } else {
+            // Overlap or adjacency — absorb into the merged range.
+            merged_start = merged_start.min(s);
+            merged_end = merged_end.max(e);
+        }
+    }
+    if !inserted {
+        out.push([merged_start, merged_end]);
+    }
+    *ranges = out;
 }
 
 fn agent_id() -> String {
@@ -273,20 +343,31 @@ pub fn record_emission(memories: &[LoadedMemory], source: &str) {
     let _ = rustix::fs::flock(&lock_fh, rustix::fs::FlockOperation::Unlock);
 }
 
-/// Record a `read_file` event for a path the agent just read, returning
-/// whether this is the file's first surfacing in the session (so the caller
-/// can attach first-touch-only context like the file's method list). No-op
-/// when the session id is absent, the file is missing, or the same
-/// (path, hash) is already in the view. Dedup-by-content-hash mirrors
-/// `record_emission` so a follow-up doc-injection or read against the same
-/// content returns "already loaded" without re-emitting.
+/// Record a `read_file` event for a path the agent just read, accumulating
+/// which line range was read (`lines`, a 1-based inclusive `(start, end)`;
+/// `None` means the whole file). Returns whether this is the file's first
+/// surfacing in the session (so the caller can attach first-touch-only context
+/// like the file's method list). No-op when the session id is absent or the
+/// file is missing.
+///
+/// Two states coexist. The `emitted` projection dedups by content hash —
+/// mirroring `record_emission`, a follow-up doc-injection or read against the
+/// same content appends no second event and the `first_touch` return is
+/// `false`. The `coverage` accumulator, by contrast, merges every read's range
+/// into the running union even on a repeat read of the same content, so reading
+/// 1–50 then 51–100 reaches 100% rather than collapsing to a single touch. A
+/// content change (new hash) resets coverage to the latest read.
 ///
 /// First-touch semantics: a newly-inserted (path, hash) is the first
 /// surfacing → `true`. An unchanged repeat read is not → `false`. With no
 /// active session there is no log to dedup against, so every touch is a
 /// first touch → `true`, keeping standalone `trace context <file>` fully
 /// informative.
-pub fn record_read(file_path: &std::path::Path, source: &str) -> bool {
+pub fn record_read(
+    file_path: &std::path::Path,
+    source: &str,
+    lines: Option<(usize, usize)>,
+) -> bool {
     let Some(dir) = log_dir() else {
         return true;
     };
@@ -319,8 +400,31 @@ pub fn record_read(file_path: &std::path::Path, source: &str) -> bool {
         .to_string_lossy()
         .to_string();
     let hash = content_hash(&content);
+    let total_lines = content.lines().count();
 
     let first_touch = view.emitted.get(&canonical) != Some(&hash);
+
+    // Coverage: a content change (or first touch) resets the accumulator to
+    // this read's range; an unchanged repeat read merges its range into the
+    // running union. The range is the read tool's offset/limit translated to a
+    // 1-based inclusive span, clamped to the file's real line count; `None`
+    // covers the whole file (a shell `cat` records identically to a native
+    // whole-file read).
+    let (start, end) = match lines {
+        Some((s, e)) => (s.max(1), e.min(total_lines)),
+        None => (1, total_lines),
+    };
+    {
+        let cov = view.coverage.entry(canonical.clone()).or_default();
+        if first_touch || cov.total_lines != total_lines {
+            cov.total_lines = total_lines;
+            cov.read.clear();
+        }
+        if total_lines > 0 && start <= end {
+            merge_range(&mut cov.read, start, end);
+        }
+    }
+
     if first_touch {
         view.emitted.insert(canonical.clone(), hash.clone());
         let event = Event {
@@ -335,8 +439,10 @@ pub fn record_read(file_path: &std::path::Path, source: &str) -> bool {
             visible_as: file_path.to_string_lossy().to_string(),
         };
         let _ = append_events(&events_path, &[event]);
-        let _ = save_view(&view_path, &view);
     }
+    // Always persist: the coverage accumulator advances even when the emitted
+    // projection (and thus the event log) is unchanged on a repeat read.
+    let _ = save_view(&view_path, &view);
 
     let _ = rustix::fs::flock(&lock_fh, rustix::fs::FlockOperation::Unlock);
     first_touch
@@ -520,6 +626,9 @@ pub fn record_context_reset(source: &str) -> usize {
     }
 
     view.emitted.clear();
+    // A context reset drops everything the agent had, including read state —
+    // the coverage accumulator resets alongside the emitted projection.
+    view.coverage.clear();
 
     let payload = serde_json::to_string(&cleared).unwrap_or_else(|_| "[]".to_string());
     let event = Event {
@@ -581,6 +690,14 @@ pub struct LoadedEntry {
     pub size: usize,
     pub content_hash: String,
     pub source: String,
+    /// File's line count at the recorded content; `0` when it was surfaced by
+    /// doc-injection only (never read as a file).
+    pub total_lines: usize,
+    /// Lines the agent has read this session — the union of every read range.
+    pub lines_read: usize,
+    /// Fraction of the file's lines read, in `[0.0, 1.0]`. `0.0` for a file
+    /// that was surfaced but never read.
+    pub read_fraction: f64,
 }
 
 /// Every path the (session, agent) log has surfaced, joined
@@ -598,6 +715,7 @@ pub fn loaded_entries() -> Vec<LoadedEntry> {
         return vec![];
     }
     let view = load_view(&view_path);
+    let coverage = view.coverage;
 
     // Build path -> latest event attribution from the append-only log. One
     // pass; later events overwrite earlier ones for the same path. Drift
@@ -637,6 +755,7 @@ pub fn loaded_entries() -> Vec<LoadedEntry> {
             .get(&path)
             .cloned()
             .unwrap_or_else(|| ("unknown".into(), "doc_injection".into(), 0, path.clone()));
+        let cov = coverage.get(&path);
         out.push(LoadedEntry {
             path,
             visible_as,
@@ -644,7 +763,74 @@ pub fn loaded_entries() -> Vec<LoadedEntry> {
             size,
             content_hash,
             source,
+            total_lines: cov.map(|c| c.total_lines).unwrap_or(0),
+            lines_read: cov.map(|c| c.lines_read()).unwrap_or(0),
+            read_fraction: cov.map(|c| c.fraction()).unwrap_or(0.0),
         });
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Coverage from a single sequence of merged reads — the pure
+    /// interval-union math the session log accumulates per file.
+    fn cov(total: usize, reads: &[(usize, usize)]) -> ReadCoverage {
+        let mut c = ReadCoverage {
+            total_lines: total,
+            read: Vec::new(),
+        };
+        for &(s, e) in reads {
+            merge_range(&mut c.read, s, e);
+        }
+        c
+    }
+
+    #[test]
+    fn single_partial_read_is_half() {
+        let c = cov(100, &[(1, 50)]);
+        assert_eq!(c.lines_read(), 50);
+        assert!((c.fraction() - 0.5).abs() < 1e-9);
+    }
+
+    #[test]
+    fn two_non_overlapping_reads_reach_full() {
+        let c = cov(100, &[(1, 50), (51, 100)]);
+        assert_eq!(c.lines_read(), 100);
+        assert!((c.fraction() - 1.0).abs() < 1e-9);
+        // Adjacent ranges coalesce into one minimal span.
+        assert_eq!(c.read, vec![[1, 100]]);
+    }
+
+    #[test]
+    fn overlapping_reads_count_the_union_not_double() {
+        let c = cov(100, &[(1, 60), (40, 80)]);
+        assert_eq!(c.lines_read(), 80, "1–60 ∪ 40–80 is 80 lines, not 101");
+        assert_eq!(c.read, vec![[1, 80]]);
+    }
+
+    #[test]
+    fn whole_file_read_is_full() {
+        let c = cov(100, &[(1, 100)]);
+        assert!((c.fraction() - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn never_read_file_is_zero() {
+        let c = cov(100, &[]);
+        assert_eq!(c.lines_read(), 0);
+        assert_eq!(c.fraction(), 0.0);
+    }
+
+    #[test]
+    fn out_of_order_reads_with_a_gap_stay_disjoint() {
+        // 51–100 then 1–50: the merge keeps the set sorted and, since they are
+        // adjacent, coalesces to one span. A genuine gap stays two spans.
+        assert_eq!(cov(100, &[(51, 100), (1, 50)]).read, vec![[1, 100]]);
+        let gapped = cov(100, &[(1, 10), (90, 100)]);
+        assert_eq!(gapped.read, vec![[1, 10], [90, 100]]);
+        assert_eq!(gapped.lines_read(), 21);
+    }
 }

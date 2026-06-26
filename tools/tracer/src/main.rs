@@ -232,6 +232,19 @@ enum Command {
         path: Option<PathBuf>,
         #[arg(long = "directory")]
         force_directory: bool,
+        /// 1-based line the read started at (the read tool's `offset`); records
+        /// which slice of the file the agent read for per-file read coverage.
+        #[arg(long)]
+        offset: Option<usize>,
+        /// Number of lines the read covered (the read tool's `limit`).
+        #[arg(long)]
+        limit: Option<usize>,
+        /// Render the file shoulder without recording a read. The enrich hook
+        /// sets this for Edit/Write — an edit gets the file's architectural
+        /// shoulder but is not a read, so it must not count toward per-file
+        /// read coverage.
+        #[arg(long = "no-record")]
+        no_record: bool,
         #[command(subcommand)]
         command: Option<ContextCommand>,
     },
@@ -543,6 +556,9 @@ fn main() -> Result<()> {
         Command::Context {
             path,
             force_directory,
+            offset,
+            limit,
+            no_record,
             command,
         } => match command {
             Some(ContextCommand::Prime {
@@ -555,7 +571,7 @@ fn main() -> Result<()> {
             }),
             None => {
                 output::guard(false, filter)?;
-                commands::context::run(path.as_deref(), force_directory)
+                commands::context::run(path.as_deref(), force_directory, offset, limit, !no_record)
             }
         },
         Command::Read {

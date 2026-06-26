@@ -131,13 +131,38 @@ fn graph_counts(file_path: &Path, repo_root: &Path) -> Option<Value> {
     }))
 }
 
-fn file_mode(p: &Path) -> Result<()> {
-    // Record that the agent just Read this file. Enables cross-tool dedup:
-    // a later doc-injection or read against the same content returns
-    // "already loaded" without re-emitting. No-op without a session id. The
-    // return is whether this is the file's first surfacing this session —
-    // drives the once-per-session methods + directory-listing lines below.
-    let first_touch = session_log::record_read(p, "agent_read");
+/// Translate the read tool's `offset`/`limit` into the 1-based inclusive
+/// `(start, end)` span `record_read` accumulates, or `None` for a whole-file
+/// read (no offset, no limit — the shell-read path). `offset` defaults to line
+/// 1; an open-ended `limit` reaches end-of-file (`record_read` clamps the span
+/// to the file's real line count).
+fn read_range(offset: Option<usize>, limit: Option<usize>) -> Option<(usize, usize)> {
+    match (offset, limit) {
+        (None, None) => None,
+        (Some(o), Some(l)) => Some((o, o.saturating_add(l).saturating_sub(1))),
+        (Some(o), None) => Some((o, usize::MAX)),
+        (None, Some(l)) => Some((1, l)),
+    }
+}
+
+fn file_mode(p: &Path, lines: Option<(usize, usize)>, record: bool) -> Result<()> {
+    // Record that the agent just Read this file, and which line range it read.
+    // Enables cross-tool dedup (a later doc-injection or read against the same
+    // content returns "already loaded" without re-emitting) and accumulates
+    // per-file read coverage. No-op without a session id. The return is whether
+    // this is the file's first surfacing this session — drives the
+    // once-per-session methods + directory-listing lines below.
+    //
+    // `record` is false for an Edit/Write: the agent gets the full shoulder but
+    // the touch is not a read, so nothing is recorded and read coverage stays a
+    // function of genuine reads alone. With no record there is no view to dedup
+    // against, so the file surfaces fully (first_touch = true) — the same shape
+    // the no-session standalone path takes.
+    let first_touch = if record {
+        session_log::record_read(p, "agent_read", lines)
+    } else {
+        true
+    };
 
     let repo_root = cache::worktree_root_for(p).unwrap_or_else(|| cache::display_root(p));
     let facts = match file_facts::get(p, &repo_root, None) {
@@ -352,7 +377,13 @@ fn docs_awareness_line(file_path: &Path, repo_root: &Path) -> String {
 
 // --- Primer mode --------------------------------------------------------
 
-pub fn run(path: Option<&Path>, force_directory: bool) -> Result<()> {
+pub fn run(
+    path: Option<&Path>,
+    force_directory: bool,
+    offset: Option<usize>,
+    limit: Option<usize>,
+    record: bool,
+) -> Result<()> {
     match path {
         None => {
             if force_directory {
@@ -369,7 +400,7 @@ pub fn run(path: Option<&Path>, force_directory: bool) -> Result<()> {
                 emit_directory_line_on_first_touch(&p);
                 return Ok(());
             }
-            file_mode(&p)
+            file_mode(&p, read_range(offset, limit), record)
         }
     }
 }

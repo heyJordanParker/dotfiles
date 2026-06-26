@@ -41,7 +41,7 @@ trace cache build [<path>]              # prebuild architecture + per-file cache
 trace cache stats                       # entries + bytes per namespace
 trace cache clear [--namespace file|architecture] [--all]
 trace context                           # repo primer (no args): environment, identity, tech stack, layout, common dirs, git, rules, spine
-trace context <path>                    # single-file enrichment: one passive-context shoulder line
+trace context <path> [--offset N] [--limit N] [--no-record]    # single-file enrichment: one passive-context shoulder line; --offset/--limit record which line range was read (per-file read coverage, surfaced by `docs status`); --no-record renders the shoulder without recording a read (set for Edit/Write — an edit is not a read)
 trace context prime --reason session_start|post_compact [--observed-from PATH|-]
                                         # hook-only: mirror harness auto-loads into the session log
 trace list <dir> [--all]                # one-shot orientation: children with file count, ccn, recency
@@ -68,7 +68,7 @@ trace docs <path> [--directory] [--source <s>] [--triggering-tool <t>] [--trigge
 trace docs <path> --graph               # whole-repo docs graph: every recognized rules-markdown file with @include edges, plus the available-but-not-loaded set
 trace docs load <path> [--source <s>] [--triggering-tool <t>] [--triggering-command <c>]
                                         # hook-facing alias forwarding to path-mode (--source defaults to trace_docs_load)
-trace docs status [<path>]              # pure read; no path → session manifest, with path → ancestor chain partitioned loaded/not_loaded
+trace docs status [<path>]              # pure read; no path → session manifest (per file: source + read coverage total_lines/lines_read/read_fraction), with path → ancestor chain partitioned loaded/not_loaded
 trace docs reset [--source <s>]         # clear the session's surfaced-docs state so subsequent `trace docs` re-surfaces docs as new (post-compaction/clear); preserves append-only history
 trace diff [--base <ref>] [--symbols]   # files (or module-level symbols) changed vs base ref; load-bearing first. Default base: origin/development
 trace status [--state added|renamed|modified|deleted|untracked]
@@ -154,7 +154,7 @@ The architecture graph treats project-docs as first-class nodes: `CLAUDE.md` / `
 }
 ```
 
-`trace docs status` is a pure read. Without a path, returns the full session manifest (`{ scope: "session", session_active, loaded[], loaded_count, by_source }`). With a path, returns the ancestor chain partitioned into `loaded` and `not_loaded` (`{ scope: "path", path, session_active, loaded[], not_loaded[], loaded_count, not_loaded_count, chain_size }`). Status never records — only `trace docs <path>` / `docs load` / `read --docs` write to the log.
+`trace docs status` is a pure read. Without a path, returns the full session manifest (`{ scope: "session", session_active, loaded[], loaded_count, by_source }`); each `loaded[]` entry carries per-file read coverage (`total_lines`, `lines_read`, `read_fraction` — the union fraction of the file's lines read this session, `0.0` for a doc-injected file never read). With a path, returns the ancestor chain partitioned into `loaded` and `not_loaded` (`{ scope: "path", path, session_active, loaded[], not_loaded[], loaded_count, not_loaded_count, chain_size }`). Status never records — only `trace docs <path>` / `docs load` / `read --docs` write to the log.
 
 `trace docs load` is the hook-facing alias: same `{ docs, doc_count, already_loaded? }` shape as path-mode, with `--source` defaulting to `trace_docs_load`. `inject_docs.py` invokes path-mode directly with `--source trace_inject_hook`.
 
@@ -239,7 +239,7 @@ Six tracer hooks (Python, under `packages/agents/hooks/`) are wired locally in `
 
 - **`load_trace_context.py`** — SessionStart matcher `startup|resume|clear|compact`. Runs `trace context` (no args) and injects the eight-section repo primer as `hookSpecificOutput.additionalContext`.
 - **`reload_harness_context.py`** — SessionStart matcher `startup|resume|clear|compact`. Runs `trace context prime --reason {session_start|post_compact}` (compact → `post_compact`, else `session_start`) so the session log mirrors what the harness re-emitted at session start or after compaction. Content-hash dedupe means unchanged docs add no events.
-- **`enrich_on_read.py`** — PreToolUse matcher `Read|Glob|Grep|Edit|Write`. Read/Edit/Write → one `trace context <file>` for the touched file (passive shoulder + docs-awareness line). Glob/Grep → resolve the matched files and emit a full `trace context` shoulder for each, capped at 20. All branches inject as `additionalContext`; 5s timeout, silent fallback.
+- **`enrich_on_read.py`** — PreToolUse matcher `Read|Glob|Grep|Edit|Write`. Read/Edit/Write → one `trace context <file>` for the touched file (passive shoulder + docs-awareness line); Edit/Write pass `--no-record` so the shoulder still renders but the touch records no read (an edit is not a read — read coverage reflects genuine reads only). Glob/Grep → resolve the matched files and emit a full `trace context` shoulder for each, capped at 20. All branches inject as `additionalContext`; 5s timeout, silent fallback.
 - **`guard_trace.py`** — PreToolUse matcher `Bash`. Blocks (a) `trace …` piped into `grep|rg|sed|awk|head|tail|cut|sort|uniq|wc|column|fold|tr|jq` or redirected into a repo file, and (b) raw `cat`/`grep`/`rg`/`find`/`sed`/`awk`/`head`/`tail` against any in-repo path. Whitelists `/tmp`, `/dev/null`, paths under `.claude/shaping/`, `.claude/plans/`, and `.tracer-cache/`. Block message names the trace subcommand to use instead.
 - **`inject_docs.py`** — PreToolUse matcher `Bash`. When the agent runs a path-taking `trace` subcommand (`read|info|list|tree|structure|grep|struct|find|glob|blame|history|diff`), resolves the path argument and runs `trace docs <path> --source trace_inject_hook --triggering-tool Bash --triggering-command <cmd>` as a direct subprocess; injects the response as `additionalContext`. **Blocks the trace command (exit 2) if `trace docs` itself fails** — the agent must not run trace without docs context. Non-path-taking subcommands and unresolvable paths are clean no-ops.
 - **`inject_rules.py`** — SessionStart + PreToolUse matcher `Read|Write|Edit|apply_patch`. Codex-only, because Claude Code loads `Claude.md` (root and nested) itself: injects the nearest `Claude.md` via `trace docs` — repo-root rules on SessionStart (with a `trace docs reset` on `clear`/`compact`), the touched file's rules on a file edit — wrapped in a `hookSpecificOutput.additionalContext` envelope. Best-effort: never blocks, silent fallback.

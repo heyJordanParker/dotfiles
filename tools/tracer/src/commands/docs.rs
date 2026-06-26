@@ -162,6 +162,9 @@ fn run_status_session(
                 "kind": e.kind,
                 "size": e.size,
                 "content_hash": e.content_hash,
+                "total_lines": e.total_lines,
+                "lines_read": e.lines_read,
+                "read_fraction": e.read_fraction,
             })
         })
         .collect();
@@ -432,9 +435,21 @@ fn print_status_session_human(
         println!("  by source: {}", items.join(", "));
     }
     for e in entries {
+        // Read coverage is meaningful only for files the agent actually read
+        // (total_lines > 0); a doc-injection-only entry omits it.
+        let coverage = if e.total_lines > 0 {
+            format!(
+                ", read: {}/{} lines ({:.0}%)",
+                e.lines_read,
+                e.total_lines,
+                e.read_fraction * 100.0
+            )
+        } else {
+            String::new()
+        };
         println!(
-            "  · {}  (source: {}, kind: {}, {} chars)",
-            e.visible_as, e.source, e.kind, e.size
+            "  · {}  (source: {}, kind: {}, {} chars{})",
+            e.visible_as, e.source, e.kind, e.size, coverage
         );
     }
 }
