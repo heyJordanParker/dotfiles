@@ -74,10 +74,10 @@ Keep files under 100 lines — split or trim if longer. "Use X" not "consider us
 
 The agent reads the output already there; it never runs the command itself. The `/commit` skill front-loads `!git changes`, `!git diff HEAD`, and `!git log --oneline -10` this way so the diff and history are in context before it writes the message. Reach for project status aliases (`git changes`) and `trace` over raw git. This runs at expansion time, ahead of the agent's Bash tool, so the trace/git guard hooks do not intercept it.
 
-**Structure References** - References are opt-in. The agent may never open them. Never put mission-critical information in a reference — if the agent produces wrong output without it, it belongs in SKILL.md.
+**Structure References** — a reference is an optional read; an overconfident agent skips it even when it should open it. So the main doc carries everything the agent must have to get the output right; a reference is the step-by-step procedure (SOP) for one specific hard action, opened only when the agent commits to that action. If a skipped reference changes the output, it was in the wrong file.
 
 - **The 80% test:** "Does the agent need this for 80%+ of invocations?" If yes → SKILL.md. If no → reference for that specific sub-task
-- References are for sub-tasks that only sometimes apply (e.g. animation patterns in a design skill, error handling recipes in a coding skill)
+- A reference is an SOP for one hard action (the live-browser setup sequence, the plugin-publish steps), never background the agent is trusted to read first
 - Name after what you're DOING: `building-skills.md` — not what the topic IS: `context-engineering.md`
 - **Litmus test:** verb phrase = process. "building skills" ✓. "context engineering" ✗.
 

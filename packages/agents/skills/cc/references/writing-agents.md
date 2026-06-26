@@ -104,6 +104,11 @@ skills: review-checklist
 
 **Why:** Main agent can't randomly load skills designed for specific agent contexts.
 
+A subagent cannot carry its own `references/` and cannot run scripts. Attaching
+a skill gives it both: the skill's `references/` become available to the agent,
+and the skill's `!`-commands run at load to inline their output, without an LLM
+tool call or any agent tokens spent (see building-skills.md).
+
 ## Persistent Memory
 
 Enable cross-session learning with `memory` field:

@@ -9,6 +9,13 @@ Last synced with Claude Code **v2.1.87** (2026-03-29).
 
 Guide for working with Claude Code's extensibility system.
 
+## Approach
+
+Before building any AI-driven task, decide which parts the AI should do:
+
+1. List the steps the goal needs.
+2. Give the AI only the steps that interpret human language — code reads language abysmally. Write every other step as code, because the AI is slow and non-deterministic.
+
 ## Principles
 
 Apply to all topics below:
@@ -31,7 +38,8 @@ Apply to all topics below:
 - **Layered diagnosis before editing prose** — when an agent misbehaves, the cause can sit in the system prompt, session history, memory, tool selection, tool execution, output rendering, or persisted state. Diagnose by ruling layers out, not by adding rules to the prompt. Rules added at the wrong layer compound bloat without fixing the failure
 - **Context is finite** — every token loaded biases the agent's output. More context doesn't mean better output — irrelevant content dilutes the signal and steers the agent toward wrong concerns. Everything loaded is necessary or harmful
 - **No execution narrative** — docs state what *is*, never the story of how the code got there (what was migrated, moved, or tried this session). Git owns the journey. Bad: "agents were moved from `claude/` to `agents/`". Full treatment in [claude-md.md](references/claude-md.md)
-- **Progressive disclosure** — load minimum, drill deeper when required. Three tiers: entry points (routing + principles) → topic files (one complete workflow) → deep dives (specs, examples, edge cases)
+- **Progressive disclosure** — main doc holds the complete core job; deeper tiers are opt-in. Three tiers: entry points (routing + principles) → topic files (one complete workflow) → deep dives (specs, examples, edge cases)
+- **Agents skip references** — a reference is an optional read; nothing forces the agent to open it, and an overconfident agent acts on the main doc without opening it. So the main doc (SKILL.md, agent body) carries everything the agent must have to get the output right; a reference holds only the step-by-step procedure for one specific hard action, opened when the agent commits to that action. Test: if skipping a reference changes the output, that content was in the wrong file — move it up
 - **Split along tasks, not topics** — will different tasks need different parts? Split. Will every task need everything? Don't
 - **One job per file** — focused files > fewer files
 - **Trace actual flows** — follow how agents use skills to find gaps
