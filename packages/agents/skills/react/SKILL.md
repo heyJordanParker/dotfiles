@@ -1,6 +1,7 @@
 ---
 name: react
 description: "Apply this skill whenever writing, reviewing, or refactoring React code. This includes creating or modifying components, hooks, forms, data fetching, state management, routing, testing, and TypeScript patterns. Triggers for performance issues (re-renders, bundle size, waterfalls), composition patterns, effect anti-patterns, accessibility violations, security concerns, and architectural decisions. Also use for React code reviews and refactoring existing React code to follow best practices. Covers any task involving React frontend code patterns. Do NOT use for React Native mobile patterns."
+user-invocable: false
 ---
 
 # React Best Practices

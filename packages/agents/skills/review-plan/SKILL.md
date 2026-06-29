@@ -1,6 +1,7 @@
 ---
 name: review-plan
 description: Reviews planning artifacts — shapes, models, slices, and plans. Dispatches 5 parallel specialized agents. Use when reviewing any artifact from the shaping → modeling → slicing pipeline.
+disable-model-invocation: true
 ---
 
 # Review Plan

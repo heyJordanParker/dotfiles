@@ -13,7 +13,7 @@ Guide for creating and maintaining Claude Code skills.
 ## Principles
 
 1. **Project first** - Check existing skills for style. Project conventions → ecosystem standards → these principles.
-2. **Principles over rules** - "Follow project patterns" beats a 20-row lookup table.
+2. **State the core; cut what derives from it** - Write the principle the rest follows from, then delete every rule derivable from it. "Follow project patterns" beats a 20-row table. The line count is the symptom; the rules you spelled out instead of cutting are the cause.
 3. **YAGNI** - Abstract after duplication, not before.
 4. **Capture the "why"** - Examples need reasoning. "Bad: X, Good: Y, Why: Z"
 5. **Prefer examples to prose** — When defining acceptable patterns, use good/bad code examples instead of prose descriptions. The example shows what to do; the reasoning explains why it matters.
@@ -22,6 +22,7 @@ Guide for creating and maintaining Claude Code skills.
 8. **Check existing docs** - Claude.md files, README, linter configs may have conventions.
 9. **Validate incrementally** - Get key decisions approved first.
 10. **Definition of done** - Every skill needs a validation checklist.
+11. **Prose gives the reason; the hook blocks the violation** - When a hook deterministically blocks a failure, state the rule and its reason once — enough for the agent to comply before it hits the hook, and to apply the rule where the hook can't reach. Never re-list the specific cases the hook already catches; they are blocked whether the prose names them or not, so the restatement only adds load.
 
 ## Locations
 
@@ -74,12 +75,15 @@ Keep files under 100 lines — split or trim if longer. "Use X" not "consider us
 
 The agent reads the output already there; it never runs the command itself. The `/commit` skill front-loads `!git changes`, `!git diff HEAD`, and `!git log --oneline -10` this way so the diff and history are in context before it writes the message. Reach for project status aliases (`git changes`) and `trace` over raw git. This runs at expansion time, ahead of the agent's Bash tool, so the trace/git guard hooks do not intercept it.
 
+Skill content can reference `${CLAUDE_EFFORT}` for the active effort level (v2.1.120+). In command bodies, escape a literal `$` before a digit as `\$` so it isn't read as an argument placeholder (v2.1.163+). The `disableSkillShellExecution` setting turns off inline `!` shell execution in skills, custom slash commands, and plugin commands (v2.1.91+).
+
 **Structure References** — a reference is an optional read; an overconfident agent skips it even when it should open it. So the main doc carries everything the agent must have to get the output right; a reference is the step-by-step procedure (SOP) for one specific hard action, opened only when the agent commits to that action. If a skipped reference changes the output, it was in the wrong file.
 
 - **The 80% test:** "Does the agent need this for 80%+ of invocations?" If yes → SKILL.md. If no → reference for that specific sub-task
 - A reference is an SOP for one hard action (the live-browser setup sequence, the plugin-publish steps), never background the agent is trusted to read first
 - Name after what you're DOING: `building-skills.md` — not what the topic IS: `context-engineering.md`
 - **Litmus test:** verb phrase = process. "building skills" ✓. "context engineering" ✗.
+- **Compose, don't duplicate:** when a step is already an SOP in another skill, reference that skill instead of copying its steps. A variant or sub-procedure of the main SOP that isn't worth its own skill becomes another SOP in references, never inline bloat.
 
 **Route by usecase, not component** — Agents open references when solving a specific problem. Structure routing to match the agent's mental state, not the API surface.
 
@@ -174,24 +178,40 @@ allowed-tools:  # Optional - restricts available tools
 
 **Required:**
 - **name:** ≤64 chars, lowercase, hyphens, numbers — must match directory name
-- **description:** ≤1024 chars — critical for auto-activation, be specific about triggers
+- **description:** ≤1024 chars — critical for auto-activation, be specific about triggers. Never leave it empty: the `available_skills` listing falls back to the skill BODY when `description` is blank, so an empty description leaks the entire body into the listing every session (the opposite of hiding the skill)
 
 **Common:**
-- **allowed-tools:** Array of tool names — optional, restricts which tools Claude can use
-- **context:** `fork` runs skill in forked sub-agent context
-- **model:** Override model for skill execution (e.g., `model: sonnet`)
-- **effort:** Override model effort level when invoked (e.g., `effort: high`)
+- **allowed-tools:** Tools available while the skill is active. Comma-separated string or YAML list
+- **disallowed-tools:** Tools removed from the model while the skill is active; cleared when the user sends the next message. Comma-separated string or YAML list. The camelCase `disallowedTools` is the normalized alias (v2.1.152+)
+- **context:** Where the skill runs — `inline` expands into the current conversation; `fork` spawns a subagent (pair with `agent:`). Enum: `inline` or `fork`
+- **model:** Model the skill runs under. Aliases: `haiku`, `sonnet`, `opus`, `fable`, a full model ID, or `inherit` (match the parent conversation). `best`, `opusplan`, and the `[1m]` long-context variants also resolve
+- **effort:** Thinking effort — `low`, `medium`, `high`, `max`, or an integer
 - **agent:** Specify agent type for execution (e.g., `agent: code-reviewer`)
-- **user-invocable:** `false` hides from slash command menu (default: `true` for skills in `/skills/`)
+- **argument-hint:** Placeholder shown after the slash command name in the `/` menu (e.g. `argument-hint: [count] "task"`)
+- **when_to_use:** Snake_case. Extra trigger guidance appended to the skill's tool description — supplements `description`
+- **user-invocable:** `false` hides the skill from the `/` slash menu only — it stays in `available_skills`, so the model can still auto-invoke it. Orthogonal to `disable-model-invocation` (default: `true` for skills in `/skills/`)
+- **disable-model-invocation:** `true` drops the skill from the `available_skills` listing entirely and the Skill tool refuses it for the model (`Skill <name> cannot be used with Skill tool due to disable-model-invocation`); it runs only when the user types `/<skill>`. Because it's gone from the listing, it is also NOT preloadable via an agent's `skills:` — the loader warns `Skill '<name>' specified in frontmatter was not found` and skips it (v2.1.110+)
 - **hooks:** Define scoped PreToolUse/PostToolUse/Stop hooks (see automating-with-hooks.md)
 
 **Optional:**
-- **compatibility:** ≤500 chars — environment requirements (intended product, system packages, network access)
+- **display-name:** Human-readable name shown in the UI
+- **default-enabled:** Whether the skill loads by default
 - **license:** For open-source skills (e.g., `MIT`, `Apache-2.0`)
 - **metadata:** Custom key-value pairs (author, version, mcp-server, tags)
+- **shell:** Shell for inline `!`-command blocks — `bash` (default, every platform) or `powershell`
+
+**Internal (don't author):**
+- **arguments:** Typed variant of `argument-hint` — author `argument-hint` instead
+- **version:** Bookkeeping marker, not surfaced to users
+- **created_by:** Provenance marker (e.g. `dream-proposal`)
+
+**Not skill frontmatter:**
+- **compatibility:** A plugin-manifest (`plugin.json`) field. The SKILL.md schema does not define it, so it is not read here (v2.1.195)
+
+The keys `display-name`, `default-enabled`, `fallback`, and `metadata.*` accept kebab-case, snake_case, or camelCase (v2.1.186+). Malformed YAML frontmatter loads the skill body with empty metadata instead of failing silently.
 
 **Security restrictions:**
-- No XML angle brackets (`<` `>`) in frontmatter — it appears in system prompt, could inject instructions
+- Avoid XML angle brackets (`<` `>`) in frontmatter by convention — frontmatter appears in the system prompt and could inject instructions. The harness does not actually reject them
 - No "claude" or "anthropic" in skill names — reserved
 
 Both syntaxes work for allowed-tools:
@@ -247,9 +267,13 @@ description: Creates sophisticated multi-page documentation systems.
 - Over-triggering: add negative triggers (`Do NOT use for...`), narrow scope
 - Test: ask Claude "When would you use the [skill-name] skill?" — it quotes the description back, revealing gaps
 
-**Hot reload**: Skills reload automatically when modified — no restart needed.
+**Hot reload**: Skills reload automatically when modified — no restart needed. `/reload-skills` re-scans skill directories without restarting (v2.1.152+); a SessionStart hook can do the same with `reloadSkills: true`.
 
-**Nested discovery**: Skills in nested `.claude/skills/` directories (within project subdirectories) are auto-discovered.
+**Nested discovery**: Skills in nested `.claude/skills/` directories load when working on files there. On a name clash with a higher skill, the nested one appears as `<dir>:<name>` so both stay available (v2.1.178+).
+
+**Listing cap**: The model sees up to 1,536 chars of each `description` in the skill listing; longer descriptions are truncated with a startup warning (v2.1.105+).
+
+**Suppressing skills**: The `skillOverrides` setting controls visibility per skill — `off` hides it from the model and `/` menu, `user-invocable-only` hides it from the model only, `name-only` collapses the description (v2.1.129+). The `disableBundledSkills` setting (or `CLAUDE_CODE_DISABLE_BUNDLED_SKILLS`) hides all bundled skills, workflows, and built-in slash commands from the model (v2.1.169+).
 
 ## Related Skills
 

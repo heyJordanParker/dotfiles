@@ -1,6 +1,7 @@
 ---
 name: laravel
 description: "Apply when writing, reviewing, or refactoring Laravel PHP code — controllers, models, migrations, queries, jobs, caching, validation, security, and architectural patterns. Also triggers for Inertia, Livewire, Breeze, and Jetstream work."
+user-invocable: false
 license: MIT
 metadata:
   author: heyJordanParker

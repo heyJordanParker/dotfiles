@@ -1,6 +1,7 @@
 ---
 name: independent-review
 description: Run N identical parallel subagents on the same task for independent validation. Use when you want consensus through redundancy — multiple agents independently analyze, review, or test the same thing, then results are compared for agreement, disagreements, and unique finds. Invocation /independent-review [count] "task"
+disable-model-invocation: true
 ---
 
 # Independent Review

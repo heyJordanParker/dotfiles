@@ -1,6 +1,7 @@
 ---
 name: review
 description: Use for code review - runs all reviewers in parallel on uncommitted changes
+disable-model-invocation: true
 ---
 
 # Review

@@ -1,6 +1,7 @@
 ---
 name: debate
 description: Run N independent architects debating architectural options through structured rounds. Use when the user wants multiple competing solutions evaluated, or when 3+ distinct approaches need comparison. Triggers on "debate", "competing solutions", "run architects", "architecture debate". Invocation /debate [count] "problem"
+disable-model-invocation: true
 ---
 
 # Debate

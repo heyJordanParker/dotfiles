@@ -1,6 +1,7 @@
 ---
 name: personas
 description: Dispatch 5 parallel persona subagents for diverse takes on a question. Each persona applies their philosophy within the user's constraints.
+disable-model-invocation: true
 ---
 
 # Personas
