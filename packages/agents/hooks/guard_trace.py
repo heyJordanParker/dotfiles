@@ -12,6 +12,7 @@ A plain, unpiped, unredirected `trace` always passes.
 import os
 import sys
 
+from lib import feedback
 from lib.command import command_head, segments, tokenize
 from lib.event import command_str, field, read_event
 
@@ -42,8 +43,7 @@ For partial output, use the in-binary filter — never a pipe:
 
 
 def block():
-    sys.stderr.write(BLOCK_MSG + "\n")
-    return 2
+    return feedback.block("guard_trace", BLOCK_MSG)
 
 
 def resolve_path(t, cwd):

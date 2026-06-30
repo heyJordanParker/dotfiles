@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """SessionStart: inject the `trace context` repo primer as additionalContext."""
 
-import json
 import shutil
 import subprocess
 import sys
+
+from lib import feedback
 
 BINDING = {
     "events": {"SessionStart": ["startup|resume|clear|compact"]},
@@ -35,10 +36,7 @@ def main():
     output = out.stdout.rstrip("\n")
     if not output:
         return 0
-    print(json.dumps(
-        {"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": output}},
-        separators=(",", ":"), ensure_ascii=False,
-    ))
+    feedback.context("load_trace_context", "SessionStart", output)
     return 0
 
 

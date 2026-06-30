@@ -97,7 +97,6 @@ def test_start_creates_main_state_with_defaults(root, clock):
     assert st["requirements"] == []
     assert st["boundaries"] == []
     assert st["notes"] == []
-    assert st["banned_phrases"] == []
     assert st["gate_blocks"] == {}
     assert st["pane"] is None
     assert st["tmux-pane"] is None

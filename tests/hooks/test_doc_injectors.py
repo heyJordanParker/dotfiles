@@ -18,6 +18,7 @@ Skips when `trace` isn't on PATH (each hook's own missing-binary no-op).
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import time
@@ -52,10 +53,12 @@ def _run(hook, payload, env=None):
 
 
 def _context(stdout):
-    """The additionalContext string the hook emitted, or '' when it emitted nothing."""
+    """The additionalContext payload, unwrapped from its <name_agent> attribution
+    tag, or '' when the hook emitted nothing."""
     if not stdout:
         return ""
-    return json.loads(stdout)["hookSpecificOutput"]["additionalContext"]
+    ctx = json.loads(stdout)["hookSpecificOutput"]["additionalContext"]
+    return re.sub(r"^<\w+_agent>\n(.*)\n</\w+_agent>$", r"\1", ctx, flags=re.S)
 
 
 def _event_name(stdout):

@@ -8,12 +8,12 @@ isn't mistaken for a redirect into a repo file and false-blocked, and malformed
 input never chokes the parser.
 """
 
-import json
 import os
 import re
 import sys
 
-from lib.command import command_head, segments
+from lib import feedback
+from lib.command import command_head, git_normalize, segments
 from lib.event import field, owner_session, read_event
 from lib.session_state import load_state
 
@@ -32,6 +32,20 @@ Only edit code after the user approves."""
 
 _DEVICES = {"/dev/null", "/dev/stdout", "/dev/stderr", "/dev/tty"}
 _ASSIGN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+
+# Commands whose every path argument is a file they create, delete, move, or
+# rewrite — so each one is a mutation target. `mv` is here, not in _DEST_MUTATORS,
+# because it also removes its source path.
+_ALL_ARG_MUTATORS = {"rm", "rmdir", "unlink", "shred", "mkdir", "mkfifo",
+                     "mknod", "touch", "truncate", "mv"}
+# Commands that read their sources and mutate only the last (destination) path.
+_DEST_MUTATORS = {"cp", "install", "ln"}
+# Commands whose first path argument is a mode/owner spec, not a file; the rest
+# are the files they mutate.
+_OWNER_MUTATORS = {"chmod", "chown", "chgrp"}
+# git subcommands that mutate the working tree and are not already blocked
+# unconditionally by block_git_revert (reset/checkout/restore/stash).
+_GIT_TREE_MUTATORS = re.compile(r"git\s+(rm|clean|mv)\b")
 
 
 def _allowed_target(t, cwd):
@@ -64,8 +78,28 @@ def _is_fd_reference(tok):
     return tok == "-" or tok.isdigit()
 
 
+def _positional_paths(words):
+    """Non-flag path arguments of a segment, past the command head, with shell
+    redirect operators and their targets excluded — redirects are gathered
+    separately. A flag's separate value (`-s 0`) is not distinguishable from a
+    path here, so a stray value can read as a target; over-detection only ever
+    blocks a mutation, never lets one through."""
+    out, skip = [], False
+    for t in words[1:]:
+        if skip:
+            skip = False
+            continue
+        if _is_redirect(t):
+            skip = True
+            continue
+        if t.startswith("-"):
+            continue
+        out.append(t)
+    return out
+
+
 def _segment_targets(words):
-    """Paths a single command segment would write."""
+    """Paths a single command segment would create, write, move, or delete."""
     i = 0
     while i < len(words) and _ASSIGN.match(words[i]):
         i += 1
@@ -79,24 +113,22 @@ def _segment_targets(words):
             targets.append(words[j + 1])
     if "tee" in words:
         for t in words[words.index("tee") + 1:]:
-            if t.startswith("-"):
-                continue
-            targets.append(t)
-    if head == "sed" and "-i" in words:
-        nonflags = [t for t in words[1:] if not t.startswith("-")]
-        if nonflags:
-            targets.append(nonflags[-1])
+            if not t.startswith("-"):
+                targets.append(t)
     for t in words:
         if t.startswith("of="):
             targets.append(t[3:])
-    if head in ("cp", "mv", "install"):
-        nonflags = [t for t in words[1:] if not t.startswith("-")]
-        if nonflags:
-            targets.append(nonflags[-1])
-    if head in ("touch", "truncate"):
-        for t in words[1:]:
-            if not t.startswith("-"):
-                targets.append(t)
+    positional = _positional_paths(words)
+    if head == "sed" and "-i" in words:
+        if positional:
+            targets.append(positional[-1])
+    elif head in _ALL_ARG_MUTATORS:
+        targets.extend(positional)
+    elif head in _DEST_MUTATORS:
+        if positional:
+            targets.append(positional[-1])
+    elif head in _OWNER_MUTATORS:
+        targets.extend(positional[1:])
     return targets
 
 
@@ -119,13 +151,11 @@ def _is_script(path):
 
 
 def warn(msg):
-    print(json.dumps({"hookSpecificOutput": {
-        "hookEventName": "PreToolUse", "additionalContext": msg}}))
+    feedback.context("block_edits_during_proposal", "PreToolUse", msg)
 
 
 def block(msg=BLOCK_MSG):
-    sys.stderr.write(msg + "\n")
-    return 2
+    return feedback.block("block_edits_during_proposal", msg)
 
 
 def main():
@@ -154,6 +184,8 @@ def main():
     segs = segments(command)
     if segs is None:
         return 0  # unparseable — never choke, never false-block a read
+    if _GIT_TREE_MUTATORS.search(git_normalize(command)):
+        return block()
     for seg in segs:
         if command_head(seg) in _INTERPRETERS:
             return block(INTERP_MSG)

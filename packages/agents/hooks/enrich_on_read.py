@@ -25,6 +25,7 @@ import shutil
 import subprocess
 import sys
 
+from lib import feedback
 from lib.command import segments
 from lib.event import command_str, field, read_event
 
@@ -266,10 +267,7 @@ def main():
 
     if not output:
         return 0
-    print(json.dumps(
-        {"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": output}},
-        separators=(",", ":"), ensure_ascii=False,
-    ))
+    feedback.context("enrich_on_read", "PreToolUse", output)
     return 0
 
 

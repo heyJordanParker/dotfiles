@@ -3,6 +3,7 @@
 
 import sys
 
+from lib import feedback
 from lib.event import field, read_event
 
 BINDING = {
@@ -30,8 +31,7 @@ The user controls worktree lifecycle."""
 def main():
     event = read_event()
     if field(event, "tool_input.isolation", "") == "worktree":
-        sys.stderr.write(MSG + "\n")
-        return 2
+        return feedback.block("block_worktree_isolation", MSG)
     return 0
 
 

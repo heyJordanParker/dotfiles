@@ -305,22 +305,27 @@
         ]
       },
       {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ~/.agents/hooks/review_doc_edit.py",
+            "timeout": 120
+          },
+          {
+            "type": "command",
+            "command": "python3 ~/.agents/hooks/validate_planning_docs.py",
+            "timeout": 60
+          }
+        ]
+      },
+      {
         "matcher": "ExitPlanMode",
         "hooks": [
           {
             "type": "command",
             "command": "python3 ~/.agents/hooks/validate_plan_quality.py",
             "timeout": 180
-          }
-        ]
-      },
-      {
-        "matcher": "Write|Edit|MultiEdit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 ~/.agents/hooks/validate_planning_docs.py",
-            "timeout": 60
           }
         ]
       }
@@ -468,6 +473,11 @@
       },
       {
         "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ~/.agents/hooks/babysitter.py",
+            "timeout": 90
+          },
           {
             "type": "command",
             "command": "python3 ~/.agents/hooks/record_session_event.py"

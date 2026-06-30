@@ -6,7 +6,8 @@ On every UserPromptSubmit this does two jobs:
 - Deterministic, no LLM: typed mode-commands map straight to control state
   (/propose /execute force STATE; /solo /subagents /team force APPROACH; /commit
   forces a commit), persisted to the session spine and echoed as the matching
-  skill-load directive.
+  skill-load directive. Every other typed /skill is matched against the skills
+  and commands on disk and echoed as a head-anchored reload directive.
 
 - One LLM call: classify the message intent (question | correction | action),
   whether a question also carries action items, whether its steps are ordered,
@@ -22,12 +23,11 @@ unavailable) returns 0 and never blocks the prompt; a typed command still takes
 effect via the deterministic path.
 """
 
-import json
 import os
 import re
 import sys
 
-from lib import transcript
+from lib import feedback, transcript
 from lib.event import field, read_event
 from lib.model_call import run_model
 from lib.session_state import load_state, merge_state
@@ -39,16 +39,10 @@ BINDING = {
 }
 
 LIST_CAP = 10
-BANNED_CAP = 50
 
 
 def emit_context(text):
-    sys.stdout.write(json.dumps({
-        "hookSpecificOutput": {
-            "hookEventName": "UserPromptSubmit",
-            "additionalContext": text,
-        }
-    }) + "\n")
+    feedback.context("classify_intent", "UserPromptSubmit", text)
 
 
 def is_system_prompt(prompt):
@@ -85,6 +79,8 @@ def forced_commands(prompt):
         forced_state = "proposing"
     elif _typed(prompt, "/execute"):
         forced_state = "executing"
+    elif _typed(prompt, "/interview"):
+        forced_state = "interview"
     forced_approach = ""
     if _typed(prompt, "/solo"):
         forced_approach = "solo"
@@ -105,6 +101,9 @@ def directive(forced_state, forced_approach):
     elif forced_state == "proposing":
         out = ("This is a proposing-state turn. Load the /propose skill now and "
                "produce the proposal under its contract.")
+    elif forced_state == "interview":
+        out = ("This is an interview turn. Load the interview skill now and interview "
+               "the architect one question at a time.")
     approach_line = {
         "solo": "Load the /solo skill now.",
         "subagents": "Load the /subagents skill now.",
@@ -116,6 +115,82 @@ def directive(forced_state, forced_approach):
 
 
 COMMIT_DIRECTIVE = "Skills to execute: /commit"
+
+
+# --- typed skills (deterministic) ----------------------------------------------
+
+_SKILLS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "skills")
+_COMMANDS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "commands")
+
+# The mode/commit commands above carry richer state/approach directives; the
+# general scan skips them so it never double-handles one.
+_SPECIAL_SKILLS = {"/propose", "/execute", "/interview", "/solo", "/subagents", "/team", "/commit"}
+
+# A skill token counts only when its slash follows start-or-whitespace, so a name
+# embedded in a path (.../skills/architecture) never matches.
+_SKILL_TOKEN = re.compile(r"(?:^|\s)/([a-z][a-z0-9-]*)")
+
+
+def _available_skills():
+    names = set()
+    for directory, suffix in ((_SKILLS_DIR, None), (_COMMANDS_DIR, ".md")):
+        try:
+            entries = os.listdir(directory)
+        except OSError:
+            continue
+        for entry in entries:
+            if suffix is None:
+                if os.path.isdir(os.path.join(directory, entry)):
+                    names.add(entry)
+            elif entry.endswith(suffix):
+                names.add(entry[:-len(suffix)])
+    return names
+
+
+def _skill_disables_model_invocation(name):
+    """True when skills/<name>/SKILL.md sets `disable-model-invocation: true`.
+
+    Such a skill loads only via the harness slash-dispatch when the user types
+    `/<name>`; the Skill tool refuses it. The reload directive routes the model
+    through the Skill tool, so for these skills it dead-ends on a failing call —
+    skip it. Commands (no SKILL.md) never carry the flag, so they're unaffected.
+    """
+    try:
+        with open(os.path.join(_SKILLS_DIR, name, "SKILL.md"), encoding="utf-8") as fh:
+            lines = fh.read().splitlines()
+    except OSError:
+        return False
+    if not lines or lines[0].strip() != "---":
+        return False
+    for line in lines[1:]:
+        if line.strip() == "---":
+            return False
+        match = re.match(r"disable-model-invocation:\s*(.+)$", line)
+        if match:
+            return match.group(1).strip().strip("'\"").lower() == "true"
+    return False
+
+
+def typed_skills(prompt):
+    available = _available_skills()
+    found = []
+    seen = set()
+    for match in _SKILL_TOKEN.finditer(prompt):
+        token = "/" + match.group(1)
+        if token in _SPECIAL_SKILLS or match.group(1) not in available or token in seen:
+            continue
+        seen.add(token)
+        if _skill_disables_model_invocation(match.group(1)):
+            continue
+        found.append(token)
+    return found
+
+
+def skills_directive(skills):
+    each = "it" if len(skills) == 1 else "each"
+    return ("The architect typed %s this turn. Load %s now via the Skill tool, before "
+            "anything else — even if already loaded earlier this session; reload for a "
+            "fresh copy so its contract governs this turn." % (", ".join(skills), each))
 
 
 # --- intent contracts ----------------------------------------------------------
@@ -203,8 +278,7 @@ JSON_SCHEMA = ('{"type":"object","properties":'
                '{"intent":{"type":"string","enum":["question","correction","action"]},'
                '"has_action_items":{"type":"boolean"},'
                '"sequential":{"type":"boolean"},'
-               '"notes":{"type":"array","items":{"type":"string"}},'
-               '"banned_phrases":{"type":"array","items":{"type":"string"}}},'
+               '"notes":{"type":"array","items":{"type":"string"}}},'
                '"required":["intent"]}')
 
 
@@ -225,8 +299,7 @@ def evaluation_prompt(prompt, notes, conversation):
 '  - "action" — the user is giving new work to do, a standalone constraint, or a request to investigate/propose, unrelated to refining a specific previous output.\n'
 '- has_action_items: true only when intent is "question" AND the message also gives a concrete action to perform ("how does X work? also change Y"). Otherwise false.\n'
 '- sequential: true when the work has explicit ordering ("after that", "then", "finally", numbered dependent steps). Default false.\n'
-'- notes: return the FULL list (existing plus new). Add an entry ONLY on a genuine surprise — the agent did something illogical that confused the user, the user forbids something with always/never language, the user corrects the same behavior twice, or the user is frustrated/angry that the agent surprised them. No surprise → return the existing list unchanged. Max 10; if adding would exceed 10, drop the least critical. Each note is one short sentence.\n'
-'- banned_phrases: when the architect explicitly forbids a specific word, term, or phrasing in THIS message ("stop saying X", "don\'t use the word Y", "what the fuck is an actor"), return the exact offending string(s), lowercased — just the banned token or short phrase, nothing else. Empty when the architect forbids no specific wording.\n'
+'- notes: return the FULL list (existing plus new). Add an entry ONLY on a genuine surprise — the agent did something illogical that confused the user, the user forbids something with always/never language, the user corrects the same behavior twice, or the user is frustrated/angry that the agent surprised them. A wording correction is a forbidding — when the architect tells you to stop using a specific word or phrase, capture that as a note. No surprise → return the existing list unchanged. Max 10; if adding would exceed 10, drop the least critical. Each note is one short sentence.\n'
 '\n'
 'Classify only the latest message. The conversation above is background for understanding what it responds to — never extract intent from it.\n'
     ) % (notes_block, conversation, prompt)
@@ -267,6 +340,19 @@ def main():
     if forced_commit:
         context = (context + "\n\n" + COMMIT_DIRECTIVE) if context else COMMIT_DIRECTIVE
 
+    # Every other typed /skill: a head-anchored reload directive, leading the block.
+    typed = typed_skills(prompt)
+    if typed:
+        skills_block = skills_directive(typed)
+        context = (skills_block + "\n\n" + context) if context else skills_block
+
+    # Interview state turns the LLM hooks off for speed: emit only the deterministic
+    # directives built above and skip the model call.
+    if load_state(session_id).get("state") == "interview":
+        if context:
+            emit_context(context)
+        return 0
+
     # Model call: intent → contract, plus notes maintenance. On any failure the
     # deterministic context above is still emitted; the typed command holds.
     state = load_state(session_id)
@@ -282,19 +368,6 @@ def main():
         if isinstance(new_notes, list):
             notes = [str(n) for n in new_notes][:LIST_CAP]
             merge_state(session_id, {"notes": notes})
-
-        # A phrase the architect bans once becomes a deterministic block for the
-        # rest of the session — validate_completion reads this list.
-        new_bans = result.get("banned_phrases")
-        if isinstance(new_bans, list) and new_bans:
-            bans = load_state(session_id).get("banned_phrases") or []
-            seen = {b.lower() for b in bans}
-            for b in new_bans:
-                s = str(b).strip()
-                if s and s.lower() not in seen:
-                    bans.append(s)
-                    seen.add(s.lower())
-            merge_state(session_id, {"banned_phrases": bans[:BANNED_CAP]})
 
         intent = result.get("intent") or "action"
         contract = intent_contract(intent, bool(result.get("has_action_items")))

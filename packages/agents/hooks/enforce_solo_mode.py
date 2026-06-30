@@ -8,6 +8,7 @@ run from the shell."""
 import re
 import sys
 
+from lib import feedback
 from lib.event import command_str, field, read_event
 from lib.session_state import load_state
 
@@ -38,8 +39,7 @@ def main():
     # other matcher this hook is wired on) is always a spawn.
     if field(event, "tool_name", "") == "Bash" and not _SUBAGENT_CMD.search(command_str(event)):
         return 0
-    sys.stderr.write(MSG + "\n")
-    return 2
+    return feedback.block("enforce_solo_mode", MSG)
 
 
 if __name__ == "__main__":

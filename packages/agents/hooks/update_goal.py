@@ -2,14 +2,15 @@
 """Maintain the session's goal, requirements, and boundaries (LLM, every turn).
 
 On every UserPromptSubmit this reads what the user said, recalls cross-session
-memory, and updates the session's goal (one paragraph), requirements (what the
-work must do), and boundaries (what it must never do) on the spine — translating
-only what the user expressed, never inventing or padding. Each list is hard-capped
+memory, and maintains the session's goal — one paragraph of session-spanning memory
+of the user's intent, set when missing and updated only when the user's input
+diverges — plus requirements (what the work must do) and boundaries (what it must
+never do) on the spine, translating only what the user expressed, never inventing or
+padding. Each list is hard-capped
 at 10 in code. It then hands the main agent the current goal/requirements/
-boundaries read back from the spine, the skills the user invoked this turn, a
-one-line take on what the user is doing this turn relative to the goal (the hook's
-inference, framed as such), and an optional one-line note when one would prevent
-confusion.
+boundaries read back from the spine, a one-line take on what the user is doing
+this turn relative to the goal (the hook's inference, framed as such), and an
+optional one-line note when one would prevent confusion.
 
 This is the renamed intent classifier: the model call moved here, pointed at the
 goal instead of mode-switching. The user drives modes by hand through typed
@@ -19,13 +20,12 @@ Any infrastructure failure (recursion guard, missing tool, parse error, LLM
 unavailable) returns 0 and never blocks the user's prompt.
 """
 
-import json
 import os
 import re
 import subprocess
 import sys
 
-from lib import transcript
+from lib import feedback, transcript
 from lib.event import field, read_event
 from lib.model_call import run_model
 from lib.session_state import load_state, merge_state
@@ -41,12 +41,7 @@ MEMORY_TIMEOUT = 8
 
 
 def emit_context(text):
-    sys.stdout.write(json.dumps({
-        "hookSpecificOutput": {
-            "hookEventName": "UserPromptSubmit",
-            "additionalContext": text,
-        }
-    }) + "\n")
+    feedback.context("update_goal", "UserPromptSubmit", text)
 
 
 # --- structural system-message detection --------------------------------------
@@ -95,7 +90,6 @@ JSON_SCHEMA = ('{"type":"object","properties":'
                '{"goal":{"type":"string"},'
                '"requirements":{"type":"array","items":{"type":"string"}},'
                '"boundaries":{"type":"array","items":{"type":"string"}},'
-               '"skills":{"type":"array","items":{"type":"string"}},'
                '"take":{"type":"string"},'
                '"note":{"type":"string"}},'
                '"required":["goal","requirements","boundaries","take"]}')
@@ -120,11 +114,13 @@ def evaluation_prompt(prompt, goal, requirements, boundaries, memory, conversati
 '\n'
 'Update the three lists to reflect what the user has expressed, and output them in full.\n'
 '\n'
-'- goal: one paragraph naming the session\'s OVERARCHING objective — the big-picture outcome the individual tasks serve, never the task in front of you. It is stable: carry the standing goal forward unchanged and treat the latest message as work toward it. Rewrite the goal only when the user fundamentally redirects the whole session, which is rare. State it at the big-picture altitude.\n'
+'- goal: one paragraph capturing what the USER wants done across the WHOLE session, held from the session\'s first message to now. It tracks the user\'s intent, never the agent\'s current deliverable and never the single task in front of you this turn. Maintain it as memory:\n'
+'    • No standing goal yet: set it from what the user is asking for.\n'
+'    • The user\'s latest message is another task toward the standing goal — a step, a fix, even one the user frames as a fresh start: return the standing goal UNCHANGED, word for word. A task toward the goal is not a change to the goal.\n'
+'    • The user genuinely changes the goal, abandoning or replacing what the session is for: revise the goal to the new one and drop what the user abandoned. Do not keep the old goal alongside the new one.\n'
+'  An off-topic or meta message — a question about your state, a digression, a request to explain something — is NOT a change to the goal. The goal stays put. State it at the session altitude.\n'
 '- requirements: what the work MUST do — each phrased to be specific and testable (concrete enough to check whether it is met), e.g. "supports Google SSO", never vague like "make it good". A vague wish the user states but does not make concrete ("make it better", "more modern", "cleaner", "nicer") is NOT a testable requirement: do not restate it as one and do not invent the specifics it lacks — leave it out entirely.\n'
 '- boundaries: what the work must NEVER do — each specific and testable, e.g. "never stores passwords in plaintext", never vague like "do not break things". Honor the user\'s own framing: when the user states a constraint as a prohibition ("must never", "don\'t", "no more than", "under no circumstances", "never"), it is a BOUNDARY, not a requirement. Do not flip a prohibition into a positive requirement to make it sound like a feature — keep it where the user put it.\n'
-'- skills: every /skill the user invokes in THIS message (telling you to use or run it now). '
-'Preserve the leading slash. Empty when none.\n'
 '- take: a one-line take on what the user is doing with their latest message in relation to the goal.\n'
 '- note: OPTIONAL. Include a single short note ONLY when it would save the main agent from a real '
 'confusion this turn. Never include a note to fill the field. Omit it on almost every turn.\n'
@@ -167,9 +163,6 @@ def build_message(state, result):
     goal = state.get("goal")
     if goal:
         parts.append("Session goal:\n%s" % goal)
-    skills = result.get("skills")
-    if isinstance(skills, list) and skills:
-        parts.append("Skills to execute: " + ", ".join(str(s) for s in skills))
     note = result.get("note")
     if isinstance(note, str) and note.strip():
         parts.append(note.strip())
@@ -203,6 +196,8 @@ def main():
 
     transcript_path = field(event, "transcript_path", "")
     state = load_state(session_id)
+    if state.get("state") == "interview":
+        return 0
     goal = state.get("goal")
     requirements = state.get("requirements") or []
     boundaries = state.get("boundaries") or []

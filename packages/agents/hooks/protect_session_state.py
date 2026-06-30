@@ -5,6 +5,7 @@ import os
 import re
 import sys
 
+from lib import feedback
 from lib.event import command_str, field, read_event
 
 BINDING = {
@@ -31,8 +32,7 @@ def main():
     file_path = field(event, "tool_input.file_path", "")
     command = command_str(event)
     if re.search(r"/sessions/[^ ]*state\.json", file_path) or re.search(PATTERN, command):
-        sys.stderr.write(MSG + "\n")
-        return 2
+        return feedback.block("protect_session_state", MSG)
     return 0
 
 

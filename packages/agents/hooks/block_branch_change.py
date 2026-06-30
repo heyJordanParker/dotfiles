@@ -8,6 +8,7 @@ declared binding), not by directory.
 import re
 import sys
 
+from lib import feedback
 from lib.command import git_normalize
 from lib.event import command_str, field, read_event
 
@@ -51,8 +52,7 @@ def main():
         r"|(git\s+checkout\s+[A-Za-z0-9_@][A-Za-z0-9_@-]*(\s|$))",
         normalized,
     ):
-        sys.stderr.write(MSG + "\n")
-        return 2
+        return feedback.block("block_branch_change", MSG)
     return 0
 
 

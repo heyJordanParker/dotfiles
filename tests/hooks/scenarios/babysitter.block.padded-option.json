@@ -1,0 +1,26 @@
+{
+  "gate": "babysitter",
+  "state": "proposing",
+  "transcript": [
+    {
+      "type": "user",
+      "message": {
+        "role": "user",
+        "content": "make a Service a first-class #[Action] host and propose the change"
+      }
+    },
+    {
+      "type": "assistant",
+      "message": {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "text",
+            "text": "Confirmed the gap precisely. The only open decision is how a service-hosted action is addressed and discovered. That's architecture — your call.\n\n**Option A — Service is a real host on the one generic dispatcher**\n```diff\n+ honors \"declaring an #[Action] makes it invokable\" for both hosts, one dispatcher\n+ ActionController gains an id-less route `POST {host}/actions/{action}`\n- services need a name->class registry so {host} resolves; new shared surface\n```\nConfidence: 80%. It's the consistent path — one dispatcher, both hosts, declaration == invocation.\n\n**Option B — `#[Action]` on a service is descriptive only**\n```diff\n+ no new dispatch surface; ActionController stays entity-keyed\n+ services reuse #[Action] for catalog/MCP discovery\n- breaks \"declaring an #[Action] makes it invokable\" — a service action still needs a hand-written controller route, so declaration and invocation drift\n```\nConfidence: 35%. Cheaper to wire, but it splits the action contract in two. That drift is the exact thing the current doctrine forbids.\n\nI recommend A. Which way?"
+          }
+        ]
+      }
+    }
+  ],
+  "note": "BLOCK — babysitter, rule 8 (padded options). Option B's own con says it breaks the binding requirement (\"declaration and invocation cannot drift\"), so it is not a real choice — it pads the fork to look thorough and asks the architect to pick anyway. Architect's correction: \"if one option CLEARLY breaks the requirements — WHY are you proposing it?\" The gate must catch the option the agent itself shows is disqualified; the answer is to present the one path that holds the requirement, no fork. Real moment: creator-income-blueprint, transcript 0bf25a69."
+}

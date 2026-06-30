@@ -18,6 +18,7 @@ import os
 import re
 import sys
 
+from lib import feedback
 from lib.event import command_str, field, read_event
 
 BINDING = {
@@ -58,8 +59,7 @@ def allowed_list():
 
 
 def block(msg):
-    sys.stderr.write(msg + "\n")
-    return 2
+    return feedback.block("block_unsafe_delete", msg)
 
 
 def unresolvable():

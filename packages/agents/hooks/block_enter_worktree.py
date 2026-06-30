@@ -3,6 +3,7 @@
 
 import sys
 
+from lib import feedback
 from lib.event import field, read_event
 
 BINDING = {
@@ -26,8 +27,7 @@ and say so. The user controls worktree lifecycle."""
 def main():
     event = read_event()
     if field(event, "tool_name", "") == "EnterWorktree":
-        sys.stderr.write(MSG + "\n")
-        return 2
+        return feedback.block("block_enter_worktree", MSG)
     return 0
 
 

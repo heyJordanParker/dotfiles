@@ -14,6 +14,7 @@ segment whose entire content is assignments (no command follows).
 import re
 import sys
 
+from lib import feedback
 from lib.command import command_head, segments
 from lib.event import command_str, read_event
 
@@ -28,13 +29,13 @@ _ASSIGN_NAME = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)=")
 
 
 def block(name):
-    sys.stderr.write(
+    return feedback.block(
+        "block_path_assignment",
         "BLOCKED: assigning to `%s` corrupts the shell.\n\n"
         "In zsh `%s` is tied to the $%s array; assigning a plain string to it\n"
         "replaces the array and breaks command resolution for the rest of the\n"
-        "shell. Rename the variable (e.g. `target_path`).\n" % (name, name, name.upper())
+        "shell. Rename the variable (e.g. `target_path`)." % (name, name, name.upper())
     )
-    return 2
 
 
 def main():

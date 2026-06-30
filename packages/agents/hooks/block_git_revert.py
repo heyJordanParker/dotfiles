@@ -7,6 +7,7 @@ block-git-revert.sh is the plugin-distributed shell copy of this source.
 import re
 import sys
 
+from lib import feedback
 from lib.command import git_normalize
 from lib.event import command_str, read_event
 
@@ -52,8 +53,7 @@ If a human truly needs a stash, the human runs it manually."""
 
 
 def block(msg):
-    sys.stderr.write(msg + "\n")
-    return 2
+    return feedback.block("block_git_revert", msg)
 
 
 def main():

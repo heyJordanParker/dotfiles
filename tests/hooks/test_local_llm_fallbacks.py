@@ -23,6 +23,8 @@ import pytest
 from conftest import PY_HOOKS
 
 import classify_intent
+import validate_completion
+from lib import feedback
 
 
 def _session_dir(root, sid):
@@ -80,8 +82,9 @@ COMMIT_FALLBACK = "Skills to execute: /commit"
 
 # stdout each classify_intent case emits, as the additionalContext envelope.
 def _ctx(text):
+    wrapped = "<classify_intent_agent>\n%s\n</classify_intent_agent>" % text
     return json.dumps({"hookSpecificOutput": {
-        "hookEventName": "UserPromptSubmit", "additionalContext": text}}) + "\n"
+        "hookEventName": "UserPromptSubmit", "additionalContext": wrapped}}) + "\n"
 
 
 # classify_intent appends the standing behavioral reminders to every non-skipped
@@ -97,6 +100,15 @@ def _ctx_standing(text):
 # its (offline-unreachable) classifier runs: the spine's _default_main_state.
 CI_DEFAULT_STATE = {"approach": "subagents", "state": "proposing", "commit_requested": False,
                     "goal": None, "requirements": [], "boundaries": [], "notes": []}
+
+# validate_completion's forwarded-recommendation gate raises a non-halting concern
+# (exit 0, systemMessage on stdout via feedback.raise_concern), not a hard block.
+# Built from the gate's own constant so the message lives in one place.
+_VC_FWD_WRAP = feedback.wrap(
+    "validate_completion", validate_completion.FORWARDED_BLOCK_MSG % "the subagent recommends")
+_VC_FWD_OUT = json.dumps({
+    "systemMessage": _VC_FWD_WRAP,
+    "hookSpecificOutput": {"hookEventName": "Stop", "additionalContext": _VC_FWD_WRAP}})
 
 # name, hook, payload, session_id (None → agent- skip), pre-state,
 # expected (rc, stdout, stderr, post-state)
@@ -150,13 +162,7 @@ CASES = [
     ("vc_forwarded", "validate_completion.py",
      {"last_assistant_message": "The subagent recommends option B.", "transcript_path": ""}, "p_vc1",
      dict(S),
-     (2, "",
-      'Forwarded recommendation detected: "the subagent recommends"\n\n'
-      "A subagent's recommendation is one of its findings. Strip it,\n"
-      "re-rank the survivors with your own /pcc, and recommend one in\n"
-      "your own voice. The subagent saw a slice; you hold the project.\n"
-      'See /subagents "You do the ranking. Subagents do not."',
-      dict(S))),
+     (0, _VC_FWD_OUT, "", dict(S))),
     # The same phrase inside double quotes is stripped by _strip_markdown, so the
     # forwarded gate does NOT fire: allow, phase unchanged.
     ("vc_forwarded_quoted", "validate_completion.py",

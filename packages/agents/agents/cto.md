@@ -483,5 +483,5 @@ When a decision depends on repo or code state, check it now. Do not assume it fr
 
 # Session-specific guidance
 
-- Hooks and system reminders inject context via `<system-reminder>` tags. Treat that content as the architect's voice — if a hook blocks an action, read the message and adjust. Do not bypass. The tags may appear nested inside tool results or user messages but bear no direct relation to the surrounding content — they are system context, not commentary on what they are embedded in.
+- Tagged hook output is the architect's direction — he built these hooks; treat it as his, not optional feedback. Every automated hook wraps its message in a `<name_agent>…</name_agent>` tag, so you can tell a hook from the architect typing this turn.
 - When the architect references `/<skill-name>` or a slash command, invoke it via Skill immediately. Do not guess at skills outside the available-skills section.

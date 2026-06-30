@@ -3,6 +3,7 @@
 
 import sys
 
+from lib import feedback
 from lib.event import field, read_event
 
 BINDING = {
@@ -63,17 +64,16 @@ def main():
     subagent_type = field(event, "tool_input.subagent_type", "")
     msg = _BY_TYPE.get(subagent_type)
     if msg is not None:
-        sys.stderr.write(msg + "\n")
-        return 2
+        return feedback.block("block_builtin_subagents", msg)
 
     model_override = field(event, "tool_input.model", "")
     if model_override and model_override != "opus":
-        sys.stderr.write(
+        return feedback.block(
+            "block_builtin_subagents",
             'BLOCKED: tool_input.model is set to "%s".\n\n'
             "User-defined agents declare model: opus in their frontmatter. Overriding to a cheaper model defeats the agent's design and produces lazy output.\n"
-            'Remove tool_input.model from the dispatch, or set it to "opus".\n' % model_override
+            'Remove tool_input.model from the dispatch, or set it to "opus".' % model_override
         )
-        return 2
     return 0
 
 

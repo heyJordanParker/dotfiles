@@ -7,6 +7,7 @@ sync-shaping.sh is the plugin-distributed shell copy of this source.
 import os
 import sys
 
+from lib import feedback
 from lib.event import field, read_event
 
 BINDING = {
@@ -46,11 +47,9 @@ def main():
     except Exception:
         return 0
     if any(line.startswith("shaping: true") for line in header):
-        sys.stderr.write(SHAPING_MSG + "\n")
-        return 2
+        return feedback.block("sync_shaping", SHAPING_MSG)
     if any(line.startswith("modeling: true") for line in header):
-        sys.stderr.write(MODELING_MSG + "\n")
-        return 2
+        return feedback.block("sync_shaping", MODELING_MSG)
     return 0
 
 

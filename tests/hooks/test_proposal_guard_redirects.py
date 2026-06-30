@@ -1,10 +1,12 @@
-"""Behavioral coverage for the proposing-state edit guard's redirect handling.
+"""Behavioral coverage for the proposing-state edit guard.
 
-The guard (block_edits_during_proposal.py) blocks commands that would write a file
-inside the repo while the session is "proposing". It must NOT mistake shell
-file-descriptor duplication (`2>&1`, `>&2`, `&>`-with-fd, `>&-`) for a file target:
-those never write a repo file, and false-blocking them obstructs ordinary commands.
-A real redirect into a repo file must still block — that protection is the point.
+The guard (block_edits_during_proposal.py) blocks commands that would mutate a file
+inside the repo while the session is "proposing" — writes, deletes, moves, creates,
+and perms. It must NOT mistake shell file-descriptor duplication (`2>&1`, `>&2`,
+`&>`-with-fd, `>&-`) for a file target: those never write a repo file, and
+false-blocking them obstructs ordinary commands. A real mutation of a repo file
+must still block — that protection is the point. Mutations into the whitelisted
+dirs (`/tmp`, `.claude/plans`, `.claude/shaping`, `~`-expansions of them) stay allowed.
 
 Each case runs the hook as a subprocess with a proposing-state /tmp state file, the
 same way Claude Code invokes it, and asserts the exit code: 0 = allowed, 2 = blocked.
@@ -61,6 +63,32 @@ REPO_FILE_REDIRECT_BLOCKED = [
     "cmd 2>>err.log",
 ]
 
+# mutations of a repo file with no redirect — delete, move, create, perms, git —
+# the class the guard missed when an `rm` slipped through proposing. Must block.
+REPO_MUTATION_BLOCKED = [
+    "rm note.txt",
+    "rm -rf tests/hooks",
+    "rmdir tests/hooks",
+    "unlink note.txt",
+    "mv a.txt b.txt",
+    "mkdir newdir",
+    "ln -s /etc/hosts link",
+    "chmod 755 replay.py",
+    "git rm note.txt",
+    "git clean -fd",
+    "git mv a.txt b.txt",
+]
+
+# the same mutations aimed at whitelisted dirs — must stay allowed (exit 0)
+WHITELISTED_MUTATION_ALLOWED = [
+    "rm /tmp/x",
+    "rm -rf /tmp/scratch",
+    "rmdir /tmp/d",
+    "mkdir /tmp/d",
+    "chmod 755 /tmp/x",
+    "touch ~/.claude/plans/foo.md",
+]
+
 
 @pytest.mark.parametrize("command", FD_DUPLICATION_ALLOWED)
 def test_fd_duplication_is_allowed(proposing_state, command):
@@ -77,6 +105,16 @@ def test_redirect_to_repo_file_still_blocks_alongside_fd_dup(proposing_state):
     assert _run("echo x > note.txt 2>&1") == 2
     # /tmp target plus fd-dup is fine — neither is a repo file.
     assert _run("cmd > /tmp/x 2>&1") == 0
+
+
+@pytest.mark.parametrize("command", REPO_MUTATION_BLOCKED)
+def test_repo_mutation_is_blocked(proposing_state, command):
+    assert _run(command) == 2
+
+
+@pytest.mark.parametrize("command", WHITELISTED_MUTATION_ALLOWED)
+def test_whitelisted_mutation_is_allowed(proposing_state, command):
+    assert _run(command) == 0
 
 
 def test_would_regress_on_unfixed_logic():

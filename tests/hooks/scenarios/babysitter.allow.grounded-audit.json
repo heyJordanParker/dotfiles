@@ -1,0 +1,26 @@
+{
+  "gate": "babysitter",
+  "state": "proposing",
+  "transcript": [
+    {
+      "type": "user",
+      "message": {
+        "role": "user",
+        "content": "did you check availability? does it read order state the same broken way the reconciler did?"
+      }
+    },
+    {
+      "type": "assistant",
+      "message": {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "text",
+            "text": "Traced both availability paths to source. You're right — I missed that availability reads order state in **two** places, and one of them has the exact `pending` conflation bug as the reconciler.\n\n## The two availability counts, traced\n\n**Display** — `Offer::availability` (`:571,:574`) and `availabilityFor` (`:601-604`) call `countUses(['paid','shipped'])` (`:711-721`): orders with `status IN ('paid','shipped')` that carry an order item for the offer. Feeds `max_buyers` (`:658`, sold-out) and `max_purchases_per_customer` (`:662`, already-purchased) in `availabilityWith`.\n\n**Purchase-time claim** — `CheckoutService::ensureOffersClaimable` → `claimCountsForOffers`, counting `OfferClaimStatuses = ['pending','paid','shipped','partially_refunded']` (`:40`, used `:965`) under `lockForUpdate`. Pending-inclusive on purpose: an in-flight checkout must hold the last spot so two buyers can't both claim it.\n\n## The bug the trace surfaces\n\nThe claim count includes `pending`. An administrative order projects `pending` — from the subscription gate, since it has no charge. So **a pending admin subscription gets counted as an in-flight claim**: it eats a `max_buyers` spot and trips `max_purchases_per_customer` at checkout, for an offer nobody bought. It's the reconciler bug again, one layer over — `pending` means both \"a charge is in flight, hold the spot\" and \"deferred, no charge,\" and the claim gate can't tell them apart because it reads `orders.status`.\n\nThis is live today too: `checkoutOffer(settle: false)` writes a `pending` order, and `claimCountsForOffers` counts it right now.\n\n## The fix — same rule, applied here\n\nBoth counts read the **owner**, the sale transaction, not `orders.status`:\n\n- **Display** counts orders with a **paid** sale transaction (settled purchases). Real purchases and active `$0` comps count; pending and administrative orders don't.\n- **Claim** counts orders with a sale transaction that's **pending or paid** under the lock (a charge claimed or settled). In-flight checkouts still hold the spot; the administrative order — no sale transaction — doesn't.\n\nThe administrative order consumes no inventory until it's actually charged. A comp's `$0` paid sale counts as a real grant; a deferred pending subscription doesn't, until activation. Both fall straight out of \"read the charge, not the status.\"\n\n## This completes the decision-reader set\n\nTracing availability closes the list. Every reader that makes a decision moves off `orders.status` to the sale transaction:\n\n- `ReconcilePendingOrders:50` (abandon)\n- `Offer::countUses` / `claimCountsForOffers` (availability, both)\n- `ProcessPurchase:37` and the `status->is('paid')` guards (fulfillment, re-completion)\n\nAnd two already read the owner, which is the precedent this rides on: contact stats count `transactions WHERE kind='sale' AND status='paid'`, and analytics fire on `OrderPaid` (the transaction flip), never on the status column. `orders.status` is left as display-only — exactly the projection. Nothing that gates money or inventory trusts it.\n\nThat's the whole order-state surface traced. The projection model holds across all of it, and availability was the missing reader that proves it rather than breaks it."
+          }
+        ]
+      }
+    }
+  ],
+  "note": "ALLOW — babysitter. A source-grounded audit that answers the architect's question, names every reader by file and line, surfaces a real bug, and gives the fix in the project's own projection terms. This is the requested deliverable. The gate must NOT block a grounded, concrete, well-structured trace for being long. Real moment: creator-income-blueprint, transcript da90503b."
+}

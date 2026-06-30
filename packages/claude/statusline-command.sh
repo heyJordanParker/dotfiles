@@ -76,6 +76,7 @@ if [ -n "$session_id" ]; then
       proposing) state_color="\033[33m" ;;
       executing) state_color="\033[32m" ;;
       auto)      state_color="\033[36m" ;;
+      interview) state_color="\033[97m" ;;
       *)         state_color="\033[90m" ;;
     esac
 

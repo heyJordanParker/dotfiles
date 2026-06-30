@@ -1,0 +1,26 @@
+{
+  "gate": "validate_completion",
+  "state": "executing",
+  "transcript": [
+    {
+      "type": "user",
+      "message": {
+        "role": "user",
+        "content": "good. now finish the interview + domain-design adoption with the corrected facts"
+      }
+    },
+    {
+      "type": "assistant",
+      "message": {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "text",
+            "text": "The interview and domain-design adoption is settled, with the facts corrected against the real reference:\n\n- The glossary lives at the repo root as Domain.md, not under docs/ — that's the existing precedent.\n- The `interview` skill already exists as the question engine to compose over.\n- New context and ADR files follow the `references/` precedent already in the tree.\n\nThat resolves the last open piece. The adoption is complete."
+          }
+        ]
+      }
+    }
+  ],
+  "note": "ALLOW — validate_completion. This turn finishes the remaining interview/domain-design adoption with corrected facts; earlier turns already delivered the Handoff skill and the /cc note, so omitting them here is not dropping a requirement. The gate must NOT force the agent to resurface work finished in earlier turns just because there's no this-turn evidence of it. Hand-authored scenario (no source transcript); session dotfiles-hooks."
+}

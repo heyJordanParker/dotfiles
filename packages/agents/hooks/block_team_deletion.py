@@ -3,6 +3,7 @@
 
 import sys
 
+from lib import feedback
 from lib.event import field, read_event
 
 BINDING = {
@@ -17,8 +18,7 @@ MSG = "BLOCKED: Teams are managed by Jordan. Use SendMessage to reassign teammat
 def main():
     event = read_event()
     if field(event, "tool_name", "") == "TeamDelete":
-        sys.stderr.write(MSG + "\n")
-        return 2
+        return feedback.block("block_team_deletion", MSG)
     return 0
 
 

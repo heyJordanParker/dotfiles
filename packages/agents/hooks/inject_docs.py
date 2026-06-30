@@ -14,6 +14,7 @@ import shutil
 import subprocess
 import sys
 
+from lib import feedback
 from lib.event import field, read_event
 
 BINDING = {
@@ -60,10 +61,7 @@ def _doc_count(response):
 
 
 def _emit_json(response, event_name="PreToolUse"):
-    print(json.dumps(
-        {"hookSpecificOutput": {"hookEventName": event_name, "additionalContext": response}},
-        separators=(",", ":"), ensure_ascii=False,
-    ))
+    feedback.context("inject_docs", event_name, response)
 
 
 def main():
@@ -106,13 +104,13 @@ def main():
     target = rp if (rp and os.path.exists(rp)) else cwd
     rc, out, err = _trace_docs(target, "Bash", env, command)
     if rc != 0:
-        sys.stderr.write(
+        return feedback.block(
+            "inject_docs",
             "BLOCKED: project-docs load failed for: %s\n\n"
             "`trace docs \"%s\" ...` exited %d. The trace command is\n"
             "blocked so the agent does not run it without project-docs context.\n\n"
-            "Underlying error:\n%s\n" % (target, target, rc, err)
+            "Underlying error:\n%s" % (target, target, rc, err)
         )
-        return 2
     if not _doc_count(out):
         return 0
     _emit_json(out)

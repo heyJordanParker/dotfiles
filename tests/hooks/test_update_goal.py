@@ -3,7 +3,7 @@
 The LLM call and memory recall are stubbed, so these pin the deterministic shell
 around them: the structural skips, the hard 10-item list cap, the spine write, and
 the message built back from the spine (goal/requirements/boundaries from state,
-skills + take + optional note from the model).
+take + optional note from the model).
 """
 
 import pytest
@@ -64,16 +64,15 @@ def test_list_cap_enforced(monkeypatch, spine_root):
     assert st["boundaries"] == bnds[:10]
 
 
-def test_message_emits_goal_skills_note_not_lists(monkeypatch, spine_root):
+def test_message_emits_goal_note_not_lists(monkeypatch, spine_root):
     _, text = _run(monkeypatch,
-                   {"session_id": "ug1", "prompt": "do x /cc"},
+                   {"session_id": "ug1", "prompt": "do x"},
                    {"goal": "Do x.", "requirements": ["must y"], "boundaries": ["never z"],
-                    "skills": ["/cc"], "note": "heads up"})
+                    "note": "heads up"})
     assert "Session goal:\nDo x." in text
     # requirements/boundaries stay on the spine but are NOT shown to the main agent
     assert "Requirements:" not in text and "must y" not in text
     assert "Boundaries:" not in text and "never z" not in text
-    assert "Skills to execute: /cc" in text
     assert text.endswith("heads up")
 
 

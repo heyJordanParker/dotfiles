@@ -4,6 +4,7 @@
 import re
 import sys
 
+from lib import feedback
 from lib.event import command_str, owner_session, read_event
 from lib.session_state import load_state
 
@@ -42,8 +43,7 @@ def main():
         requested = str(commit_requested)
 
     if requested != "true":
-        sys.stderr.write(MSG + "\n")
-        return 2
+        return feedback.block("block_unauthorized_commits", MSG)
     return 0
 
 

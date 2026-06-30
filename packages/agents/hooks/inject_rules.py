@@ -17,6 +17,7 @@ import shutil
 import subprocess
 import sys
 
+from lib import feedback
 from lib.event import field, read_event
 
 BINDING = {
@@ -60,10 +61,7 @@ def _doc_count(response):
 
 
 def _emit_json(response, event_name="PreToolUse"):
-    print(json.dumps(
-        {"hookSpecificOutput": {"hookEventName": event_name, "additionalContext": response}},
-        separators=(",", ":"), ensure_ascii=False,
-    ))
+    feedback.context("inject_rules", event_name, response)
 
 
 def main():

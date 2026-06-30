@@ -44,6 +44,7 @@ from lib.session_state import (
     cmd_start,
     cmd_stopped,
     cmd_tool_used,
+    merge_state,
 )
 
 BINDING = {
@@ -158,6 +159,8 @@ def main():
             )
             if skill:
                 cmd_skill([session_id, skill])
+                if skill == "interview":
+                    merge_state(field(event, "session_id", ""), {"state": "interview"})
         return 0
 
     return 0

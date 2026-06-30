@@ -9,6 +9,7 @@ plugin-distributed shell copy of this source.
 
 import sys
 
+from lib import feedback
 from lib.event import field, read_event
 from lib.model_call import run_model
 
@@ -19,7 +20,7 @@ BINDING = {
 }
 
 JSON_SCHEMA = '{"type":"object","properties":{"ok":{"type":"boolean"},"reason":{"type":"string"}},"required":["ok"]}'
-SYSTEM_PROMPT = "You are a plan quality gate. Evaluate plans against strict quality rules. Output structured JSON only."
+SYSTEM_PROMPT = "You are a plan quality gate. Evaluate plans against strict quality rules. You only RAISE the concern in `reason`; you never prescribe a fix — the main agent owns that. Output structured JSON only."
 
 
 def _eval_prompt(plan):
@@ -40,7 +41,7 @@ def _eval_prompt(plan):
         '%s\n\n'
         'Return JSON:\n'
         '- Pass: {"ok": true}\n'
-        '- Fail: {"ok": false, "reason": "[Specific issue]. Fix: [What to do]."}'
+        '- Fail: {"ok": false, "reason": "[the specific issue]"}'
     ) % plan
 
 
@@ -58,9 +59,8 @@ def main():
     if not result:
         return 0
     if result.get("ok") is False:
-        reason = result.get("reason") or "Plan quality check failed"
-        sys.stderr.write("BLOCKED: Plan rejected. %s\n" % reason)
-        return 2
+        reason = result.get("reason") or "the plan may not meet the quality rules"
+        return feedback.raise_concern("validate_plan_quality", "PreToolUse", "Potential issue: %s" % reason)
     return 0
 
 

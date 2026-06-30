@@ -102,25 +102,96 @@ def test_notes_not_reinjected_off_proposing(monkeypatch, spine_root):
     assert "The architect's call governs" in text
 
 
-def test_banned_phrases_captured_to_spine(monkeypatch, spine_root):
-    _run(monkeypatch, {"session_id": "ci1", "prompt": "stop saying actor"},
-         {"intent": "correction", "banned_phrases": ["actor"]})
-    assert "actor" in load_state("ci1")["banned_phrases"]
-
-
-def test_banned_phrases_dedup_case_insensitive(monkeypatch, spine_root):
-    merge_state("ci1", {"banned_phrases": ["actor"]})
-    _run(monkeypatch, {"session_id": "ci1", "prompt": "stop saying Actor"},
-         {"intent": "correction", "banned_phrases": ["Actor"]})
-    assert load_state("ci1")["banned_phrases"] == ["actor"]
-
-
 def test_typed_propose_composes_with_question_contract(monkeypatch, spine_root):
     _, text = _run(monkeypatch,
                    {"session_id": "ci1", "prompt": "/propose what about caching X?"},
                    {"intent": "question"})
     assert "This is a proposing-state turn. Load the /propose skill now" in text
     assert "This is a question. Answer it" in text
+
+
+def _stub_skills(monkeypatch, names):
+    monkeypatch.setattr(classify_intent, "_available_skills", lambda: set(names))
+
+
+def test_typed_skill_emits_reload_directive(monkeypatch, spine_root):
+    _stub_skills(monkeypatch, ["naming", "pcc"])
+    _, text = _run(monkeypatch,
+                   {"session_id": "ci1", "prompt": "give me names /naming"},
+                   {"intent": "action"})
+    assert "The architect typed /naming this turn" in text
+    assert "reload for a fresh copy" in text
+
+
+def test_typed_skill_ignores_path_embedded_name(monkeypatch, spine_root):
+    _stub_skills(monkeypatch, ["architecture"])
+    _, text = _run(monkeypatch,
+                   {"session_id": "ci1",
+                    "prompt": "read packages/agents/skills/architecture/SKILL.md"},
+                   {"intent": "action"})
+    assert "/architecture" not in text
+
+
+def test_typed_skill_skips_special_command(monkeypatch, spine_root):
+    _stub_skills(monkeypatch, ["propose", "naming"])
+    _, text = _run(monkeypatch,
+                   {"session_id": "ci1", "prompt": "/propose the fix"},
+                   {"intent": "action"})
+    # /propose keeps its richer state directive, never the generic reload line.
+    assert "This is a proposing-state turn" in text
+    assert "The architect typed /propose" not in text
+
+
+def test_typed_skills_multiple(monkeypatch, spine_root):
+    _stub_skills(monkeypatch, ["naming", "pcc"])
+    _, text = _run(monkeypatch,
+                   {"session_id": "ci1", "prompt": "use /naming and /pcc"},
+                   {"intent": "action"})
+    assert "The architect typed /naming, /pcc this turn" in text
+    assert "Load each now" in text
+
+
+def test_typed_skill_skips_disable_model_invocation(monkeypatch, spine_root):
+    # A disable-model-invocation skill loads via slash-dispatch, not the Skill
+    # tool — so the reload directive (which routes through the Skill tool) is
+    # never emitted for it.
+    _stub_skills(monkeypatch, ["review"])
+    monkeypatch.setattr(classify_intent, "_skill_disables_model_invocation",
+                        lambda name: name == "review")
+    _, text = _run(monkeypatch,
+                   {"session_id": "ci1", "prompt": "run /review now"},
+                   {"intent": "action"})
+    assert "The architect typed" not in text
+    assert "/review" not in text
+
+
+def test_typed_skills_filter_only_disabled(monkeypatch, spine_root):
+    # A disabled skill drops out; a normal skill typed alongside it still gets
+    # the reload directive.
+    _stub_skills(monkeypatch, ["review", "naming"])
+    monkeypatch.setattr(classify_intent, "_skill_disables_model_invocation",
+                        lambda name: name == "review")
+    _, text = _run(monkeypatch,
+                   {"session_id": "ci1", "prompt": "/review then /naming"},
+                   {"intent": "action"})
+    assert "The architect typed /naming this turn" in text
+    assert "reload for a fresh copy" in text
+    assert "/review" not in text
+
+
+def test_disable_model_invocation_read_from_frontmatter(tmp_path, monkeypatch):
+    # The flag is read from the skill's real SKILL.md frontmatter.
+    skills = tmp_path / "skills"
+    (skills / "gated").mkdir(parents=True)
+    (skills / "gated" / "SKILL.md").write_text(
+        "---\nname: gated\ndisable-model-invocation: true\n---\nbody\n")
+    (skills / "open").mkdir()
+    (skills / "open" / "SKILL.md").write_text(
+        "---\nname: open\n---\nbody\n")
+    monkeypatch.setattr(classify_intent, "_SKILLS_DIR", str(skills))
+    assert classify_intent._skill_disables_model_invocation("gated") is True
+    assert classify_intent._skill_disables_model_invocation("open") is False
+    assert classify_intent._skill_disables_model_invocation("missing") is False
 
 
 def test_standing_reminders_present_and_not_duplicated(monkeypatch, spine_root):

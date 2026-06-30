@@ -11,6 +11,7 @@ import os
 import re
 import sys
 
+from lib import feedback
 from lib.event import field, read_event
 from lib.model_call import run_model
 
@@ -21,7 +22,7 @@ BINDING = {
 }
 
 JSON_SCHEMA = '{"type":"object","properties":{"ok":{"type":"boolean"},"reason":{"type":"string"}},"required":["ok"]}'
-SYSTEM_PROMPT = "You are a planning document validator. Check if content defers any work. Output structured JSON only."
+SYSTEM_PROMPT = "You are a planning document validator. Check if content defers any work. You only RAISE the concern in `reason`; you never prescribe a fix — the main agent owns that. Output structured JSON only."
 
 _MARKER = re.compile(r"^(shaping|modeling|slicing): true", re.M)
 
@@ -91,12 +92,8 @@ def main():
     if not result:
         return 0
     if result.get("ok") is False:
-        reason = result.get("reason") or "Deferred work detected"
-        sys.stderr.write(
-            "BLOCKED: Planning document contains deferred work. %s. "
-            "Every item in a planning doc ships — include it as real work or remove it entirely.\n" % reason
-        )
-        return 2
+        reason = result.get("reason") or "the planning document may defer work"
+        return feedback.raise_concern("validate_planning_docs", "PreToolUse", "Potential issue: %s" % reason)
     return 0
 
 

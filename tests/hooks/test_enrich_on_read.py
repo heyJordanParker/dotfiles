@@ -33,7 +33,7 @@ LIB = os.path.join(PY_HOOKS, "lib")
 # to — the exact enriched-file set the hook produces for those scenarios.
 LIB_PY_FILES = {
     os.path.join(LIB, name) for name in (
-        "__init__.py", "codex_run.py", "command.py", "event.py",
+        "__init__.py", "codex_run.py", "command.py", "event.py", "feedback.py",
         "model_call.py", "session_state.py", "transcript.py",
     )
 }

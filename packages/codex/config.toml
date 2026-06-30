@@ -29,12 +29,12 @@ NODE_REPL_NODE_MODULE_DIRS = "/Applications/Codex.app/Contents/Resources/cua_nod
 NODE_REPL_NODE_PATH = "/Applications/Codex.app/Contents/Resources/cua_node/bin/node"
 NODE_REPL_TRUSTED_CODE_PATHS = "/Users/jordan/.codex"
 CODEX_HOME = "/Users/jordan/.codex"
-NODE_REPL_TRUSTED_BROWSER_CLIENT_SHA256S = "5504c0782b5c86b7dd08314045b9843e973a230e1be8f7e2e0ba3716fc63c55e"
+NODE_REPL_TRUSTED_BROWSER_CLIENT_SHA256S = "d5cbb8ec1ee520cba7943b1e1accb6b25acd9941ea4e2e9e4dbcf25ff9983a2d"
 BROWSER_USE_AVAILABLE_BACKENDS = "chrome,iab"
 NODE_REPL_INSTRUCTIONS_USE_CASE_BROWSER = "Control the in-app browser in conjunction with the Browser Plugin."
 NODE_REPL_INSTRUCTIONS_USE_CASE_CHROME = "Control the Chrome browser in conjunction with the Chrome Plugin. Prefer this method of controlling Chrome over alternatives (such as Computer Use) unless the user explicitly mentions an alternative."
 BROWSER_USE_CODEX_APP_BUILD_FLAVOR = "prod"
-BROWSER_USE_CODEX_APP_VERSION = "26.616.81150"
+BROWSER_USE_CODEX_APP_VERSION = "26.623.70822"
 CODEX_CLI_PATH = "/Applications/Codex.app/Contents/Resources/codex"
 
 # iai-mcp memory engine — clone-and-run service in ~/Developer/services.
@@ -154,6 +154,10 @@ type = "command"
 command = "python3 /Users/jordan/.agents/hooks/record_session_event.py"
 [[hooks.pre_tool_use.hooks]]
 type = "command"
+command = "python3 /Users/jordan/.agents/hooks/review_doc_edit.py"
+timeout = 120
+[[hooks.pre_tool_use.hooks]]
+type = "command"
 command = "python3 /Users/jordan/.agents/hooks/validate_planning_docs.py"
 timeout = 60
 
@@ -175,6 +179,10 @@ command = "python3 /Users/jordan/.agents/hooks/reload_harness_context.py"
 timeout = 20
 
 [[hooks.stop]]
+[[hooks.stop.hooks]]
+type = "command"
+command = "python3 /Users/jordan/.agents/hooks/babysitter.py"
+timeout = 90
 [[hooks.stop.hooks]]
 type = "command"
 command = "python3 /Users/jordan/.agents/hooks/record_session_event.py"
@@ -247,6 +255,9 @@ trusted_hash = "sha256:12caa390c89c69a3372050488e5a39bc0349853e3fa41341fa5f1203a
 trusted_hash = "sha256:f88f679b4edeedb486d10907505bdfe72416ac7360555f00fe23b0690ae173a3"
 
 [hooks.state."/Users/jordan/.codex/config.toml:pre_tool_use:0:12"]
+trusted_hash = "sha256:65ac54d1cd94df096f3de09dc84e7e8ff391a15dadb50ca147375443da261fcd"
+
+[hooks.state."/Users/jordan/.codex/config.toml:pre_tool_use:0:13"]
 trusted_hash = "sha256:91c5bc7210adf3aed6f7eb4d79ff61facce646232a3222e1da852c9c98cda7c5"
 
 [hooks.state."/Users/jordan/.codex/config.toml:session_start:0:0"]
@@ -262,9 +273,12 @@ trusted_hash = "sha256:fd6a93d66318ab20fd9c1b6be05ab55c4622541dbf96046455f688c7e
 trusted_hash = "sha256:13e499504fbd3735c1e27767f5005c7b89c5046b8d9bd7734dd6b02229fd9d7a"
 
 [hooks.state."/Users/jordan/.codex/config.toml:stop:0:0"]
-trusted_hash = "sha256:f88f679b4edeedb486d10907505bdfe72416ac7360555f00fe23b0690ae173a3"
+trusted_hash = "sha256:afc8d8ec3ff8dd7373ff234a9c844cdea80044cf470195f4da2ba3bd35dae969"
 
 [hooks.state."/Users/jordan/.codex/config.toml:stop:0:1"]
+trusted_hash = "sha256:f88f679b4edeedb486d10907505bdfe72416ac7360555f00fe23b0690ae173a3"
+
+[hooks.state."/Users/jordan/.codex/config.toml:stop:0:2"]
 trusted_hash = "sha256:bc65ea63d30f7e7cef3286d73303a89d7659777eb7e0714339c7778bd0c25262"
 
 [hooks.state."/Users/jordan/.codex/config.toml:user_prompt_submit:0:0"]
@@ -276,23 +290,8 @@ trusted_hash = "sha256:f88f679b4edeedb486d10907505bdfe72416ac7360555f00fe23b0690
 [hooks.state."/Users/jordan/.codex/config.toml:user_prompt_submit:0:2"]
 trusted_hash = "sha256:bb3f08b7aaf69d6b86fc0a5c1b7be812a2e7b6853ce28ebb24e02978c556be28"
 
-[hooks.state."/Users/jordan/.codex/hooks.json:pre_tool_use:0:0"]
-trusted_hash = "sha256:60d3caefc6eefde1e3c1b3f5fcd0b050fa8ab87c1831019ffd5962a93eb74967"
-
-[hooks.state."/Users/jordan/.codex/hooks.json:permission_request:0:0"]
-trusted_hash = "sha256:254f60581d1502007746ec6310ff7dc7a5cc540f08d1e7d77ef48abee34c6199"
-
-[hooks.state."/Users/jordan/.codex/hooks.json:session_start:0:0"]
-trusted_hash = "sha256:f4b442791c92f3225ddc5348949562e73b5f37e7fd7ad150adc2f5a66030cbbd"
-
-[hooks.state."/Users/jordan/.codex/hooks.json:user_prompt_submit:0:0"]
-trusted_hash = "sha256:c854cc01f2e3de10c2b4f02de063d4b2465f250e700bb392e376bfb8bb319407"
-
-[hooks.state."/Users/jordan/.codex/hooks.json:stop:0:0"]
-trusted_hash = "sha256:f9ddb26e14b04fe884321d89a0f63a5c9694069832c28c4c0ab651d53c3932ef"
-
 [marketplaces.openai-bundled]
-last_updated = "2026-06-24T09:22:42Z"
+last_updated = "2026-06-30T08:16:12Z"
 source_type = "local"
 source = "/Users/jordan/.codex/.tmp/bundled-marketplaces/openai-bundled"
 

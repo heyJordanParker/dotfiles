@@ -92,20 +92,21 @@ SYSTEM_PROMPT = (
     "mechanism-before-result in 'polish'. If "
     "the edit is good, return empty arrays. Each finding gives location (the exact "
     "heading), category, evidence (the quoted offending text plus the second quote its test "
-    "requires), rule, and a one-line fix. Do not invent findings to look thorough; do not "
-    "omit a citable one."
+    "requires), and rule. Do not invent findings to look thorough; do not "
+    "omit a citable one. You only RAISE each concern; you never prescribe a fix, an edit, "
+    "or a rewrite — the main agent has the full context and owns that."
 )
 
 JSON_SCHEMA = (
     '{"type":"object","properties":{'
     '"block":{"type":"array","items":{"type":"object","properties":{'
     '"category":{"type":"string"},"location":{"type":"string"},'
-    '"evidence":{"type":"string"},"rule":{"type":"string"},"fix":{"type":"string"}},'
-    '"required":["category","location","evidence","fix"]}},'
+    '"evidence":{"type":"string"},"rule":{"type":"string"}},'
+    '"required":["category","location","evidence"]}},'
     '"polish":{"type":"array","items":{"type":"object","properties":{'
     '"category":{"type":"string"},"location":{"type":"string"},'
-    '"evidence":{"type":"string"},"rule":{"type":"string"},"fix":{"type":"string"}},'
-    '"required":["category","location","evidence","fix"]}}},'
+    '"evidence":{"type":"string"},"rule":{"type":"string"}},'
+    '"required":["category","location","evidence"]}}},'
     '"required":["block","polish"]}'
 )
 
@@ -270,11 +271,10 @@ def _format(findings):
         loc = f.get("location", "?")
         cat = f.get("category", "?")
         ev = f.get("evidence", "")
-        fix = f.get("fix", "")
         rule = f.get("rule", "")
-        lines.append("- [%s] %s%s\n  fix: %s%s"
+        lines.append("- [%s] %s%s%s"
                      % (cat, loc, ("\n  evidence: " + ev) if ev else "",
-                        fix, ("\n  rule: " + rule) if rule else ""))
+                        ("\n  rule: " + rule) if rule else ""))
     return "\n".join(lines)
 
 
@@ -283,7 +283,7 @@ def warn(msg):
 
 
 def block(msg):
-    return feedback.block("review_doc_edit", msg)
+    return feedback.raise_concern("review_doc_edit", "PreToolUse", msg)
 
 
 def _reviewable(path):
@@ -334,7 +334,7 @@ def main():
     polish = result.get("polish") or []
 
     if blocks:
-        report = "BLOCKED: this doc edit needs fixing before it lands.\n\n" + _format(blocks)
+        report = "Potential issues with this doc edit:\n\n" + _format(blocks)
         if polish:
             report += "\n\nPolish (not blocking):\n" + _format(polish)
         return block(report)

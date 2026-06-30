@@ -191,7 +191,6 @@ def _default_main_state(session_id):
         "requirements": [],
         "boundaries": [],
         "notes": [],
-        "banned_phrases": [],
         "gate_blocks": {},
         "pane": None,
         "tmux-pane": None,
