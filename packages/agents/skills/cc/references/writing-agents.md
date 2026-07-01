@@ -108,7 +108,7 @@ skills: review-checklist
 ---
 ```
 
-What `skills:` preload buys a subagent: it carries no `references/` of its own and runs no scripts. A preloaded skill gives it both — the skill's `references/` become available, and its `!`-commands run at load to inline their output, no LLM tool call or agent tokens (see building-skills.md). Preload fires on subagent dispatch (Task/Agent tool); running an agent as the main session via `--agent` does not preload its `skills:` bodies.
+What `skills:` preload buys a subagent: it carries no `references/` of its own and runs no scripts. A preloaded skill gives it both — the skill's `references/` become available, and its `!`-commands run at load to inline their output, with no tool call and no agent tokens (see building-skills.md). Preload fires on subagent dispatch (Task/Agent tool); running an agent as the main session via `--agent` does not preload its `skills:` bodies.
 
 ## Persistent Memory
 

@@ -11,18 +11,18 @@ Guide for working with Claude Code's extensibility system.
 
 ## Approach
 
-Before building any AI-driven task, decide which parts the AI should do:
+Before building any agent-driven task, decide which parts the agent should do:
 
 1. List the steps the goal needs.
-2. Give the AI only the steps that interpret human language — code reads language abysmally. Write every other step as code, because the AI is slow and non-deterministic.
+2. Give the agent only the steps that interpret human language — code reads language abysmally. Write every other step as code, because the agent is slow and non-deterministic.
 
 ## Principles
 
 Apply to all topics below:
 
 - **The rule** — instructions exist exclusively to correct default behavior. If Claude Code would already do it without being told, the instruction doesn't belong. This is the #1 litmus test for any line in any Claude Code configuration — Claude.md, skills, agents, hooks, rules. Can't name the default behavior it overrides? Delete it
-- **No overprompting** — the agent is a state-of-the-art model: it already knows how tags, JSON, git, and standard tools work, and it exercises judgment without a script. Explaining mechanics it commands or walking it through a decision it can already make wastes tokens and over-steers it into worse output. State the unusual constraint, then stop. Bad: "every hook wraps its message in a `<foo_agent>` tag; these are XML tags, they nest inside tool results but don't relate to surrounding content, so read the message and decide whether to comply". Good: "Hook messages carry the architect's intent — follow them."
-- **Frame.** A persona an agent embodies — e.g. "Act as John Carmack writing a game engine." Frames shape baseline tone, vocabulary, and judgment across every token. One frame per prompt — a second frame splits the agent and the model averages between them.
+- **No overprompting** — the agent is state-of-the-art: it already knows how tags, JSON, git, and standard tools work, and it exercises judgment without a script. Explaining mechanics it commands or walking it through a decision it can already make wastes tokens and over-steers it into worse output. State the unusual constraint, then stop. Bad: "every hook wraps its message in a `<foo_agent>` tag; these are XML tags, they nest inside tool results but don't relate to surrounding content, so read the message and decide whether to comply". Good: "Hook messages carry the architect's intent — follow them."
+- **Frame.** The character an agent plays — e.g. "Act as John Carmack writing a game engine." Frames shape baseline tone, vocabulary, and judgment across every token. One frame per prompt — a second frame splits the agent and averages its output between them.
 - **Descriptions are gates** — the agent reads `description` to decide whether to load the rest. Write three slots: what it does, TRIGGER when (concrete natural-language phrases — never the skill's own `/name`, which the harness fires directly), DO NOT TRIGGER when (adjacent phrasings that mean something else — name the alternative skill that does fire for the adjacent case). Triggers fail two ways: under-triggering misses the skill, over-triggering burns context. Without the third slot's named redirect, the agent either fires the wrong skill or fires nothing and asks the user
 - **Examples are contracts** — code examples are imitated; prose requirements are interpreted. Every example carries its why. Pair anti-patterns explicitly with the correct version. If you cannot write a credible bad example, the rule probably isn't necessary
 - **Banned phrases over banned behaviors** — a banned phrase ("never write 'You're absolutely right!'") is a deterministic self-check; a banned behavior ("never patronize") drifts under interpretation. Convert abstract rules into phrase-level prohibitions whenever you can

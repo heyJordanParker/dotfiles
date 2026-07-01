@@ -77,13 +77,13 @@ The agent reads the output already there; it never runs the command itself. The 
 
 Skill content can reference `${CLAUDE_EFFORT}` for the active effort level (v2.1.120+). In command bodies, escape a literal `$` before a digit as `\$` so it isn't read as an argument placeholder (v2.1.163+). The `disableSkillShellExecution` setting turns off inline `!` shell execution in skills, custom slash commands, and plugin commands (v2.1.91+).
 
-**Structure References** — a reference is an optional read; an overconfident agent skips it even when it should open it. So the main doc carries everything the agent must have to get the output right; a reference is the step-by-step procedure (SOP) for one specific hard action, opened only when the agent commits to that action. If a skipped reference changes the output, it was in the wrong file.
+**Structure References** — a reference is an optional read; an overconfident agent skips it even when it should open it. So the main doc carries everything the agent must have to get the output right; a reference is a Process for one specific hard action, opened only when the agent commits to that action. If a skipped reference changes the output, it was in the wrong file.
 
 - **The 80% test:** "Does the agent need this for 80%+ of invocations?" If yes → SKILL.md. If no → reference for that specific sub-task
-- A reference is an SOP for one hard action (the live-browser setup sequence, the plugin-publish steps), never background the agent is trusted to read first
+- A reference is a Process for one hard action (the live-browser setup sequence, the plugin-publish steps), never background the agent is trusted to read first
 - Name after what you're DOING: `building-skills.md` — not what the topic IS: `context-engineering.md`
 - **Litmus test:** verb phrase = process. "building skills" ✓. "context engineering" ✗.
-- **Compose, don't duplicate:** when a step is already an SOP in another skill, reference that skill instead of copying its steps. A variant or sub-procedure of the main SOP that isn't worth its own skill becomes another SOP in references, never inline bloat.
+- **Compose, don't duplicate:** when a step is already documented in another skill, reference that skill instead of copying its steps. A variant or sub-procedure of the main skill that isn't worth its own skill becomes another reference, never inline bloat.
 
 **Route by usecase, not component** — Agents open references when solving a specific problem. Structure routing to match the agent's mental state, not the API surface.
 

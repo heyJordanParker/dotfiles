@@ -152,8 +152,11 @@ OPENING_DIRECTIVE = (
     "their intent. Keep every requirement, constraint, count, and listed item they stated, "
     "and add nothing they did not. One line when the ask is single; an enumerated list when "
     "the architect stated several requirements.\n"
-    "2. The goal below as a `# Goal` block: a `# Goal` heading, the goal in prose, then a `>` "
-    "blockquote for why it matters.\n"
+    "2. Open with the `Session goal` below as your `# Goal` block, repeated each turn to stay "
+    "focused on it: a `# Goal` heading, that session goal in prose, then a `>` blockquote for "
+    "why it matters. Do not put this turn's task here — your restatement in point 1 already "
+    "carries it. The `Goal-tracker's read of this turn` below is orientation for you, never "
+    "what you render.\n"
     "Then start the work."
 )
 

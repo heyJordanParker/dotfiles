@@ -45,6 +45,7 @@
     ],
     "defaultMode": "bypassPermissions"
   },
+  "model": "claude-fable-5[1m]",
   "hooks": {
     "Notification": [
       {
@@ -561,10 +562,10 @@
   "effortLevel": "high",
   "agent": "cto",
   "autoUpdatesChannel": "latest",
+  "autoMemoryEnabled": false,
   "skipDangerousModePermissionPrompt": true,
   "fileCheckpointingEnabled": false,
   "teammateMode": "in-process",
   "remoteControlAtStartup": true,
-  "voiceEnabled": true,
-  "autoMemoryEnabled": false
+  "voiceEnabled": true
 }
