@@ -1,166 +1,112 @@
 ---
 name: naming
-description: MANDATORY for naming any code identifier — variable, function, file, folder, class, database column, route, CSS class. Always returns a 5-10 candidate slate; the consumer picks. TRIGGER when proposing or choosing a name, on /naming, on "rename", "ideas", "options", "what should I call", or any new file/class/method/column/route. DO NOT TRIGGER when editing a body that does not introduce or change an identifier, when restructuring code (architecture, not naming), or when labeling UI for end users (copy decision).
+description: MANDATORY for naming any code identifier — variable, function, file, folder, class, database column, route, CSS class. Always returns a 5-10 candidate slate; the caller picks. TRIGGER when proposing or choosing a name, on /naming, on "rename", "ideas", "options", "what should I call", or any new file/class/method/column/route. DO NOT TRIGGER when editing a body that does not introduce or change an identifier, when restructuring code (Architecture, not naming), or when labeling UI for end Users.
 ---
 
 # Naming
 
-**This skill is mandatory.** Follow these rules whenever naming anything in code.
+This Skill is mandatory whenever naming anything in code.
 
-## Output Contract
+## 1. Read before naming
 
-Every reply is a slate. Shape:
+Read the surrounding code, find sibling concepts already named, and identify the Precedent shape before generating candidates.
 
-- **Slate** — 5-10 bulleted candidates. Each line: `` `candidate` — what it says; project precedent it matches; named failure mode if any concern remains ``
-- **Recommended:** `name` — one-sentence reason
-- **Runner-up:** `name` — one-sentence reason
-- No shared fragments. Every candidate is fully distinct — no word reused
-  across candidates. The only exception is a part a rule fixes (boolean
-  `is/has`, hook `use`, handler `handle`). You don't need finished names — you
-  permutate the words yourself to land the final one. So a candidate that
-  reuses words already on the slate gives you nothing new; the slate's whole
-  value is the count of distinct fragments it puts in front of you. Same 5-10
-  candidates, every word fresh.
+## 2. Generate a slate
 
-  Naming a method that re-charges a failed payment on the backup card.
+### Every reply is a slate
+Return 5-10 candidates, then one recommendation and one runner-up. Never answer with a single name before the slate.
 
-  Wrong — words repeat (retry ×3, charge ×3, backup ×3, method ×3), so 6
-  lines carry ~3 ideas:
+Template:
+    - `candidate` — what it says; project Precedent it matches; named failure mode if any concern remains
+    - `candidate` — what it says; project Precedent it matches; named failure mode if any concern remains
 
-      retryWithBackupPaymentMethod
-      retryOnBackup
-      retryFailedCharge
-      chargeBackupPaymentMethod
-      chargeFallbackMethod
-      chargeSecondaryMethod
+    Recommended: `name` — one-sentence reason.
+    Runner-up: `name` — one-sentence reason.
 
-  Right — no word appears twice, so 5-10 lines carry 5-10 ideas you can
-  recombine:
+Never: "Let's call it X", "I'd name it X", "The right name is X", "Recommended: X" without a slate above it, any single candidate before the slate.
 
-      retryWithBackupPaymentMethod
-      chargeFallbackInstrument
-      recoverDeclinedSubscription
-      reattemptOnSecondaryCard
-      billAlternateSource
-      captureDuesElsewhere
-      salvageOverdueInvoice
-      collectViaSpareWallet
+### Every candidate contributes fresh words
+No word appears twice across candidates. The slate's usefulness is the count of distinct fragments it puts in front of the caller. A candidate that reuses a word already on the slate gives nothing new. The only shared fragments allowed are the ones a Rule fixes: boolean `is`/`has`, Hook `use`, handler `handle`. The caller often recombines the fresh words into a final name that was not on the slate.
 
-When the caller co-tagged `/pcc`: each candidate becomes a `### name` section with a ` ```diff ` pros/cons block and a `Confidence: N%.` line. Recommended + Runner-up still follow.
+Example: naming a method that charges a failed payment on the backup card.
 
-**Banned openings** (each one triggers rejection):
+Never:
+    retryWithBackupPaymentMethod / retryOnBackup / retryFailedCharge
+    chargeBackupPaymentMethod / chargeFallbackMethod / chargeSecondaryMethod
 
-- "Let's call it X"
-- "I'd name it X"
-- "The right name is X"
-- "Recommended: X" without a slate above it
-- Any single candidate before the slate
+Example:
+    retryWithBackupPaymentMethod / chargeFallbackInstrument / recoverDeclinedSubscription
+    reattemptOnSecondaryCard / billAlternateSource / captureDuesElsewhere
+    salvageOverdueInvoice / collectViaSpareWallet
 
-The slate is a thinking primer, not a multiple-choice ballot. The consumer often picks a name not in the slate after reading it.
+IF the caller co-tags `/pcc`:
+### Keep the slate and change each candidate's shape
+Each candidate becomes a `### name` section with a diff block for pros and cons and a `Confidence: N%.` line. The recommendation and runner-up still follow.
 
-## Quality Bar
+## 3. Vary the candidate angles
 
-Every candidate must pass three tests before entering the slate:
+Generate candidates across action verb, thing noun, Domain word, short form, and descriptive form.
 
-1. **Purpose** — name says what the caller gets, not how the thing works inside
-2. **Domain language** — every word appears in the project's vocabulary or in plain conversational English a developer uses out loud
-3. **One meaning** — name does not already mean something else in this codebase
+## 4. Scrub each candidate
 
-Replace any candidate that fails any of the three before showing it.
+Replace dead candidates before they reach the slate.
 
-## Hierarchy of Authority
+### Pass the three candidate tests
+Every candidate says what the caller gets, not how it works inside; every word is in the project's vocabulary or in plain English a developer says out loud; the name does not already mean something else in this codebase.
 
-1. **These rules** - non-negotiable baseline (e.g., no ALL_CAPS)
-2. **Project conventions** - existing patterns in the codebase
-3. **Language/framework conventions** - ecosystem standards
+### Follow the authority order
+These Rules outrank project conventions, and project conventions outrank language or framework conventions. Check the project first; consistency within it trumps external standards.
 
-Always check the project first. Consistency within the project trumps external standards.
+### Never use `ALL_CAPS` for names
+Express immutability with `const`, `final`, or `readonly`.
 
-## Core Rules
+### Spell every word out
+No abbreviations. Market acronyms are acceptable in code casing: `Url`, `Http`, `Api`, `Html`, `Css`, `Id`. Never invent project-specific acronyms.
 
-- **Never ALL_CAPS for names** - use language features (`const`, `final`, `readonly`) to express immutability.
+### Let the container supply surrounding words
+The class, folder, namespace, or module supplies surrounding words. Use `user.isValid()`, not `user.isUserValid()`; use `utils/dates.ts`, not `date-utils.ts`.
 
-- **No abbreviations** - spell every word out.
+### Remove redundant suffixes
+Use `users`, not `userList`; the type already says it.
 
-- **Market-defined acronyms are fine** - `Url`, `Http`, `Api`, `Html`, `Css`, `Id` are acceptable. Don't invent project-specific acronyms users must learn.
+### Hide implementation details
+Name the interface, not the mechanism. Use `getUser`, not `fetchAndCacheUser`.
 
-- **Context informs naming** - the container (class, folder, namespace) provides context. `user.isValid()` not `user.isUserValid()`. `utils/dates.ts` not `date-utils.ts`.
+### Avoid academic English
+Thesaurus verbs make code read like an Architecture doc. Use `create(data)`, not `materialize(data)`; use `loadSession()`, not `rehydrateSession()`.
 
-- **No redundant suffixes** - `users` not `userList`. The type system or structure already tells you.
+### Avoid metaphor verbs
+Verbs from unrelated fields force translation. Use `deleteRecords()`, not `pruneRecords()`; use `createToken()`, not `mintToken()`; use `showNotification()` when rendering, not `emitNotification()`.
 
-- **Hide implementation details** - name the interface, not the mechanism. `getUser` not `fetchAndCacheUser`.
+### Avoid vague verbs
+`process`, `handle`, `manage`, `do`, and `run` convey nothing specific. Name the actual operation: `shipOrder()`, `chargeOrder()`, `validateOrder()`, `updateSettings()`, `loadSettings()`.
 
-- **Simple but complete** - don't over-shorten, but don't add words that don't add context.
+### Avoid overloaded terms
+When the name already means something specific in this codebase, add the qualifier that distinguishes the new thing. Use `TrackingEvent` for a new analytics record when domain events already use `Event`; use `PaymentGateway` for a payment provider when service providers already use `Provider`.
 
-- **No academic English** — thesaurus-substitute verbs from formal writing (`materialize`, `instantiate`, `synthesize`, `rehydrate`) make code read like a design doc; readers have to translate. CHECK: would a developer say this verb out loud at the keyboard? Examples: ✗ `materialize(data)` → ✓ `create(data)`; ✗ `instantiate(user)` → ✓ `createUser()`; ✗ `rehydrateSession()` → ✓ `loadSession()`.
+### Avoid stutter
+Do not repeat the module's word in the type or file name. Use `users/Service`, not `users/UsersService`; use `models/User`, not `models/UserModel`.
 
-- **No metaphor verbs** — verbs imported from unrelated fields (`mint` from currency, `prune` from gardening, `emit` from event systems used for rendering, `harvest` from farming) force the reader to translate. The metaphor only works when the field matches. CHECK: what field does the verb come from? If not the field the code is in, replace with the plain operational verb. Examples: ✗ `pruneRecords()` → ✓ `deleteRecords()`; ✗ `mintToken()` → ✓ `createToken()`; ✗ `emitNotification()` (for rendering) → ✓ `showNotification()`.
+### Follow semantic naming patterns
+Booleans use `is`, `has`, `can`, or `should`: `isLoggedIn`, `hasPermission`, `canEdit`. Internal handlers use `handle` plus the event, like `handleSubmit`; prop callbacks use `on` plus the event, like `onSubmit`. Hooks use `use` plus what they provide, like `useProducts` or `useAuth`. Collections use simple plurals, like `users` or `orders`. Transformers live on the source object, like `user.toJson()` or `order.toResponse()`.
 
-- **No vague verbs** — `process`, `handle`, `manage`, `do`, `run` convey nothing specific; reader has to open the body to learn what the function does. CHECK: can the verb be swapped with another generic verb without changing the name's meaning? If yes, name the actual operation. Examples: ✗ `processOrder()` → ✓ `shipOrder()` / `chargeOrder()` / `validateOrder()`; ✗ `manageSettings()` → ✓ `updateSettings()` / `loadSettings()`.
+IF Project Precedent does not settle the casing convention:
+### Follow ecosystem casing
+TypeScript and JavaScript variables, functions, and constants use `camelCase`; classes, components, and types use `PascalCase`. PHP classes use `PascalCase`; methods and variables use `camelCase`; database tables, database columns, and route parameters use `snake_case`. Python uses `snake_case` except classes, which use `PascalCase`. Custom stylesheets use block-element-modifier naming; Tailwind and utility classes use `kebab-case`. React attributes use `camelCase`; vanilla HyperText Markup Language attributes use lowercase. Uniform Resource Locators and routes use `kebab-case` or `snake_case`, choosing the User-facing name. Database tables use plural `snake_case`; database columns and constraints use `snake_case`.
 
-- **No overloaded terms** — when the name already means something specific in this codebase, reusing it forces every reader to disambiguate every time. CHECK: search the codebase for the proposed name; if it already names something distinct, add the qualifier that distinguishes the new thing. Examples: ✗ a new analytics record called `Event` when domain events already use `Event` → ✓ `TrackingEvent`; ✗ a payment provider class called `Provider` when service providers already use `Provider` → ✓ `PaymentGateway`.
+### Let the outer layer win when conventions conflict
+A TypeScript response from a PHP backend keeps `snake_case` keys; do not transform names just to match JavaScript convention.
 
-- **No stutter** — type or file name repeats its module's word. The path reads longer, scans harder, and renaming the module forces touching every member. CHECK: drop the module's word from the type's name; if callers still read clearly, drop it. Examples: ✗ `users/UsersService` → ✓ `users/Service`; ✗ `auth/AuthMiddleware` → ✓ `auth/Middleware`; ✗ `models/UserModel` → ✓ `models/User`.
+## 5. Run the split test
 
-## Semantic Patterns
+If a function, service, or handler cannot be named with one idiomatic verb, it is doing too many things.
 
-**Booleans**: Use `is`, `has`, `can`, `should` prefixes. `isLoggedIn`, `hasPermission`, `canEdit`.
+### Name the direct step, not the downstream chain
+Ask who the caller is, what direct effect this function has, and which one idiomatic verb names that effect. Needing `or` to connect two verbs means two operations are bundled. Split a `resolveLocale` that pops from a list or creates a new object into `extractLocale` and `createLocale`.
 
-**Event handlers vs callbacks**:
-- Handler (internal): `handle` + event → `handleSubmit`
-- Callback (prop): `on` + event → `onSubmit`
+### Use the caller's perspective
+Name the external tool for what the caller wants, and name the internal handler for what it does. Use `placeLocale` for the tool and `handlePlaceLocale` for the handler.
 
-**Hooks**: `use` + what it provides → `useProducts`, `useAuth`
+## 6. Recommend one and stop
 
-**Collections**: Simple plurals → `users`, `orders`. Not `userList`, `orderArray`.
-
-**Transformers**: Method on the source object → `user.toJson()`, `order.toResponse()`
-
-## The Naming Test (Boundary Detection)
-
-Use when naming functions, services, or handlers. If you can't name it with one verb, the function is doing too many things.
-
-For each function:
-1. **Who is the caller?** Identify who uses this
-2. **What is the step-level effect?** What does THIS function do — not the downstream chain, just its direct effect
-3. **Name it with ONE idiomatic verb**
-
-| Signal | Meaning |
-|--------|---------|
-| One verb covers all code paths | Boundary is correct |
-| Need "or" to connect two verbs | Two operations bundled — split them |
-| Name doesn't feel idiomatic | Boundary is wrong |
-| Name matches a downstream effect, not this step | You're naming the chain, not the step |
-
-**Step-level vs chain-level:** Name what THIS function does, not what its callees achieve. An orchestrator that calls validate → find → extract → insert is a `handler`, not an `adder`. The adding happens downstream.
-
-**Caller perspective:** Names reflect what the caller achieves. A tool exposed externally: `placeLocale` (what the caller wants). The internal handler: `handlePlaceLocale` (what it does).
-
-**Naming resistance as a signal:** If `resolveLocale` either pops from a list OR creates a new dict — "take" fits one path, "create" fits the other, need "or" → split into `extractLocale` and `createLocale`.
-
-## Checklist
-
-- [ ] Slate of 5-10 candidates, not a single name
-- [ ] Each candidate passes the three Quality Bar tests (purpose, domain language, one meaning)
-- [ ] Checked project conventions first
-- [ ] No ALL_CAPS
-- [ ] No abbreviations
-- [ ] No academic English, metaphor verbs, or vague verbs
-- [ ] No overloaded terms (name doesn't already mean something else here)
-- [ ] No stutter (type name doesn't repeat module name)
-- [ ] Context not repeated (user.isValid not user.isUserValid)
-- [ ] No redundant suffixes (users not userList)
-- [ ] Booleans use is/has/can/should prefix
-
-## Slate Procedure
-
-1. Read the surrounding code. Find sibling concepts already named. Identify the precedent shape
-2. Generate 5-10 candidates varying the angle: action verb, thing noun, role, domain word, short vs descriptive
-3. Scrub each candidate against every Core Rule. Replace dead candidates before they reach the slate
-4. Annotate each line with what it says, the project precedent it matches, and the failure mode it tripped (if any)
-5. Recommend one + name the runner-up with one-sentence reasons
-6. Stop. The consumer picks.
-
-## References
-
-- [reference.md](reference.md) - Ecosystem casing conventions
+Name one recommendation and one runner-up, then stop. The caller picks.

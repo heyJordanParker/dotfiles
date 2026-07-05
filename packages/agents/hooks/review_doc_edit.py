@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
-"""Review a markdown edit before it lands and block low-quality docs (LLM).
+"""Review a prompt-doc edit before it lands and flag low-quality docs (LLM).
 
-Every Write/Edit to a `.md` file is gated. The hook assembles the full review
-context deterministically — the post-edit file, its related docs, and the diff —
-and hands it to one `run_model` call, exactly the inline-prompt gate shape the
-classifier and the three validators already use (classify_intent.py,
-update_goal.py via lib/model_call.py). The model returns block/polish findings;
-any block finding fails the edit with exit 2, matching the proposal blocker
-(block_edits_during_proposal.py). Polish findings warn but never block.
+Prompt markdown and hook prompt strings are gated. Shaping and plan artifacts
+are left to the planning validators, so the doc reviewer cannot block ordinary
+artifact edits. The hook assembles the full review context deterministically —
+the post-edit file, its related docs, and the diff — and hands it to one
+`run_model` call, exactly the inline-prompt gate shape the classifier and the
+three validators already use (classify_intent.py, update_goal.py via
+lib/model_call.py). The model returns block/polish findings; block findings are
+raised as concerns, and polish findings warn.
 
 Related docs are gathered by walking the file tree, not `trace docs`: the gate
 needs every parent and child Claude.md WITH content on every call, while
@@ -286,13 +287,25 @@ def block(msg):
     return feedback.raise_concern("review_doc_edit", "PreToolUse", msg)
 
 
+def _planning_artifact(path):
+    p = os.path.normpath(path)
+    for directory in ("docs/shaping", "docs/plans", ".claude/shaping", ".claude/plans"):
+        if (p == directory or p.startswith(directory + os.sep)
+                or (os.sep + directory + os.sep) in p):
+            return True
+    return False
+
+
 def _reviewable(path):
-    """Markdown docs anywhere, plus the Python hook sources in agents/hooks — they
-    carry the inline prompts agents read. lib/ helpers and the tests tree are not
-    hook sources. A hook's code-only edit yields a prose-free diff the reviewer
-    returns empty on, so only prompt-touching edits are actually judged.
+    """Prompt Markdown, plus the Python hook sources in agents/hooks — they carry
+    the inline prompts agents read. Planning artifacts, lib/ helpers, and the
+    tests tree are not hook sources. A hook's code-only edit yields a prose-free
+    diff the reviewer returns empty on, so only prompt-touching edits are
+    actually judged.
     """
     if not path:
+        return False
+    if _planning_artifact(path):
         return False
     if path.endswith(".md"):
         return True

@@ -1,62 +1,81 @@
 ---
 name: independent-review
-description: Run N identical parallel subagents on the same task for independent validation. Use when you want consensus through redundancy — multiple agents independently analyze, review, or test the same thing, then results are compared for agreement, disagreements, and unique finds. Invocation /independent-review [count] "task"
+description: Run N identical parallel Subagents on the same Task for independent Verification. Use when the Architect wants consensus through redundancy — multiple Subagents independently analyze, review, or test the same thing, then results are compared for agreement, disagreements, and unique finds. Invocation /independent-review [count] "task"
 disable-model-invocation: true
 ---
 
 # Independent Review
 
-N identical agents do the same work independently. Compare results for consensus.
+- N identical Subagents do the same Task independently.
+- The value is consensus through redundancy: agreement, disagreements, and unique finds.
 
-## Current Changes
+## 1. Capture current changes for Review Tasks
+
+Current Changes:
 
 !`git changes`
 
-## Full Diff
+Full Diff:
 
 !`git diff HEAD`
 
-## Triggers
+## 2. Parse the Architect's input
 
-- "independent review", "cross check", "validate independently"
-- "run N agents on this", "get consensus", "replicate this analysis"
-- Any task where independent validation adds confidence
+The first numeric argument is the Subagent count. Default to three Subagents when no count is provided. Everything else is the Task.
 
-## Process
+Example: `/independent-review "is this migration safe?"` runs three Subagents.
 
-1. **Parse input** — Extract agent count and task from user input.
-   - `/independent-review "is this migration safe?"` — 3 agents (default)
-   - `/independent-review 5 "review for security vulnerabilities"` — 5 agents
-   - Count is always the first argument if numeric. Everything else is the task.
+Example: `/independent-review 5 "review for security vulnerabilities"` runs five Subagents.
 
-2. **Build the prompt** — Write ONE prompt. Every agent gets this exact prompt with no variation. Follow the prompt structure (Story/Business/Goal/DoD):
+## 3. Build one Prompt
 
-```
-Story: {task — what the user wants analyzed/reviewed/tested and why}
+Every Subagent receives the exact same Prompt with no variation.
 
-Business: {constraints — codebase context, stack, what matters}
+Template:
+    Story: {Task — what the Architect wants analyzed, reviewed, or tested, and why}
 
-Goal: Perform this analysis independently. Be thorough. Document every
-finding with evidence (file paths, line numbers, concrete examples).
-Do not hedge — state your conclusions directly.
+    Business: {Rules — codebase Context, stack, and what matters}
 
-DoD:
-- Every finding includes evidence (not just assertions)
-- Conclusions are stated directly, not hedged
-- Output is structured with clear sections
-```
+    Goal: Perform this analysis independently. Be thorough. Document every finding with Evidence: file paths, line numbers, and concrete examples. Do not hedge; state conclusions directly.
 
-3. **Dispatch N identical agents in parallel** — Same `subagent_type`, same prompt, same tools. Use `run_in_background: false` so all results are collected. Name agents `reviewer-1`, `reviewer-2`, etc.
+    Verification:
+    - Every finding includes Evidence, not just assertions.
+    - Conclusions are stated directly, not hedged.
+    - Output is structured with clear sections.
 
-4. **Synthesize** — After all agents return, compare results:
+    Architecture:
+    {Task scope. For a Review of code changes, use Current Changes and Full Diff above; mark files to inspect with *.}
 
-   - **Consensus** — Findings that 2+ agents independently identified. These are high-confidence. List each finding and which agents found it.
-   - **Unique finds** — Things only 1 agent caught. These need human judgment — could be an insight others missed, or a false positive.
-   - **Disagreements** — Where agents contradict each other. Present both sides with their evidence.
-   - **Confidence** — `N-of-N` agreement ratio (e.g., "3/3 agents agree" or "2/5 agents found this").
+    Process:
+    1. Read the Task scope and every file marked * in the Architecture block.
+    2. Complete the analysis, Review, or test independently.
+    3. For each Verification item, run Verification and paste the observed output.
+    4. If a Verification item fails, fix the work and re-verify.
+    5. Post a completion summary: what was checked, what was verified, and what was tricky.
 
-## Key Rules
+### Keep Subagent inputs identical
 
-- **Identical agents** — same prompt, same tools, same model. No differentiation. Temperature and reasoning variation provide natural diversity.
-- **No use-case limits** — this skill wraps any task. Code review, bug analysis, architecture assessment, test adequacy, migration risk — whatever the user provides.
-- **Evidence required** — every finding must include concrete evidence. "Might be a problem" is not a finding.
+Use the same `subagent_type`, Prompt, and tools for every Subagent. Reasoning variation provides the natural diversity.
+
+Never: assigning different lenses, files, or specialties to each Subagent.
+
+## 4. Dispatch N Subagents in parallel
+
+Use `run_in_background: false` so all results are collected. Name Subagents `reviewer-1`, `reviewer-2`, and onward.
+
+### Keep the Skill Task neutral
+
+This Skill wraps any Task the Architect provides: code Review, bug analysis, Architecture assessment, test adequacy, or migration risk.
+
+## 5. Synthesize the results
+
+Compare all Subagent returns before reporting.
+
+- Consensus means findings that two or more Subagents independently identified. List each finding and which Subagents found it.
+- Unique finds means findings only one Subagent caught. These need Architect judgment because each could be an insight or a false positive.
+- Disagreements means Subagents contradict each other. Present both sides with Evidence.
+- Confidence means the `N-of-N` agreement ratio, such as "3/3 Subagents agree" or "2/5 Subagents found this".
+
+### Require Evidence for every finding
+
+Every finding includes concrete Evidence. "Might be a problem" is not a finding.

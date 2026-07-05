@@ -1,146 +1,127 @@
 ---
 name: user-testing
-description: Tests code changes by tracing real user flows. Lists flows affected by uncommitted changes, spawns one subagent per flow to trace execution and find gaps, then evaluates architecturally. Use when user says "user test", "test the flows", "trace user flows", or after completing a feature.
+description: Tests code changes by tracing real Critical Paths. Lists Critical Paths affected by uncommitted changes, spawns one Subagent per Critical Path to trace Execution and find gaps, then evaluates Architecturally. TRIGGER when the Architect says "user test", "test the Critical Paths", "trace Critical Paths", or after completing a feature.
 ---
 
 # User Testing
 
-## Process
+One Process: identify the Critical Paths touched by uncommitted changes, get Architect approval, dispatch one Subagent per Critical Path, then evaluate the returned gaps.
 
-## Current Changes
+## 1. Load current changes
 
+Current Changes:
 !`git changes`
 
-## Full Diff
-
+Full Diff:
 !`git diff HEAD`
 
-### 1. Identify Changed Code
+Review Current Changes and Full Diff. Read the changed files in full.
 
-Review the "Current Changes" and "Full Diff" sections above. If the diff is empty, tell the user there are no uncommitted changes to test and stop.
+IF the diff is empty:
+### Stop without dispatching
 
-Read the changed files in full. Prepare two pieces of context for subagents:
-- **Intent** — 1-2 sentences on WHY these changes were made (business motivation, not code details)
-- **Summary** — 1 paragraph overview of what changed (files, patterns, scope)
+Tell the Architect there are no uncommitted changes to test.
 
-Use /show-architecture to build an annotated file tree of the changed files and their immediate context.
+### Prepare Subagent Context
 
-### 2. Enumerate User Flows
+Write the Intent as one or two sentences on WHY these changes were made, focused on business motivation rather than code. Write the Summary as one paragraph covering what changed: files, Precedents, and scope. Use /show-architecture for an annotated file tree of the changed files and their immediate Context.
 
-List every typical user flow that touches the changed code.
+## 2. Enumerate Critical Paths
 
-For each flow:
-- **Name** — short label (e.g., "New user signup", "Edit billing address")
-- **Entry point** — where the user starts (URL, button, action)
-- **Steps** — numbered sequence of user actions
-- **Exit** — expected end state
+List every typical Critical Path touching the changed code. Present the list to the Architect and wait for approval before dispatching; the Architect may add, remove, or modify Critical Paths.
 
-Present the flow list to the user. Wait for approval before dispatching agents. The user may add, remove, or modify flows.
+Template:
+  ```markdown
+  - Name: [short Critical Path label]
+  - Entry point: [URL, button, or action]
+  - Steps:
+    1. [User action]
+    2. [User action]
+  - Exit: [expected end state]
+  ```
 
-### 3. Dispatch Subagents
+### Never skip the approval gate
 
-Spawn one subagent per approved flow using the /subagents skill, all in parallel. Each subagent works independently — no shared state or cross-referencing between them.
+Show the Critical Paths and wait before dispatching Subagents.
 
-#### Code Tracing (default)
+## 3. Dispatch Subagents
 
-Each subagent's prompt:
+Spawn one Subagent per approved Critical Path through /subagents, all in parallel. Each Subagent works independently with no shared state.
 
-```
-Story: A user is performing [flow name]. We need to verify that
-recent code changes don't break this flow and that no gaps exist
-in the execution path.
+Template:
+  ```markdown
+  Story: A User is performing [Critical Path name]. We need to verify that recent code changes do not break this Critical Path and that no gaps exist in the Execution path.
 
-Business: [intent — WHY these changes were made]
+  Business: [Intent from step 1]
 
-What changed: [summary paragraph]
+  What changed: [Summary from step 1]
 
-Goal: Trace [flow name] step by step through the code. For each
-step, read the actual code that executes (controllers, services,
-models, middleware). Report any gaps, missing error handling,
-broken state transitions, or paths that don't work.
+  Goal: Trace [Critical Path name] step by step through the code. For each step, read the actual code that executes. Report gaps, missing error handling, broken state transitions, or paths that do not work.
 
-Steps to trace:
-[numbered steps from flow definition]
+  Verification: Every step traced to actual code with file:line references; each code path followed through controller, service, and model where those layers exist; gaps listed; state transitions verified; edge cases identified.
 
-DoD:
-- Every step traced to actual code (file:line references)
-- Each code path followed through controller → service → model
-- Gaps listed: missing validations, unhandled states, dead code paths
-- State transitions verified: does step N's output feed correctly into step N+1?
-- Edge cases identified: what happens if the user does something unexpected at each step?
+  Process: Trace the numbered steps from the Critical Path definition, use the annotated file tree from step 1, and return:
 
-Report format:
-## [Flow Name]
+  ## [Critical Path Name]
 
-### Trace
-- Step 1: [file:line] — [what happens, any gaps]
-- Step 2: ...
+  ### Trace
+  - Step 1: [file:line] — [what happens, any gaps]
 
-### Gaps
-- **Critical:** [flow-breaking issues]
-- **Important:** [functional gaps]
-- **Minor:** [rough edges]
+  ### Gaps
+  - Critical: [Critical Path-breaking issues]
+  - Important: [functional gaps]
+  - Minor: [rough edges]
+  ```
 
-[annotated file tree from step 1]
-```
+### Never guess at code behavior
 
-#### Browser Testing (only when user explicitly requests)
+Subagents read the actual code instead of inferring from names.
 
-When the user asks for browser testing, add to each subagent's prompt:
+IF the Architect explicitly asks for browser testing:
+### Append browser testing to each Subagent Prompt
 
-```
-After tracing the code, load the /agent-browser skill and walk
-through this flow in the actual UI. Load the /design skill and
-evaluate the UX at each step.
+Add that after tracing the code, the Subagent loads the /agent-browser Skill and walks this Critical Path in the actual User Interface. Add that it loads the /design Skill and evaluates the User experience at each step.
 
-Save all screenshots to /tmp/[feature-name]/ — never save files
-inside the repo.
+Template:
+  ```markdown
+  Process addition: For each step, perform the action in the browser, screenshot the result to /tmp/[feature-name]/[critical-path]-step-[N].png, evaluate whether the User Interface reflects the expected state, evaluate whether the step is clear and consistent, and report visual bugs, confusing interactions, and /design findings.
 
-For each step:
-1. Perform the action in the browser
-2. Screenshot the result to /tmp/[feature-name]/[flow]-step-[N].png
-3. Evaluate: Does the UI reflect the expected state?
-4. Evaluate UX: Is this step clear, intuitive, and consistent?
-5. Report any visual bugs, confusing interactions, or design issues
+  Verification addition: Each step screenshotted and visually verified; User experience evaluated per /design Skill Principles; visual bugs and interaction issues listed separately.
+  ```
 
-Additional DoD:
-- Each step screenshotted and visually verified
-- UX evaluated per /design skill principles
-- Visual bugs and interaction issues listed separately
-```
+### Never save browser Evidence inside the repository
 
-### 4. Evaluate
+Browser screenshots go in `/tmp/`.
 
-After all subagents return:
+## 4. Evaluate returned gaps
 
-1. Evaluate the overall implementation using /pcc — assess the changes as a whole with pros/cons/confidence
-2. List every gap and issue found across all flows, grouped by severity:
-   - **Critical** — flow is broken, user cannot complete the action
-   - **Important** — flow works but has gaps (missing validation, poor error handling, state leaks)
-   - **Minor** — flow works but has rough edges (UX issues, edge cases, inconsistencies)
+After all Subagents return, evaluate the overall implementation with /pcc, then list every gap grouped by severity.
 
-Output format:
+### Severity follows User capability loss
 
-```
-## [Feature Name] — User Testing
+Critical means the Critical Path is broken and the User cannot complete the action. Important means the Critical Path works but has gaps such as missing Verification, poor error handling, or state leaks. Minor means the Critical Path works but has rough edges such as User experience issues, edge cases, or inconsistencies.
 
-### /pcc evaluation
-[pros/cons/confidence of the overall implementation]
+Template:
+  ```markdown
+  ## [Feature Name] — User Testing
 
-### Critical
-- [flow name]: [issue] ([file:line])
+  ### /pcc evaluation
+  [pros, cons, confidence of the overall implementation]
 
-### Important
-- [flow name]: [issue] ([file:line])
+  ### Critical
+  - [Critical Path name]: [issue] ([file:line])
 
-### Minor
-- [flow name]: [issue] ([file:line])
-```
+  ### Important
+  - [Critical Path name]: [issue] ([file:line])
 
-## Boundaries
+  ### Minor
+  - [Critical Path name]: [issue] ([file:line])
+  ```
 
-- Never modify code — this skill only evaluates. Report findings, don't fix them
-- Never skip the approval gate — always show flows and wait before dispatching subagents
-- Never guess at code behavior — subagents must read the actual code, not infer from names
-- Never save files inside the repo — browser screenshots go in /tmp/
-- Browser testing only when explicitly requested — default is code tracing only
+## 5. Report without modifying code
+
+This Skill evaluates only. Report findings; do not fix them.
+
+### Browser testing requires an explicit Architect ask
+
+Default to code tracing only.

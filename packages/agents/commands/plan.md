@@ -1,82 +1,92 @@
 ---
-description: Plan a feature using structured format
+description: Plan a feature using the Plan Template
 ---
 
-## Rules
+# /plan
 
-1. User is the architect. Architectural decisions require user approval (see Claude.md).
-2. Plans are about decisions. No "Or"s in plans. Pick. Score both options with how confident you are they'll work in %, then pick the higher one. If both are under 85%, continue thinking, explore other options, or ask the user accordingly.
-3. Every assumption and decision needs a confidence score.
-4. Clarifying questions go through AskUserQuestion. Include full context IN the question so user doesn't need to read the plan.
-5. When asking, propose MULTIPLE DIFFERENT options. Mark your recommendation with confidence.
+Create a Plan the Architect can approve before Execution.
 
-## Output Format
+Live repository Context:
 
-```
-# [Feature Name]
-
-## Assumptions
-- [assumption] (X%)
-
-## Plan
-1. [step]
-
-## Architecture
-path/to/
-├── file.ts   # what it does
-└── other.ts  # what it does
-
-## New Names (using the naming skill)
-- name — description
-
-## Won't
-- [explicit exclusion]
-
-## Risk
-- [what could go wrong]
-
-## Questions
-- None (or list unresolved)
-```
-
-## Current Changes
-
+Current changes:
 !`git changes`
 
-## Branch
-
+Branch:
 !`git branch --show-current`
 
-## Recent Commits
-
+Recent commits:
 !`git log --oneline -10`
 
-## Process
+1. Explore the codebase until the current Architecture and Precedent are clear.
+2. Question whether the feature needs to exist.
+3. Cut scope to the smallest complete change that solves the Goal.
+4. Classify risk:
+   - High risk: security, authentication, payments, external services, or data privacy.
+   - Unfamiliar: new dependency, new tool, no codebase Examples, or confidence below 70%.
+   - Strong local Precedent: clear codebase Examples and confidence above 85%.
+5. When current outside knowledge is needed, use WebSearch or WebFetch, then continue.
+6. Validate Plan completeness before writing:
+   - Success criteria are defined.
+   - Edge cases are identified.
+   - Error handling is clear.
+   - Dependencies are known.
+7. If anything is missing, ask the Architect via AskUserQuestion before proceeding.
+8. Draft assumptions with confidence scores.
+9. If any assumption is below 70%, ask the Architect before proceeding.
+10. Draft the Plan with Decisions, not options.
+11. Validate with the `pragmatic-engineering` Skill.
+12. Present the Plan to the Architect for approval.
 
-1. Explore codebase to understand context
-2. Question requirements (does this need to exist?)
-3. Delete scope (what's the 20% that solves 80%?)
-4. Classify domain risk:
-   - **High-risk** (security, auth, payments, external APIs, data privacy) → research externally
-   - **Unfamiliar** (new framework, no codebase examples, <70% confident) → research externally
-   - **Strong local patterns** (codebase has clear examples, >85% confident) → skip external
-5. If external research needed: use WebSearch/WebFetch for current best practices, then continue
-6. Validate spec completeness before planning:
-   - [ ] Success criteria defined? (how do we know it works?)
-   - [ ] Edge cases identified? (empty, null, max, concurrent)
-   - [ ] Error handling clear? (what fails, how?)
-   - [ ] Dependencies known? (external services, other features)
-   - If any missing: ask user via AskUserQuestion before proceeding
-7. Draft assumptions with confidence scores
-8. If any assumption <70%, ask user before proceeding
-9. Draft plan with decisions (not options)
-10. Validate with `pragmatic-engineering` skill
-11. Present to user for approval
+Template:
+  # [Feature Name]
 
-## Asking Questions
+  ## Assumptions
+  - [assumption] (X%)
 
-Use AskUserQuestion tool. Each question must be standalone:
-- Include: file path, code example, confidence scores for each option
-- Propose 2-4 different approaches
-- Mark recommendation: "Option A (recommended, 80%)"
-- User answers without reading the plan
+  ## Plan
+  1. [step]
+
+  ## Architecture
+  path/to/
+  ├── file.ts   # what it does
+  └── other.ts  # what it does
+
+  ## New Names (using `/naming`)
+  - name — description
+
+  ## Won't
+  - [explicit exclusion]
+
+  ## Risk
+  - [what could go wrong]
+
+  ## Questions
+  - None, or list unresolved questions.
+
+AskUserQuestion Template:
+  Context: [self-contained Context so the Architect does not need to read the Plan]
+  Current state: [file path and code Example]
+  Options:
+  - Option A (recommended, 80%) — [tradeoff]
+  - Option B (70%) — [tradeoff]
+  - Option C (60%) — [tradeoff]
+
+### The Architect owns Architecture
+
+Architectural Decisions require Architect approval.
+
+### Plans contain Decisions, not options
+
+Never write "or" in a Plan. Score the options, pick the highest-confidence one, and ask the Architect only when the real choices remain below 85% confidence.
+
+### Confidence is part of the Plan
+
+Every assumption and Decision carries a confidence score.
+
+### Questions are self-contained
+
+Every AskUserQuestion includes the full Context, relevant file path, code Example, confidence scores, and 2-4 different options.
+
+### Mark the recommendation
+
+Every AskUserQuestion marks the recommended option with its confidence score.

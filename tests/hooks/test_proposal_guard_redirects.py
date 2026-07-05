@@ -6,7 +6,8 @@ and perms. It must NOT mistake shell file-descriptor duplication (`2>&1`, `>&2`,
 `&>`-with-fd, `>&-`) for a file target: those never write a repo file, and
 false-blocking them obstructs ordinary commands. A real mutation of a repo file
 must still block — that protection is the point. Mutations into the whitelisted
-dirs (`/tmp`, `.claude/plans`, `.claude/shaping`, `~`-expansions of them) stay allowed.
+dirs (`/tmp`, `docs/plans`, `docs/shaping`, `.claude/plans`, `.claude/shaping`,
+`~`-expansions of them) stay allowed.
 
 Each case runs the hook as a subprocess with a proposing-state /tmp state file, the
 same way Claude Code invokes it, and asserts the exit code: 0 = allowed, 2 = blocked.
@@ -39,6 +40,17 @@ def _run(command):
         "session_id": SID,
         "cwd": REPO,
         "tool_input": {"command": command},
+    })
+    return subprocess.run(
+        ["python3", HOOK], input=payload, text=True, capture_output=True, cwd=REPO
+    ).returncode
+
+
+def _run_file(file_path):
+    payload = json.dumps({
+        "session_id": SID,
+        "cwd": REPO,
+        "tool_input": {"file_path": file_path},
     })
     return subprocess.run(
         ["python3", HOOK], input=payload, text=True, capture_output=True, cwd=REPO
@@ -87,6 +99,17 @@ WHITELISTED_MUTATION_ALLOWED = [
     "mkdir /tmp/d",
     "chmod 755 /tmp/x",
     "touch ~/.claude/plans/foo.md",
+    "touch docs/plans/foo-V1.md",
+    "mkdir docs/shaping/feature",
+    "touch .claude/plans/foo.md",
+    "mkdir .claude/shaping/feature",
+]
+
+WHITELISTED_FILE_MUTATION_ALLOWED = [
+    "docs/plans/foo-V1.md",
+    "docs/shaping/feature/shaping.md",
+    ".claude/plans/foo.md",
+    ".claude/shaping/feature/shaping.md",
 ]
 
 
@@ -115,6 +138,15 @@ def test_repo_mutation_is_blocked(proposing_state, command):
 @pytest.mark.parametrize("command", WHITELISTED_MUTATION_ALLOWED)
 def test_whitelisted_mutation_is_allowed(proposing_state, command):
     assert _run(command) == 0
+
+
+@pytest.mark.parametrize("file_path", WHITELISTED_FILE_MUTATION_ALLOWED)
+def test_whitelisted_file_mutation_is_allowed(proposing_state, file_path):
+    assert _run_file(file_path) == 0
+
+
+def test_repo_file_mutation_is_blocked(proposing_state):
+    assert _run_file("README.md") == 2
 
 
 def test_would_regress_on_unfixed_logic():

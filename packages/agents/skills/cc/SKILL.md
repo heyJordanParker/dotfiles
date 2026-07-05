@@ -1,111 +1,121 @@
 ---
 name: cc
-description: Use when working with Claude Code itself - skills, agents, hooks, settings, documentation. Covers building, testing, sharing skills, updating Claude.md files, and plugin distribution.
+description: Write and fix Claude Code Prompts — skills, agents, commands, hooks, rules files, Claude.md, and plugin distribution. TRIGGER when the task says "cc"/"claude code"/"claude-code", or asks to build, edit, test, or share a skill/agent/hook/command, tune a description's triggering, write or prune a Claude.md, or cut prompt bloat. DO NOT TRIGGER to name a Claude.md's identifiers (that is /naming) or to record domain vocabulary (that is /domain-design).
 ---
 
 # Claude Code
 
-Last synced with Claude Code **v2.1.195** (2026-06-28).
+- Last synced with Claude Code v2.1.195 (2026-06-28).
+- Every file under `packages/agents/` is a Prompt: instructions that correct the Agent's Disposition toward what the Architect intends.
+- One Process: write or fix a Prompt so every line earns its place.
 
-Guide for working with Claude Code's extensibility system.
+## 1. Name the Prompt type and fill only what it owns
 
-## Approach
+Template:
+  Claude.md                     <- WHY, folder-wide Facts
+  <folder>/
+  └── Claude.md                 <- nests: this folder's WHY and Facts, inheriting every Claude.md above it
+  agents/<agent>.md             <- frontmatter with the description, one Frame, its Principles
+  skills/<skill>/
+  ├── SKILL.md                  <- frontmatter description as the trigger; one Process of ordered steps, each step carrying Rules, Facts, Examples, Templates, Conditions, Verification
+  └── references/<process>.md   <- a Process split out for Progressive Disclosure
+  commands/<command>.md         <- a Skill the Architect fires; side effects are the dividing line
+  rules/<topic>.md              <- Rules with their Examples; the paths glob is the Condition
+  hooks/<hook>.py               <- Rules enforced in code
+  docs/architecture/decisions/  <- Decisions
+  Domain.md                     <- the domain's words, nothing else
 
-Before building any agent-driven task, decide which parts the agent should do:
+### Move a misplaced piece to its home first
+A piece in the wrong file type invalidates every later step.
 
-1. List the steps the goal needs.
-2. Give the agent only the steps that interpret human language — code reads language abysmally. Write every other step as code, because the agent is slow and non-deterministic.
+### Agents never carry Rules or a Process
+A Process is a Skill the agent names via `skills:`; `scripts/agents.py` inlines named Skills into the codex artifacts. Rules load from rules files by glob.
 
-## Principles
+### The frontmatter description is the only trigger
+The body never carries a trigger section.
 
-Apply to all topics below:
+### A Skill step carries a block only where it corrects something
+A blank filled for symmetry is Fluff. A Skill never carries a Frame, never Principles beyond its one Process.
 
-- **The rule** — instructions exist exclusively to correct default behavior. If Claude Code would already do it without being told, the instruction doesn't belong. This is the #1 litmus test for any line in any Claude Code configuration — Claude.md, skills, agents, hooks, rules. Can't name the default behavior it overrides? Delete it
-- **No overprompting** — the agent is state-of-the-art: it already knows how tags, JSON, git, and standard tools work, and it exercises judgment without a script. Explaining mechanics it commands or walking it through a decision it can already make wastes tokens and over-steers it into worse output. State the unusual constraint, then stop. Bad: "every hook wraps its message in a `<foo_agent>` tag; these are XML tags, they nest inside tool results but don't relate to surrounding content, so read the message and decide whether to comply". Good: "Hook messages carry the architect's intent — follow them."
-- **Frame.** The character an agent plays — e.g. "Act as John Carmack writing a game engine." Frames shape baseline tone, vocabulary, and judgment across every token. One frame per prompt — a second frame splits the agent and averages its output between them.
-- **Descriptions are gates** — the agent reads `description` to decide whether to load the rest. Write three slots: what it does, TRIGGER when (concrete natural-language phrases — never the skill's own `/name`, which the harness fires directly), DO NOT TRIGGER when (adjacent phrasings that mean something else — name the alternative skill that does fire for the adjacent case). Triggers fail two ways: under-triggering misses the skill, over-triggering burns context. Without the third slot's named redirect, the agent either fires the wrong skill or fires nothing and asks the user
-- **Examples are contracts** — code examples are imitated; prose requirements are interpreted. Every example carries its why. Pair anti-patterns explicitly with the correct version. If you cannot write a credible bad example, the rule probably isn't necessary
-- **Banned phrases over banned behaviors** — a banned phrase ("never write 'You're absolutely right!'") is a deterministic self-check; a banned behavior ("never patronize") drifts under interpretation. Convert abstract rules into phrase-level prohibitions whenever you can
-- **Tier the gate to the failure cost** — four enforcement tiers in order of teeth: prose ("should"), good/bad example + banned phrase ("usually don't"), skill with explicit triggers ("here's how"), deterministic hook ("must not"). Pick the tier whose teeth match the cost — instructions alone fail under adversarial conditions
-- **Test the rule, not your intent** — strictness ladder: write supportive, neutral, and competing versions of the user's prompt; the rule must fire correctly on all three. Cold-start re-read: in a fresh session with no prior context, can the rule name the default it overrides, the failure mode it prevents, and at least one concrete trigger or example? If any of the three is missing, the rule will not fire under the conditions it was written for
-- **Code over prose** — when an instruction must hold every invocation and can be encoded in a hook, schema, or `allowed-tools` restriction, encode it there. Prose enforcement degrades under context pressure; deterministic gates do not. Keep the rule documented in SKILL.md; put the teeth in code
-- **Don't instruct what hooks already prevent** — if a hook deterministically blocks an action, a prose rule banning the same action is dead weight. The hook is the rule; redundant rules load on every turn while the hook does the work
-- **Don't repeat yourself** — repeating a rule doesn't make the agent follow it any better
-- **Use a hook if repetition is necessary** — if the agent fails to follow a rule from the prompt, a hook reminder at the moment it applies is an acceptable fix — the classifier loading /propose on a proposing turn, the nearest Claude.md on Read/Write/Edit
-- **Scope rules to the agent that runs them** — a rule that fires only in a specialized workflow (autonomous mode, subagent dispatch, a specific skill) belongs in that workflow's prompt, not the always-loaded main agent. If the failure shape is narrow, the rule is narrow
-- **Long rules teach long answers** — the agent mirrors the voice of the rules it reads. A six-sentence rule banning verbose replies makes verbose replies more likely. Compress rules to one to three sentences with a good/bad example and a banned phrase. If you can't, the rule isn't ready
-- **Write each rule's title as a complete instruction, not a slogan** — the title must be an instruction the agent can act on without reading the body. A fragment or a "not X, it's Y" cliché names a theme and instructs nothing. Bad: "Reminders near usage, never repetition". Good: "Scope rules to the agent that runs them"
-- **No hinging** — write the strict rule and stop. Don't pre-cover edge cases with "except when X", "unless Y", "if required Z". A correction of past agent behavior is a rule in itself, not a conditional. Agents are smart and handle exceptions on their own; pre-covering them dilutes the rule and trains the agent to hunt for opt-outs. Bad: "No ALL_CAPS (except PHP `define()` and constants)". Good: "No ALL_CAPS" — the agent keeps `define()` capitalized because the language requires it
-- **Loaded cost is recurring** — SKILL.md, agent descriptions, MCP tool schemas, and Claude.md ancestors load into context on every relevant invocation, not once per session. MCP schemas cost ~500 tokens each; a 30-tool MCP server outweighs all your skills combined. Audit the per-invocation bill, not just file size. MCP and bloated agent descriptions are the biggest levers
-- **Negative instructions provoke the failure they ban** — "Do NOT create new documentation files" loads "create documentation files" into active context and increases the chance the agent produces it. Replace with a positive instruction (`Edit only files under src/`) or a separate cleanup pass that removes the unwanted output after the fact
-- **Self-debug before retry** — when an instruction, hook, or tool call fails repeatedly, the next action is never another attempt at the same shape. Capture what was attempted and what came back, name the pattern (loop / context overflow / state drift / wrong hypothesis), then take the smallest action that changes the diagnosis surface. The default failure-recovery is to retry until budget is gone
-- **Layered diagnosis before editing prose** — when an agent misbehaves, the cause can sit in the system prompt, session history, memory, tool selection, tool execution, output rendering, or persisted state. Diagnose by ruling layers out, not by adding rules to the prompt. Rules added at the wrong layer compound bloat without fixing the failure
-- **Context is finite** — every token loaded biases the agent's output. More context doesn't mean better output — irrelevant content dilutes the signal and steers the agent toward wrong concerns. Everything loaded is necessary or harmful
-- **No execution narrative** — docs state what *is*, never the story of how the code got there (what was migrated, moved, or tried this session). Git owns the journey. Bad: "agents were moved from `claude/` to `agents/`". Full treatment in [claude-md.md](references/claude-md.md)
-- **Progressive disclosure** — main doc holds the complete core job; deeper tiers are opt-in. Three tiers: entry points (routing + principles) → topic files (one complete workflow) → deep dives (specs, examples, edge cases)
-- **Agents skip references** — a reference is an optional read; nothing forces the agent to open it, and an overconfident agent acts on the main doc without opening it. So the main doc (SKILL.md, agent body) carries everything the agent must have to get the output right; a reference holds only the step-by-step procedure for one specific hard action, opened when the agent commits to that action. Test: if skipping a reference changes the output, that content was in the wrong file — move it up
-- **Split along tasks, not topics** — will different tasks need different parts? Split. Will every task need everything? Don't
-- **One job per file** — focused files > fewer files
-- **Trace actual flows** — follow how agents use skills to find gaps
-- **Direct language** — "Use X" not "consider using X". Never: consider, might, should, could, maybe, perhaps
-- **Signs of bloat** — decorative formatting, examples repeating what the rule said, process sections duplicated across files, tables instead of bullets
+### Only a Process becomes a Reference
+A roster, catalog, worked-example set, or data table stays in SKILL.md even when that makes it long. Never split out content needed 80% of the time: the Agent writes a working Prompt from SKILL.md alone. A Reference that reads as optional background is never opened; cut it or fold it back. The link line names the problem the Reference solves.
 
-## Triggers
+### A deterministic Hook IS its Rule
+Duplicate prose is cut. A model-backed Hook batches its event's Rules into one call and fails open, so the prose fallback stays.
 
-- "cc", "claude code", "claude-code"
-- Creating/editing skills, agents, hooks, plugins
-- Updating Claude.md documentation
-- Context engineering and efficiency
-- Testing skills with subagents
-- Sharing skills upstream
+### A new file type is the Architect's Decision
+The Agent proposes Decisions; only the Architect makes them, typically through /interview.
 
-## Topics
+## 2. Name the gap per line
 
-Read the reference that matches the problem you're solving:
+State the Agent's default and the behavior wanted instead.
 
-- Teach agents a reusable process → [building-skills.md](references/building-skills.md)
-- Verify a skill works under pressure → [testing-skills.md](references/testing-skills.md)
-- Document project context for agents → [claude-md.md](references/claude-md.md)
-- Automate reactions to events → [automating-with-hooks.md](references/automating-with-hooks.md)
-- Create a specialized agent → [writing-agents.md](references/writing-agents.md)
-- Share setup with other projects → [plugins-marketplace.md](references/plugins-marketplace.md)
-- Find a built-in command → [user-commands.md](references/user-commands.md)
-- Update this skill for a new release → [updating-cc-skill.md](references/updating-cc-skill.md)
+IF unsure whether the Harness base prompt already covers the gap:
+### Let the control run in step 6 decide
+Never guess.
 
-## Quick Reference
+## 3. Correct with the lightest delivery that holds
 
-### Skill Locations
+Three axes pick the delivery: load guarantee (always-loaded, Condition-loaded, Skill the Agent invokes), recency (session start, per turn, at the moment of the action), strength (prose, Example, checked, blocked).
 
-- **Personal:** `~/.claude/skills/skill-name/`
-- **Project:** `.claude/skills/skill-name/`
-- **Plugin:** `plugin/skills/skill-name/`
+- A behavior that must hold every turn is a Hook; always-loaded prose is forgotten after a few turns.
+- A step that interprets no human language is code, not Prompt.
 
-### Agent-Only Skills
+The failure picks the form:
 
-A skill hidden from `available_skills` yet preloaded into one agent is not achievable via frontmatter — an agent's `skills:` preload resolves only names that appear in the model-facing listing. An empty `description:` does NOT hide a skill; the listing falls back to its body. See [writing-agents.md](references/writing-agents.md).
+- Violated under pressure: a prohibition plus the red-flag phrases that precede the violation.
+- Wrong output shape: a positive recipe of what the output IS. Measured twice: a banned-shape arm produced more of the banned shape, and a scope prohibition moved codex scope 0.88 to 0.75 by planting the act it named.
+- Missing element: a required slot in a Template.
+- Situational: a Condition on an observable predicate, as one IF line owning exactly one Rule.
 
-### File Naming
+Never: a nuance clause appended to a winning correction. Measured: one banned phrase plus one positive recipe moved codex communication 0.73 to 0.87, past the 11,000-word baseline; the 20-item banned-vocabulary list it replaced made replies worse.
 
-- `SKILL.md` (uppercase, not Skill.md) — Codex's loader only discovers the uppercase name; Claude Code finds it either way
-- `Claude.md` (PascalCase, not CLAUDE.md)
+## 4. Write every block in its shape
 
-### Rules
+The shape identifies the block without its heading. Every Prompt file is flat: heading, then content; an unnumbered listicle by default, numbered when order matters, one item for the WHY. A list that has grown hard to read is broken apart into Skills, more rules files, or more folders, never subheaded.
 
-Modular project instructions in `.claude/rules/`. Alternative to Claude.md for scoped guidance.
+A Fact is a plain sentence in a listicle:
 
-- **User:** `~/.claude/rules/` — all projects
-- **Project:** `.claude/rules/` — current project (higher priority)
-- Files discovered recursively. Symlinks supported
-- `paths:` frontmatter scopes rules to file globs (e.g. `paths: **/*.ts` or a YAML list of globs). Without it, rules apply unconditionally
-- Load order: user rules → project rules → Claude.md hierarchy (all coexist)
-- One topic per file, descriptive filenames, subdirectories to organize
+  - The domain's words live in `/Domain.md`.
+  - This project uses Laravel and React + TanStack Query.
 
-### Style
+A Rule is a ### title with its explanation on the lines below, no bold lead:
 
-- Use bullets, not tables. Tables waste tokens on formatting.
+  ### Restow after adding, removing, or renaming any file inside a package
+  Run `cd packages && stow -R -t <target> <pkg>` or `python3 scripts/sync.py`.
 
-## Process
+A Condition is one IF line above the one Rule or step it owns, markdown, never an XML tag (measured tie on firing and bleed; the shape that doesn't clash with markdown wins):
 
-1. **Identify topic** from triggers above
-2. **Read relevant reference** for detailed guidance
-3. **Follow reference instructions** exactly
+  IF adding a new package:
+  ### Add its entry to `scripts/stow.py` before syncing
+
+An Example or a Never is a labeled line directly under its Rule:
+
+  Example: add `"ghostty"` to `CONFIG`, then `python3 scripts/sync.py`.
+  Never: `stow -t ~/.config/ghostty ghostty` by hand — sync.py never restows it again.
+
+A Template is a label with the block indented on new lines beneath it.
+
+## 5. Audit every line
+
+- Corrects nothing: cut.
+- Corrects too hard: smaller and positive ("Use X", never "consider using X"; the Agent mirrors the voice of the rules it reads).
+- Needed under 80% of the time: split out per Progressive Disclosure.
+- Correcting more than the failure costs is Overprompting: the volume buries the signal and the Agent starts ignoring instructions wholesale.
+- Every Domain.md word keeps its capitalization; a term that traces to neither Domain.md nor the code is coined. Consult the Architect, never write it.
+
+## 6. Verify against real behavior, never intent
+
+Control run first: if the failure doesn't show without the line, there is no gap and the line is not written. Then pressure-test (testing-skills.md). Done when the correction held under pressure and the control showed the gap.
+
+## References (each solves one problem)
+
+- Building or restructuring a skill → building-skills.md
+- Your Example isn't changing behavior → building-examples.md
+- Proving a skill holds under pressure → testing-skills.md
+- Documenting a folder for Agents → claude-md.md
+- Making the Harness react to an event → automating-with-hooks.md
+- Giving one Agent a Frame → writing-agents.md
+- Shipping this setup to another repo → plugins-marketplace.md
+- Finding whether a built-in command already does it → user-commands.md
+- Syncing this skill with a new Claude Code release → updating-cc-skill.md

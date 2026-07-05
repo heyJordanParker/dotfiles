@@ -1,170 +1,92 @@
 ---
 name: code-first
-description: Autonomous async execution mode. The architect hands off, walks away, and the agent drives the task to done — makes every architectural call via /trace + /pcc + ranking, executes through /subagents (or /team for 3+ subtasks), validates by exercising the user-facing flow (real browser via the tester agent for UI), and returns finished code plus a decision log for review. TRIGGER when the architect says "code-first", "/code-first", "execute with /subagents", "execute directly & autonomously", "drive it and report back", "iterate until done", "I'm going to bed", "off to bed", or signals an AFK / overnight handoff. DO NOT TRIGGER when the architect wants options before action — that fires the default escalate-on-architecture mode (no skill loaded; the agent proposes via /pcc and waits).
+description: Autonomous async Execution. The Architect hands off and walks away; the Agent drives the Task to done — makes every Architectural call via /trace + /pcc + ranking, executes through /subagents (or /team for 3+ subtasks), verifies by exercising the User-facing flow (real browser via the tester agent for UI), and returns finished code plus the recorded Decisions for review. TRIGGER when the Architect says "code-first", "/code-first", "execute with /subagents", "execute directly & autonomously", "drive it and report back", "iterate until done", "I'm going to bed", "off to bed", or signals an AFK / overnight handoff. DO NOT TRIGGER when the Architect wants options before action — that is the default mode (propose via /pcc and wait).
 ---
 
 # Code-First
 
-The architect hands off and walks away; you drive to done. Make every
-architectural call, execute through subagents, validate by exercising
-the user-facing flow, return finished working code plus a decision log.
-The architect owns architecture and exercises that ownership on running
-code at review time, not on a proposal up front.
+- Invoking this Skill moves the Architect's Architecture Review to the returned Decisions instead of a Proposal up front.
+- Outside this Skill, every Architectural change waits for approval.
+- One Process: drive the Task to done while preserving the baseline, using Subagents for Execution, and returning finished code plus the recorded Decisions.
 
-## Triggers
+## 1. Establish the baseline
 
-- "code-first", "/code-first"
-- "execute with /subagents", "execute directly & autonomously"
-- "drive it and report back", "iterate until done"
-- "I'm going to bed", "off to bed", any AFK / overnight handoff
+Run the test suite before changing anything. Read the affected area until you know which User capabilities currently work. Write the baseline in Context.
 
-## What this mode replaces
+### Treat the baseline as the contract
 
-The default rules have the architect approve each architectural call
-before action. This skill replaces that one gate with post-hoc review,
-because invoking it is the explicit handoff. Outside this skill, the
-default holds.
+The final state matches or exceeds the entry test result and preserves every current User capability.
 
-## Baseline
+Example: when the Architect says "the code works right now, the tests work, that's what we expect at the end," a Subagent's broken-before claim is checked against the baseline instead of accepted.
 
-Establish the entry baseline in writing before anything else:
+## 2. Build the Verification plan from code
 
-- Run the test suite. The result is the contract; final state matches
-  or exceeds it.
-- Read the relevant area enough to know what currently works for the
-  user. Final state preserves every capability.
+Dispatch a research Subagent with /trace and /subagents to study the affected area and map every Critical Path the Task touches: entry, input, expected output, and end state. Keep the plan fresh in Context with /loop as the work expands.
 
-The architect's framing — "the code works right now, the tests work,
-that's what we expect at the end" — is the contract. A broken-before
-deflection by any subagent is checked against this baseline.
+### Exercise User behavior, not confidence
 
-## Validation SOP
+Compile, type checks, and confidence numbers are not Verification. User Interface Critical Paths run in a real browser through the tester Agent.
 
-Build the validation SOP from the code, not from your head. Dispatch
-a research subagent (/trace + /subagents) to study the area, map the
-user-facing flows the task touches, and return a concrete plan: every
-flow, every input, every expected output.
+## 3. Make and record each Architectural call
 
-That plan is the validation contract. Keep it fresh in context with
-/loop so it doesn't drop out as the work expands.
+For every Architectural call: trace the code, run /pcc, rank options against User, Architecture, and WHY, pick the best option, then record the Decision.
 
-Validation is exercised behavior — see /subagents. UI flows run in a
-real browser through the tester agent. Compile, type check, and
-confidence number are never validation (compile-as-validation,
-confidence-as-validation).
+### Rank by correctness
 
-## Architectural calls
+Never rank an Architectural option by effort, file count, or speed.
 
-Every architectural call follows the same workflow. You make the
-call. The architect reviews the recorded calls at the end.
+Template:
+  ```markdown
+  - Decision: [what was chosen]
+  - Trigger: [what surfaced the Decision]
+  - Why: [User, Architecture, and WHY reason]
+  - Alternatives: [options weighed and rejected]
+  - Touched: [modules, contracts, or data in Architect language]
+  - Verification: [command output or browser Evidence]
+  - Confidence: [percent and remaining risk]
+  ```
 
-1. /trace and explore the code first. Trace before any urge to ask.
-2. /pcc — surface real options with pros, cons, confidence.
-3. Rank against the litmus: user, architecture, business. Never
-   effort, file count, or speed.
-4. Pick the best one.
-5. Record the call in the decision log.
+## 4. Execute through Subagents
 
-## The decision log
+Use /subagents for Execution, or /team when the Task has three or more subtasks that need persistent coordination. You orchestrate, hold the Goal, verify claims, and may /trace small files directly; larger checks go to a Verification Subagent.
 
-Return one artifact at the end. Architectural calls only — never a
-process recap. Order them so context compounds: a call that
-establishes a fact comes before calls that rely on it.
+### Keep issues assigned to the Subagent that owns them
 
-For each call:
+A Subagent claim is not accepted until proved. Contradictions with the Architect's reported outcomes follow /subagents contradiction handling.
 
-- **Decision** — one sentence: what you chose.
-- **Trigger** — what surfaced this as a decision (a failing test, a
-  missing route, a contract gap, a user-reported outcome).
-- **Why** — the user / architecture / business reason it serves.
-- **Alternatives** — what you weighed and rejected, one line each.
-- **Touched** — modules, contracts, or data, in architect-voice.
-- **Validation** — exact command and exact output. Browser evidence
-  for UI flows (tester agent).
-- **Confidence** — %, and the remaining risk. A number below certain
-  means a path is untested — exercise it before logging the call.
+### Restore manually after destructive git damage
 
-Calls are independent. The architect accepts or rejects each one. A
-rejection re-dispatches that slice with the correction; accepted
-calls stand.
+The Agent that broke a file restores it manually; do not hide the damage behind a broad restore.
 
-Example entry:
+## 5. Handle blockers without stopping the run
 
-- **Decision** — Forms endpoint exposed as
-  /api/v1/builder/form-submit; one controller handles both variants.
-- **Trigger** — Live dent.js posts to a /wp-json/bricks/v1/form/
-  route that doesn't exist in Bricks 2.x; native form pixel silently
-  dead.
-- **Why** — Architecture goal: a single trustworthy entry through
-  Laravel middleware. User benefit: form tracking that doesn't depend
-  on plugin internals.
-- **Alternatives** — (a) Hook into Bricks' admin-ajax handler
-  in-place — keeps the WP hooks hell. (b) Two controllers per variant
-  — preserves old labeling but variants are collapsing.
-- **Touched** — New controller pair routes; api middleware group now
-  runs for builder form posts.
-- **Validation** — POSTed `{email: a@b.co}` via the live form; got
-  200 with redirect to /thanks; optin pixel fired in the network
-  panel (tester agent, real browser).
-- **Confidence** — 95%. Remaining risk: third-party form-builder
-  variants we don't currently render.
+Use /subagents claimed-blocker handling. A real blocker is recorded under Pending Architect input with the item, the paths attempted, and which boundary each path crosses. Pause that item and continue other work.
 
-## Blockers
+IF shared state is corrupted and needs manual restore:
+### Stop the run
 
-Most claimed blockers are blocked excuses — see /subagents. A real
-blocker survives the retry / restart / rebuild ladder and every
-honest path crosses a boundary the architect must rule on.
+Do not continue on corrupted shared state.
 
-When a real blocker hits:
+## 6. Check long-running work on cadence
 
-- Log it in the decision log under "Pending architect input": the
-  item, the paths attempted, what each crosses.
-- Pause that one item. Other work continues.
-- The whole run stops only when shared state is corrupted and needs
-  a manual restore (see /subagents).
+Check long-running tests, builds, and Subagents on a 30-minute wall-clock cadence. The Harness re-invokes you when tracked work finishes.
 
-## Background work cadence
+### Preserve Context for synthesis
 
-Long-running processes — test runs, builds, async subagents — get
-checked on a 30-minute wall-clock cadence. Fast polling is the
-**context-drain** failure mode: each check eats the context needed
-for synthesis at the end. The harness re-invokes you when tracked
-work finishes.
+Fast polling drains the Context needed for the final Review.
 
-## Hard Rules
+## 7. Verify every iteration
 
-- **You make the calls.** Reverting to "which option do you want?"
-  is the default mode, not this one.
-- **You verify, hold the goal, and orchestrate; you do not
-  implement.** /trace small files for direct checks; anything larger
-  is a hard gate handled by a verification subagent.
-- **Validation is exercised behavior.** UI flows through the tester
-  agent in a real browser. Compile-as-validation and
-  confidence-as-validation are banned.
-- **Issues are 99% subagent laziness, 1% everything else.** Treat
-  them so. Hold subagents accountable; prove every claim.
-- **The architect is right about reported outcomes.** Shallow
-  reframes get re-dispatched, not believed.
-- **Destructive-git restore is banned.** The agent that broke a file
-  may restore it manually; never a script, never a blind nuke.
-- **Architecture stays the architect's to own.** Code-first means
-  reviewed after, not unowned.
+Run the Verification plan every iteration. Keep the baseline tests green. User Interface Critical Paths run in a real browser through the tester Agent.
 
-## Process
+### Done means the Critical Paths are green
 
-Run top to bottom without pause:
+No coping is accepted. Iterate until every Critical Path in the plan is verified.
 
-1. **Baseline** — run the test suite, read the relevant area, record
-   the entry baseline.
-2. **Validation SOP** — dispatch a research subagent to map the user
-   flows and return a validation plan. Keep it fresh via /loop.
-3. **Architectural calls** — for each: /trace, /pcc, rank, pick,
-   record (with trigger).
-4. **Execute** — orchestrate via /subagents (or /team for 3+). Apply
-   the full no-bullshit rules. Take the long hard way.
-5. **Validate** — run the SOP every iteration. UI flows in a real
-   browser via the tester agent. Baseline tests stay green.
-6. **Iterate until done** — every DoD met, every SOP item green, no
-   coping accepted. 99% of issues live in subagent work.
-7. **Return** — finished code plus the decision log. Pending blockers
-   surfaced separately. Stop.
+## 8. Return finished work and Decisions
+
+Return finished code plus the recorded Decisions. Surface pending Architect input separately. The Decisions list contains Architectural calls only, not a process recap, ordered so a Decision that establishes a fact comes before Decisions that rely on it.
+
+### Decisions are independently reviewable
+
+The Architect accepts or rejects each Decision independently. A rejected Decision re-dispatches that Slice with the correction; accepted Decisions stand.

@@ -1,31 +1,60 @@
 ---
 name: solo
-description: Framework for working solo — no subagents, deep full-file reads, thorough research before acting. Use when context window can absorb the full picture. For agent-based work, use /subagents or /team.
+description: Framework for working solo — no Subagents, deep full-file reads, thorough research before acting. TRIGGER when Context can absorb the full picture. For Orchestration, use /subagents or /team.
 ---
 
 # Solo
 
-No subagents, no delegation. Read the full architecture before touching it — fix or propose solutions based on root causes at the right layer, not symptoms at the wrong one. For parallel independent tasks, use /subagents. For persistent multi-task coordination, use /team.
+Solo means no Subagents and no delegation.
+The `enforce-solo-mode` Hook blocks Subagent dispatch.
+Read the full Architecture before touching it; fix or propose from root causes at the right layer.
 
-## Research
+## 1. Confirm solo is the right operating mode
 
-- The trace skill is how you research and how you locate files and symbols — not raw Read or grep. Once located, read the file in full through it
-- Read whole files. Never use offset/limit on files under 500 lines
-- Follow every reference — imports, callers, siblings, tests, configs
-- Read the surrounding architecture before proposing changes. The file with the symptom is rarely the file with the problem
+IF the Task has parallel independent work:
+### Use /subagents instead
+Solo is for work where Context can absorb the full picture.
 
-## Hard Rules
+IF the Task needs persistent multi-Task coordination:
+### Use /team instead
+Teams preserve Context across turns and Slices.
 
-- No Agent tool — enforced by the `enforce-solo-mode` hook
-- No skimming — if a file matters, read it fully
-- No hedging — never say "likely" or "probably" about code you can read
-- Assume existing code is intentional — if the reason for something is unclear, research more before changing or proposing changes
+## 2. Locate the relevant files
 
-## Process
+### Use the trace Skill to research
+Use /trace to locate files and symbols. Do not start with raw Read or grep.
 
-1. **Locate** — find the relevant files
-2. **Read** — every relevant file fully, plus surrounding architecture
-3. **Assess** — is this a real issue? Trace the code path to confirm. If not, report findings and stop
-4. **Understand** — which layer owns this responsibility? Fix it there, not where the symptom surfaces
-5. **Propose or act** — at the correct abstraction layer
-6. **Verify** — trace changes through the code paths you read. Run tests
+## 3. Read every relevant file fully
+
+### Read whole files
+Never offset or limit files under 500 lines.
+
+### Follow every reference
+Follow imports, callers, siblings, tests, and configs.
+
+### Read surrounding Architecture
+The file with the symptom is rarely the file with the problem.
+
+## 4. Assess whether the issue is real
+
+### Trace the code path before deciding
+Confirm behavior against the code path you read. If the issue is not real, report findings and stop.
+
+### Do not hedge about readable code
+Never write "likely" or "probably" about code you can read.
+
+## 5. Act at the layer that owns the responsibility
+
+### Assume existing code is intentional
+If the reason is unclear, research more before changing or proposing.
+
+### Fix the cause, not the symptom
+Change or propose at the layer that owns the responsibility.
+
+## 6. Verify
+
+### Trace the changed code paths
+Trace changes through the code paths you read.
+
+### Run tests
+Run the relevant tests and report the observed output.

@@ -1,147 +1,171 @@
-# React Security Best Practices
+# Security
 
-## Understand JSX Auto-Escaping Limits
+One Process: keep User input untrusted, put unsafe behavior behind narrow wrappers, and verify server and client boundaries.
 
-React escapes content in JSX `{value}` bindings, converting `<`, `>`, `&`, `"`, `'` to HTML entities. This prevents HTML injection in text content but does NOT protect against `dangerouslySetInnerHTML`, `javascript:` URLs in href/src, direct DOM manipulation via refs, or SSR string concatenation.
+## 1. Treat JSX escaping as narrow protection
 
-```javascript
-// Incorrect: React does NOT validate URL protocols
-<a href={userProvidedUrl}>Click</a>
+### Understand JSX auto-escaping limits
 
-// Incorrect: Ref manipulation bypasses React entirely
-ref.current.innerHTML = userControlledValue;
+React escapes content in JSX `{value}` bindings by converting `<`, `>`, `&`, `"`, and `'` to HTML entities. This prevents HTML injection in text content but does not protect `dangerouslySetInnerHTML`, `javascript:` URLs in `href` or `src`, direct DOM manipulation through refs, or server-side rendering string concatenation.
 
-// Correct: JSX text binding is auto-escaped
-<p>{userInput}</p>
-```
+Never:
+  ```javascript
+  <a href={userProvidedUrl}>Click</a>
+  ref.current.innerHTML = userControlledValue;
+  ```
 
-## Sanitize dangerouslySetInnerHTML with DOMPurify
+Example:
+  ```javascript
+  <p>{userInput}</p>
+  ```
+
+## 2. Encapsulate unsafe HTML
+
+### Sanitize dangerouslySetInnerHTML with DOMPurify
 
 Never pass unsanitized HTML to `dangerouslySetInnerHTML`. Encapsulate usage in a `SafeHTML` wrapper so linters can flag raw usage elsewhere.
 
-```javascript
-// Incorrect: Raw HTML from CMS or user input
-<div dangerouslySetInnerHTML={{ __html: htmlFromApi }} />
+Never:
+  ```javascript
+  <div dangerouslySetInnerHTML={{ __html: htmlFromApi }} />
+  ```
 
-// Correct: Always sanitize, encapsulate in a wrapper component
-import DOMPurify from 'dompurify';
+Example:
+  ```javascript
+  import DOMPurify from 'dompurify';
 
-function SafeHTML({ html, allowedTags, allowedAttributes }) {
-  const clean = DOMPurify.sanitize(html, {
-    ALLOWED_TAGS: allowedTags,
-    ALLOWED_ATTR: allowedAttributes,
-  });
-  return <div dangerouslySetInnerHTML={{ __html: clean }} />;
-}
-
-<SafeHTML html={htmlFromApi} />
-```
-
-## Validate User-Provided URLs with Protocol Allowlist
-
-React warns about `javascript:` URLs in development but does not block them. Always validate URL protocols against an allowlist. Prefer accepting identifiers over full URLs.
-
-```javascript
-// Incorrect: Unvalidated user URL enables script injection
-<a href={userUrl}>Profile</a>
-
-// Correct: Allowlist safe protocols
-function validateURL(url) {
-  try {
-    const parsed = new URL(url);
-    return ['https:', 'http:', 'mailto:'].includes(parsed.protocol);
-  } catch {
-    return false;
+  function SafeHTML({ html, allowedTags, allowedAttributes }) {
+    const clean = DOMPurify.sanitize(html, {
+      ALLOWED_TAGS: allowedTags,
+      ALLOWED_ATTR: allowedAttributes,
+    });
+    return <div dangerouslySetInnerHTML={{ __html: clean }} />;
   }
-}
 
-<a href={validateURL(userUrl) ? userUrl : '#'}>Profile</a>
-```
+  <SafeHTML html={htmlFromApi} />
+  ```
 
-## Store Auth Tokens Securely
+## 3. Validate URLs before rendering or fetching
 
-Access tokens in localStorage are stolen by any XSS. Store access tokens in memory (React state) and refresh tokens in httpOnly cookies.
+### Validate User-provided URLs with a protocol allowlist
 
-```javascript
-// Incorrect: Any injected script can steal this
-localStorage.setItem('token', jwt);
+React warns about `javascript:` URLs in development but does not block them. Validate URL protocols against an allowlist. Prefer accepting identifiers over full URLs.
 
-// Correct: Server sets httpOnly cookie for refresh token
-res.cookie('refresh_token', refreshToken, {
-  httpOnly: true,
-  secure: true,
-  sameSite: 'Strict',
-  path: '/api/refresh',
-  maxAge: 7 * 24 * 60 * 60 * 1000,
-});
-// Client stores access token in memory only
-const [accessToken, setAccessToken] = useState(null);
-```
+Never:
+  ```javascript
+  <a href={userUrl}>Profile</a>
+  ```
 
-## Never Execute User-Controlled Strings
+Example:
+  ```javascript
+  function validateURL(url) {
+    try {
+      const parsed = new URL(url);
+      return ['https:', 'http:', 'mailto:'].includes(parsed.protocol);
+    } catch {
+      return false;
+    }
+  }
+
+  <a href={validateURL(userUrl) ? userUrl : '#'}>Profile</a>
+  ```
+
+### Validate redirects and prevent server-side request forgery
+
+Unvalidated redirects enable phishing. User-controlled URLs in server-side fetches enable server-side request forgery.
+
+Never:
+  ```javascript
+  navigate(searchParams.get('returnUrl'));
+  const data = await fetch(searchParams.get('apiUrl'));
+  ```
+
+Example:
+  ```javascript
+  const url = new URL(searchParams.get('returnUrl'), window.location.origin);
+  if (url.origin !== window.location.origin) { navigate('/dashboard'); return; }
+  navigate(url.pathname);
+
+  const APIS = { users: 'https://api.example.com/users' };
+  const endpoint = APIS[searchParams.get('resource')];
+  if (!endpoint) throw new Error('Invalid resource');
+  const data = await fetch(endpoint);
+  ```
+
+## 4. Store authentication tokens safely
+
+### Store access tokens in memory and refresh tokens in httpOnly cookies
+
+Access tokens in localStorage are stolen by any cross-site scripting issue.
+
+Never:
+  ```javascript
+  localStorage.setItem('token', jwt);
+  ```
+
+Example:
+  ```javascript
+  res.cookie('refresh_token', refreshToken, {
+    httpOnly: true,
+    secure: true,
+    sameSite: 'Strict',
+    path: '/api/refresh',
+    maxAge: 7 * 24 * 60 * 60 * 1000,
+  });
+
+  const [accessToken, setAccessToken] = useState(null);
+  ```
+
+## 5. Do not execute User-controlled strings
+
+### Parse data, never execute it
 
 `eval()`, `new Function()`, and string-form `setTimeout()` execute arbitrary code. There is no safe way to use them with untrusted input.
 
-```javascript
-// Incorrect: All of these execute attacker-controlled code
-eval(userInput);
-new Function(userInput)();
-setTimeout(userInput, 1000);
+Never:
+  ```javascript
+  eval(userInput);
+  new Function(userInput)();
+  setTimeout(userInput, 1000);
+  ```
 
-// Correct: Parse data, never execute it
-const config = JSON.parse(userInput);
-```
+Example:
+  ```javascript
+  const config = JSON.parse(userInput);
+  ```
 
-## Use Nonce-Based CSP in Production
+## 6. Lock down script execution
+
+### Use nonce-based Content Security Policy in production
 
 Content Security Policy prevents inline script injection. Generate a unique nonce per request. Never use `unsafe-inline` or `unsafe-eval` for scripts in production.
 
-```javascript
-// Correct: Generate nonce per request in middleware
-const nonce = crypto.randomBytes(16).toString('base64');
-const csp = [
-  `default-src 'self'`,
-  `script-src 'self' 'nonce-${nonce}'`,
-  `style-src 'self' 'nonce-${nonce}'`,
-  `frame-ancestors 'none'`,
-].join('; ');
-response.headers.set('Content-Security-Policy', csp);
-```
+Example:
+  ```javascript
+  const nonce = crypto.randomBytes(16).toString('base64');
+  const csp = [
+    `default-src 'self'`,
+    `script-src 'self' 'nonce-${nonce}'`,
+    `style-src 'self' 'nonce-${nonce}'`,
+    `frame-ancestors 'none'`,
+  ].join('; ');
+  response.headers.set('Content-Security-Policy', csp);
+  ```
 
-## Pin Dependencies and Audit Regularly
+## 7. Keep dependencies patched and reproducible
 
-Pin exact versions, commit lockfiles, use `npm ci` (not `npm install`) in CI. Run `npm audit` regularly.
+### Pin dependencies and audit regularly
 
-```bash
-npm install --save-exact some-package
-git add package-lock.json
-npm ci    # CI: fails if lockfile doesn't match package.json
-npm audit
-```
+Pin exact versions, commit lockfiles, use `npm ci` instead of `npm install` in continuous integration, and run `npm audit` regularly.
 
-## Validate Redirects and Prevent SSRF
+Example:
+  ```bash
+  npm install --save-exact some-package
+  git add package-lock.json
+  npm ci
+  npm audit
+  ```
 
-Unvalidated redirects enable phishing. User-controlled URLs in server-side fetches enable SSRF.
+### Keep React patched
 
-```javascript
-// Incorrect: Open redirect
-navigate(searchParams.get('returnUrl'));
-
-// Correct: Same-origin redirects only
-const url = new URL(searchParams.get('returnUrl'), window.location.origin);
-if (url.origin !== window.location.origin) { navigate('/dashboard'); return; }
-navigate(url.pathname);
-
-// Incorrect: SSRF via user-controlled fetch URL
-const data = await fetch(searchParams.get('apiUrl'));
-
-// Correct: Allowlist of known endpoints
-const APIS = { users: 'https://api.example.com/users' };
-const endpoint = APIS[searchParams.get('resource')];
-if (!endpoint) throw new Error('Invalid resource');
-const data = await fetch(endpoint);
-```
-
-## Keep React Patched
-
-Critical RCE vulnerabilities have been disclosed in React 19.x (CVE-2025-55182, CVSS 10.0). Update immediately when security patches are released. Pin exact versions and monitor advisories.
+Critical remote code execution vulnerabilities have been disclosed in React 19.x: CVE-2025-55182 with CVSS 10.0. Update immediately when security patches are released. Pin exact versions and monitor advisories.

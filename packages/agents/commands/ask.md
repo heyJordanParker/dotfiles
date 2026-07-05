@@ -4,133 +4,136 @@ description: Break complex scenarios into self-contained decision questions with
 
 # /ask
 
-For complex multi-decision scenarios. Each decision = one AskUserQuestion call.
+Ask the Architect one self-contained Architecture Decision question at a time.
 
-## When to Use
-- 3+ independent architecture decisions needing approval
-- Claude.md / docs overhauls (typically multi-architecture)
-- Anything too complex for a single plan review
+- This Command is for complex scenarios: 3+ independent Architecture Decisions, Prompt overhauls such as Claude.md work, or anything too complex for one Proposal Review.
+- Each Architecture Decision gets one AskUserQuestion call.
+- Each question carries enough Context for the Architect to answer without reading another Prompt.
 
-## Question Format
+1. Identify every Architecture Decision.
+2. Research each one in the codebase and relevant Prompts until the real options are clear.
+3. Remove tactical decisions the Agent owns.
+4. Rank the remaining options by correctness, best first.
+5. Ask one question at a time.
+6. Put the full Context in the question.
+7. Collect every answer before continuing.
 
-Each question is self-contained — the user answers without reading any other document:
+Template:
+  ## Architecture
 
-```
-## Architecture
+  src/
+  ├── auth/
+  │   ├── validate.ts*      <- adding phone validation
+  │   └── middleware.ts
+  ├── api/
+  │   └── routes.ts*        <- will call the validator
+  └── tests/
+      └── auth.test.ts*     <- new test cases
 
-src/
-├── auth/
-│   ├── validate.ts*      <- adding phone validation
-│   └── middleware.ts
-├── api/
-│   └── routes.ts*        <- will call new validator
-└── tests/
-    └── auth.test.ts*     <- new test cases
+  Legend: * = affected file, <- = Context
 
-Legend: * = affected file, <- = bird's eye context
+  ---
 
----
+  ### Decision: [what the Architect is deciding]
 
-### Decision: [What we're deciding]
+  Context: [WHY this matters in 1-2 sentences]
 
-**Context:** [Why this matters — 1-2 sentences]
+  Current state:
+  `path/to/file.ts:L23-30`
+  [relevant code snippet]
 
-**Current state:**
-`path/to/file.ts:L23-30`
-[relevant code snippet]
+  Proposed change:
+  `path/to/file.ts`
+  [what it would look like after]
 
-**Proposed change:**
-`path/to/file.ts`
-[what it would look like after]
+  Pros:
+  - [pros]
 
-**Pros:** [bullets]
-**Cons:** [bullets]
-```
+  Cons:
+  - [cons]
 
-Then use AskUserQuestion with 4+ options:
-- Label: Short name + "(Recommended, 85%)" if applicable
-- Description: Tradeoff, implication
+AskUserQuestion options:
+- Label: short name + `(Recommended, 85%)` when one option is best.
+- Description: the tradeoff and implication.
+- Count: 4+ options.
 
-## Process
+Example:
+  ## Architecture
 
-1. Identify all decision points
-2. Clarify gaps early — edge cases, error handling, scope boundaries before architecture
-3. Research each (codebase, docs) until ≥85% confident
-3. Skip decisions where you're ≥85% confident — just decide
-4. For each <85% decision: use AskUserQuestion with full format above
-5. One question at a time
-6. Embed full context IN the question (user shouldn't need to read anything else)
-7. Collect all answers before continuing to next steps
+  src/auth/
+  ├── validate.ts*          <- adding phone validation here
+  ├── types.ts
+  └── index.ts*             <- re-export new function
 
-## Example
+  ---
 
-```
-## Architecture
+  ### Decision: Where should phone validation live?
 
-src/auth/
-├── validate.ts*          <- adding phone validation here
-├── types.ts
-└── index.ts*             <- re-export new function
+  Context: Adding phone validation for two-factor authentication. Email validation already lives here.
 
----
+  Current state:
+  `src/auth/validate.ts:12-18`
+  ```ts
+  const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-### Decision: Where should phone validation live?
+  export function validateEmail(email: string): boolean {
+    return emailPattern.test(email);
+  }
+  ```
 
-**Context:** Adding phone validation for 2FA. Currently only email validation exists.
+  Proposed change:
+  `src/auth/validate.ts`
+  ```ts
+  const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  const phonePattern = /^\+?[1-9]\d{1,14}$/;
 
-**Current state:**
-`src/auth/validate.ts:12-18`
-```ts
-const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  export function validateEmail(email: string): boolean {
+    return emailPattern.test(email);
+  }
 
-export function validateEmail(email: string): boolean {
-  return emailPattern.test(email);
-}
-```
+  export function validatePhone(phone: string): boolean {
+    return phonePattern.test(phone);
+  }
+  ```
 
-**Proposed change:**
-`src/auth/validate.ts`
-```ts
-const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const phonePattern = /^\+?[1-9]\d{1,14}$/;
+  Pros:
+  - Matches the existing pattern.
+  - Keeps input validation in one file.
 
-export function validateEmail(email: string): boolean {
-  return emailPattern.test(email);
-}
+  Cons:
+  - The file grows with each validator.
+  - Email and phone validation are separate concerns.
 
-export function validatePhone(phone: string): boolean {
-  return phonePattern.test(phone);
-}
-```
+  AskUserQuestion options:
+  - "Separate validatePhone() (Recommended, 85%)" / "Matches the existing pattern. Simple."
+  - "Combined validateContact() (60%)" / "One function, but mixes concerns."
+  - "Validation class (50%)" / "More code than this needs."
+  - "Schema-based with zod (55%)" / "Type-safe, but adopts a dependency."
 
-**Pros:**
-- Matches existing pattern
-- Single file for all input validation
+### Use `/naming` for identifiers in code examples
 
-**Cons:**
-- File grows with each new validator
-- Mixed concerns (email vs phone)
-```
+Names must come from the codebase or the Architect's words.
 
-**Options (via AskUserQuestion):**
-- "Separate validatePhone() (Recommended, 85%)" / "Matches existing pattern. Simple."
-- "Combined validateContact() (60%)" / "One function, but mixed concerns."
-- "Validation class (50%)" / "OOP pattern. More structure than needed."
-- "Schema-based with zod (55%)" / "Type-safe. New dependency, learning curve."
+### Ask one question at a time
 
-## Rules
+Never batch multiple Architecture Decisions into one AskUserQuestion call.
 
-- Use `/naming` skill for all identifiers in code examples
-- One question at a time — don't batch
+### Research before asking
 
-## Anti-patterns
+Never ask about a decision the code can settle.
 
-- Batching multiple decisions into one question
-- Asking without researching first
-- Binary options (yes/no) — always provide 4+
-- Context that requires reading the full plan or other documents
-- Asking about trivial decisions you should just make
-- Rephrasing a ranked option as a question (the /pcc ranking is already the recommendation)
-- Motivation probes asking the user to explain themselves so the agent can pick
-- References the user doesn't have memorized (file paths, line numbers)
-- Scope decisions the agent should propose and let the user override
+### Use options, not yes/no
+
+Never send a binary option. Provide 4+ ranked options.
+
+### Make the question self-contained
+
+Never depend on the Architect reading a Plan, Proposal, Prompt, file path, or line number outside the question.
+
+### Do not ask about tactical decisions
+
+If the Agent owns the decision, make it and keep going.
+
+### Do not ask motivation probes
+
+Never ask the Architect to explain why they want something so the Agent can choose.

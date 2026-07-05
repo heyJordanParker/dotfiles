@@ -1,37 +1,53 @@
 ---
-paths: **/.claude/plans/*.md
+paths:
+  - "**/docs/plans/*.md"
+  - "**/docs/shaping/*/V*-plan.md"
+  - "**/.claude/plans/*.md"
 ---
 
-# Plan Quality
+### Treat Plans as Decisions
+Plans are Decisions, not discussions. Validate before writing.
 
-Plans are decisions, not discussions. Validate before writing.
+### Validate instead of hedging
+Validate first, or state "Unknown - need to verify X".
+Never: "might be", "probably", "should be", "likely", "I think", "I believe", "perhaps", or "could be".
 
-## Forbidden Patterns
+### Resolve decisions before writing the Plan
+Use AskUserQuestion before writing a Plan with unresolved decisions.
+Never: "should we", "shall we", "do we want", "question:", "TBD", "TODO", or "to be determined".
 
-**Hedging** — validate first, or state "Unknown - need to verify X"
-- "might be", "probably", "should be", "likely", "I think", "I believe", "perhaps", "could be"
+### Pick one path
+A Plan is the chosen path, not multiple options.
+Never: "Option 1:", "Option 2:", "Approach A:", "Alternatively,", or "we could either".
 
-**Unresolved decisions** — use AskUserQuestion BEFORE writing plan
-- "should we", "shall we", "do we want", "question:", "TBD", "TODO", "to be determined"
+### Include `## Definition of Done`
+Include a `## Definition of Done` section with a checklist of acceptance criteria.
 
-**Multiple options** — pick one, plan is the chosen path
-- "Option 1:", "Option 2:", "Approach A:", "Alternatively,", "we could either"
+### Include `## Verification`
+Include a `## Verification` section explaining how to test that changes work.
 
-## Required Sections
+### Describe Architecture intent with file paths
+Describe intent and reference file paths.
 
-- `## Definition of Done` — checklist of acceptance criteria
-- `## Verification` — how to test changes work
+### Keep code blocks short
+Code blocks are snippets, not implementations. Keep them to ten lines or fewer.
 
-## Architecture Over Tactics
+### Focus on Plan-level content
+Focus on WHY, Rules, constraints, Definition of Done, and Verification.
+Never: full implementations or line-by-line instructions.
 
-- Describe intent, reference file paths
-- Code blocks ≤10 lines (snippets, not implementations)
-- Focus: why, requirements, constraints, DOD
-- Avoid: full implementations, line-by-line instructions
+IF writing a Plan:
+### Validate every guess by reading code
+Validate every guess by reading code before writing.
 
-## Before Writing Plan
+IF writing a Plan:
+### Make every decision via AskUserQuestion
+Make every decision via AskUserQuestion before writing.
 
-1. All guesses validated by reading code
-2. All decisions made via AskUserQuestion
-3. Single chosen approach, no alternatives listed
-4. DOD and Verification sections drafted
+IF writing a Plan:
+### List one chosen approach
+List a single chosen approach with no alternatives.
+
+IF writing a Plan:
+### Draft Definition of Done and Verification sections
+Draft the Definition of Done and Verification sections before writing.

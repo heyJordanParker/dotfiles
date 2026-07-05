@@ -1,47 +1,87 @@
 ---
 name: react
-description: "Apply this skill whenever writing, reviewing, or refactoring React code. This includes creating or modifying components, hooks, forms, data fetching, state management, routing, testing, and TypeScript patterns. Triggers for performance issues (re-renders, bundle size, waterfalls), composition patterns, effect anti-patterns, accessibility violations, security concerns, and architectural decisions. Also use for React code reviews and refactoring existing React code to follow best practices. Covers any task involving React frontend code patterns. Do NOT use for React Native mobile patterns."
+description: "Apply this Skill when writing, reviewing, or refactoring React code. Covers components, hooks, forms, data fetching, state management, routing, testing, TypeScript patterns, performance issues, composition, effect anti-patterns, accessibility, security, Architectural Decisions, React code reviews, and React refactors. TRIGGER on React frontend code. DO NOT TRIGGER for React Native mobile patterns."
 user-invocable: false
 ---
 
-# React Best Practices
+# React
 
-Check sibling files for existing patterns first — consistency beats any practice here.
+- One Process: follow local Precedent first, apply shared React Rules, open the matching Reference, and verify the affected User behavior.
 
-## Conventions
+## 1. Find Precedent
 
-Apply to every React file:
+Check sibling files before writing or reviewing. Local consistency beats every shared React Rule here.
 
-- Component ordering: hooks → state → derived values → event handlers → early returns → render
-- `use()` replaces `useContext()` — can be called conditionally (React 19)
-- `ref` is a regular prop — `forwardRef` deprecated (React 19)
-- `useEffectEvent` separates event logic from effect dependencies (React 19.2+)
-- React Compiler auto-memoizes — manual `memo`/`useMemo`/`useCallback` often unnecessary. Follow Rules of React strictly. Use `"use no memo"` to opt out
-- `<Activity mode="visible|hidden">` preserves state for hidden content (tabs, navigation)
-- `0 && <Component />` renders "0" — use `count > 0 &&` or ternary
-- Immutable array methods: `.toSorted()`, `.toReversed()`, `.toSpliced()`, `.with()`
-- Functional setState: `setItems(curr => [...curr, newItem])` — prevents stale closures
-- Module-level app init with `let didInit = false` guard — not in effects (double-fires in StrictMode)
-- Named exports over default exports — grep-able, refactoring-safe
-- Absolute imports via `@/` prefix — never deep `../../../` chains
-- Lazy state initialization: `useState(() => expensive())` — not `useState(expensive())`
+## 2. Apply the shared React Rules
 
-## References
+### Order component bodies consistently
 
-Read the reference that matches the current task:
+Use hooks, then state, then derived values, then event handlers, then early returns, then render.
 
-- [composition.md](references/composition.md) — Building components: compound components, variants, boolean props, context interfaces
-- [state-management.md](references/state-management.md) — Managing state or writing hooks: colocation, Context, external stores, custom hook patterns
-- [effects.md](references/effects.md) — Deciding whether to use an effect: 12 anti-patterns and alternatives
-- [performance.md](references/performance.md) — Optimizing performance: rendering, bundle size, waterfalls
-- [data-fetching.md](references/data-fetching.md) — Fetching data: TanStack Query/SWR, caching, mutations, optimistic updates
-- [forms.md](references/forms.md) — Building forms: useActionState, useOptimistic, useFormStatus
-- [server-rendering.md](references/server-rendering.md) — Server-side React: RSC, Server Actions, serialization, SSR patterns
-- [testing.md](references/testing.md) — Writing tests: RTL query priority, user-event, MSW, async patterns
-- [routing.md](references/routing.md) — Setting up routes: React Router loaders/actions, lazy routes, error handling
-- [styling.md](references/styling.md) — Styling: Tailwind, CSS Modules, CSS-in-JS, dark mode
-- [error-handling.md](references/error-handling.md) — Handling errors: react-error-boundary, Suspense integration, granular boundaries
-- [security.md](references/security.md) — Security review: XSS, URL sanitization, CSP, auth tokens
-- [accessibility.md](references/accessibility.md) — Accessibility: semantic HTML, ARIA, keyboard, focus management
-- [project-structure.md](references/project-structure.md) — Project structure: feature-based org, colocation, naming, imports
-- [typescript.md](references/typescript.md) — TypeScript types: discriminated unions, generics, utility types, context typing
+### Use React 19 primitives
+
+`use()` replaces `useContext()` and may be called conditionally. `ref` is a regular prop; avoid `forwardRef`. `useEffectEvent` separates event logic from effect dependencies in React 19.2 and later.
+
+### Let React Compiler handle memoization
+
+React Compiler auto-memoizes. Manual `memo`, `useMemo`, and `useCallback` are often unnecessary. Follow Rules of React strictly and use `"use no memo"` to opt out.
+
+### Preserve hidden state with Activity
+
+Use `<Activity mode="visible|hidden">` for hidden content that should keep state, such as tabs and navigation.
+
+### Guard conditional rendering against zero
+
+Never: `0 && <Component />` because React renders `0`.
+Example: use `count > 0 && <Component />` or a ternary.
+
+### Update arrays immutably
+
+Use `.toSorted()`, `.toReversed()`, `.toSpliced()`, and `.with()`.
+
+### Use functional state updates
+
+Example: `setItems(curr => [...curr, newItem])` prevents stale closures.
+
+### Run application initialization at module level
+
+Use a module-level `let didInit = false` guard instead of an effect that double-fires in Strict Mode.
+
+### Prefer named exports
+
+Named exports are grep-able and refactoring-safe. Avoid default exports unless a library boundary requires one.
+
+### Prefer absolute imports
+
+Use the `@/` prefix instead of deep `../../../` chains.
+
+### Lazily initialize expensive state
+
+Example: `useState(() => expensive())`.
+Never: `useState(expensive())`.
+
+## 3. Open the matching Reference
+
+Read the Reference for the problem being solved before writing or reviewing.
+
+## 4. Verify behavior
+
+Exercise the affected User behavior or run the project test that covers it.
+
+## References (each solves one problem)
+
+- Building components → composition.md
+- Managing state or writing hooks → state-management.md
+- Deciding whether to use an effect → effects.md
+- Optimizing performance → performance.md
+- Fetching data → data-fetching.md
+- Building forms → forms.md
+- Server-side React → server-rendering.md
+- Writing tests → testing.md
+- Setting up routes → routing.md
+- Styling → styling.md
+- Handling errors → error-handling.md
+- Reviewing security → security.md
+- Accessibility → accessibility.md
+- Project Architecture → project-structure.md
+- TypeScript types → typescript.md

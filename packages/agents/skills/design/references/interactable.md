@@ -1,191 +1,155 @@
-# UX Patterns
+# User Experience Patterns
 
-## Buttons
+- User interface Affordances must make the available action, result, and recovery path visible to the User.
+- Surface depth carries button hierarchy; size does not.
 
-Hierarchy reads through surface depth, never through size. Primary CTAs use the tactile surface stack; secondary and tertiary stay flat.
+## 1. Build buttons with one primary action
 
-### Hierarchy
+### Keep one primary per view
+A view gets one primary button. Secondary buttons use flat fill or outline. Tertiary buttons are text-only or ghost. Destructive buttons use the destructive token, but in confirmation dialogs the safe action stays primary.
+Never: two competing primary buttons in the same view.
 
-- One primary per view — never two competing CTAs
-- Primary: tactile stack — see surfaces.md → Tactile primaries for the layer recipe and presets
-- Secondary: flat fill or outline, no stack
-- Tertiary: text-only or ghost
-- Destructive: primary tactile stack with destructive token; in confirmation dialogs the safe action stays primary (see Confirmation)
+### Give primary buttons tactile feedback
+Primary buttons use the tactile surface stack from `surfaces.md`, `:active { scale: 0.96; }`, and a visible `focus-visible` ring. Icon and label primaries use asymmetric padding with less padding on the icon side.
+Never: skip press feedback on a tactile primary.
 
-### Behavior
+## 2. Gate hover states
 
-Pair every primary with `:active scale(0.96)` (motion.md → Micro-interactions) and a `focus-visible` ring (motion.md → Accessibility). Concentric border radius applies (SKILL.md → Radius). Icon+label primaries use asymmetric padding, less on the icon side (SKILL.md → Optical Corrections).
-
-### Anti-patterns
-
-- Two or more primary buttons in the same view — no one thing to press
-- Skipping `:active scale(0.96)` — press feedback completes the tactile contract
-
-## Hover States
-
-Gate every `:hover` rule with `@media (hover: hover) and (pointer: fine)`. On touch devices, tapping triggers `:hover` styles and they stay stuck until another element is tapped — buttons remain "lit up", cards stay elevated. The media query restricts hover styles to devices with a real pointer.
-
-Apply only to `:hover` — `:active`, `:focus-visible`, and `:focus` work on touch and stay outside the gate.
-
-```css
-.button {
-  @apply transition-[background-color,transform] duration-200;
-
-  &:active { @apply bg-primary/80 translate-y-0; }
-
-  @media (hover: hover) and (pointer: fine) {
-    &:hover { @apply bg-primary/90 -translate-y-px; }
+### Limit `:hover` to real pointer devices
+On touch devices, tapped `:hover` styles can stick. Wrap every hover Rule in `@media (hover: hover) and (pointer: fine)`. Leave `:active`, `:focus-visible`, and `:focus` outside the gate.
+Example:
+  ```css
+  .button {
+    @apply transition-[background-color,transform] duration-200;
+    &:active { @apply bg-primary/80 translate-y-0; }
+    @media (hover: hover) and (pointer: fine) {
+      &:hover { @apply bg-primary/90 -translate-y-px; }
+    }
   }
-}
-```
+  ```
 
-For surface elevation on hover (card lifts to a higher tier), the same rule applies:
+### Lift surfaces one tier on hover
+A card at `var(--shadow-subtle)` can lift to `var(--shadow-elevated)` on hover, using the same pointer gate.
+Example:
+  ```css
+  .card {
+    box-shadow: var(--shadow-subtle);
+    transition: box-shadow 200ms var(--ease);
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .card:hover { box-shadow: var(--shadow-elevated); }
+  }
+  ```
 
-```css
-.card {
-  box-shadow: var(--shadow-subtle);
-  transition: box-shadow 200ms var(--ease);
-}
-@media (hover: hover) and (pointer: fine) {
-  .card:hover { box-shadow: var(--shadow-elevated); }
-}
-```
+## 3. Make forms linear and recoverable
 
-## Forms
+### Keep form layout single-column
+Labels sit above inputs. Related fields group through spacing, not boxes.
+Never: split fields side-by-side by default or rely on placeholders as labels.
 
-**Layout:**
-- Single column (don't split fields side-by-side)
-- Labels above inputs (not inline or placeholder-only)
-- Group related fields with spacing, not boxes
+### Validate after the User leaves the field
+Validate on blur, show the error below the field, and clear the error when the User starts fixing it.
+Never: validate on every keystroke or show field errors in page-level alerts.
 
-**Validation:**
-- Validate on blur, not on every keystroke
-- Show errors below the field, not in alerts
-- Clear error when user starts fixing
+### Preserve the User's work during submission
+Disable the button while processing, show a loading state in the button, show success with a brief toast plus redirect or state change, and keep form data on error.
+Never: erase entered data after a recoverable error.
 
-**Submission:**
-- Disable button during processing
-- Show loading state (spinner in button)
-- Success: brief toast + redirect or state change
-- Error: specific message, keep form data
+## 4. Make navigation state unambiguous
 
-## Navigation
+### Use the navigation pattern that matches the task
+Use sidebars for admin main sections, tabs for sub-sections within a page, breadcrumbs for deep hierarchy, and back buttons for linear movement.
 
-**Patterns:**
-- Sidebar for main sections (admin)
-- Tabs for sub-sections within a page
-- Breadcrumbs for deep hierarchies
-- Back button for linear flows
+### Show one active item per navigation level
+Active state can use background, border, or weight, but only one item is active at each level.
+Never: show multiple active items in the same navigation level.
 
-**Active states:**
-- Clear visual indicator (bg color, border, weight)
-- Only one active item per navigation level
+## 5. Put feedback near the action
 
-## Feedback
+### Use loading states that match known layout
+Use skeleton screens when the layout is known and spinners when the layout is unknown. The User should never wonder whether something is happening.
 
-**Loading:**
-- Skeleton screens for layout-known content
-- Spinners for unknown layout
-- Never leave user wondering if something is happening
+### Make success brief and local
+Use a 3 to 5 second toast or inline confirmation near the action. Do not redirect without a clear signal.
 
-**Success:**
-- Brief toast (3-5 seconds, auto-dismiss)
-- Or inline confirmation near the action
-- Don't redirect without clear signal
+### Make errors specific and recoverable
+Say the specific problem and recovery action near the source.
+Example: "Email already registered. Use a different email."
+Never: "Error" as the whole message.
 
-**Errors:**
-- Specific message ("Email already registered" not "Error")
-- Near the source (inline, not page-top banner)
-- Recoverable: suggest action ("Try again" or "Use different email")
+## 6. Fill empty states and confirmations
 
-## Empty States
+### Empty states explain the space and the first action
+An empty state says what belongs there and gives the action to add the first item. An illustration is optional.
+Never: blank space where the User expects content.
 
-Don't show blank space. Provide:
-- Clear explanation of what belongs here
-- Action to add first item
-- Optional illustration (not required)
+### Confirm destructive actions only
+Delete, remove, and cancel actions require confirmation. The primary button is the safe action, and the destructive button is secondary or red. State what will be deleted.
+Never: make the destructive action the primary button.
 
-## Confirmation
+### Make non-destructive actions undoable
+Non-destructive actions get a toast with Undo instead of a confirmation dialog.
+Never: interrupt non-destructive actions with confirmation.
 
-**Destructive actions** (delete, remove, cancel):
-- Require confirmation dialog
-- Primary button is the safe action (Cancel)
-- Destructive button is secondary/red
-- State what will be deleted
+## 7. Preserve accessibility contracts
 
-**Non-destructive actions:**
-- Don't ask for confirmation
-- Make it undoable instead (toast with Undo)
+### Keep keyboard behavior complete
+All interactive elements are focusable in logical Document Object Model order. Enter or Space activates. Escape closes modals and dropdowns.
 
-## Accessibility
+### Use semantic HTML and labels
+Use `button`, not `div` with a click handler. Inputs have labels. Use `aria-label` when the visual label is missing. Use `hidden-accessible` for visually hidden announced text.
+Example:
+  ```css
+  .hidden-accessible {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    border: 0;
+  }
+  ```
 
-**Keyboard navigation:**
-- All interactive elements focusable
-- Logical tab order (DOM order)
-- Enter/Space to activate
-- Escape to close modals/dropdowns
+### Maintain a 44 by 44px hit area
+Interactive elements need at least a 44 by 44px hit area under Web Content Accessibility Guidelines, with 40 by 40px as the absolute minimum. Extend smaller visible elements with a pseudo-element.
+Example:
+  ```css
+  .checkbox {
+    position: relative;
+    width: 20px;
+    height: 20px;
+  }
+  .checkbox::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 44px;
+    height: 44px;
+  }
+  ```
+Never: let extended hit areas overlap between adjacent elements.
 
-**Screen readers:**
-- Semantic HTML (button, not div with click handler)
-- Labels on all inputs
-- `aria-label` when visual label missing
-- `hidden-accessible` class for visually hidden but announced text:
-```css
-.hidden-accessible {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  border: 0;
-}
-```
+### Show focus visibly
+Every interactive element has a visible `focus-visible` ring. Use a parent focus class when a container needs the indication.
 
-**Minimum hit area:** Interactive elements need at least 44x44px (WCAG) or 40x40px minimum. If the visible element is smaller, extend with a pseudo-element:
-```css
-.checkbox {
-  position: relative;
-  width: 20px;
-  height: 20px;
-}
-.checkbox::after {
-  content: "";
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  width: 44px;
-  height: 44px;
-}
-```
-Tailwind: `relative size-5 after:absolute after:top-1/2 after:left-1/2 after:size-11 after:-translate-1/2`
+### Make clickable containers honest
+If a whole card is clickable, use the clickable-parent pattern so the link covers the surface without hiding semantics.
+Example:
+  ```css
+  .clickable-parent { position: relative; }
+  .clickable-parent a::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+  }
+  ```
 
-**Collision rule:** Never let extended hit areas of two interactive elements overlap. Shrink the pseudo-element if needed — but make it as large as possible without colliding.
+## 8. Make modals behave like modals
 
-**Focus indicators:**
-- Visible focus ring on all interactive elements
-- `focus-visible` for keyboard-only visibility
-- Parent focus: `focus-parent` class for container indication
-
-**Clickable containers:**
-- If whole card is clickable, use `clickable-parent` pattern:
-```css
-.clickable-parent {
-  position: relative;
-}
-.clickable-parent a::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-}
-```
-
-## Modals & Dialogs
-
-- Trap focus inside modal
-- Close on Escape
-- Close on backdrop click (unless destructive action)
-- Return focus to trigger element on close
-- Prevent body scroll while open
+### Trap focus and restore it
+Modals trap focus, close on Escape, close on backdrop click unless the action is destructive, return focus to the trigger on close, and prevent body scroll while open.
+Never: leave keyboard focus behind the modal.

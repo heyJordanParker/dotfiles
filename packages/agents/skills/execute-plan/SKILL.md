@@ -1,273 +1,207 @@
 ---
 name: execute-plan
-description: Orchestration SOP for executing implementation plans. Assigns slices to a persistent team, runs validation gates per slice. The orchestrator coordinates — it does not implement.
+description: Orchestration Process for executing Plans. Assigns Slices to a persistent team and runs Verification after each Slice. The Agent coordinates — it does not implement.
 ---
 
 # Execute Plan
 
-Orchestration SOP for the main thread agent. You coordinate a persistent team to implement a plan slice by slice. Use the /team skill — create the team at the start using specialized agent types (backend-engineer, frontend-engineer, architect, context-engineer, etc.), then assign slices to teammates sequentially. Do not create custom agents — use the existing specialized agents. You do NOT read full implementation files. You do NOT use Edit, Write, or NotebookEdit. Every line of code is written by a teammate.
+- The Agent coordinates a persistent team to implement a Plan Slice by Slice.
+- Every line of code is written by a Subagent.
+- The coordinating Agent reads summaries and spot-checks Evidence.
+- Slices run sequentially because later Slices depend on earlier changes.
+- The team persists after all Slices for fixes, iteration, and follow-ups.
 
-## Triggers
+## 1. Check Plan readiness
 
-- A plan file exists and is ready for execution (V*-plan.md)
-- User says "execute the plan", "implement", "build this", or similar after planning is complete
+Read the Plan before creating the team. The Plan file must exist, be Architect-approved, include Slices with acceptance criteria, and include WHY.
 
-## Prerequisites
+IF the Plan is missing, unapproved, lacks Slices with acceptance criteria, or lacks WHY:
+### Stop and tell the Architect what is missing
+Do not start Execution until the missing piece exists.
 
-Before executing, verify:
-- Plan file exists and has been approved by the user
-- Plan has slices with acceptance criteria
-- Plan has a WHY section
+The Plan's Architecture is immutable. Stop for Architect approval before changing file structure, module boundaries, dependency direction, Precedent to follow, data ownership, API contracts, or scope.
 
-If any prerequisite is missing, stop and tell the user what's needed.
+The Agent owns private variable/function names within conventions, error wording, internal implementation, test organization, and comments.
 
-## The Immutable Contract
+## 2. Create the persistent team
 
-The plan defines the architecture. The executing agent implements it. The agent does NOT redesign it.
+Use /team with existing specialized agents only: `backend-engineer`, `frontend-engineer`, `architect`, and `context-engineer`.
 
-**What's Fixed (Requires Approval to Change):**
-- File structure — which files are created, modified, deleted
-- Module boundaries — what belongs where, dependency direction
-- Patterns — which existing patterns to follow, which abstractions to use
-- Data ownership — which component owns which data
-- API contracts — function signatures, route shapes, response formats
-- Scope — what's included and what's explicitly excluded
+### Use existing specialized agents only
+Do not create custom agents for Plan Execution.
 
-**What's Flexible (Agent Decides):**
-- Variable and function names (within project naming conventions)
-- Error message wording
-- Internal implementation details (algorithm choice within same complexity class)
-- Test structure (how tests are organized, not what's tested)
-- Code comments and documentation
+### Keep implementation inside Subagents
+The coordinating Agent does not use Edit, Write, or NotebookEdit, and does not read full implementation files.
 
-**Scope Additions:**
-- **Must-have** — blocks the current slice. Report to user immediately, wait for approval
-- **Nice-to-have** — improves but doesn't block. Log it, report in slice summary, do not implement
-- **Out of scope** — belongs to different feature or future work. Note in completion summary, do not implement
+## 3. Establish the baseline
 
-Never silently absorb scope additions.
+Run the test suite and record pre-existing failures so Slice Verification distinguishes new regressions from known failures.
 
-## Hard Rules
+IF the test command is unknown:
+### Ask once for the test command
+After the Architect answers, use that command for the baseline and every Slice comparison.
 
-- You do NOT use Edit, Write, or NotebookEdit tools
-- You do NOT read full implementation files — read summaries, spot check selectively
-- You do NOT trust teammate success reports — verify independently via a separate validation agent (fresh, not part of the team)
-- Every slice gets validation before staging
-- Architectural deviations halt execution until the user approves
-- Use TaskCreate for each slice with `activeForm` in present-continuous (e.g., "Implementing password reset slice") — gives the user real-time progress via spinners and checkmarks
-- TaskUpdate to completed on success, or to failed on halt — never leave tasks hanging
-- Sequential slices only — later slices depend on changes from earlier slices; parallel execution creates merge conflicts and ordering bugs
+## 4. Refresh Claude.md Context
 
-## Process
+Dispatch `context-engineer` before implementation, then spot-check the Claude.md changes. Subagents make wrong assumptions when Claude.md does not capture the Plan's WHY and Rules; the retro found this in 31 of 182 failures.
 
-### Phase 0: Readiness
+Template:
+  ```
+  Story: We are about to execute a Plan. Claude.md files need the Plan's WHY,
+  Rules, Architecture, and boundaries before Subagents start working.
 
-Before any implementation begins:
+  Business: Subagents read Claude.md files for Context. When these files do not
+  carry the Plan's WHY and Rules, Subagents make wrong assumptions; the retro
+  found this in 31 of 182 failures.
 
-**1. Run the test suite** to establish a baseline. Record the result — any pre-existing failures must be noted so validation can distinguish new regressions from known issues.
+  Goal: Read the Plan file at [path] and the Shaping Prompt at [path].
+  Update the relevant Claude.md files so a Subagent reading them understands
+  the WHY, Rules, boundaries, and Architecture for this work.
 
-**2. Dispatch via Agent tool (`subagent_type: "context-engineer"`):**
+  Verification:
+  - Relevant Claude.md files carry WHY from the Plan
+  - Rules and boundaries from the Plan are reflected
+  - Architecture and Precedents are documented
+  - No fabricated WHY; only what the Plan and Shaping Prompts establish
+  - No pre-researched content; read the files directly
 
-```
-Story: We're about to execute an implementation plan. The Claude.md
-files need to reflect the architectural decisions, WHY, philosophy,
-requirements, and boundaries from the plan before subagents start
-working.
+  Architecture:
+  [Annotated file tree of Claude.md files relevant to this Plan's scope]
+  ```
 
-Business: Subagents read Claude.md files for context. If these files
-don't capture the plan's intent, subagents will make wrong assumptions
-— the #1 failure mode from our retro (31 of 182 failures).
+## 5. Verify readiness
 
-Goal: Read the plan file at [path] and the shaping doc at [path].
-Update the relevant Claude.md files so that a subagent reading them
-understands the WHY, requirements, boundaries, and architectural
-patterns for this work.
+Start the development server, confirm database access, and confirm required services. If the Plan adds infrastructure, verify that infrastructure before the Slice that needs it.
 
-DoD:
-- Relevant Claude.md files updated with WHY from the plan
-- Requirements and boundaries from the plan reflected in docs
-- Architectural patterns and conventions documented
-- No fabricated WHY — only what the plan and shaping docs establish
-- No pre-researched content — let the subagent read files itself
+IF readiness fails:
+### Halt and report before executing Slices
+Do not proceed with broken infrastructure.
 
-[Annotated file tree of Claude.md files relevant to this plan's scope]
-```
+## 6. Execute each Slice sequentially
 
-**3. Spot-check** the Claude.md changes before proceeding.
+For each Slice in order: `TaskCreate`, report `Starting Slice N/M: [name]`, dispatch the implementing Subagent, run the test suite against the baseline, dispatch a fresh Verification Subagent, fix and re-verify failures up to three times, stage the Slice, report, and `TaskUpdate` to completed.
 
-**4. Verify readiness:** dev server starts, database accessible, required services running. If the plan introduces new infrastructure (queue workers, env vars), verify those exist before the slice that depends on them. If readiness fails, halt and report to the user — do not proceed with broken infrastructure.
+### Create and close one Task per Slice
+Use `TaskCreate` with present-continuous `activeForm`; use `TaskUpdate` to completed or failed. Never leave Tasks hanging.
 
-### Phase 1: Per-Slice Execution (Sequential)
+### Keep Slices sequential
+Parallel Slice Execution creates merge conflicts and ordering bugs.
 
-For each slice in the plan, in order:
+### Classify scope additions before acting
+Must-have blocks the Slice, so report immediately and wait for Architect approval. Nice-to-have is logged, reported in the Slice summary, and not implemented. Out-of-scope is noted in completion and not implemented.
 
-**TaskCreate** for this slice. **Report to user:** "Starting Slice N/M: [slice name]"
+### Use the implementing Subagent Template
+Dispatch via /team; the team persists across Slices, sharing learnings. Weave prior Slice learnings into Story or Business.
 
-#### Step 1a: Dispatch Implementing Subagent
+Template:
+  ```
+  Story: [What the User will experience when this Slice is done — from
+  the Plan's Slice description and demo line]
 
-Use the /team skill. Dispatch teammates — the team persists across slices, sharing context and learnings:
-
-```
-Story: [What the user will experience when this slice is done — from
-the plan's slice description and demo line]
-
-Business: [WHY from the plan. What problem this solves. What
-constraints exist.]
-
-[Weave in slice learnings from previous slices — a library limitation
-goes in Business, a broken test goes in Story]
-
-Goal: Implement [slice name] as defined in the plan. Read all files
-marked * in the Changes section. The plan is an immutable contract
-for architecture — adapt tactically to what you find in the code,
-but do not change the architectural approach.
+  Business: [WHY from the Plan. What problem this solves. What Rules apply.]
 
-BEFORE IMPLEMENTING: Produce an Assumption Audit:
-- List every assumption the plan makes about the code you just read
-- For each: CONFIRMED (with evidence) or WRONG (what's actually true)
-- If any assumption is WRONG, stop and report to the orchestrator
+  [Weave in Slice learnings from previous Slices — a library limitation
+  goes in Business, a broken test goes in Story]
 
-DoD:
-[Paste the slice's acceptance criteria from the plan, verbatim]
-- All acceptance criteria verified with evidence (command output, not assertions)
-- Report any tactical deviations made and why
-- Flag any change to user-visible behavior, error handling, or auth flows as BEHAVIORAL CHANGE
-- For any file deletion, rename, or moved symbol: trace all references and report the chain
-
-[Annotated file tree from the plan's Changes section, with * marking files to read]
-
-Workflow:
-1. Read every file marked * above
-2. Produce Assumption Audit — stop if any assumption is WRONG
-3. Implement against the Goal
-4. For EACH DoD item: run verification, paste relevant output
-5. If any DoD item fails → fix and re-verify (loop step 4)
-6. Post completion summary: what changed, what was verified, what was tricky, slice learnings for future slices
-```
-
-#### Step 1b: Validate the Slice
-
-After the implementing subagent reports completion:
-
-1. **Run the test suite** — compare against Phase 0 baseline. If no test command is known, ask the user once. Do not trust "tests pass" without evidence.
-
-2. **Dispatch a fresh validation agent** (NOT part of the persistent team — fresh context prevents bias from the implementing teammate):
-
-```
-Story: Slice [N] of [plan name] was just implemented. We need to
-verify it meets its PURPOSE (not just its criteria) and doesn't
-regress existing behavior.
-
-Business: Agent success reports are unreliable. Independent validation
-catches gaps that self-reported DoD misses. Criteria can be incomplete
-— the purpose check catches what criteria miss.
-
-Goal: Validate this slice against its acceptance criteria, its stated
-purpose, and check for regressions and cross-module interactions.
-If UI changes were made, use /agent-browser to verify visually.
-
-DoD:
-- Verify each acceptance criterion across all 4 categories:
-  functional, regression, dependency audit, boundary
-- Purpose check: does this slice achieve the PURPOSE stated in the
-  WHY/Story, not just the listed criteria?
-- Cross-module check: what other modules interact with modified code?
-  For each interaction point, does the change create a new failure path?
-- Browser test: if slice has UI changes, use /agent-browser to verify.
-  If dev server isn't running, start it or report the blocker — never skip
-- Gaps: anything not covered by criteria that broke or degraded
-
-[Annotated file tree from the plan's Changes section]
-
-Workflow:
-1. Read every file marked * above
-2. Verify each acceptance criterion with evidence
-3. Check purpose — does the result match the WHY?
-4. Run regression checks per file
-5. Check cross-module interactions
-6. If UI changes: use /agent-browser to verify visually
-7. Post validation report
-```
-
-**Validation report format:**
-```
-## Slice [N] Validation
-
-### Purpose Check
-- [Does the slice achieve its stated purpose? PASS/FAIL — evidence]
-
-### Acceptance Criteria
-- Criterion 1: PASS — [evidence]
-- Criterion 2: FAIL — [what's wrong]
-
-### Regressions
-- [file]: [existing behavior] — PASS/FAIL
-
-### Cross-Module Interactions
-- [module]: [interaction] — [impact assessment]
-
-### Browser Test (if applicable)
-- [page/feature]: [result]
-
-### Gaps
-- [anything found not covered by criteria]
-```
-
-3. **Spot-check** at least one PASS result from the validation report by reading the evidence yourself. If the evidence doesn't support the claim, re-dispatch the validation subagent.
-
-4. **If validation fails** — dispatch a fix subagent with the specific failures. Re-validate after the fix. **Maximum 3 fix attempts.** If still failing after 3, halt and report: (1) what each attempt tried, (2) why each failed, (3) root cause theory, (4) proposed alternatives.
-
-5. **If failure reveals an architectural issue** — halt execution immediately per the Deviation Protocol below.
-
-#### Step 1c: Stage and Report
-
-After validation passes:
-- Stage the changes (`git add`)
-- **Report to user:** what was done, what was verified, tactical deviations, behavioral changes flagged, scope additions, slice learnings
-- **TaskUpdate** slice to completed
-
-### Phase 2: Final Validation
-
-After all slices are staged:
-
-1. **Full /review** — all changes are staged but uncommitted, so /review's `git diff HEAD` captures everything naturally
-
-2. **Full /user-testing** — enumerate user flows affected by the combined changes and present the flow list to the user for approval (respecting /user-testing's approval gate). Then dispatch subagents per approved flow
-
-3. **Context engineer documentation update** — dispatch the context-engineer agent to update Claude.md files with what was built and any architectural decisions that emerged
-
-**Report to user:** Final summary — all slices, all validation results, scope additions logged, behavioral changes flagged, overall status.
-
-**Do NOT close the team.** The team persists after all work is done — the user will need teammates to fix issues, iterate, and handle follow-ups. Closing the team wastes all the context teammates have built up.
-
-## Deviation Protocol
-
-When a subagent reports that the plan's architecture won't work:
-
-1. Stop execution
-2. Report to the user:
-   - What the plan prescribed
-   - What the subagent found in the code
-   - Why the prescribed approach doesn't work
-   - What the subagent recommends instead
-3. Wait for the user to approve the deviation or provide alternative direction
-4. If approved, update the plan file to reflect the change (so future slices see it)
-
-## Quick Reference
-
-- **Readiness first** — test baseline, context engineer, environment check
-- **Sequential slices** — never parallelize slice execution
-- **Assumption audit** — subagent verifies plan assumptions before implementing
-- **Report at every transition** — user sees progress throughout
-- **Validate every slice** — test suite + independent validation + purpose check + browser test if UI
-- **Cross-module check** — validation subagent checks interaction points beyond modified files
-- **Spot-check validation** — orchestrator verifies at least one PASS claim
-- **Trust nothing** — verify subagent claims against actual output
-- **3 fix attempts max** — then halt with structured report
-- **Flag behavioral changes** — subagents must surface any user-visible behavior change
-- **Flag scope** — must-have (halt), nice-to-have (log), out of scope (note)
-- **Halt on architecture** — any deviation stops execution
-- **Stage and report** — never commit; the user initiates commits when ready
-- **Slice learnings** — propagate discoveries between slices
-- **Never close the team** — team persists for follow-ups and fixes
-- **Specialized agents only** — use existing agent types, never create custom agents
+  Goal: Implement [Slice name] as defined in the Plan. Read all files
+  marked * in the Changes section. The Plan's Architecture is immutable
+  — adapt tactically to what you find in the code, but do not change the
+  Architectural approach.
+
+  Before implementing:
+  - List every assumption the Plan makes about the code you just read
+  - For each: CONFIRMED with Evidence, or WRONG with what is actually true
+  - If any assumption is WRONG, stop and report to the coordinating Agent
+
+  Verification:
+  [Paste the Slice's acceptance criteria from the Plan, verbatim]
+  - All acceptance criteria verified with Evidence, using command output instead of assertions
+  - Report any tactical deviations made and why
+  - Flag any change to User-visible behavior, error handling, or authentication behavior as BEHAVIORAL CHANGE
+  - For any file deletion, rename, or moved symbol: trace all references and report the chain
+  - Report Slice learnings for future Slices
+
+  Architecture:
+  [Annotated file tree from the Plan's Changes section, with * marking files to read]
+
+  Process:
+  1. Read every file marked * in the Architecture block
+  2. Produce the assumption audit; stop if any assumption is WRONG
+  3. Implement against the Goal
+  4. For each Verification item: run Verification and paste the output
+  5. If a Verification item fails, fix and re-verify by repeating step 4
+  6. Post a completion summary: what changed, what was verified, what was tricky
+  ```
+
+## 7. Verify the Slice independently
+
+After the implementing Subagent returns, run the test suite and compare to the baseline. Then dispatch a fresh Verification Subagent, not on the team; fresh Context prevents bias from the implementing Subagent.
+
+### Do not trust Subagent success reports
+Every Slice verifies before staging, and Verification comes from a fresh Subagent that was not on the team.
+
+Template:
+  ```
+  Story: Slice [N] of [Plan name] was just implemented. We need to
+  verify it meets its WHY, not just its criteria, and does not
+  regress existing behavior.
+
+  Business: Agent success reports are unreliable. Independent Verification
+  catches gaps that self-reported Verification misses. Criteria can be incomplete.
+
+  Goal: Verify this Slice against its acceptance criteria, its stated
+  WHY, regressions, and cross-module interactions.
+  If User Interface changes were made, use /agent-browser to verify visually.
+
+  Verification:
+  - Verify each acceptance criterion across all 4 categories:
+    functional, regression, dependency audit, Architecture
+  - WHY check: does this Slice achieve the WHY stated in the WHY and Story, not just the listed criteria?
+  - Cross-module check: what other modules interact with modified code?
+    For each interaction point, does the change create a new failure path?
+  - Browser test: if the Slice has User Interface changes, use /agent-browser to verify.
+    If the development server is not running, start it or report the blocker; never skip
+  - Gaps: anything not covered by criteria that broke or degraded
+
+  Architecture:
+  [Annotated file tree from the Plan's Changes section, with * marking files to inspect]
+
+  Process:
+  1. Read every file marked * in the Architecture block
+  2. Verify against the Goal
+  3. For each Verification item: run Verification and paste the output
+  4. Post the report:
+     ## Slice [N] Verification
+     ### WHY Check — PASS/FAIL with Evidence
+     ### Acceptance Criteria — per criterion PASS/FAIL with Evidence
+     ### Regressions — per file PASS/FAIL
+     ### Cross-Module Interactions — per module impact
+     ### Browser Test (if applicable)
+     ### Gaps
+  ```
+
+### Spot-check at least one PASS
+Read the Evidence yourself. If the Evidence does not support the claim, re-dispatch Verification.
+
+### Fix and re-verify failures three times
+On Verification failure, dispatch a fix Subagent with the specific failures and re-verify. After three failed fix attempts, halt with what each attempt tried, why each failed, root-cause theory, and alternatives.
+
+IF a failure reveals an Architectural issue:
+### Follow the Plan Architecture change Rule
+Stop and report to the Architect what the Plan prescribed, what the Subagent found, why it does not work, and the Subagent's Proposal. Wait for approval or alternative direction. If approved, update the Plan file so future Slices see the change.
+
+## 8. Stage and report the Slice
+
+Stage the Slice with `git add`; report what was done, verified, tactical deviations, behavioral changes, scope additions, and Slice learnings; then `TaskUpdate` to completed.
+
+### Never commit during Plan Execution
+The Architect initiates commits.
+
+## 9. Run final Verification
+
+After all Slices are staged, run full /review against `git diff HEAD`, run full /user-testing for affected User-facing behavior, and dispatch `context-engineer` to update Claude.md with what was built and any Architectural Decisions that emerged.
+
+Report all Slices, Verification results, scope additions, behavioral changes, and overall status.
+
+### Keep the team open
+Do not close the team after final Verification. It persists for fixes, iteration, and follow-ups.

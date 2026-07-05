@@ -1,53 +1,44 @@
 # Bold Design Mode
 
-For distinctive, memorable interfaces. Landing pages, portfolios, marketing sites.
+- Bold mode is for distinctive, memorable interfaces: landing pages, portfolios, and marketing sites.
+- The Goal is that the User remembers one specific visual idea.
 
-**Goal:** Unforgettable. Someone remembers this design.
+## 1. Pick the memorable direction
 
-## Before Code
+Choose the tone before writing code.
 
-1. **Pick an extreme tone:** brutally minimal, maximalist chaos, retro-futuristic, organic, luxury, playful, editorial, brutalist, art deco, soft/pastel, industrial
-2. **Find the one thing:** What's the single element they'll remember?
-3. **Commit fully:** Execute the vision with precision
+### Commit to one extreme tone
+Use one clear direction: brutally minimal, maximalist, retro-futuristic, organic, luxury, playful, editorial, brutalist, art deco, soft pastel, or industrial.
+Never: mix several tones because each one seems interesting.
 
-## Guidelines
+### Name the one remembered element
+The surface needs one thing the User remembers: type, motion, color, composition, texture, or interaction.
+Never: distribute attention evenly across many decorative ideas.
 
-**Typography:**
-- Distinctive fonts, not Inter/Roboto/Arial
-- Pair characterful display font + refined body font
-- Unexpected choices that elevate
+## 2. Build the visual system around that direction
 
-**Color:**
-- Commit to cohesive aesthetic
-- Dominant colors with sharp accents
-- Not timid, evenly-distributed palettes
+Every type, color, layout, motion, and texture choice serves the same direction.
 
-**Layout:**
-- Asymmetry, overlap, diagonal flow
-- Grid-breaking elements
-- Generous negative space OR controlled density
+### Use distinctive typography
+Pick a characterful display font and a refined body font. Avoid default system choices when the point is memorability.
+Never: Inter, Roboto, Arial, Space Grotesk, Geist, or system fonts for the memorable surface.
 
-**Motion:**
-- One orchestrated page load > scattered micro-interactions
-- Staggered reveals with animation-delay
-- Scroll-triggering, surprising hover states
+### Commit to cohesive color
+Use dominant colors with sharp accents. The palette should feel chosen, not timid or evenly distributed.
+Never: purple gradients on white unless that exact combination is the concept.
 
-**Texture:**
-- Gradient meshes, noise, geometric patterns
-- Layered transparencies, dramatic shadows
-- Custom cursors, grain overlays
+### Let layout carry the concept
+Use asymmetry, overlap, diagonal flow, grid-breaking elements, generous negative space, or controlled density when they support the direction.
+Never: predictable component patterns that make the page look interchangeable.
 
-## Anti-Patterns (Bold Mode)
+### Orchestrate motion and texture
+Prefer one orchestrated page load over scattered micro-interactions. Use staggered reveals, scroll-triggered moments, surprising hover states, gradient meshes, noise, geometric patterns, layered transparencies, dramatic shadows, custom cursors, or grain overlays only when they support the direction.
+Never: cookie-cutter modern effects detached from the concept.
 
-Never converge on common choices:
-- Space Grotesk, Geist, system fonts
-- Purple gradients on white
-- Predictable component patterns
-- Cookie-cutter "modern" aesthetics
+## 3. Match implementation effort to the aesthetic
 
-## Execution
+Bold mode can justify more code only when the chosen direction needs it.
 
-**Maximalist:** Elaborate code, extensive animations, layered effects
-**Refined minimal:** Restraint, precision, obsessive attention to spacing/typography
-
-Match implementation complexity to aesthetic vision.
+### Spend complexity where the concept demands it
+Maximalist surfaces can use elaborate code, extensive animation, and layered effects. Refined minimal surfaces demand restraint, precision, and obsessive spacing and typography.
+Never: add elaborate effects to a refined minimal direction.

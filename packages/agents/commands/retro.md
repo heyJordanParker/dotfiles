@@ -2,55 +2,40 @@
 description: Analyze conversation history for patterns, frustrations, and improvement opportunities
 ---
 
-Retrospective analysis of Claude Code conversations. Find actionable patterns.
+# /retro
 
-## Phase 1: Select Conversations
+Analyze Claude Code conversation history and return actionable patterns.
 
-Detect scope from current directory:
-- If in `~/Developer/*` or inside the dotfiles repo (any clone path) → project-specific analysis
-- Otherwise → global analysis
+1. Detect scope from the current directory:
+   - If inside `~/Developer/*` or any dotfiles clone, analyze that project.
+   - Otherwise, analyze all Claude Code projects.
+2. Build a 20-conversation set: 10 most recent conversations plus 10 older conversations spread across the remaining dates.
+3. Store the selected conversation paths for signal scanning.
 
 ```bash
-# Project-specific: encode path like Claude does
 project_path=$(echo "$PWD" | sed 's|/|-|g' | sed 's|^-||')
 conversations_dir="$HOME/.claude/projects/$project_path"
 
-# If project dir doesn't exist, fall back to global
 if [ ! -d "$conversations_dir" ]; then
   conversations_dir="$HOME/.claude/projects"
 fi
 
-# List 20 conversations: 10 most recent + 10 distributed
 find "$conversations_dir" -name "*.jsonl" -type f -print0 2>/dev/null | \
-  xargs -0 ls -t 2>/dev/null | head -20
+  xargs -0 ls -t 2>/dev/null
 ```
 
-Store the 20 conversation paths for Phase 2.
+4. Scan each selected conversation for signals. Do not read whole conversations yet; collect `(path, line_number, signal_type)`.
 
-## Phase 2: Scan for Signals
-
-Run grep on each conversation (no full reads). Collect (path, line_num, signal_type).
-
-### Frustration signals (Jordan's actual triggers):
-
+Frustration signals:
 ```bash
-# ALL_CAPS phrases (3+ caps words)
 grep -n '[A-Z]\{3,\}.*[A-Z]\{3,\}' "$file"
-
-# "I told you" / "I said" / "I already"
 grep -ni '"type":"user"' "$file" | grep -iE 'I (told|said|already)'
-
-# Profanity
 grep -ni '"type":"user"' "$file" | grep -iE 'fuck|retard|moron|idiot'
-
-# "stop" / "no," at message start
 grep -ni '"type":"user"' "$file" | grep -E '"(content|prompt)"[^"]*"(stop|no,|NO)'
 ```
 
-### Repetition signals:
-
+Repetition signals:
 ```bash
-# Extract user prompts, first 5 words, find duplicates
 grep '"type":"user"' *.jsonl | \
   jq -r '.message.content // .content // empty' 2>/dev/null | \
   awk '{print $1,$2,$3,$4,$5}' | \
@@ -58,84 +43,61 @@ grep '"type":"user"' *.jsonl | \
   awk '$1 > 1 {print}'
 ```
 
-### Manual work signals:
-
+Manual-work signals:
 ```bash
-# File paths in user messages
 grep -ni '"type":"user"' "$file" | grep -E '\.(ts|js|py|md|json|tsx|jsx)['\''":\s]'
-
-# Line numbers
 grep -ni '"type":"user"' "$file" | grep -iE 'line [0-9]+'
-
-# Code blocks (triple backticks)
 grep -ni '"type":"user"' "$file" | grep '```'
 ```
 
-Collect all signals as: `[(path, line_num, signal_type), ...]`
+5. Merge signals within 10 lines into one incident.
+6. Extract 8 Agent/Architect exchanges before and 5 after each incident.
+7. Expand to 50 exchanges when the original Architect intent is unclear, multiple signals merged, or the resolution is not visible.
 
-## Phase 3: Extract Incidents
-
-For each signal:
-1. Merge signals within 10 lines → single incident
-2. Extract context: 8 messages before + 5 after (13 total)
-3. Can expand to 50 messages if:
-   - Original user intent unclear
-   - Multiple signals merged
-   - Resolution not visible
-
-Use `sed` to extract line ranges:
 ```bash
-# Extract lines around signal (e.g., line 100, get 92-105)
 sed -n '92,105p' "$file"
 ```
 
-Output: incident bundles with full context.
+8. Launch exactly 3 Subagents in parallel with Task, grouped by incident type.
 
-## Phase 4: Analyze (Parallel Subagents)
-
-Launch 3 subagents in parallel using the Task tool. Group incidents by type.
-
-### Subagent 1: Frustration Analyzer
-
-```
+Subagent 1 Prompt:
+```markdown
 Analyze these frustration incidents from conversation history.
 
 [PASTE FRUSTRATION INCIDENTS HERE]
 
 For each incident:
 1. What did Claude do wrong?
-2. What triggered the user's frustration?
-3. Is this a pattern (appears multiple times)?
-4. What could prevent this? (skill, hook, behavior change)
+2. What triggered the Architect's frustration?
+3. Is this a repeated pattern?
+4. What could prevent it: Skill, Hook, Command, or behavior change?
 
-Output top 3-5 patterns with:
+Return the top 3-5 patterns with:
 - Pattern name
-- Frequency (how often it appeared)
+- Frequency
 - Root cause
 - Suggested fix
 ```
 
-### Subagent 2: Workflow Gap Analyzer
-
-```
-Analyze these incidents where user did manual work or repeated themselves.
+Subagent 2 Prompt:
+```markdown
+Analyze these incidents where the Architect did manual work or repeated themselves.
 
 [PASTE MANUAL WORK + REPETITION INCIDENTS HERE]
 
 For each incident:
-1. What manual work did the user do?
-2. Could this be automated? (skill, command, hook)
-3. Is this a pattern?
+1. What manual work did the Architect do?
+2. Could a Skill, Command, or Hook automate it?
+3. Is this a repeated pattern?
 
-Output top 3-5 automation opportunities with:
-- What user does manually
-- Suggested automation (skill/command/hook)
-- Effort vs payoff estimate
+Return the top 3-5 automation opportunities with:
+- What the Architect does manually
+- Suggested automation: Skill, Command, or Hook
+- Effort versus payoff estimate
 ```
 
-### Subagent 3: Underutilized Tools Finder
-
-```
+Subagent 3 Prompt:
+```markdown
 Given these existing tools:
 - Skills: [list from ~/.claude/skills/]
 - Commands: [list from ~/.claude/commands/]
@@ -145,70 +107,67 @@ And these incidents:
 [PASTE ALL INCIDENTS HERE]
 
 Find cases where:
-1. A skill should have triggered but didn't
-2. User described something a command does
-3. User could have used existing tooling
+1. A Skill should have triggered but did not.
+2. The Architect described something a Command does.
+3. Existing tooling could have helped.
 
-Output top 3-5 underutilized tools with:
+Return the top 3-5 underused tools with:
 - Tool name
 - When it should have been used
-- Why it wasn't (awareness? trigger words?)
+- Why it was missed
 ```
 
-## Phase 5: Validate (Interactive)
+9. After the Subagents return, present findings one at a time with AskUserQuestion.
 
-After subagents return, present findings ONE AT A TIME using AskUserQuestion:
+AskUserQuestion Template:
+  Finding: [pattern name]
 
-```
-Finding: [PATTERN NAME]
+  Evidence:
+  - [specific Example 1]
+  - [specific Example 2]
 
-Evidence:
-- [specific example 1]
-- [specific example 2]
+  Suggested fix: [what to do]
 
-Suggested fix: [what to do]
+  Is this actionable?
+  - Yes, let's fix it.
+  - Yes, but not priority.
+  - No, not accurate.
 
-Is this actionable?
-- Yes, let's fix it
-- Yes, but not priority
-- No, not accurate
-```
-
-Only proceed with validated findings.
-
-## Phase 6: Recommend
-
-For each validated finding:
-
-1. **Quick win** - behavior change starting now
-2. **Automation** - skill/command/hook to create
-3. **Documentation** - add to Claude.md if needed
-
-After recommendations complete:
+10. Continue only with findings the Architect validates.
+11. For each validated finding, recommend the right home:
+    - Behavior change starting now.
+    - Automation: Skill, Command, or Hook.
+    - Claude.md Fact if the finding is folder-wide Context.
+12. After recommendations complete, run:
 
 ```bash
 touch ~/.claude/.retro-marker
 ```
 
-## Output Format
+Template:
+  # /retro Results
 
-```markdown
-# /retro Results
+  ## Validated Patterns
 
-## Validated Patterns
+  ### [Pattern 1 Name]
+  - Type: Frustration / Manual Work / Underused Tool
+  - Frequency: X occurrences
+  - Fix: [specific action]
 
-### [Pattern 1 Name]
-- **Type:** Frustration / Workflow Gap / Underutilized Tool
-- **Frequency:** X occurrences
-- **Fix:** [specific action]
+  ### [Pattern 2 Name]
+  ...
 
-### [Pattern 2 Name]
-...
+  ## Action Items
+  - [ ] [specific action 1]
+  - [ ] [specific action 2]
 
-## Action Items
-- [ ] [specific action 1]
-- [ ] [specific action 2]
+  ## Next Steps
+  [what to do with these findings]
 
-## Next Steps
-[what to do with these findings]
-```
+### Keep the finding grounded
+
+Every finding cites specific Evidence from conversation history.
+
+### Validate before recommending
+
+Never recommend a fix for a finding the Architect rejected.

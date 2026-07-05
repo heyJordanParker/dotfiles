@@ -1,225 +1,255 @@
-# Server Components and Actions
+# Server Rendering
 
-## Server Components Are the Default
+One Process: keep the server-client edge low, pass only serializable data, validate every public server call, and verify client bundle boundaries.
 
-In frameworks like Next.js App Router, components are Server Components by default. They run on the server with no directive. Only add `"use client"` when the component needs interactivity (hooks, event handlers, browser APIs).
+## 1. Keep components on the server by default
 
-```tsx
-// Incorrect: Unnecessary client directive on static component
-"use client";
-export default function ProductList({ products }) {
-  return <ul>{products.map(p => <li key={p.id}>{p.name}</li>)}</ul>
-}
+### Server Components are the default
 
-// Correct: Server Component by default
-export default function ProductList({ products }) {
-  return <ul>{products.map(p => <li key={p.id}>{p.name}</li>)}</ul>
-}
-```
+In frameworks like Next.js App Router, components are Server Components by default and need no directive. Add `"use client"` only when a component needs interactivity: hooks, event handlers, or browser APIs.
 
-## Push the Client Boundary Down
-
-Only the interactive leaf needs `"use client"`. Keep the boundary as low as possible to maximize server rendering and minimize client bundle.
-
-```tsx
-// Correct: Only the button is a client component
-export default function ProductPage({ product }) {
-  return (
-    <div>
-      <h1>{product.name}</h1>
-      <p>{product.description}</p>
-      <AddToCartButton id={product.id} />
-    </div>
-  )
-}
-
-// AddToCartButton.tsx
-"use client";
-export function AddToCartButton({ id }) {
-  return <button onClick={() => addToCart(id)}>Add to Cart</button>
-}
-```
-
-## Minimize Serialized Props
-
-Props crossing the server-client boundary must be serializable. Only pass the fields the client actually uses.
-
-```tsx
-// Incorrect: Entire database object sent to client
-const user = await db.users.find(userId)
-return <UserCard user={user} />
-
-// Correct: Only needed fields
-return <UserCard name={user.name} avatarUrl={user.avatarUrl} />
-```
-
-## "use server" Marks Functions, Not Components
-
-`"use server"` creates Server Actions (async functions executed on the server). It does NOT make a component a Server Component.
-
-```tsx
-// At function level — inline in a Server Component
-export default function Dashboard() {
-  async function deleteItem(id) {
-    "use server";
-    await db.items.delete(id)
+Never:
+  ```tsx
+  "use client";
+  export default function ProductList({ products }) {
+    return <ul>{products.map(product => <li key={product.id}>{product.name}</li>)}</ul>
   }
-  return <DeleteButton action={deleteItem} />
-}
+  ```
 
-// At file level — module of Server Actions
-// actions.ts
-"use server";
-export async function createPost(formData) { /* ... */ }
-export async function deletePost(id) { /* ... */ }
-```
+Example:
+  ```tsx
+  export default function ProductList({ products }) {
+    return <ul>{products.map(product => <li key={product.id}>{product.name}</li>)}</ul>
+  }
+  ```
 
-## Parallel Fetching via Composition
+### Push the client boundary down
 
-Don't await sequentially in a parent. Let each async Server Component fetch independently.
+Only the interactive leaf needs `"use client"`. Keep the server-client edge as low as possible to maximize server rendering and minimize the client bundle.
 
-```tsx
-// Incorrect: Sequential waterfall
-export default async function Dashboard() {
-  const user = await getUser()
-  const posts = await getPosts()
-  return <div><UserCard user={user} /><PostList posts={posts} /></div>
-}
+Example:
+  ```tsx
+  export default function ProductPage({ product }) {
+    return (
+      <div>
+        <h1>{product.name}</h1>
+        <p>{product.description}</p>
+        <AddToCartButton id={product.id} />
+      </div>
+    )
+  }
 
-// Correct: Parallel — each component fetches independently
-export default function Dashboard() {
-  return (
-    <div>
-      <Suspense fallback={<UserSkeleton />}><UserCard /></Suspense>
-      <Suspense fallback={<PostSkeleton />}><PostList /></Suspense>
-    </div>
-  )
-}
+  "use client";
+  export function AddToCartButton({ id }) {
+    return <button onClick={() => addToCart(id)}>Add to Cart</button>
+  }
+  ```
 
-async function UserCard() {
-  const user = await getUser()
-  return <div>{user.name}</div>
-}
-```
+## 2. Minimize data crossing the boundary
 
-## React.cache() for Per-Request Deduplication
+### Pass only serialized fields the client uses
+
+Props crossing the server-client edge must be serializable. Send only the fields the client actually uses.
+
+Never:
+  ```tsx
+  const user = await db.users.find(userId)
+  return <UserCard user={user} />
+  ```
+
+Example:
+  ```tsx
+  return <UserCard name={user.name} avatarUrl={user.avatarUrl} />
+  ```
+
+### Transform on the server and render on the client
+
+Do heavy transformations in the Server Component. Do not serialize raw data and transform it on the client.
+
+Example:
+  ```tsx
+  export default async function Chart() {
+    const rawData = await getAnalytics()
+    const chartPoints = rawData.map(row => ({ x: row.timestamp, y: row.value }))
+    return <ChartClient points={chartPoints} />
+  }
+  ```
+
+## 3. Mark server code precisely
+
+### use server marks functions, not components
+
+`"use server"` creates Server Actions: async functions executed on the server. It does not make a component a Server Component.
+
+Example:
+  ```tsx
+  export default function Dashboard() {
+    async function deleteItem(id) {
+      "use server";
+      await db.items.delete(id)
+    }
+    return <DeleteButton action={deleteItem} />
+  }
+  ```
+
+Example:
+  ```tsx
+  "use server";
+  export async function createPost(formData) { /* ... */ }
+  export async function deletePost(id) { /* ... */ }
+  ```
+
+### Use server-only to prevent client bundling
+
+Example:
+  ```tsx
+  import "server-only"
+
+  export function getUsers() {
+    return fetch(API_URL, { headers: { Authorization: process.env.DB_SECRET } })
+  }
+  ```
+
+## 4. Fetch in parallel
+
+### Use composition for parallel fetching
+
+Do not await sequentially in a parent. Let each async Server Component fetch independently.
+
+Never:
+  ```tsx
+  export default async function Dashboard() {
+    const user = await getUser()
+    const posts = await getPosts()
+    return <div><UserCard user={user} /><PostList posts={posts} /></div>
+  }
+  ```
+
+Example:
+  ```tsx
+  export default function Dashboard() {
+    return (
+      <div>
+        <Suspense fallback={<UserSkeleton />}><UserCard /></Suspense>
+        <Suspense fallback={<PostSkeleton />}><PostList /></Suspense>
+      </div>
+    )
+  }
+
+  async function UserCard() {
+    const user = await getUser()
+    return <div>{user.name}</div>
+  }
+  ```
+
+### Use React cache for per-request deduplication
 
 When multiple components need the same data in one request, `cache()` deduplicates the fetch.
 
-```tsx
-import { cache } from "react"
+Example:
+  ```tsx
+  import { cache } from "react"
 
-const getUser = cache(async () => {
-  return await db.users.findCurrent()
-})
+  const getUser = cache(async () => {
+    return await db.users.findCurrent()
+  })
 
-// Both components call getUser() — only one DB query executes
-async function Header() { const user = await getUser(); return <div>{user.name}</div> }
-async function Sidebar() { const user = await getUser(); return <div>{user.role}</div> }
-```
+  async function Header() { const user = await getUser(); return <div>{user.name}</div> }
+  async function Sidebar() { const user = await getUser(); return <div>{user.role}</div> }
+  ```
 
-## Transform on Server, Render on Client
+### Hoist static input and output to module scope
 
-Do heavy transformations in the Server Component. Don't serialize raw data and transform on the client.
+Data that does not change per request can be fetched at module scope and shared across requests.
 
-```tsx
-// Correct: Transform on server, send only what client needs
-export default async function Chart() {
-  const rawData = await getAnalytics()
-  const chartPoints = rawData.map(d => ({ x: d.timestamp, y: d.value }))
-  return <ChartClient points={chartPoints} />
-}
-```
+Example:
+  ```tsx
+  const config = await fetchConfig()
 
-## Hoist Static I/O to Module Scope
+  export default function App() {
+    return <div theme={config.theme}>...</div>
+  }
+  ```
 
-Data that doesn't change per-request (config, feature flags) can be fetched at module scope. Runs once at import time, shared across all requests.
+Use for fonts, logos, config files, and email Templates. Do not use for per-User data, runtime-changing files, or sensitive data.
 
-```tsx
-const config = await fetchConfig() // Runs once at import time
+## 5. Treat Server Actions as public endpoints
 
-export default function App() {
-  return <div theme={config.theme}>...</div>
-}
-```
+### Validate, authenticate, authorize, execute
 
-Use for: fonts, logos, config files, email templates. Don't use for: per-user data, runtime-changing files, sensitive data.
+Server Actions are public HTTP endpoints. Treat all arguments as untrusted. TypeScript types are erased at build time and provide no runtime protection.
 
-## Server Actions Are Public HTTP Endpoints
+Example:
+  ```tsx
+  "use server";
+  import { z } from "zod"
 
-Treat all arguments as untrusted. Always: validate → authenticate → authorize → execute.
+  const DeletePostSchema = z.object({ postId: z.string().uuid() })
 
-```tsx
-"use server";
-import { z } from "zod"
+  export async function deletePost(rawInput: unknown) {
+    const { postId } = DeletePostSchema.parse(rawInput)
+    const session = await getSession()
+    if (!session) throw new Error("Not authenticated")
+    const post = await db.posts.find(postId)
+    if (post.authorId !== session.userId) throw new Error("Not authorized")
+    await db.posts.delete(postId)
+  }
+  ```
 
-const DeletePostSchema = z.object({ postId: z.string().uuid() })
+### Build a data access layer
 
-export async function deletePost(rawInput: unknown) {
-  const { postId } = DeletePostSchema.parse(rawInput)
-  const session = await getSession()
-  if (!session) throw new Error("Not authenticated")
-  const post = await db.posts.find(postId)
-  if (post.authorId !== session.userId) throw new Error("Not authorized")
-  await db.posts.delete(postId)
-}
-```
+Centralize data access behind authorized functions. Server Actions call the data access layer, which enforces authentication and authorization.
 
-TypeScript types are erased at build time — they provide zero runtime protection.
+Example:
+  ```tsx
+  import "server-only"
 
-## Use server-only to Prevent Client Bundling
+  export async function updateUserEmail(userId: string, email: string) {
+    const session = await getSession()
+    if (!session || session.userId !== userId) throw new Error("Unauthorized")
+    return db.users.update(userId, { email: z.string().email().parse(email) })
+  }
+  ```
 
-```tsx
-import "server-only"  // Build error if this module is ever bundled for client
+### Server Actions are POST-only
 
-export function getUsers() {
-  return fetch(API_URL, { headers: { Authorization: process.env.DB_SECRET } })
-}
-```
+React sends Server Action requests as POST only. Frameworks add cross-site request forgery protection through Origin and Host checking. Use Server Actions for mutations, not reads.
 
-## Taint APIs for Secret Leakage Prevention
+## 6. Protect secrets crossing server and client
 
-```tsx
-import { experimental_taintUniqueValue } from "react"
+### Use taint APIs for secret leakage prevention
 
-experimental_taintUniqueValue(
-  "Do not pass the API token to the client.",
-  process,
-  process.env.API_SECRET
-)
-```
+Example:
+  ```tsx
+  import { experimental_taintUniqueValue } from "react"
 
-`taintObjectReference` prevents entire objects from reaching Client Components. Derived values (`.toUpperCase()`, spread, destructure) bypass tainting — not a sole defense.
+  experimental_taintUniqueValue(
+    "Do not pass the API token to the client.",
+    process,
+    process.env.API_SECRET
+  )
+  ```
 
-## .bind() Arguments Are Not Encrypted
+`taintObjectReference` prevents entire objects from reaching Client Components. Derived values such as `.toUpperCase()`, spread, and destructure bypass tainting, so tainting is not a sole defense.
 
-Values passed via `.bind()` on Server Actions are visible in the client's network tab. Authenticate via session, not bound arguments.
+### Bound Server Action arguments are not encrypted protection
 
-## Build a Data Access Layer
+Values passed through `.bind()` on Server Actions are visible in the client's network tab. Authenticate through session, not bound arguments.
 
-Centralize data access behind authorized functions. Server Actions call the DAL, which enforces auth.
+### Closures are encrypted but not authorized
 
-```tsx
-// dal.ts
-import "server-only"
+When a Server Action closes over Server Component variables, Next.js 14 and later encrypts those values in transit. Encryption is not authorization; verify the session on every call.
 
-export async function updateUserEmail(userId: string, email: string) {
-  const session = await getSession()
-  if (!session || session.userId !== userId) throw new Error("Unauthorized")
-  return db.users.update(userId, { email: z.string().email().parse(email) })
-}
-```
+## 7. Choose server-side or client-side fetching by ownership
 
-## Server Actions Are POST-Only
+### Fetch initial and protected data on the server
 
-React sends Server Action requests as POST only. Frameworks add CSRF protection (Origin/Host checking) automatically. Use Server Actions for mutations, not data reading.
+Server Components own initial page data, static content, and authentication-gated data with direct database access.
 
-## When to Fetch Server-Side vs Client-Side
+### Fetch interactive data on the client
 
-- **Server Components:** initial page data, static content, auth-gated data with direct DB access
-- **Client Components:** interactive search/filter, polling, optimistic mutations, data depending on user interaction
-- **Hybrid:** fetch server-side, pass as `initialData` to TanStack Query for client-side mutations and revalidation
+Client Components own interactive search, filtering, polling, optimistic mutations, and data depending on User interaction.
 
-## Closures Are Encrypted but Not Authorized
+### Use a hybrid only when both sides own behavior
 
-When a Server Action closes over Server Component variables, Next.js 14+ encrypts those values in transit. Encryption is not authorization — always verify the session on every call.
+Fetch server-side and pass `initialData` to TanStack Query for client-side mutations and revalidation.

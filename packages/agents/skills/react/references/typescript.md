@@ -1,188 +1,213 @@
-# TypeScript Patterns for React
+# TypeScript
 
-## Discriminated Union Props
+One Process: make invalid prop states unrepresentable, rely on inference where it holds, and encode reusable React types at the boundary.
 
-Use discriminated unions for exclusive prop sets instead of optional props. TypeScript narrows the type based on the discriminant.
+## 1. Model exclusive props with the type system
 
-**Incorrect:**
-```tsx
-type ModalProps = { variant: "no-title" | "title"; title?: string }
-```
+### Use discriminated unions for exclusive prop sets
 
-**Correct:**
-```tsx
-type ModalProps =
-  | { variant: "no-title" }
-  | { variant: "title"; title: string }
-```
+Discriminated unions let TypeScript narrow the type based on the discriminant.
 
-For one-or-the-other exclusivity without a discriminant, use `never`:
-```tsx
-type Props =
-  | { foo: string; bar?: never }
-  | { bar: string; foo?: never }
-```
+Never:
+  ```tsx
+  type ModalProps = { variant: "no-title" | "title"; title?: string }
+  ```
 
-## ComponentPropsWithoutRef for Extending HTML Elements
+Example:
+  ```tsx
+  type ModalProps =
+    | { variant: "no-title" }
+    | { variant: "title"; title: string }
+  ```
+
+### Use never for one-or-the-other props without a discriminant
+
+Example:
+  ```tsx
+  type Props =
+    | { foo: string; bar?: never }
+    | { bar: string; foo?: never }
+  ```
+
+## 2. Type wrappers at the native element boundary
+
+### Use ComponentPropsWithoutRef for native wrappers
 
 Prefer `ComponentPropsWithoutRef` over `HTMLAttributes` when wrapping native elements. Use `Omit` to resolve conflicting prop names.
 
-```tsx
-interface ButtonProps extends React.ComponentPropsWithoutRef<'button'> {
-  variant?: 'primary' | 'secondary'
-  isLoading?: boolean
-}
+Example:
+  ```tsx
+  interface ButtonProps extends React.ComponentPropsWithoutRef<'button'> {
+    variant?: 'primary' | 'secondary'
+    isLoading?: boolean
+  }
 
-function Button({ variant, isLoading, ...rest }: ButtonProps) {
-  return <button {...rest} disabled={isLoading || rest.disabled} />
-}
-```
+  function Button({ variant, isLoading, ...rest }: ButtonProps) {
+    return <button {...rest} disabled={isLoading || rest.disabled} />
+  }
+  ```
 
-Extract props from components you don't control: `type ModalProps = React.ComponentProps<typeof Modal>`
+Extract props from components you do not control with `type ModalProps = React.ComponentProps<typeof Modal>`.
 
-## Event Handler Typing
+## 3. Type event handlers only when inference cannot
+
+### Let inline handlers infer types
 
 Inline handlers are auto-inferred. Separate handler functions need explicit typing.
 
-```tsx
-// Inline — auto-inferred
-<input onChange={(e) => { /* e is React.ChangeEvent<HTMLInputElement> */ }} />
+Example:
+  ```tsx
+  <input onChange={(event) => { /* event is React.ChangeEvent<HTMLInputElement> */ }} />
+  ```
 
-// Separate — type the parameter
-const handleChange = (e: React.ChangeEvent<HTMLInputElement>): void => {
-  console.log(e.currentTarget.value)
-}
-
-// Or type the function
-const handleChange: React.ChangeEventHandler<HTMLInputElement> = (e) => {
-  console.log(e.currentTarget.value)
-}
-```
-
-Common types: `ChangeEvent`, `MouseEvent`, `KeyboardEvent`, `FocusEvent`, `FormEvent`, `PointerEvent`, `SyntheticEvent` (fallback). React 19.2+ deprecates `FormEvent` in favor of `SubmitEvent`.
-
-## createContext with Null and Custom Hook Guard
-
-Create context with null default and a guard hook. Eliminates null checks at every usage site.
-
-```tsx
-const AuthContext = createContext<AuthContextType | null>(null)
-
-function useAuth(): AuthContextType {
-  const context = useContext(AuthContext)
-  if (!context) throw new Error("useAuth must be used within AuthProvider")
-  return context
-}
-```
-
-Avoid type assertions like `createContext<T>({} as T)` — they skip runtime safety.
-
-## useState and useRef Typing
-
-Let TypeScript infer when possible. Use explicit generics for unions or null.
-
-```tsx
-const [count, setCount] = useState(0)                            // inferred: number
-const [user, setUser] = useState<User | null>(null)              // explicit: union
-const [status, setStatus] = useState<'idle' | 'loading'>('idle') // explicit: literal
-
-// DOM refs — pass null, get read-only RefObject (must null-check)
-const divRef = useRef<HTMLDivElement>(null)
-
-// Mutable value refs — pass initial value, get MutableRefObject
-const intervalRef = useRef<number | null>(null)
-```
-
-## useReducer with Discriminated Union Actions
-
-Use discriminated unions for action types with a `never` exhaustive check in the default case.
-
-```tsx
-type Action =
-  | { type: "increment"; payload: number }
-  | { type: "decrement"; payload: number }
-  | { type: "reset" }
-
-function reducer(state: State, action: Action): State {
-  switch (action.type) {
-    case "increment": return { count: state.count + action.payload }
-    case "decrement": return { count: state.count - action.payload }
-    case "reset": return initialState
-    default:
-      const _exhaustive: never = action
-      throw new Error(`Unknown action: ${_exhaustive}`)
+Example:
+  ```tsx
+  const handleChange = (event: React.ChangeEvent<HTMLInputElement>): void => {
+    console.log(event.currentTarget.value)
   }
-}
-```
 
-## Plain Functions Over React.FC
+  const handleChangeTyped: React.ChangeEventHandler<HTMLInputElement> = (event) => {
+    console.log(event.currentTarget.value)
+  }
+  ```
 
-React.FC is technically fine since TypeScript 5.1 (implicit children and return type issues were fixed), but plain functions remain preferred: simpler, easier to refactor to generic, standard TypeScript syntax.
+Common event types: `ChangeEvent`, `MouseEvent`, `KeyboardEvent`, `FocusEvent`, `FormEvent`, `PointerEvent`, and `SyntheticEvent` as fallback. React 19.2 and later deprecates `FormEvent` in favor of `SubmitEvent`.
 
-**Preferred:**
-```tsx
-function Greeting({ name }: { name: string }) {
-  return <div>Hello {name}</div>
-}
-```
+## 4. Guard context at runtime
 
-Generic components are impossible with React.FC but natural with plain functions:
-```tsx
-function List<T>({ items, renderItem }: { items: T[]; renderItem: (item: T) => ReactNode }) {
-  return <ul>{items.map(renderItem)}</ul>
-}
-```
+### Create context with null and a custom hook guard
 
-## as const for Tuples and String Unions
+A null default plus a guard hook eliminates null checks at every usage site.
 
-Use `as const` to prevent type widening. Essential for hook return tuples, string union derivation, and enum alternatives.
+Example:
+  ```tsx
+  const AuthContext = createContext<AuthContextType | null>(null)
 
-```tsx
-// Hook tuple — without as const, returns (boolean | () => void)[]
-function useToggle(initial = false) {
-  const [value, setValue] = useState(initial)
-  const toggle = useCallback(() => setValue(v => !v), [])
-  return [value, toggle] as const // readonly [boolean, () => void]
-}
+  function useAuth(): AuthContextType {
+    const context = useContext(AuthContext)
+    if (!context) throw new Error("useAuth must be used within AuthProvider")
+    return context
+  }
+  ```
 
-// String union from array
-const ROLES = ["admin", "editor", "viewer"] as const
-type Role = (typeof ROLES)[number] // "admin" | "editor" | "viewer"
-```
+Never: `createContext<T>({} as T)` because it skips runtime safety.
 
-## satisfies for Type-Safe Configs
+## 5. Use inference until a union or null needs help
 
-`satisfies` validates structure without widening types. Combine with `as const` for full safety: validated, literal, readonly.
+### Type useState and useRef by need
 
-```tsx
-export const flags = {
-  newNavbar: true, betaSignup: false,
-} as const satisfies { newNavbar: boolean; betaSignup: boolean }
-// flags.newNavbar is `true` (literal), typos caught at compile time
-```
+Let TypeScript infer simple values. Use explicit generics for unions or null.
 
-## Generic Components
+Example:
+  ```tsx
+  const [count, setCount] = useState(0)
+  const [user, setUser] = useState<User | null>(null)
+  const [status, setStatus] = useState<'idle' | 'loading'>('idle')
+
+  const divRef = useRef<HTMLDivElement>(null)
+  const intervalRef = useRef<number | null>(null)
+  ```
+
+## 6. Make reducers exhaustive
+
+### Use discriminated union actions with a never check
+
+Example:
+  ```tsx
+  type Action =
+    | { type: "increment"; payload: number }
+    | { type: "decrement"; payload: number }
+    | { type: "reset" }
+
+  function reducer(state: State, action: Action): State {
+    switch (action.type) {
+      case "increment": return { count: state.count + action.payload }
+      case "decrement": return { count: state.count - action.payload }
+      case "reset": return initialState
+      default:
+        const _exhaustive: never = action
+        throw new Error(`Unknown action: ${_exhaustive}`)
+    }
+  }
+  ```
+
+## 7. Prefer plain component functions
+
+### Use plain functions over React.FC
+
+`React.FC` is technically fine since TypeScript 5.1 fixed implicit children and return type issues, but plain functions remain simpler, easier to refactor to generics, and standard TypeScript syntax.
+
+Example:
+  ```tsx
+  function Greeting({ name }: { name: string }) {
+    return <div>Hello {name}</div>
+  }
+  ```
+
+Example:
+  ```tsx
+  function List<T>({ items, renderItem }: { items: T[]; renderItem: (item: T) => ReactNode }) {
+    return <ul>{items.map(renderItem)}</ul>
+  }
+  ```
+
+## 8. Preserve literal types where needed
+
+### Use as const for tuples and string unions
+
+`as const` prevents type widening. It is essential for hook return tuples, string union derivation, and enum alternatives.
+
+Example:
+  ```tsx
+  function useToggle(initial = false) {
+    const [value, setValue] = useState(initial)
+    const toggle = useCallback(() => setValue(value => !value), [])
+    return [value, toggle] as const
+  }
+
+  const ROLES = ["admin", "editor", "viewer"] as const
+  type Role = (typeof ROLES)[number]
+  ```
+
+### Use satisfies for type-safe configs
+
+`satisfies` validates shape without widening types. Combine it with `as const` for validated, literal, readonly config.
+
+Example:
+  ```tsx
+  export const flags = {
+    newNavbar: true, betaSignup: false,
+  } as const satisfies { newNavbar: boolean; betaSignup: boolean }
+  ```
+
+## 9. Use generics for reusable components
+
+### Disambiguate generic arrow components
 
 Use generics for reusable type-safe components. Arrow functions need `extends unknown` to avoid JSX ambiguity.
 
-```tsx
-function Select<T>(props: { options: T[]; value: T; onChange: (v: T) => void }) { /* ... */ }
+Example:
+  ```tsx
+  function Select<T>(props: { options: T[]; value: T; onChange: (value: T) => void }) { /* ... */ }
 
-// Arrow syntax — must constrain to disambiguate from JSX
-const Select = <T extends unknown>(props: SelectProps<T>) => { /* ... */ }
-```
+  const SelectArrow = <T extends unknown>(props: SelectProps<T>) => { /* ... */ }
+  ```
 
-## ReactNode for Children
+## 10. Type children broadly
 
-Use `ReactNode` for children 99% of the time. It accepts strings, numbers, elements, arrays, null, and fragments. `ReactElement` is narrower (JSX only). You cannot enforce specific component types as children.
+### Use ReactNode for children
 
-## React 19: ref as Regular Prop
+Use `ReactNode` for children 99 percent of the time. It accepts strings, numbers, elements, arrays, null, and fragments. `ReactElement` is narrower. You cannot enforce specific component types as children.
 
-React 19 deprecates `forwardRef`. Pass `ref` directly as a prop using `Ref<T>` type.
+## 11. Use React 19 ref props
 
-```tsx
-// React 19 — ref is just a prop
-function Input({ ref, ...props }: InputProps & { ref?: Ref<HTMLInputElement> }) {
-  return <input ref={ref} {...props} />
-}
-```
+### Pass ref as a regular prop
+
+React 19 deprecates `forwardRef`. Pass `ref` directly as a prop using the `Ref<T>` type.
+
+Example:
+  ```tsx
+  function Input({ ref, ...props }: InputProps & { ref?: Ref<HTMLInputElement> }) {
+    return <input ref={ref} {...props} />
+  }
+  ```

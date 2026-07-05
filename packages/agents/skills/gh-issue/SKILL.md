@@ -1,100 +1,75 @@
 ---
 name: gh-issue
-description: Use when creating or updating GitHub issues. Enforces self-contained issues that an AI agent can implement without conversation history. Use when user says "create an issue", "file an issue", "gh issue", "update the issue", or wants to turn a plan into a trackable issue.
+description: Create or update GitHub issues. Enforces self-contained issues that an Agent can implement without conversation Context. Use when the Architect says "create an issue", "file an issue", "gh issue", "update the issue", or wants to turn a Plan into a trackable issue.
 ---
 
 # GitHub Issue
 
-Create and update GitHub issues that are fully self-contained. The implementing agent has zero conversation context — every detail must be in the issue body.
+- GitHub issues are fully self-contained.
+- The implementing Agent has no conversation Context.
+- Every missing detail becomes a blocker or wrong assumption.
 
-## Why
+## 1. Read before writing
 
-Issues created from conversation silently depend on that conversation. The implementing agent has none of it. Every vague reference becomes a blocker or wrong assumption.
+Read the affected code, check the nearest Claude.md for Rules the implementing Agent must follow, and gather repo-relative file paths.
 
-## Creating Issues
+### Never describe unread code
+Describe only code already read in this Task.
 
-### Before
+### Use exact repo-relative paths
+Name the file path the Agent can open.
+Never: `the config file`, `the auth module`, or `the usual place`.
 
-1. **Read affected code** — never describe code you haven't read
-2. **Check nearest Claude.md** — capture requirements and boundaries the implementer must follow
-3. **Gather file paths** — repo-relative, never vague ("the config file")
+## 2. Write the issue body
 
-### During
+Inline the conversation's Plan or content. Include WHY, repo-relative file paths, concrete implementation detail, and acceptance criteria.
 
-The plan/content generated in conversation goes into the issue body as-is. No rigid template — but enforce these rules:
+### Inline every source the implementing Agent needs
+The body never points back to conversation Context, external files, Plans, or Shaping. It carries the needed content itself.
+Never: `see above`, `as discussed`, `see the shaping doc`, or `see the Plan file`.
 
-- **WHY is stated** — business motivation, not just technical description
-- **All file paths are repo-relative** — never "the auth module"
-- **No conversation references** — never "see above", "as discussed", "the usual way"
-- **No external references** — never "see the shaping doc" or "see the plan file". Inline the content, don't point to it
-- **Concrete implementation details** — an agent with zero context can start working immediately
-- **Acceptance criteria included** — how to verify the work is done
+## 3. Check self-containment
 
-### After — Self-Containment Check
+Ask whether an Agent can implement the issue without asking a single question.
 
-Before running `gh issue create`, verify every item:
+IF the body is missing WHY, repo-relative paths, inline content, or acceptance criteria:
+### Fix the body before creating or updating the issue
+Do not run `gh issue create` or `gh issue edit` until the body is self-contained.
 
-- [ ] Could an agent implement this without asking a single question?
-- [ ] WHY is stated in the body?
-- [ ] All file paths repo-relative?
-- [ ] No references to conversation, external files, plans, or shaping docs?
-- [ ] Acceptance criteria present?
+## 4. Create the issue
 
-If any check fails, fix the issue body before creating.
+Run `gh issue create`, always pass `--assignee @me`, pass `--repo <owner/repo>` or `--label` when specified, then report the issue URL.
 
-### Create
+Template:
+  ```bash
+  gh issue create --assignee @me --title "<title>" --body "$(cat <<'EOF'
+  <body>
+  EOF
+  )"
+  ```
 
-```bash
-gh issue create --assignee @me --title "<title>" --body "$(cat <<'EOF'
-<body>
-EOF
-)"
-```
+## 5. Update the issue
 
-Pass `--repo <owner/repo>` if specified. Pass `--label` if specified. Report the issue URL when done.
+Use `gh issue edit` when the body, title, labels, or state changes. Every edit gets a `gh issue comment` stating WHAT changed and WHY. Body rewrites go through step 3 before editing.
 
-## Updating Issues
+### Add a change comment for every edit
+The comment makes the changed issue self-contained for the next Agent.
 
-### When
+Template:
+  ```bash
+  gh issue edit <number> --body "$(cat <<'EOF'
+  <updated body>
+  EOF
+  )"
 
-Use `gh issue edit` when the issue body, title, labels, or state need to change.
+  gh issue comment <number> --body "$(cat <<'EOF'
+  ## Changes
 
-### Process
+  - <WHAT changed>
 
-1. **Edit the issue** — `gh issue edit <number>` with updated fields
-2. **Add a comment explaining the changes** — every edit gets a comment via `gh issue comment <number>`:
-   - What changed
-   - Why those changes were necessary
-3. **Same self-containment check** applies if rewriting the body
+  WHY: <WHY these changes were necessary>
+  EOF
+  )"
 
-### Commands
-
-```bash
-# Edit body
-gh issue edit <number> --body "$(cat <<'EOF'
-<updated body>
-EOF
-)"
-
-# Add change comment
-gh issue comment <number> --body "$(cat <<'EOF'
-## Changes
-
-- <what changed>
-
-**Why:** <why these changes were necessary>
-EOF
-)"
-
-# Close
-gh issue close <number> --comment "Resolved: <reason>"
-```
-
-## Rules
-
-- Always `--assignee @me` on creation
-- Never create an issue that references conversation context
-- Never reference external files — inline the content
-- Never use vague file references — always exact repo-relative paths
-- Never skip the self-containment check
-- Always add a change comment when updating an issue body
+  gh issue close <number> --comment "Resolved: <reason>"
+  ```

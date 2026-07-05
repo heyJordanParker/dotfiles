@@ -559,7 +559,7 @@
     "skill-creator@claude-plugins-official": true
   },
   "alwaysThinkingEnabled": true,
-  "effortLevel": "high",
+  "effortLevel": "medium",
   "agent": "cto",
   "autoUpdatesChannel": "latest",
   "autoMemoryEnabled": false,

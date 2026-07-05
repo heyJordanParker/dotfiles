@@ -2,30 +2,84 @@
 paths: "**/*.php"
 ---
 
-# Laravel
+IF working on PHP files in a Laravel project:
+### Load /laravel proactively
+Load the /laravel Skill.
 
-When working on PHP files in a Laravel project, proactively load the `/laravel` skill. Read the reference that matches the current task:
+IF working on Laravel queries or performance:
+### Read `references/optimizing-queries.md`
+Read `references/optimizing-queries.md`.
 
-- Queries, performance → `references/optimizing-queries.md`
-- Models, relationships → `references/writing-models.md`
-- Controllers, routes, code organization → `references/structuring-code.md`
-- Validation, forms → `references/validating-input.md`
-- Security, authorization → `references/securing-code.md`
-- Migrations → `references/writing-migrations.md`
-- Tests → `references/writing-tests.md`
-- Jobs, events, scheduling → `references/handling-async.md`
-- External APIs → `references/calling-apis.md`
-- Error handling → `references/handling-errors.md`
-- Caching → `references/implementing-caching.md`
-- Blade, frontend → `references/building-views.md`
+IF working on Laravel models or relationships:
+### Read `references/writing-models.md`
+Read `references/writing-models.md`.
 
-## Principles
+IF working on Laravel controllers, routes, or code organization:
+### Read `references/structuring-code.md`
+Read `references/structuring-code.md`.
 
-- Consistency over correctness — match existing project patterns before applying any rule
-- Constructor injection everywhere — never `app()` or `resolve()`
-- Form Requests own validation — never inline in controllers
-- `$request->validated()` only — never `$request->all()`
-- Authorize every action — policies or gates, no exceptions
-- `env()` only in config files — never in application code
-- Eager load relationships — never lazy load
-- Explicit ordering — always `ORDER BY`, never rely on database defaults
+IF working on Laravel validation or forms:
+### Read `references/validating-input.md`
+Read `references/validating-input.md`.
+
+IF working on Laravel security or authorization:
+### Read `references/securing-code.md`
+Read `references/securing-code.md`.
+
+IF working on Laravel migrations:
+### Read `references/writing-migrations.md`
+Read `references/writing-migrations.md`.
+
+IF working on Laravel tests:
+### Read `references/writing-tests.md`
+Read `references/writing-tests.md`.
+
+IF working on Laravel jobs, events, or scheduling:
+### Read `references/handling-async.md`
+Read `references/handling-async.md`.
+
+IF working on Laravel external APIs:
+### Read `references/calling-apis.md`
+Read `references/calling-apis.md`.
+
+IF working on Laravel error handling:
+### Read `references/handling-errors.md`
+Read `references/handling-errors.md`.
+
+IF working on Laravel caching:
+### Read `references/implementing-caching.md`
+Read `references/implementing-caching.md`.
+
+IF working on Laravel Blade or frontend:
+### Read `references/building-views.md`
+Read `references/building-views.md`.
+
+### Match project patterns first
+Consistency outranks correctness. Match existing project patterns before applying any Rule.
+
+### Use constructor injection everywhere
+Use constructor injection everywhere.
+Never: `app()` or `resolve()`.
+
+### Put validation in Form Requests
+Form Requests own validation.
+Never: inline validation in controllers.
+
+### Use `$request->validated()` only
+Use `$request->validated()` for request data.
+Never: `$request->all()`.
+
+### Authorize every action
+Authorize every action with policies or gates. No exceptions.
+
+### Use `env()` only in config files
+Use `env()` only in config files.
+Never: `env()` in application code.
+
+### Eager load relationships
+Eager load relationships.
+Never: lazy load relationships.
+
+### Order queries explicitly
+Always add `ORDER BY`.
+Never: rely on database defaults.

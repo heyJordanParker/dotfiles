@@ -1,84 +1,79 @@
 ---
 name: architecture
-description: Use when presenting architectural options, designing systems, or discussing tradeoffs. Append to any prompt.
+description: TRIGGER when presenting Architectural options, Architecting systems, or discussing tradeoffs. Append to any Prompt.
 ---
 
 # Architecture
 
-Think as a senior architect. Evaluate systems at the structural level — boundaries, ownership, tradeoffs — not implementation details.
+- Architecture Decisions are expensive to reverse.
+- The Architect reviews Architecture: files, public APIs, database, ownership, dependency direction, and module boundaries.
+- The Agent owns HOW; the Architect owns Architecture.
 
-## WHY
+## 1. Start with WHY and the highest Decision
 
-Architecture decisions are expensive to reverse. Bad options waste the architect's time:
-- Two options that are really the same idea. The architect reads and compares both, gets no real decision for the effort, and has to come back and ask for a genuine alternative.
-- A low-level decision put before the high-level one that controls it. If the high-level call flips, the low-level decision is moot and every token spent reasoning about it — and any design already built around it — is wasted. High-level decisions come first.
-- An option that ties two separate concerns together. Every later change to one drags the other along, so edits that should be small turn wide and slow.
-- An option with no pros, cons, and confidence on it — the /pcc shape. The architect can't compare it to the others, so they either pick blind or send it back for the missing read.
+State the problem, what triggered it, and the highest Architectural Decision before lower-level choices.
 
-## Try to break it before you present it
+### Put the controlling Decision first
+Defaults, naming, edge cases, and implementation details wait until the data model, module boundary, public API, and dependency direction are approved.
+Never: ask about defaults before the data model, naming before the Architecture, edge cases before the happy path, or implementation details before the approach.
 
-Build toward the architecture the code should have, not the one it has now. What's there today tells you what's there. It doesn't tell you what to keep, and it's not a wall around the decision. When the right shape is different from what's there, build the right shape — with AI it's under an hour of work.
+### Separate Architecture, Convention, and implementation
+Architecture is module boundaries, public contracts, data ownership, dependency direction, new modules, and schema mutations. Convention follows repo Precedent. Implementation is the Agent's tactical work: method internals, error messages, and control flow.
+Never: present an implementation choice as an Architectural Decision.
 
-A design is a hypothesis — your best guess at the right shape. You get to the right one by attacking your guess, not by confirming it:
+## 2. Break the Architecture before presenting it
 
-1. **State the hypothesis** — the shape you think is right, in one sentence, plus the plan and why you're doing it. Show it concretely: real names, the API methods, the call site, pseudocode where it helps. Never describe it as an abstract category. Whoever hardens the design, you or a subagent, needs the whole concrete picture.
-2. **Try to break it** — trace the code it touches and find where it falls apart: the case it can't handle, the boundary that doesn't hold, the thing the user could do before and now can't, the caller it forces you to rewrite. Attack it, don't confirm it. When you send subagents, point each one at the architecture you're building toward and tell it to break the design and propose fixes — not to write up the code that's there now.
-3. **Every weak spot is a problem to fix** — not a tradeoff you note and move past. It's a defect in the design.
-4. **Fix them all, then attack again** — fold in the fixes and try to break the new version. Repeat until you can't break it and the shape is coherent, elegant, and functional.
+Build toward the Architecture the code should have. Current code is evidence, not a wall around the Decision.
 
-Then present options through the Process below. A design you haven't tried to break is a guess, and showing it makes the architect do the breaking — on their time instead of yours.
+### State the hypothesis concretely
+Name the shape you think is right in one sentence, plus the Plan and why. Show real names, public API methods, the call site, or pseudocode where useful.
+Never: describe the Architecture only as an abstract category.
 
-Named failures:
-- **unbroken hypothesis** — showing the first design that works without trying to break it first.
-- **status-quo wall** — letting whatever's in the code today decide the design instead of building what's right.
-- **noted-not-fixed** — finding a weak spot and listing it instead of fixing it.
+### Attack the hypothesis instead of confirming it
+Trace the code it touches and find the case it cannot handle, the boundary that does not hold, the capability the User would lose, or the caller it forces you to rewrite. When using Subagents, ask them to break the proposed Architecture and propose fixes.
+Never: ask a Subagent to summarize the current code when the Task is to harden a proposed Architecture.
 
-## Process
+### Fix every weak spot before Review
+A weak spot is a defect in the Architecture, not a tradeoff to list and move past. Fold in fixes and attack again until the shape is coherent, elegant, and functional.
+Never: unbroken hypothesis, status-quo wall, or noted-not-fixed.
 
-1. **Start with WHY** — what problem, what triggered it
-2. **Show the architecture** — annotated file tree of what exists and what changes (use /show-architecture)
-3. **Present options with /pcc** (pros/cons/confidence) for each. Show the call site (what developers write to USE it), not just the data model
-4. **Use /naming** for all identifiers in examples
+## 3. Show the Architecture before the options
 
-## Option Quality
+Use /show-architecture to show what exists and what changes.
 
-Present options that are genuinely different — different tradeoff spaces, different problems solved, different implications.
+### Show the call site
+The option must show what the caller writes to use it, not only the data model.
+Example: show the public method call and payload shape beside the ownership change.
+Never: only diagram tables while hiding the public API the caller will use.
 
-- Every option occupies a different tradeoff space
-- Every option solves at least one problem the others don't
-- State what each option is BEST for — if two are best for the same thing, merge them
-- State what conventions this establishes — good architecture eliminates future decisions
-- Each option explainable in one sentence — if it takes a paragraph, it's over-engineered
-- Frame cost as maintenance burden (lines of code) vs revenue potential at 1,000 users (retention, upsells, reduced churn)
-- Something a reasonable engineer would actually choose
+### Use /naming for identifiers in Examples
+Names are Architecture when they enter files, public APIs, database schema, or reusable vocabulary.
+Never: invent identifiers inside an Architectural Example.
 
-## Filler Options (NEVER present)
+## 4. Present only genuine options with /pcc
 
-- "Defer / YAGNI" when the user is actively asking
-- "External service" for something the user described as simple
-- "Code-only" when the user needs runtime control
-- "Keep current approach" / "start over" / "abandon this direction" — if the user is exploring a topic, they want options WITHIN that direction, not exits from it. Warn about tradeoffs, but never at the expense of output quality
-- Any option you wouldn't recommend to anyone
+Every option needs pros, cons, and confidence so the Architect can compare it.
 
-## Decision Hierarchy
+### Keep options in different tradeoff spaces
+Each option must solve at least one problem the others do not. State what each option is best for; if two options are best for the same thing, merge them.
+Never: two options that are the same idea.
 
-Architecture before implementation. Never ask about:
-- Defaults before the data model is approved
-- Naming before the structure is approved
-- Edge cases before the happy path is approved
-- Implementation details before the approach is approved
+### State the Convention each option creates
+Good Architecture eliminates future Decisions. Name what choosing the option forces the project to decide next.
+Example: "Choosing this makes the entity own the public API; controllers stop assembling the payload."
 
-## Encapsulation
+### Reject filler options before the Architect sees them
+An option must be viable in real Execution. Do not present exits from the direction the Architect is exploring.
+Never: "defer", "use an external service" for a simple thing, "code-only" when runtime control is needed, "keep current", "start over", "abandon this direction", or any option you would not recommend.
 
-- What does this system know about? What doesn't it know about?
-- One owner per concept
-- Don't couple unrelated concerns (billing ≠ tenancy, plans ≠ feature flags)
-- Same shape ≠ same concern — things that look similar but have different lifecycles are different systems
-- If a change in system A requires a change in system B, the boundary is wrong
+## 5. Check ownership and coupling
 
-## Scope
+Ask what each system knows, what it does not know, and who owns each concept.
 
-- Architecture only: module boundaries, public contracts, data ownership, dependency direction, new modules, schema mutations
-- Convention decisions: apply repo precedent; promote to architecture only when precedent is missing or needs changing
-- Implementation decisions: direct answer, agent owns — method internals, error messages, control flow
-- Each option implies different follow-on decisions — "What does choosing this FORCE us to decide next?" is the implication
+### Keep one owner per concept
+Do not couple unrelated concerns. Same shape does not mean same concern when lifecycles differ.
+Example: billing is not tenancy; plans are not feature flags.
+Never: make one system change whenever an unrelated system changes.
+
+### Frame cost as maintenance burden against revenue
+Compare lines of code and maintenance burden against revenue potential at 1,000 Users: retention, upsells, and reduced churn.

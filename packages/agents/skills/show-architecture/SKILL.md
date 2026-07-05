@@ -1,150 +1,105 @@
 ---
 name: show-architecture
-description: Use when exploring/explaining code, designing/updating architecture, or when asked to visualize structure. Shows annotated file trees inline.
+description: Shows Architecture inline with annotated file trees, runtime relationship diagrams, and narrow markers. TRIGGER when exploring or explaining code, changing Architecture, or when the Architect asks to visualize Architecture.
 ---
 
 # Show Architecture
 
-Use annotated file trees to visualize and explain architecture.
+- Show Architecture inline in the reply.
+- Never write files.
+- Use the narrowest view that explains the Architecture.
 
-## When to Use
+## 1. Choose the view
 
-- Exploring unfamiliar code
-- Explaining how a feature works
-- Designing new architecture
-- Reviewing or updating structure
-- On explicit request
+### Use a file tree for location and change shape
+A file tree shows where code lives, which files change, and how nearby files relate.
+Example: use a file tree when explaining what exists and what changes.
 
-## Format
+### Use a relationship diagram for runtime behavior
+A relationship diagram shows movement, ownership, call order, or end-to-end behavior.
+Example: use a relationship diagram when the question is how data moves through the system.
 
-```
-directory/
-├── file.ts*             <- annotation (3-5 words)
-├── subdirectory/
-│   ├── nested.ts*       <- changed file marked with *
-│   └── related.ts       <- context file (no *)
-└── context.ts
-```
+### Use markers only when the symbol carries meaning
+Markers are for checklist state, two-way relationships, or formulas. They are not general shorthand.
+Never: scatter symbols through prose as decoration.
 
-## Rules
+## 2. Draw file trees when location matters
 
-1. **Box-drawing:** `├──`, `└──`, `│` for structure
-2. **Annotations:** `<-` arrow, brief (3-5 words)
-3. **Changed files:** mark with `*` suffix (like commit)
-4. **Context-dependent:** adapt annotations to purpose
-5. **Skip irrelevant:** only show relevant files, omit the rest entirely
-6. **Never write to files.** Output inline only. No exceptions.
-7. **No status prefixes.** Mark a changed file with `*` and state the change after `<-`. Show an unchanged context file with a plain role annotation and no prefix. Never write `KEEP:`, `REMOVE:`, or `PRESERVE:`.
+### Use box-drawing characters and short annotations
+Use `├──`, `└──`, and `│` for structure. Use `<-` annotations with three to five words, adapted to the purpose.
+Template:
+  ```
+  directory/
+  ├── file.ts*             <- annotation (3-5 words)
+  ├── subdirectory/
+  │   ├── nested.ts*       <- changed file marked with *
+  │   └── related.ts       <- context file (no *)
+  └── context.ts
+  ```
 
-## Annotation Styles
+### Mark changed files with `*`
+A changed file gets `*` suffix. An unchanged file gets a plain role annotation and no status prefix. Skip irrelevant files entirely.
+Never: `KEEP:`, `REMOVE:`, `PRESERVE:`, `* new`, or `existing,` prefixes.
 
-**Overview** (responsibilities):
-```
-src/
-├── core/
-│   ├── engine.ts*       <- orchestrates subsystems
-│   └── config.ts        <- runtime settings
-├── adapters/
-│   ├── http.ts*         <- express server
-│   └── db.ts            <- postgres connection
-└── index.ts             <- entrypoint
-```
+### Match annotations to the purpose
+Overview annotations name responsibility. Feature annotations name data movement. Debugging annotations name dependency or failure location.
+Example: `engine.ts* <- orchestrates subsystems`; `validate.ts* <- checks credentials`; `UserRepo.ts* <- fails here`.
+Never: annotations that repeat the filename or a tree with no annotations.
 
-**Feature deep-dive** (data flow):
-```
-src/auth/
-├── login.ts             <- receives credentials
-├── validate.ts*         <- checks against db
-├── token.ts*            <- issues JWT
-└── middleware.ts        <- verifies on requests
-```
+## 3. Draw relationship diagrams when runtime behavior matters
 
-**Debugging** (dependencies):
-```
-src/
-├── api/handler.ts       <- calls UserService
-├── services/
-│   └── UserService.ts   <- calls Repository
-└── repos/
-    └── UserRepo.ts*     <- fails here
-```
+### Put only touched fields and methods inside boxes
+The box title is the component. Inside, list only fields or methods touched by the behavior. Mark the authoritative box.
+Example:
+  ```
+  ┌─────────────────────────────────┐
+  │ Cart  (source of truth)         │
+  │ items: offer_id, product_id, qty│
+  │ subtotal / tax / total          │
+  └──────┬───────────────────┬──────┘
+         │ read              │ read
+         ▼                   ▼
+  ┌──────────────┐   ┌──────────────────┐
+  │ CheckoutView │   │ StoreService     │
+  │ customer sees│   │ projectCartToWc()│
+  └──────────────┘   └────────┬─────────┘
+                              │ write
+                              ▼
+                     ┌──────────────────┐
+                     │ WC_Order         │
+                     └────────┬─────────┘
+                              │ charge
+                              ▼
+                     ┌──────────────────┐
+                     │ Gateway plugin   │
+                     └──────────────────┘
+  ```
 
-## Anti-patterns
+### Label every arrow with the relationship
+Arrow labels name the behavior: `read`, `write`, `charge`, `emit`, or `call`. Run top to bottom from entry to terminal effect.
+Never: unlabeled arrows.
 
-- Showing every file (overwhelming)
-- Missing annotations (useless tree)
-- Annotations that repeat filename
-- `* new` annotations — the `*` already conveys it; the annotation describes the role
-- `existing,` prefix on context-file annotations — describe the role directly, mention the relationship to the change only when load-bearing (e.g., `Untracked.php   <- separate purpose; we add NoAudit instead`)
+### Show only the path being explained
+The diagram is not an inventory. Include only boxes on the path that answers the question.
+Never: every related component in the system.
 
-## Relationship Diagrams
+## 4. Use narrow markers
 
-File trees show structure. A relationship diagram shows runtime flow: how components call, read, write, or hand off. Use it when the question is "how does data move through this", not "where do the files live".
+### Use `○` and `●` for checklist state
+Use open and done markers only for checklist state.
+Example:
+  ```
+  release readiness
+  ● schema migration applied
+  ● checkout endpoint live
+  ○ frontend wired to the new endpoint
+  ○ end-to-end test passing
+  ```
 
-```
-┌─────────────────────────────────┐
-│ Cart  (source of truth)         │
-│ items: offer_id, product_id, qty│
-│ subtotal / tax / total          │
-└──────┬───────────────────┬──────┘
-       │ read              │ read
-       ▼                   ▼
-┌──────────────┐   ┌──────────────────┐
-│ CheckoutView │   │ StoreService     │
-│ customer sees│   │ projectCartToWc()│
-└──────────────┘   └────────┬─────────┘
-                            │ write
-                            ▼
-                   ┌──────────────────┐
-                   │ WC_Order         │
-                   └────────┬─────────┘
-                            │ charge
-                            ▼
-                   ┌──────────────────┐
-                   │ Gateway plugin   │
-                   └──────────────────┘
-```
+### Use `↔` for a two-way relationship
+Use the symbol only when both sides affect each other.
+Example: `CheckoutView ↔ CartService`.
 
-### Rules
-
-1. The box title is the component. Inside, list only the fields or methods the flow touches.
-2. Every arrow is labelled with the relationship: `read`, `write`, `charge`, `emit`, `call`.
-3. Mark the authoritative box, for example `(source of truth)`.
-4. Flow runs top to bottom: entry at the top, terminal effect at the bottom.
-5. Show only the boxes on the path being explained. Skip the rest.
-
-### Tree or diagram
-
-- **File tree.** Where code lives, what files change.
-- **Relationship diagram.** How it works end to end, data flow, ownership, call order.
-
-## Markers and equations
-
-Three narrow uses. Each symbol earns its place by carrying a specific shape — not as general shorthand inside prose.
-
-**Checklist state with `○` / `●`:**
-
-```
-release readiness
-● schema migration applied
-● checkout endpoint live
-○ frontend wired to the new endpoint
-○ end-to-end test passing
-```
-
-**A two-way relationship with `↔`:**
-
-```
-┌──────────────┐      ┌─────────────┐
-│ CheckoutView │  ↔   │ CartService │
-└──────────────┘      └─────────────┘
-```
-
-**A relation or formula with `= ≠ ≈ ≤ ≥ ± ×`:**
-
-```
-order.user_id = user.id            each order belongs to one user
-order.line_items ≥ 1               an order has at least one line
-tax = subtotal × 0.2               tax is 20% of subtotal
-total = subtotal + tax - discount
-```
+### Use equation symbols for relations and formulas
+Use `=`, `≠`, `≈`, `≤`, `≥`, `±`, and `×` for compact relation or formula lines.
+Example: `order.line_items ≥ 1`; `tax = subtotal × 0.2`.

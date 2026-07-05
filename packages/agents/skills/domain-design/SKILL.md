@@ -1,49 +1,55 @@
 ---
 name: domain-design
-description: Build and sharpen a project's domain model. Use when the user wants to pin down domain terminology or a shared language, record an architectural decision, or when another skill needs to maintain the domain model.
+description: Build or sharpen a project's Domain.md and Decisions. Use when the Architect wants to pin down project language, record a Decision, or when another Skill needs to change Domain.md.
 ---
 
 # Domain Design
 
-Actively build and sharpen the project's domain model as you design. This is the *active* discipline — challenging terms, inventing edge-case scenarios, and writing the shared language and decisions down the moment they crystallise. (Merely *reading* `Domain.md` for vocabulary is not this skill — that is a one-line habit any skill can do. This skill is for when you are changing the model, not just consuming it.)
+One Process keeps the project's language and Decisions precise while Shaping or Execution changes them.
 
-## Where it lives
+## 1. Use the right home
 
-- `Domain.md` at the repo root — the shared language across every system in the project.
-- `docs/architecture/decisions/` — the numbered decision records.
+Project language lives in the repo-root `Domain.md`. Decisions live in `docs/architecture/decisions/`. Create either only when there is something to write.
 
-Create files lazily — only when you have something to write. If no `Domain.md` exists, create it when the first term is resolved. If no `docs/architecture/decisions/` exists, create it when the first decision is recorded.
+## 2. Challenge language against `Domain.md`
 
-## During the session
+IF a term conflicts with `Domain.md`:
+### Ask which meaning survives before writing
+Call out both meanings and ask the Architect which one survives.
 
-### Challenge against the shared language
+IF a term is vague or overloaded:
+### Propose the precise project word
+Check `Domain.md` and the code, then propose the precise word that fits the project.
 
-When the user uses a term that conflicts with the existing language in `Domain.md`, call it out immediately. "Your `Domain.md` defines 'cancellation' as X, but you seem to mean Y — which is it?"
+## 3. Test terms with concrete cases
 
-### Sharpen fuzzy language
+Use concrete cases that probe edge cases and force precision about the boundaries between concepts.
 
-When the user uses vague or overloaded terms, propose a precise canonical term. "You're saying 'account' — do you mean the Customer or the User? Those are different things."
+## 4. Check code claims against code
 
-### Discuss concrete scenarios
+When the Architect states how something works, read the code and surface any contradiction.
 
-When domain relationships are being discussed, stress-test them with specific scenarios. Invent scenarios that probe edge cases and force the user to be precise about the boundaries between concepts.
+## 5. Update `Domain.md` when a term resolves
 
-### Cross-reference with code
+Write the term immediately at the repo root.
 
-When the user states how something works, check whether the code agrees. If you find a contradiction, surface it: "Your code cancels entire Orders, but you just said partial cancellation is possible — which is right?"
+Template:
+    **Term**:
+    {One or two sentences defining what it IS, not what it does.}
+    _Avoid_: {the words it replaces}
 
-### Update Domain.md inline
+### One word wins
+Put replaced words under `_Avoid_`. Project-specific terms go in `Domain.md`; general programming concepts stay out even when the project uses them heavily. Group terms under subheadings when natural clusters emerge.
 
-When a term is resolved, update `Domain.md` right there. Don't batch these up — capture them as they happen. Use the format in [references/domain-format.md](references/domain-format.md).
+### Keep implementation details out
+`Domain.md` holds the project's language, not implementation decisions.
 
-`Domain.md` should be totally devoid of implementation details. Do not treat it as a spec, a scratch pad, or a store for implementation decisions. It is a shared language and nothing else.
+## 6. Propose Decisions, then record the Architect's choice
 
-### Record decisions sparingly
+Propose a Decision only when all three hold: it is hard to reverse, it is not self-evident from the code, and it is the result of a real trade-off. The Architect makes the Decision, typically through /interview.
 
-Only offer to record a decision when all three are true:
+Template:
+    docs/architecture/decisions/000N-<the-decision>.md
 
-1. **Hard to reverse** — the cost of changing your mind later is meaningful
-2. **Not self-evident from the code** — a future reader will wonder "why did they do it this way?"
-3. **The result of a real trade-off** — there were genuine alternatives and you picked one for specific reasons
-
-If any of the three is missing, skip it. Use the format in [references/decisions-format.md](references/decisions-format.md).
+    # {The Decision}
+    {One to three sentences: situation, choice, and WHY — plus measured scores when an experiment produced them.}

@@ -1,5 +1,5 @@
 ---
-description: Copy current plan path to clipboard
+description: Copy current Plan path to clipboard
 allowed-tools: Bash(claude-current-plan-path:*)
 ---
 

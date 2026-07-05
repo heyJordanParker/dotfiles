@@ -17,6 +17,14 @@ export { DecisionList } from "./components/DecisionList";
 export { ConstraintList } from "./components/ConstraintList";
 export { MatrixGrid } from "./components/MatrixGrid";
 export { ChoiceList } from "./components/ChoiceList";
+export { BeforeAfter } from "./components/BeforeAfter";
+export {
+  PhaseProvider,
+  PhaseToggle,
+  usePhase,
+  PHASE_LABEL,
+  type Phase,
+} from "./phase";
 export { FileDetail } from "./components/FileDetail";
 export { NeedsInputFlag } from "./components/NeedsInputFlag";
 export { AnnotationLayer } from "./components/AnnotationLayer";

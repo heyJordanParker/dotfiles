@@ -1,666 +1,139 @@
 ---
 name: shaping
-description: Use this methodology when collaboratively shaping a solution with the user - iterating on problem definition (requirements) and solution options (shapes).
+description: Collaborative Shaping with the Architect: capture requirements, boundaries, shapes, fit checks, research unknown mechanics, and transition to Modeling then Slicing. TRIGGER when the Architect asks to shape, scope, compare approaches, or turn a rough idea into a modeled change.
 ---
 
-# Shaping Methodology
+# Shaping
 
-A structured approach for collaboratively defining problems and exploring solution options.
+- Shaping defines the problem and compares shapes before Execution.
+- Shaping is the first part of `Shaping → Modeling → Slicing`.
+- Requirements, boundaries, and shapes can change each other in any order; every checkpoint shows the current state of all three.
+- `CURRENT` is the reserved shape name for the existing system.
 
----
+## 1. Start from the Architect's entry point
 
-## Multi-Level Consistency (Critical)
+### Offer the two valid starts
+Start from requirements when the Architect describes pain and wants shapes to emerge. Start from a shape when the Architect sketches a path and requirements need to be extracted.
+Example: "from R" means describe the pain first. "from S" means sketch a shape first.
 
-Shaping produces documents at different levels of abstraction. **Truth must stay consistent across all levels.**
+### Match the energy level
+Broad refactor energy earns broader Architecture options. Careful adjustment energy stays focused. When cutting scope, the remaining shape must still beat what Users have now.
 
-### The Document Hierarchy (high to low)
+## 2. Maintain requirements as R
 
-1. **Shaping doc** — ground truth for R's, shapes, parts, fit checks
-2. **Slices doc** — ground truth for slice definitions, acceptance criteria
-3. **Individual slice plans** (V1-plan, etc.) — ground truth for implementation details
+### R states what is needed
+Use `R0, R1...` for the problem space. R is negotiated with the Architect, not auto-filled by the Agent. R says what must be true, not which shape satisfies it.
 
-### The Principle
+### Keep top-level R readable
+Use no more than nine top-level Rs. Group overflow as `R3.1`, `R3.2`.
 
-Each level summarizes or provides a view into the level(s) below it. Lower levels contain more detail; higher levels are designed views that help acquire context quickly.
+Template:
+  ```markdown
+  | R | Requirement | Status |
+  |---|-------------|--------|
+  | R0 | Core Goal | Core Goal |
+  | R1 | User can return to the same search state | Must-have |
+  | R2 | Search survives page refresh | Nice-to-have |
+  ```
 
-**Changes ripple in both directions:**
+## 3. Maintain boundaries as X
 
-- **Change at high level → trickles down:** If you change the shaping doc's parts table, update the slices doc too.
-- **Change at low level → trickles up:** If a slice plan reveals a new mechanism or changes the scope of a slice, the Slices doc and shaping doc must reflect that.
+### X is a firm no
+Use `X0, X1...` for what this work does not cover. Boundaries are specific and testable.
+Example: no public API changes; no migrations.
+Never: keep it simple; do not break anything.
 
-### The Practice
+IF an R conflicts with an X:
+### Surface the conflict instead of dropping either side
+Stop and renegotiate. Do not silently remove the R or boundary.
 
-Whenever making a change:
+## 4. Maintain shapes as S
 
-1. **Identify which level you're touching**
-2. **Ask: "Does this affect documents above or below?"**
-3. **Update all affected levels in the same operation**
-4. **Never let documents drift out of sync**
+### Shapes are mutually exclusive approaches
+Use `A`, `B`, and `C` for approaches where the Architect picks one. Give each shape a short title that captures the approach.
+Example: `C: Two data sources with hybrid pagination`.
 
-The system only works if the levels are consistent with each other.
+### Components combine within a shape
+Use `C1`, `C2` for parts that compose inside a selected shape. Use `C3-A`, `C3-B` for alternatives inside a component.
+Example: `Shape E = C1 + C2 + C3-A`.
 
----
+### Preserve notation as an audit trail
+Do not renumber old parts just to make the table prettier. The notation shows what changed across iterations.
 
-## Surfacing Decisions (Critical)
+## 5. Write shape parts as mechanisms
 
-The shaping documents are the agent's persistent reference. The user sees only what appears in conversation output. At every checkpoint — after any iteration that changes R, X, shapes, fit checks, or models — present to the user:
+### Parts describe what changes
+A part names the thing built or changed. It does not restate intent, boundary, or R.
+Example: `B1: Signing handler — includes WaiverSignatures table + handler`.
+Never: `B4: Data model`.
 
-- **Requirements (R)** and their current status
-- **Boundaries (X)**
-- **Outstanding decisions** — anything Undecided, flagged (⚠️), or needing user input
-- **What changed** since last presentation (🟡 markers)
+### Parts are vertical
+Co-locate the data model with the feature it serves. Extract shared logic into a standalone part that other parts reference.
+Example: `B1: Signing handler`, then `B2 → calls B1` and `B3 → calls B1`.
 
-The user should never need to open a document to know what needs their attention. This applies across all three phases — shaping, modeling, and slicing.
+### Add hierarchy only when flat stops working
+Start with `E1`, `E2`. Use `E1.1` only when there are too many parts or the final file layout must be shown.
 
----
+### Name Precedent on selected parts
+Each selected shape part names the existing file or system it builds on, with its path, or the research proving none exists.
 
-## Starting a Session
+## 6. Run the fit check
 
-When kicking off a new shaping session, offer the user both entry points:
+### The fit check decides which shape to pursue
+Use one table: requirements as rows, shapes as columns.
 
-- **Start from R (Requirements)** — Describe the problem, pain points, or constraints. Build up requirements and let shapes emerge.
-- **Start from S (Shapes)** — Sketch a solution already in mind. Capture it as a shape and extract requirements as you go.
+Template:
+  ```markdown
+  | R | Requirement | A | B | C |
+  |---|-------------|:-:|:-:|:-:|
+  | R0 | Core Goal text | ✅ | ✅ | ❌ |
+  | R1 | Full requirement text | ❌ | ✅ | ✅ |
+  ```
 
-As the conversation develops:
-- **Read appetite** from the user's behavior — mirror their architectural energy level. Adapt as it shifts.
-- **Identify boundaries** as they emerge — what is explicitly out of scope? What adjacent systems should NOT be touched?
+### Shape columns are binary
+Use ✅ or ❌ only in shape columns. Put short explanations in a minimal Notes section below the table.
 
-There is no required order. Shaping is iterative — R, X, and S inform each other throughout.
+### Unknown mechanics fail the fit check
+A flagged unknown means the WHAT is described but the HOW is not. The shape is ❌ until the unknown is researched and cleared by a Decision.
+Never: mark ⚠️ as passing.
 
-## Working with an Existing Shaping Doc
+IF a shape passes every R but still feels wrong:
+### Name the missing R and rerun the fit check
+The discomfort means the table is missing a requirement.
 
-When the shaping doc already has a selected shape:
+## 7. Research unknown mechanics
 
-1. **Display scope** — Show the natural-language scope statement (e.g., "Build password reset flow for existing accounts"). Update if the conversation changes direction.
-2. **Display the fit check for the selected shape only** — Show R × [selected shape] (e.g., R × F), not all shapes
-3. **Display boundaries** — Show the full boundaries list
-4. **Summarize what is unsolved** — Call out any requirements that are Undecided, or where the selected shape has ❌
+IF mechanics or feasibility are uncertain:
+### Dispatch one researcher Subagent per unknown
+Research learns how the existing system works and what it would take to build a part before proposing it. Dispatch multiple researcher Subagents in parallel when multiple unknowns exist.
 
-This gives the user immediate context on where the shaping stands and what needs attention.
+### Research acceptance names understanding, not a Decision
+Acceptance says what the Agent will be able to describe after research. The Decision clears the flag afterward; the research does not.
+Example: we can describe how Users set their language.
+Never: whether this is a blocker.
 
----
+## 8. Surface every checkpoint
 
-## Core Concepts
+### Show the full current state
+After any iteration that changes R, X, shapes, fit checks, or Modeling, present requirements and statuses, boundaries, outstanding Decisions, and what changed.
 
-### Appetite
+### Mark changed cells
+Use 🟡 on every table cell that changed since the previous checkpoint. Show every R, every shape part including sub-parts, and every alternative.
 
-Appetite is the agent's read of the user's architectural energy level. The agent mirrors it — matching the user's posture, not imposing its own.
+## 9. Transition to Modeling and Slicing
 
-- User is aggressively refactoring architecture → agent matches that energy, pushes in that direction, proactively suggests structural improvements
-- User is carefully adjusting one thing → agent stays focused, presents broader ideas as *optional future work* (never proactively creates issues or expands scope)
-- User shifts energy mid-session → agent adapts immediately
-- If uncertain, stay focused until the user signals otherwise
+### Keep Prompt levels consistent
+Shaping Prompt holds R, X, shapes, and fit checks. Slices Prompt holds Slice definitions. Slice Plans hold implementation detail. A change at any level ripples both ways; update every affected level in the same operation.
 
-**The agent never asks "what's your appetite?"** — it reads the user's behavior and adapts.
+IF a shape is selected and the fit check passed:
+### Invoke `/modeling`
+Model the selected shape into Affordances before Slicing.
 
-**During shaping, proactively involve the user in every architectural decision that code and research can't answer.** This initial alignment saves massive rework during execution. During execution, the opposite: maximize autonomy, user is the last resort after all automated validation is exhausted.
+IF Modeling is complete:
+### Invoke `/slicing`
+Break the modeled change into vertical Slices. Every Slice ends in demo-able functionality.
 
-**How appetite affects the session:**
-- **Requirements gathering** — Focused: accept only the core problem. Expansive: actively look for adjacent requirements worth addressing
-- **Shape evaluation** — Focused: simplest shape that solves the problem. Expansive: best shape that also improves surrounding architecture
-- **Scope disputes** — When cutting scope, compare against current user experience. A cut is only valid if the result is still better than what users have today
-- **Boundaries** — Focused appetite produces many boundaries. Expansive appetite produces fewer, but they still exist
-- **Suggestions beyond scope** — Always frame as optional: "This could also be improved, but that's separate work." Never absorb silently
+## References
 
-### Boundaries
-
-A numbered set defining what this work does NOT cover. Stated upfront, before shaping begins. Boundaries prevent scope creep and make the edges of the work explicit. Same concept as Boundaries in Claude.md files, applied to the shaping scope.
-
-- **X0, X1, X2...** are members of the boundaries set
-- Boundaries are negotiated alongside requirements — they inform each other
-- A boundary is a firm "no" — if work touches a boundary, stop and renegotiate with the user
-- Boundaries are appetite-aware: focused appetite produces many boundaries, expansive produces fewer
-- When a requirement conflicts with a boundary, surface the conflict explicitly — never silently drop the boundary
-
-**Good boundaries are specific and testable:**
-- "No changes to the public API" (testable)
-- "No database migrations" (testable)
-- "No changes to the authentication flow" (specific)
-
-**Bad boundaries are vague:**
-- "Keep it simple" (not testable)
-- "Don't break anything" (everything is a boundary, so nothing is)
-
-### R: Requirements
-A numbered set defining the problem space.
-
-- **R0, R1, R2...** are members of the requirements set
-- Requirements are negotiated collaboratively - not filled in automatically
-- Track status: Core goal, Undecided, Leaning yes/no, Must-have, Nice-to-have, Out
-- Requirements extracted from fit checks should be made standalone (not dependent on any specific shape)
-- **R states what's needed, not what's satisfied** — satisfaction is always shown in a fit check (R × S)
-- **Chunking policy:** Never have more than 9 top-level requirements. When R exceeds 9, group related requirements into chunks with sub-requirements (R3.1, R3.2, etc.) so the top level stays at 9 or fewer. This keeps the requirements scannable and forces meaningful grouping.
-
-### S: Shapes (Solution Options)
-Letters represent mutually exclusive solution approaches.
-
-- **A, B, C...** are top-level shape options (you pick one)
-- **C1, C2, C3...** are components/parts of Shape C (they combine)
-- **C3-A, C3-B, C3-C...** are alternative approaches to component C3 (you pick one)
-
-### Shape Titles
-Give shapes a short descriptive title that characterizes the approach. Display the title when showing the shape:
-
-```markdown
-## E: Modify CUR in place to follow S-CUR
-
-| Part | Mechanism |
-|------|-----------|
-| E1 | ... |
-```
-
-Good titles capture the essence of the approach in a few words:
-- ✅ "E: Modify CUR in place to follow S-CUR"
-- ✅ "C: Two data sources with hybrid pagination"
-- ❌ "E: The solution" (too vague)
-- ❌ "E: Add search to widget-grid by swapping..." (too long)
-
-### Notation Hierarchy
-
-| Level | Notation | Meaning | Relationship |
-|-------|----------|---------|--------------|
-| Requirements | R0, R1, R2... | Problem constraints | Members of set R |
-| Boundaries | X0, X1, X2... | Explicit no-gos | Members of set X |
-| Shapes | A, B, C... | Solution options | Pick one from S |
-| Components | C1, C2, C3... | Parts of a shape | Combine within shape |
-| Alternatives | C3-A, C3-B... | Approaches to a component | Pick one per component |
-
-### Notation Persistence
-Keep notation throughout as an audit trail. When finalizing, compose new options by referencing prior components (e.g., "Shape E = C1 + C2 + C3-A").
-
-## Phases
-
-```
-Shaping → Modeling → Slicing
-```
-
-| Phase | Purpose | Output |
-|-------|---------|--------|
-| **Shaping** | Explore problem and solution space, select a shape | Shaping doc with R, X, shapes, fit checks |
-| **Modeling** | Detail the selected shape into concrete affordances | `affordances.md` + 3-section presentation |
-| **Slicing** | Break model into implementation slices with acceptance criteria and validation | `slices.md` + `V*-plan.md` files |
-
-### Phase Transitions
-
-- **Shaping → Modeling:** Shape is selected (passes fit check). Invoke `/modeling`.
-- **Modeling → Slicing:** Model is complete (affordances documented). Invoke `/slicing`.
-
----
-
-## Fit Check (Decision Matrix)
-
-THE fit check is the single table comparing all shapes against all requirements. Requirements are rows, shapes are columns. This is how we decide which shape to pursue.
-
-### Format
-
-```markdown
-## Fit Check
-
-| Req | Requirement | Status | A | B | C |
-|-----|-------------|--------|---|---|---|
-| R0 | Make items searchable from index page | Core goal | ✅ | ✅ | ✅ |
-| R1 | State survives page refresh | Must-have | ✅ | ❌ | ✅ |
-| R2 | Back button restores state | Must-have | ❌ | ✅ | ✅ |
-
-**Notes:**
-- A fails R2: [brief explanation]
-- B fails R1: [brief explanation]
-```
-
-### Conventions
-- **Always show full requirement text** — never abbreviate or summarize requirements in fit checks
-- **Fit check is BINARY** — Use ✅ for pass, ❌ for fail. No other values.
-- **Shape columns contain only ✅ or ❌** — no inline commentary; explanations go in Notes section
-- **Never use ⚠️ or other symbols in fit check** — ⚠️ belongs only in the Parts table's flagged column
-- Keep notes minimal — just explain failures
-
-### Comparing Alternatives Within a Component
-
-When comparing alternatives for a specific component (e.g., C3-A vs C3-B), use the same format but scoped to that component:
-
-```markdown
-## C3: Component Name
-
-| Req | Requirement | Status | C3-A | C3-B |
-|-----|-------------|--------|------|------|
-| R1 | State survives page refresh | Must-have | ✅ | ❌ |
-| R2 | Back button restores state | Must-have | ✅ | ✅ |
-```
-
-### Missing Requirements
-If a shape passes all checks but still feels wrong, there's a missing requirement. Articulate the implicit constraint as a new R, then re-run the fit check.
-
-### Macro Fit Check
-
-A separate tool from the standard fit check, used when working at a high level with chunked requirements and early-stage shapes where most mechanisms are still ⚠️. Use when explicitly requested.
-
-The macro fit check has two columns per shape instead of one:
-
-- **Addressed?** — Does some part of the shape seem to speak to this requirement at a high level?
-- **Answered?** — Can you trace the concrete how? Is the mechanism actually spelled out?
-
-**Format:**
-
-```markdown
-## Macro Fit Check: R × A
-
-| Req | Requirement | Addressed? | Answered? |
-|-----|-------------|:----------:|:---------:|
-| R0 | Core goal description | ✅ | ❌ |
-| R1 | Guided workflow | ✅ | ❌ |
-| R2 | Agent boundary | ⚠️ | ❌ |
-```
-
-**Conventions:**
-- Only show top-level requirements (R0, R1, R2...), not sub-requirements
-- **No notes column** — keep the table narrow and scannable
-- Use ✅ (yes), ⚠️ (partially), ❌ (no) for Addressed
-- Use ✅ (yes) or ❌ (no) for Answered
-- Follow the macro fit check with a separate **Gaps** table listing specific missing parts and their related sub-requirements
-
-## Possible Actions
-
-These can happen in any order:
-
-- **Populate R** - Gather requirements as they emerge
-- **Populate X** - Identify boundaries (no-gos) as they emerge
-- **Sketch a shape** - Propose a high-level approach (A, B, C...)
-- **Detail (components)** - Break a shape into components (B1, B2...)
-- **Detail (affordances)** - Expand a selected shape into concrete UI/Non-UI affordances and wiring
-- **Explore alternatives** - For a component, identify options (C3-A, C3-B...)
-- **Check fit** - Build a fit check (decision matrix) playing options against R
-- **Extract Rs** - When fit checks reveal implicit requirements, add them to R as standalone items
-- **Model** - Map the system to understand where changes happen and make the shape more concrete
-- **Research** - Dispatch researcher subagent to learn how the existing system works or clarify a mechanism
-- **Decide** - Pick alternatives, compose final solution
-- **Slice** - Invoke `/slicing` to break the model into implementation slices
-
-## Communication
-
-### Show Full Tables
-
-When displaying R (requirements) or any S (shapes), always show every row — never summarize or abbreviate. The full table is the artifact; partial views lose information and break the collaborative process.
-
-- Show all requirements, even if many
-- Show all shape parts, including sub-parts (E1.1, E1.2...)
-- Show all alternatives in fit checks
-
-### Why This Matters
-
-Shaping is collaborative negotiation. The user needs to see the complete picture to:
-- Spot missing requirements
-- Notice inconsistencies
-- Make informed decisions
-- Track what's been decided
-
-Summaries hide detail and shift control away from the user.
-
-### Mark Changes with 🟡
-
-When re-rendering a requirements table or shape table after making changes, mark every changed or added line with a 🟡 so the user can instantly spot what's different. Place the 🟡 at the start of the changed cell content. This makes iterative refinement easy to follow — the user should never have to diff the table mentally.
-
-## Research
-
-A research task learns how the existing system works and identifies concrete steps needed to implement a component. Dispatch a `researcher` subagent when there's uncertainty about mechanics or feasibility. Research is automatic and concurrent — dispatch multiple researchers in parallel when multiple unknowns exist.
-
-### File Management
-
-**Always create research docs in the feature's shaping directory** (e.g., `~/.claude/shaping/[feature]/research-[topic].md`). Research docs are standalone investigation documents that may be shared or worked on independently from the shaping doc.
-
-### Purpose
-
-- Learn how the existing system works in the relevant area
-- Identify **what we would need to do** to achieve a result
-- Enable informed decisions about whether to proceed
-- Not about effort — effort is implicit in the steps themselves
-- **Research before proposing** — discover what already exists; you may find the system already satisfies requirements
-
-### Structure
-
-```markdown
-## [Component] Research: [Title]
-
-### Context
-Why we need this investigation. What problem we're solving.
-
-### Goal
-What we're trying to learn or identify.
-
-### Questions
-
-| # | Question |
-|---|----------|
-| **X1-Q1** | Specific question about mechanics |
-| **X1-Q2** | Another specific question |
-
-### Acceptance
-Research is complete when all questions are answered and we can describe [the understanding we'll have].
-```
-
-### Acceptance Guidelines
-
-Acceptance describes the **information/understanding** we'll have, not a conclusion or decision:
-
-- ✅ "...we can describe how users set their language and where non-English titles appear"
-- ✅ "...we can describe the steps to implement [component]"
-- ❌ "...we can answer whether this is a blocker" (that's a decision, not information)
-- ❌ "...we can decide if we should proceed" (decision comes after the research)
-
-Research gathers information; decisions are made afterward based on that information. Research informs architectural decisions — the decision clears the ⚠️ flag, not the research itself.
-
-### Question Guidelines
-
-Good research questions ask about mechanics:
-- "Where is the [X] logic?"
-- "What changes are needed to [achieve Y]?"
-- "How do we [perform Z]?"
-- "Are there constraints that affect [approach]?"
-
-Avoid:
-- Effort estimates ("How long will this take?")
-- Vague questions ("Is this hard?")
-- Yes/no questions that don't reveal mechanics
-
-## Modeling
-
-Use the `/modeling` skill to map existing systems or detail a shape into concrete affordances. Modeling produces:
-- UI Affordances table
-- Non-UI Affordances table
-- Wiring diagram grouped by Place
-
-Invoke modeling when you need to:
-- Map existing code to understand where changes land
-- Translate a high-level shape into concrete affordances
-- Reveal orthogonal concerns (parts that are independent of each other)
-
-### Tables Are the Source of Truth
-
-The affordance tables (UI and Non-UI) define the model. The Mermaid diagram renders them.
-
-When receiving feedback on a model:
-1. **First** — update the affordance tables (add/remove/modify affordances, update Wires Out)
-2. **Then** — update the Mermaid diagram to reflect those changes
-
-Never treat the diagram as the primary artifact. Changes flow from tables → diagram, not the reverse.
-
-### CURRENT as Reserved Shape Name
-
-Use **CURRENT** to describe the existing system. This provides a baseline for understanding where proposed changes fit.
-
-## Shape Parts
-
-### Flagged Unknown (⚠️)
-
-A mechanism can be described at a high level without being concretely understood. The **Flag** column tracks this:
-
-| Part | Mechanism | Flag |
-|------|-----------|:----:|
-| **F1** | Create widget (component, def, register) | |
-| **F2** | Magic authentication handler | ⚠️ |
-
-- **Empty** = mechanism is understood — we know concretely how to build it
-- **⚠️** = flagged unknown — we've described WHAT but don't yet know HOW
-
-**Why flagged unknowns fail the fit check:**
-
-1. **✅ is a claim of knowledge** — it means "we know how this shape satisfies this requirement"
-2. **Satisfaction requires a mechanism** — some part that concretely delivers the requirement
-3. **A flag means we don't know how** — we've described what we want, not how to build it
-4. **You can't claim what you don't know** — so it must be ❌
-
-Fit check is always binary — ✅ or ❌ only. There is no third state. A flagged unknown is a failure until resolved.
-
-This distinguishes "we have a sketch" from "we actually know how to do this." Early shapes (A, B, C) often have many flagged parts — that's fine for exploration. But a selected shape should have no flags (all ❌ resolved), or researched and resolved with the user before proceeding.
-
-A selected shape also names its precedent: the existing files or systems each part builds on — the concrete code behind CURRENT that the part extends — named with its path, or the research proving the part is new ground. A part with no named precedent and no research is unfinished: find the precedent or prove it absent before transitioning to modeling.
-
-### Parts Must Be Mechanisms
-
-Shape parts describe what we BUILD or CHANGE — not intentions or constraints:
-
-- ✅ "Route `childType === 'letter'` to `typesenseService.rawSearch()`" (mechanism)
-- ❌ "Types unchanged" (constraint — belongs in R)
-
-### Avoid Tautologies Between R and S
-
-**R** states the need/constraint (what outcome). **S** describes the mechanism (how to achieve it). If they say the same thing, the shape part isn't adding information.
-
-- ❌ R17: "Admins can bulk request members to sign" + C6.3: "Admin can bulk request members to sign"
-- ✅ R17: "Admins can bring existing members into waiver tracking" + C6.3: "Bulk request UI with member filters, creates WaiverRequests in batch"
-
-The requirement describes the capability needed. The shape part describes the concrete mechanism that provides it. If you find yourself copying text from R into S, stop — the shape part should add specificity about *how*.
-
-### Parts Should Be Vertical Slices
-
-Avoid horizontal layers like "Data model" that group all tables together. Instead, co-locate data models with the features they support:
-
-- ❌ **B4: Data model** — Waivers table, WaiverSignatures table, WaiverRequests table
-- ✅ **B1: Signing handler** — includes WaiverSignatures table + handler logic
-- ✅ **B5: Request tracking** — includes WaiverRequests table + tracking logic
-
-Each part should be a vertical slice containing the mechanism AND the data it needs.
-
-### Extract Shared Logic
-
-When the same logic appears in multiple parts, extract it as a standalone part that others reference:
-
-- ❌ Duplicating "Signing handler: create WaiverSignature + set boolean" in B1 and B2
-- ✅ Extract as **B1: Signing handler**, then B2 and B3 say "→ calls B1"
-
-```markdown
-| **B1** | **Signing handler** |
-| B1.1 | WaiverSignatures table: memberId, waiverId, signedAt |
-| B1.2 | Handler: create WaiverSignature + set member.waiverUpToDate = true |
-| **B2** | **Self-serve signing** |
-| B2 | Self-serve purchase: click to sign inline → calls B1 |
-| **B3** | **POS signing via email** |
-| B3.1 | POS purchase: send waiver email |
-| B3.2 | Passwordless link to sign → calls B1 |
-```
-
-### Hierarchical Notation
-
-Start with flat notation (E1, E2, E3...). Only introduce hierarchy (E1.1, E1.2...) when:
-
-- There are too many parts to easily understand
-- You're reaching a conclusion and want to show structure
-- Grouping related mechanisms aids communication
-
-| Notation | Meaning |
-|----------|---------|
-| E1 | Top-level component of shape E |
-| E1.1, E1.2 | Sub-parts of E1 (add later if needed) |
-
-Example of hierarchical grouping (used when shape is mature):
-
-| Part | Mechanism |
-|------|-----------|
-| **E1** | **Swap data source** |
-| E1.1 | Modify backend indexer |
-| E1.2 | Route letters to new service |
-| E1.3 | Route posts to new service |
-| **E2** | **Add search input** |
-| E2.1 | Add input with debounce |
-
-## Detailing a Shape
-
-When a shape is selected, you can expand it into concrete affordances. This is called **detailing**.
-
-### Notation
-
-Use "Detail X" (not a new letter) to show this is a breakdown of Shape X, not an alternative:
-
-```markdown
-## A: First approach
-(shape table)
-
-## B: Second approach
-(shape table)
-
-## Detail B: Concrete affordances
-(affordance tables + wiring)
-```
-
-### What Detailing Produces
-
-Use the `/modeling` skill to produce:
-- **UI Affordances table** — Things users see and interact with (inputs, buttons, displays)
-- **Non-UI Affordances table** — Data stores, handlers, queries, services
-- **Wiring diagram** — How affordances connect across places
-
-### Why "Detail X" Not "C"
-
-Shape letters (A, B, C...) are **mutually exclusive alternatives** — you pick one. Detailing is not an alternative; it's a deeper breakdown of the selected shape. Using a new letter would incorrectly suggest it's a sibling option.
-
-```
-A, B, C = alternatives (pick one)
-Detail B = expansion of B (not a choice)
-```
-
-## Documents
-
-Shaping produces up to four documents. Each has a distinct role:
-
-| Document | Contains | Purpose |
-|----------|----------|---------|
-| **Frame** | Source, Problem, Outcome | The "why" — concise, stakeholder-level |
-| **Shaping doc** | Appetite, Requirements, Boundaries, Shapes (CURRENT/A/B/...), Fit Check | The working document — exploration and iteration happen here |
-| **Affordances** | UI/Code affordance tables, data stores, wiring | The model's source of truth — written by `/modeling`, read by `/slicing` |
-| **Slices doc** | Slice definitions with acceptance criteria and validation requirements | The implementation plan — produced by `/slicing` |
-| **Slice plans** | V1-plan.md, V2-plan.md, etc. | Individual implementation plans — self-contained with WHY from frame |
-
-### Document Lifecycle
-
-```
-Frame (problem/outcome)
-    ↓
-Shaping (explore, detail, model)
-    ↓
-Slices (plan implementation)
-```
-
-**Frame** can be written first — it captures the "why" before any solution work begins. It contains:
-- **Source** — Original requests, quotes, or material that prompted the work (verbatim)
-- **Problem** — What's broken, what pain exists (distilled from source)
-- **Outcome** — What success looks like (high-level, not solution-specific)
-
-### Capturing Source Material
-
-When the user provides source material during framing (user requests, quotes, emails, slack messages, etc.), **always capture it verbatim** in a Source section at the top of the frame document.
-
-```markdown
-## Source
-
-> I'd like to ask again for your thoughts on a user scenario...
->
-> Small reminder: at the moment, if I want to keep my country admin rights
-> for Russia and Crimea while having Europe Center as my home center...
-
-> [Additional source material added as received]
-
----
-
-## Problem
-...
-```
-
-**Why this matters:**
-- The source is the ground truth — Problem/Outcome are interpretations
-- Preserves context that may be relevant later
-- Allows revisiting the original request if the distillation missed something
-- Multiple sources can be added as they arrive during framing
-
-**When to capture:**
-- User pastes a request or quote
-- User shares an email or message from a stakeholder
-- User describes a scenario they were told about
-- Any raw material that informs the frame
-
-**Shaping doc** is where active work happens. All exploration, requirements gathering, shape comparison, modeling, and fit checking happens here. This is the working document and ground truth for R, shapes, parts, and fit checks.
-
-**Slices doc** is created with the `/slicing` skill when the selected shape is modeled and ready to build. It contains slice definitions with acceptance criteria and validation requirements.
-
-### File Management
-
-All shaping documents live in `~/.claude/shaping/[feature]/` — one subdirectory per feature. Create the directory if it doesn't exist.
-
-- **Frame**: `frame.md` — the WHY (problem + outcome)
-- **Shaping doc**: `shaping.md` — ground truth for R, X, shapes, appetite, fit checks
-- **Affordances**: `affordances.md` — model's source of truth, written by `/modeling` (has `modeling: true` frontmatter)
-- **Slices doc**: `slices.md` — produced by `/slicing`, references R and X from shaping.md
-- **Slice plans**: `V1-plan.md`, `V2-plan.md`, etc. — produced by `/slicing`, each self-contained with WHY from frame
-- **Research**: `research-[topic].md` — findings from researcher subagents, inform architectural decisions
-
-### Frontmatter
-
-Every shaping document (shaping doc, frame, slices doc) must include `shaping: true` in its YAML frontmatter. Modeling artifacts (`affordances.md`) use `modeling: true` instead. Both frontmatter keys trigger propagation hooks that help maintain consistency across documents.
-
-```markdown
----
-shaping: true
----
-
-# [Feature Name] — Shaping
-...
-```
-
-### Keeping Documents in Sync
-
-See **Multi-Level Consistency** at the top of this document. Changes at any level must ripple to affected levels above and below.
-
-## Slicing
-
-After a shape is modeled, invoke `/slicing` to break it into implementation slices.
-
-**The flow:**
-1. **Parts** → high-level mechanisms in the shape
-2. **Model** → concrete affordances with wiring (use `/modeling`)
-3. **Slices** → vertical slices with acceptance criteria, validation requirements, and plan contract (use `/slicing`)
-
-**Key principle:** Every slice must end in demo-able functionality. A slice without visible output is a horizontal layer, not a vertical slice.
-
-**Document outputs:**
-- **Slices doc** — slice definitions with acceptance criteria and validation requirements
-- **Slice plans** — individual V*-plan.md files, symlinked into Claude Code plan mode
-
-## Example
-
-User is shaping a search feature:
-
-```markdown
----
-shaping: true
----
-
-**Scope:** Add client-side search filtering to the items index page
-
-## Requirements (R)
-
-| ID | Requirement | Status |
-|----|-------------|--------|
-| R0 | Make items searchable from index page | Core goal |
-| R1 | State survives page refresh | Undecided |
-| R2 | Back button restores state | Undecided |
-
-## Boundaries (X)
-
-| ID | Boundary |
-|----|----------|
-| X0 | No changes to the existing API endpoints |
-| X1 | No full-text search infrastructure (Elasticsearch, etc.) — client-side filtering only |
-| X2 | No changes to the data model |
-
----
-
-## C2: State Persistence
-
-| Req | Requirement | Status | C2-A | C2-B | C2-C |
-|-----|-------------|--------|------|------|------|
-| R0 | Make items searchable from index page | Core goal | — | — | — |
-| R1 | State survives page refresh | Undecided | ✅ | ✅ | ❌ |
-| R2 | Back button restores state | Undecided | ✅ | ✅ | ✅ |
-
-**Notes:**
-- C2-C fails R1: in-memory state lost on refresh
-- C2-B satisfies R2 but requires custom popstate handler
-```
+- Writing Shaping Prompt files, source capture, file layout, frontmatter, and research Prompts → [documents.md](references/documents.md)
+- Running a high-level Addressed and Answered fit check for chunked requirements and mostly-unknown shapes → [macro-fit-check.md](references/macro-fit-check.md)

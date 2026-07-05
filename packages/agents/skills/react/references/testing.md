@@ -1,178 +1,189 @@
-# React Testing Best Practices
+# Testing
 
-## Test Behavior, Not Implementation
+One Process: test User behavior through accessible queries, mock the network edge, and avoid implementation details.
 
-Tests should verify what users see and do, not internal component state. Tests that break during refactoring without behavior changes provide false negatives and no confidence.
+## 1. Test visible behavior
 
-```javascript
-// Incorrect: Testing implementation details
-expect(component.state.isOpen).toBe(true);
-expect(wrapper.instance().handleClick).toHaveBeenCalled();
+### Test behavior, not implementation
 
-// Correct: Testing visible behavior
-await user.click(screen.getByRole('button', { name: /open menu/i }));
-expect(screen.getByRole('menu')).toBeVisible();
-```
+Tests verify what Users see and do, not internal component state. Tests that break during refactoring without behavior changes create false negatives.
 
-## Follow Query Priority
+Never:
+  ```javascript
+  expect(component.state.isOpen).toBe(true);
+  expect(wrapper.instance().handleClick).toHaveBeenCalled();
+  ```
 
-Prefer queries accessible to everyone. `getByRole` should be the default. `getByTestId` is a last resort because users cannot see or hear test IDs.
+Example:
+  ```javascript
+  await user.click(screen.getByRole('button', { name: /open menu/i }));
+  expect(screen.getByRole('menu')).toBeVisible();
+  ```
 
-```javascript
-// Incorrect: Test ID when semantic query works
-screen.getByTestId('submit-button')
+## 2. Query like a User
 
-// Incorrect: Container query bypasses accessibility
-container.querySelector('.btn-primary')
+### Follow React Testing Library query priority
 
-// Correct: Role-based query (top priority)
-screen.getByRole('button', { name: /submit/i })
+Prefer queries accessible to everyone. `getByRole` is the default. `getByTestId` is a last resort because Users cannot see or hear test identifiers.
 
-// Correct: Label text for form fields
-screen.getByLabelText(/email address/i)
+Never:
+  ```javascript
+  screen.getByTestId('submit-button')
+  container.querySelector('.btn-primary')
+  ```
 
-// Correct: Text content for non-interactive elements
-screen.getByText(/no results found/i)
-```
+Example:
+  ```javascript
+  screen.getByRole('button', { name: /submit/i })
+  screen.getByLabelText(/email address/i)
+  screen.getByText(/no results found/i)
+  ```
 
-## Use userEvent Over fireEvent
+### Choose the right query variant
 
-`userEvent` fires complete interaction sequences (keyDown, keyPress, keyUp per character). `fireEvent` dispatches single synthetic events that miss real browser behavior.
+`getBy` throws on missing elements and asserts presence. `queryBy` returns null and asserts absence. `findBy` returns a Promise for async elements.
 
-```javascript
-// Incorrect: Single change event, unrealistic
-fireEvent.change(input, { target: { value: 'hello' } });
+Example:
+  ```javascript
+  expect(screen.getByRole('alert')).toBeInTheDocument();
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  const alert = await screen.findByRole('alert');
+  expect(alert).toHaveTextContent(/saved/i);
+  ```
 
-// Correct: Realistic character-by-character typing
-const user = userEvent.setup();
-await user.type(screen.getByLabelText(/email/i), 'test@example.com');
-await user.click(screen.getByRole('button', { name: /submit/i }));
-```
+## 3. Simulate real interaction sequences
 
-## Choose the Right Query Variant
+### Use userEvent over fireEvent
 
-`getBy` throws on missing elements (assert presence). `queryBy` returns null (assert absence). `findBy` returns a Promise (async elements).
+`userEvent` fires complete interaction sequences. `fireEvent` dispatches a single synthetic event that misses real browser behavior.
 
-```javascript
-// Correct: Asserting element IS present
-expect(screen.getByRole('alert')).toBeInTheDocument();
+Never:
+  ```javascript
+  fireEvent.change(input, { target: { value: 'hello' } });
+  ```
 
-// Correct: Asserting element is NOT present
-expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+Example:
+  ```javascript
+  const user = userEvent.setup();
+  await user.type(screen.getByLabelText(/email/i), 'test@example.com');
+  await user.click(screen.getByRole('button', { name: /submit/i }));
+  ```
 
-// Correct: Waiting for async element
-const alert = await screen.findByRole('alert');
-expect(alert).toHaveTextContent(/saved/i);
-```
+## 4. Mock at the network edge
 
-## Mock APIs with MSW at the Network Level
+### Use Mock Service Worker for APIs
 
-MSW intercepts at the network level, working with any HTTP client. Same mocks serve unit, integration, and E2E tests.
+Mock Service Worker intercepts at the network level and works with any HTTP client. The same mocks serve unit, integration, and end-to-end tests.
 
-```javascript
-// mocks/handlers.js
-import { http, HttpResponse } from 'msw';
-export const handlers = [
-  http.get('/api/users', () => {
-    return HttpResponse.json([{ id: 1, name: 'Alice' }]);
-  }),
-];
+Example:
+  ```javascript
+  import { http, HttpResponse } from 'msw';
+  export const handlers = [
+    http.get('/api/users', () => {
+      return HttpResponse.json([{ id: 1, name: 'Alice' }]);
+    }),
+  ];
 
-// test/setup.ts — wire up server lifecycle
-import { setupServer } from 'msw/node';
-import { handlers } from './mocks/handlers';
-export const server = setupServer(...handlers);
-beforeAll(() => server.listen());
-afterEach(() => server.resetHandlers());
-afterAll(() => server.close());
+  import { setupServer } from 'msw/node';
+  import { handlers } from './mocks/handlers';
+  export const server = setupServer(...handlers);
+  beforeAll(() => server.listen());
+  afterEach(() => server.resetHandlers());
+  afterAll(() => server.close());
 
-// Per-test override for error states
-server.use(
-  http.get('/api/users', () => new HttpResponse(null, { status: 500 }))
-);
-```
+  server.use(
+    http.get('/api/users', () => new HttpResponse(null, { status: 500 }))
+  );
+  ```
 
-## Prefer Integration Tests
+## 5. Prefer integration tests
 
-The Testing Trophy: integration tests provide the best confidence-per-time ROI. Render real component trees, mock only the network boundary, simulate real user flows. Never test internal state, instance methods, lifecycle calls, or CSS class names.
+### Render real component trees
 
-```javascript
-// Correct: Integration test with real component tree
-const user = userEvent.setup();
-render(<TodoApp />); // TodoForm + TodoList + TodoItem all real
-await user.type(screen.getByLabelText(/new todo/i), 'Buy groceries');
-await user.click(screen.getByRole('button', { name: /add/i }));
-expect(await screen.findByText('Buy groceries')).toBeInTheDocument();
-```
+The Testing Trophy says integration tests provide the best confidence-per-time return. Render real component trees, mock only the network edge, and simulate real Critical Paths. Never test internal state, instance methods, lifecycle calls, or CSS class names.
 
-## Use findBy for Async, waitFor for Complex Assertions
+Example:
+  ```javascript
+  const user = userEvent.setup();
+  render(<TodoApp />);
+  await user.type(screen.getByLabelText(/new todo/i), 'Buy groceries');
+  await user.click(screen.getByRole('button', { name: /add/i }));
+  expect(await screen.findByText('Buy groceries')).toBeInTheDocument();
+  ```
 
-`findBy` combines `getBy` + `waitFor` and is preferred for single-element async queries. Use `waitFor` only for complex conditions. Never put side effects inside `waitFor`.
+## 6. Wait only where the User waits
 
-```javascript
-// Incorrect: waitFor wrapping getBy (redundant)
-const btn = await waitFor(() => screen.getByRole('button'));
+### Use findBy for async elements and waitFor for complex assertions
 
-// Correct: findBy does this internally
-const btn = await screen.findByRole('button');
+`findBy` combines `getBy` and `waitFor` and is preferred for single-element async queries. Use `waitFor` only for complex conditions. Never put side effects inside `waitFor`.
 
-// Incorrect: Side effects inside waitFor (runs multiple times)
-await waitFor(() => {
-  fireEvent.click(button);
-  expect(result).toBeInTheDocument();
-});
+Never:
+  ```javascript
+  const btn = await waitFor(() => screen.getByRole('button'));
+  await waitFor(() => {
+    fireEvent.click(button);
+    expect(result).toBeInTheDocument();
+  });
+  ```
 
-// Correct: Side effects outside, assertions inside
-await user.click(button);
-await waitFor(() => expect(result).toBeInTheDocument());
-```
+Example:
+  ```javascript
+  const btn = await screen.findByRole('button');
+  await user.click(button);
+  await waitFor(() => expect(result).toBeInTheDocument());
+  ```
 
-## Test Forms, Modals, and Error States
+## 7. Cover common User Interface states
 
-```javascript
-// Form: fill fields, submit, verify callback
-const handleSubmit = vi.fn();
-const user = userEvent.setup();
-render(<Form onSubmit={handleSubmit} />);
-await user.type(screen.getByLabelText(/name/i), 'Alice');
-await user.click(screen.getByRole('button', { name: /submit/i }));
-expect(handleSubmit).toHaveBeenCalledWith({ name: 'Alice' });
+### Test forms, modals, and error states
 
-// Modal: verify open/close with waitForElementToBeRemoved
-await user.click(screen.getByRole('button', { name: /open/i }));
-expect(screen.getByRole('dialog')).toBeInTheDocument();
-await user.click(screen.getByRole('button', { name: /close/i }));
-await waitForElementToBeRemoved(() => screen.queryByRole('dialog'));
-```
+Example:
+  ```javascript
+  const handleSubmit = vi.fn();
+  const user = userEvent.setup();
+  render(<Form onSubmit={handleSubmit} />);
+  await user.type(screen.getByLabelText(/name/i), 'Alice');
+  await user.click(screen.getByRole('button', { name: /submit/i }));
+  expect(handleSubmit).toHaveBeenCalledWith({ name: 'Alice' });
 
-## Use renderHook for Shared Hooks Only
+  await user.click(screen.getByRole('button', { name: /open/i }));
+  expect(screen.getByRole('dialog')).toBeInTheDocument();
+  await user.click(screen.getByRole('button', { name: /close/i }));
+  await waitForElementToBeRemoved(() => screen.queryByRole('dialog'));
+  ```
 
-If a hook is used by one component, test it through that component. Use `renderHook` only for shared/reusable hooks.
+### Use renderHook for shared hooks only
 
-```javascript
-import { renderHook, act } from '@testing-library/react';
+If a hook is used by one component, test it through that component. Use `renderHook` only for shared hooks.
 
-test('useCounter increments', () => {
-  const { result } = renderHook(() => useCounter());
-  expect(result.current.count).toBe(0);
-  act(() => result.current.increment());
-  expect(result.current.count).toBe(1);
-});
-```
+Example:
+  ```javascript
+  import { renderHook, act } from '@testing-library/react';
 
-## Add Accessibility Testing with axe
+  test('useCounter increments', () => {
+    const { result } = renderHook(() => useCounter());
+    expect(result.current.count).toBe(0);
+    act(() => result.current.increment());
+    expect(result.current.count).toBe(1);
+  });
+  ```
 
-Use `vitest-axe` (or `jest-axe`) to catch WCAG violations automatically. Use `jsdom` environment (not `happy-dom` due to compatibility issues with axe).
+## 8. Add accessibility checks
 
-```javascript
-import { axe } from 'vitest-axe';
+### Use axe with jsdom
 
-test('form has no accessibility violations', async () => {
-  const { container } = render(<LoginForm />);
-  expect(await axe(container)).toHaveNoViolations();
-});
-```
+Use `vitest-axe` or `jest-axe` to catch Web Content Accessibility Guidelines violations automatically. Use the `jsdom` environment, not `happy-dom`, because of axe compatibility issues.
 
-## Configure Vitest for React Testing
+Example:
+  ```javascript
+  import { axe } from 'vitest-axe';
 
-Set `environment: 'jsdom'`, `clearMocks: true`, `restoreMocks: true` in vitest config. Setup file should import `@testing-library/jest-dom/vitest` and `vitest-axe/extend-expect`.
+  test('form has no accessibility violations', async () => {
+    const { container } = render(<LoginForm />);
+    expect(await axe(container)).toHaveNoViolations();
+  });
+  ```
+
+### Configure Vitest for React testing
+
+Set `environment: 'jsdom'`, `clearMocks: true`, and `restoreMocks: true`. The setup file imports `@testing-library/jest-dom/vitest` and `vitest-axe/extend-expect`.

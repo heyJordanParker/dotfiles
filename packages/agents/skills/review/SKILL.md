@@ -1,126 +1,108 @@
 ---
 name: review
-description: Use for code review - runs all reviewers in parallel on uncommitted changes
+description: Run the full code review gate on uncommitted changes by dispatching the reviewer Subagents in parallel, aggregating Critical, Important, and Minor findings, and blocking on Critical. TRIGGER on "/review", "code review", "review the changes", or before commit when the Architect asks for review.
 disable-model-invocation: true
 ---
 
 # Review
 
-Full code review gate. Runs 8 agents in parallel on uncommitted changes.
+- Full code Review gate for uncommitted changes.
+- The gate runs eight reviewer Subagents in parallel through the Agent tool, not the Task tool.
 
-## Current Changes
+## 1. Capture the current changes
+
+Current Changes:
 
 !`git changes`
 
-## Full Diff
+Full Diff:
 
 !`git diff HEAD`
 
-## Instructions
+### Paste the captured diff into code-reading Subagent Prompts
 
-Include the "Current Changes" and "Full Diff" sections above in each agent prompt instead of telling them to run `git diff HEAD`.
+Use the Current Changes and Full Diff blocks above instead of telling Subagents to run `git diff HEAD`.
 
-Launch 8 reviewers in parallel using the Agent tool: `subagent_type: "code-reviewer"`, `subagent_type: "architect"`, general-purpose (naming), `subagent_type: "backend-engineer"`, `subagent_type: "frontend-engineer"`, `subagent_type: "context-engineer"`, `subagent_type: "regression-reviewer"`, and `subagent_type: "ux-tester"`.
+## 2. Dispatch the six diff reviewers
 
-### Code-Reviewer Agent: Anti-Slop
+Dispatch these six Subagents in parallel. Each Prompt includes the Current Changes and Full Diff blocks from step 1.
 
-Dispatch using `subagent_type: "code-reviewer"` via the Agent tool (not Task tool). Prompt:
+Use each backticked name as the `subagent_type`; the general-purpose naming Subagent uses no `subagent_type`.
 
-```
-Review uncommitted changes. Review the diff provided and scan all 12 slop categories. Report using Critical/Important/Minor format. If clean: "No slop found."
-```
+Template:
+    `code-reviewer` Prompt:
+    Review uncommitted changes. Review the diff provided and scan all 12 AI Slop categories. Report using Critical/Important/Minor format. If clean: "No AI Slop found."
 
-### Architect Agent
+Template:
+    `architect` Prompt:
+    Review uncommitted changes. Review the diff provided and apply your full review protocol. Report using Critical/Important/Minor format.
 
-Dispatch using `subagent_type: "architect"` via the Agent tool (not Task tool). Prompt:
+Template:
+    general-purpose naming Prompt:
+    Apply the /naming Skill. Review uncommitted changes. Review the diff provided and check all changed identifiers for naming issues. Report using Critical/Important/Minor format. If clean: "No naming issues found."
 
-```
-Review uncommitted changes. Review the diff provided and apply your full review protocol. Report using Critical/Important/Minor format.
-```
+Template:
+    `backend-engineer` Prompt:
+    Review uncommitted changes. Review the diff provided and apply your review-mode protocol: reinvented wheels, library leverage, unnecessary complexity, approach quality, and public contract regressions. Report using Critical/Important/Minor format. If clean: "Code is appropriately simple."
 
-### Naming Agent
+Template:
+    `frontend-engineer` Prompt:
+    Review uncommitted changes. Review the diff provided and apply your Critical Path protocol. Identify affected Critical Path, trace each through the code, and report gaps. Report using Critical/Important/Minor format. If clean: "All Critical Path verified."
 
-Dispatch using the Agent tool (not Task tool). Prompt:
+Template:
+    `regression-reviewer` Prompt:
+    Review uncommitted changes for capability regressions. Map the diff to affected Critical Path and system capabilities. Trace each end-to-end. Flag any capability that is lost or degraded. Report using Critical/Important/Minor format. If clean: "No capability regressions found."
 
-```
-Apply the /naming skill. Review uncommitted changes. Review the diff provided and check all changed identifiers for naming issues. Report using Critical/Important/Minor format. If clean: "No naming issues found."
-```
+## 3. Dispatch the documentation reviewer
 
-### Backend-Engineer Agent: Simplicity & Elegance
+Dispatch `context-engineer` with the Current Changes and Full Diff blocks from step 1.
 
-Dispatch using `subagent_type: "backend-engineer"` via the Agent tool (not Task tool). Prompt:
+Template:
+    `context-engineer` Prompt:
+    Audit Claude.md files against the current uncommitted changes. Report Critical/Important/Minor findings.
+    Critical: Architectural change with no Claude.md, or Claude.md Rules contradicted by changes.
+    Important: missing WHY for a significant Decision, stale Rule, or wrong hierarchy placement.
+    Minor: Template compliance gaps, Fluff, or pruning opportunities.
+    If clean: "Documentation is up to date."
+    Do not make changes. Report findings only.
 
-```
-Review uncommitted changes. Review the diff provided and apply your review mode protocol. Check: reinvented wheels, library leverage, YAGNI, complexity creep, approach quality, API regressions. Report using Critical/Important/Minor format. If clean: "Code is appropriately simple."
-```
+## 4. Dispatch the User experience reviewer when it can test a Critical Path
 
-### Frontend-Engineer Agent: User Flows
+IF no development server is running, changes are backend-only with no User Interface impact, or affected routes cannot be determined from the diff:
+### Skip the `ux-tester` Subagent
 
-Dispatch using `subagent_type: "frontend-engineer"` via the Agent tool (not Task tool). Prompt:
+Do not dispatch a User experience reviewer when there is no reachable Critical Path to test.
 
-```
-Review uncommitted changes. Review the diff provided and apply your user flow testing protocol. Identify affected user flows, trace each one through the code, and report gaps. Report using Critical/Important/Minor format. If clean: "All user flows verified."
-```
+When the Condition does not apply, dispatch `ux-tester` without the diff. Translate the diff into features and Critical Path, with URLs or routes when identifiable.
 
-### Context-Engineer Agent: Documentation
+Template:
+    `ux-tester` Prompt:
+    Do a complete User experience Review of the following features and Critical Path affected by the current changes: [list features and Critical Path derived from the diff, with URLs or routes if identifiable].
+    Report Critical/Important/Minor findings.
+    If clean: "User experience is clean."
 
-Dispatch using `subagent_type: "context-engineer"` via the Agent tool (not Task tool). Prompt:
+## 5. Aggregate findings
 
-```
-Audit Claude.md files against the current uncommitted changes (diff provided). Report using Critical/Important/Minor format:
+Merge duplicate findings and keep the highest severity.
 
-**Critical:** (architectural change with no Claude.md, Requirements/Boundaries contradicted by changes)
-**Important:** (missing WHY for a significant architectural decision, stale requirement or boundary, hierarchy placement issues)
-**Minor:** (template compliance gaps, bloated documentation, pruning opportunities)
+Template:
+    # Code Review
 
-If clean: "Documentation is up to date."
+    ## Critical
+    [issues]
 
-DO NOT make any changes. Report findings only.
-```
+    ## Important
+    [issues]
 
-### Regression-Reviewer Agent: Capability Regressions
-
-Dispatch using `subagent_type: "regression-reviewer"` via the Agent tool (not Task tool). Prompt:
-
-```
-Review uncommitted changes for capability regressions. Map the diff to affected user-facing flows and system capabilities. Trace each end-to-end. Flag any capability that is lost or degraded. Report using Critical/Important/Minor format. If clean: "No capability regressions found."
-```
-
-### UX Tester Agent: User Experience
-
-Dispatch using `subagent_type: "ux-tester"` via the Agent tool (not Task tool). Do NOT include the diff — this agent doesn't read code. Instead, translate the diff into features/flows to test. Prompt:
-
-```
-Do a complete UX review of the following features/flows affected by the current changes:
-[list features/flows derived from the diff, with URLs/routes if identifiable]
-
-Report using Critical/Important/Minor format. If clean: "UX is clean."
-```
-
-Skip if: no dev server is running, changes are backend-only with no UI impact, or affected routes cannot be determined from the diff.
-
-## Aggregation
-
-After all subagents complete:
-
-```
-# Code Review
-
-## Critical
-[issues]
-
-## Important
-[issues]
-
-## Minor
-[issues]
-```
+    ## Minor
+    [issues]
 
 If all clear: "No issues found."
 
-## Gate
+## 6. Apply the gate
 
-- **Critical:** Block. Do not proceed.
-- **Important:** Report and ask user.
-- **Minor:** Report and continue.
+Critical blocks. Do not proceed.
 
+Important is reported to the Architect.
+
+Minor is reported and does not block.

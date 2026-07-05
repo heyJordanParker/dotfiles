@@ -2,7 +2,7 @@
 
 # Ban deferred work in planning documents
 # PreToolUse hook on Write|Edit — blocks writes containing deferred items
-# Planning docs identified by: path under ~/.claude/shaping/ OR frontmatter markers
+# Planning docs identified by: path under docs/shaping/ (or legacy ~/.claude/shaping/) OR frontmatter markers
 # Uses claude -p for LLM-based deferral detection
 
 set -uo pipefail
@@ -33,9 +33,9 @@ fi
 # Must be a markdown file
 [[ "$FILE_PATH" != *.md ]] && exit 0
 
-# Check if planning doc: path under ~/.claude/shaping/
+# Check if planning doc: path under docs/shaping/ (or legacy ~/.claude/shaping/)
 IS_PLANNING_DOC=false
-[[ "$FILE_PATH" == *"/.claude/shaping/"* ]] && IS_PLANNING_DOC=true
+[[ "$FILE_PATH" == *"/docs/shaping/"* || "$FILE_PATH" == *"/.claude/shaping/"* ]] && IS_PLANNING_DOC=true
 
 # Check frontmatter markers
 if [ "$IS_PLANNING_DOC" = "false" ]; then

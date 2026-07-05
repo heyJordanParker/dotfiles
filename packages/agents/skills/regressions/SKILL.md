@@ -1,63 +1,70 @@
 ---
 name: regressions
-description: Use when checking changes for capability regressions — loss of user-facing capability ("the user can no longer X") or loss of system capability ("our system can no longer Y"). Maps a diff to affected user flows and system capabilities, traces each through the code, reports any that no longer work. Triggers on "/regressions", "check for regressions", "regression review", or before merging changes that touch user flows or system functions.
+description: Check a diff for capability regressions — loss of User-facing capability ("the User can no longer X") or loss of system capability ("our system can no longer Y"). Maps changed code to affected Critical Path and system capabilities, traces each through the code, and reports any that no longer work. TRIGGER on "/regressions", "check for regressions", "regression review", or before merging changes that touch Critical Path or system functions.
 ---
 
 # Regressions
 
-A regression is loss of user-facing capability — "the user can no longer X" — or loss of system capability — "our system can no longer Y". Trace user flows and system capabilities through the diff; flag any that no longer work.
+- A regression is loss of User-facing capability: "the User can no longer X".
+- A regression is also loss of system capability: "our system can no longer Y".
 
-## Execution
+## 1. Get the diff
 
-### 1. Get the diff
+Run `git diff HEAD` for uncommitted changes.
 
-Run `git diff HEAD` for uncommitted changes. If the dispatcher provides a scope, use that diff instead.
+IF the dispatcher provides a scope:
+### Use the dispatcher scope instead of `git diff HEAD`
 
-### 2. Map the diff to capabilities
+The provided scope is the diff to review.
 
-For each changed area, identify:
-- **User-facing flows** — auth, checkout, search, profile editing, content creation, navigation, any interaction the user performs
-- **System capabilities** — background jobs, webhooks, integrations, APIs, scheduled tasks, caches, queues, message handling, data pipelines, any function the system performs
+## 2. Map the diff to capabilities
 
-### 3. Trace each affected capability end-to-end
+For each changed area, identify the Critical Path it touches and the system capabilities it touches.
 
-For each user flow: does the user still complete the flow with the same outcome? Step through the code from the entry point (route, event handler, command) to the result.
+- Critical Path includes authentication, checkout, search, profile editing, content creation, navigation, and any interaction the User performs.
+- System capabilities include background jobs, webhooks, integrations, public contracts, scheduled jobs, caches, queues, Prompt handling, data pipelines, and any function the system performs.
 
-For each system capability: does the system still perform the function with the same guarantees? Step through the code from the trigger (schedule, queue, event) to the effect.
+### Trace behavior, not symbols
 
-### 4. Report
+A symbol change is not a regression unless it causes lost or degraded User-facing capability or system capability.
 
-Capabilities that are broken or degraded — never report internal refactors that preserve capability.
+## 3. Trace each affected capability end-to-end
 
-```
-**Critical:** (capability lost)
-- "The user can no longer [X]" — broken at file:line
-- "Our system can no longer [Y]" — broken at file:line
+For each Critical Path, step through the code from the entry point to the result: route, event handler, or command to outcome. Verify whether the User still completes it with the same outcome.
 
-**Important:** (capability degraded)
-- "[Z] now [degraded outcome]" — degraded at file:line
+For each system capability, step through the code from the trigger to the effect: schedule, queue, or event to outcome. Verify whether the system still performs it with the same guarantees.
 
-**Minor:** (edge case)
-- "[edge case description]" — at file:line
-```
+## 4. Report findings only
+
+Report only capabilities that are broken or degraded. Each finding names the affected capability and the diff location that breaks it.
+
+### Do not propose fixes or write code
+
+This Skill reports regressions. It does not change files.
+
+### Do not flag preserved capability
+
+An internal refactor is not a regression when the capability is preserved.
+
+Template:
+    Critical: capability lost
+    - "The User can no longer [X]" — broken at file:line
+    - "Our system can no longer [Y]" — broken at file:line
+
+    Important: capability degraded
+    - "[Z] now [degraded outcome]" — degraded at file:line
+
+    Minor: main path retained, edge case lost
+    - "[edge case description]" — at file:line
 
 If clean: "No capability regressions found."
 
-## Severity
+## 5. Verify the audit
 
-- **Critical** — Capability fully lost. User cannot complete a flow they previously could. System cannot perform a function it previously could.
-- **Important** — Capability degraded. Flow completes with worse outcome (slower, less reliable, partial result, missing edge case).
-- **Minor** — Capability retained at the main path, edge case lost.
+Every changed area is mapped to Critical Path and system capabilities.
 
-## Rules
+Each affected capability is traced end-to-end through the code.
 
-- Trace actual user flows and system capabilities, not symbol changes
-- Include the affected capability AND the location in the diff that breaks it
-- Report findings only — never propose fixes, never write code
+Each finding names the capability and the diff location.
 
-## Verify
-
-- [ ] Mapped every changed area to capabilities (user flows AND system capabilities)
-- [ ] Traced each affected capability end-to-end through the code
-- [ ] Each finding names the affected capability AND the location in the diff
-- [ ] No internal refactors flagged as regressions
+No internal refactor is flagged as a regression when capability is preserved.

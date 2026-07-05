@@ -1,0 +1,242 @@
+/* ============================================================================
+   BeforeAfter — the component-by-component map from the old architecture to the
+   new one, IN PLACE. A document-wide phase toggle (hero + rail) sets the
+   default; each facet carries its own in-place switch flipping the SAME heading,
+   explanation, and code/DDL/diagram between its before-state and after-state.
+   The one semantic color system throughout — before reads red (removed), after
+   reads green (added), a changed facet's accent is amber.
+   ============================================================================ */
+
+/* ── The document-wide phase toggle (hero + rail) ─────────────────────────── */
+.phase-toggle {
+  display: inline-flex;
+  gap: 0;
+  padding: 0.2rem;
+  border-radius: 999px;
+  background: var(--surface-sunk);
+  box-shadow: var(--shadow-subtle);
+}
+.phase-toggle__btn {
+  appearance: none;
+  border: 0;
+  cursor: pointer;
+  font-family: var(--mono);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  background: transparent;
+  padding: 0.34rem 0.9rem;
+  border-radius: 999px;
+  transition: color 140ms var(--ease), background-color 140ms var(--ease);
+}
+@media (hover: hover) and (pointer: fine) {
+  .phase-toggle__btn:hover {
+    color: var(--ink);
+  }
+}
+.phase-toggle__btn:focus-visible {
+  outline: 2px solid var(--state-added);
+  outline-offset: 2px;
+}
+/* Active before reads red (the state we replaced); active after reads green
+   (the state we shipped) — the one color vocabulary. */
+.phase-toggle__btn[data-active="true"][data-phase="before"] {
+  color: var(--state-removed);
+  background: var(--state-removed-soft);
+}
+.phase-toggle__btn[data-active="true"][data-phase="after"] {
+  color: var(--state-added);
+  background: var(--state-added-soft);
+}
+
+.phase-toggle[data-variant="hero"] .phase-toggle__btn {
+  font-size: 0.72rem;
+}
+.phase-toggle[data-variant="rail"] {
+  align-self: start;
+  margin-block-start: 0.55rem;
+}
+.phase-toggle[data-variant="rail"] .phase-toggle__btn {
+  font-size: 0.6rem;
+  padding: 0.28rem 0.7rem;
+}
+
+/* The hero's phase row — the loud control with its one-line instruction. */
+.hero__phase {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem 0.9rem;
+  margin-block-start: 0.5rem;
+  padding: 0.9rem 1.1rem;
+  border-radius: var(--radius-l);
+  background: var(--surface-1);
+  box-shadow: var(--shadow-subtle);
+}
+.hero__phase-label {
+  color: var(--ink-2);
+  font-size: 0.85rem;
+  line-height: 1.5;
+  max-width: 52ch;
+}
+
+/* ── The section: a stack of facets ───────────────────────────────────────── */
+.ba {
+  display: grid;
+  gap: 1.25rem;
+}
+.ba--banded {
+  gap: 2rem;
+}
+.ba__band {
+  display: grid;
+  gap: 0.9rem;
+}
+.ba__band-caption {
+  font-family: var(--mono);
+  font-size: var(--t1);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+/* ── One facet — one component/layer with its in-place toggle ─────────────── */
+.ba-facet {
+  display: grid;
+  gap: 0.7rem;
+  padding: 1.1rem 1.2rem 1.25rem;
+  border-radius: var(--radius-l);
+  background: var(--surface-1);
+  /* A full hairline ring, not a one-sided accent rail. The facet's overall
+     change state reads through its StateBadge in the heading — the one color
+     system — so the container stays a calm, evenly-bounded card. */
+  box-shadow: var(--shadow-subtle);
+  scroll-margin-top: 1.5rem;
+}
+
+.ba-facet__head {
+  display: grid;
+  gap: 0.3rem;
+}
+.ba-facet__heading {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+}
+.ba-facet__title {
+  font-size: var(--t3);
+  font-weight: 660;
+  color: var(--ink);
+  line-height: 1.25;
+}
+.ba-facet__flag {
+  font-family: var(--mono);
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--state-changed);
+  background: var(--state-changed-soft);
+  padding: 0.18rem 0.45rem;
+  border-radius: var(--radius-s);
+  white-space: nowrap;
+}
+.ba-facet__summary {
+  color: var(--ink-2);
+  font-size: 0.88rem;
+  line-height: 1.55;
+  max-width: 80ch;
+}
+
+/* The facet's own in-place switch — a compact segmented control. */
+.ba-facet__switch {
+  display: inline-flex;
+  justify-self: start;
+  gap: 0;
+  padding: 0.18rem;
+  border-radius: 999px;
+  background: var(--surface-sunk);
+}
+.ba-facet__switch-btn {
+  appearance: none;
+  border: 0;
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  background: transparent;
+  padding: 0.26rem 0.75rem;
+  border-radius: 999px;
+  transition: color 130ms var(--ease), background-color 130ms var(--ease);
+}
+@media (hover: hover) and (pointer: fine) {
+  .ba-facet__switch-btn:hover {
+    color: var(--ink);
+  }
+}
+.ba-facet__switch-btn:focus-visible {
+  outline: 2px solid var(--state-added);
+  outline-offset: 2px;
+}
+.ba-facet__switch-btn[data-active="true"][data-phase="before"] {
+  color: var(--state-removed);
+  background: var(--state-removed-soft);
+}
+.ba-facet__switch-btn[data-active="true"][data-phase="after"] {
+  color: var(--state-added);
+  background: var(--state-added-soft);
+}
+
+/* The phase-name strip above the body — colored by the shown phase, so it is
+   never ambiguous which state the reader is looking at. */
+.ba-facet__phase-label {
+  font-family: var(--mono);
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.ba-facet__phase-label[data-phase="before"] {
+  color: var(--state-removed);
+}
+.ba-facet__phase-label[data-phase="after"] {
+  color: var(--state-added);
+}
+
+/* The swapping body — one explanation slot + one code/DDL/diagram slot. A short
+   fade on swap so the toggle reads as an in-place change of the SAME surface. */
+.ba-facet__variant {
+  display: grid;
+  gap: 0.75rem;
+  animation: detail-in 180ms var(--ease-out);
+}
+@media (prefers-reduced-motion: reduce) {
+  .ba-facet__variant {
+    animation: none;
+  }
+}
+.ba-facet__explain {
+  color: var(--ink);
+  font-size: 0.9rem;
+  line-height: 1.6;
+  max-width: 80ch;
+}
+.ba-facet__notes {
+  margin: 0;
+  padding-inline-start: 1.1rem;
+  display: grid;
+  gap: 0.3rem;
+  color: var(--ink-2);
+  font-size: 0.83rem;
+  line-height: 1.5;
+  max-width: 80ch;
+}
+.ba-facet__diagram {
+  margin-block: 0.1rem;
+}

@@ -1,29 +1,79 @@
 ---
-description: Add pros/cons/confidence to solutions. Append to any prompt.
+name: pcc
+description: Add pros, cons, and confidence to options in a Prompt. TRIGGER when the Architect asks for "/pcc", pros/cons/confidence, alternatives, options, approaches, or a ranked choice. DO NOT TRIGGER for a single implementation call, a convention Decision with repo Precedent, or a proposing-state turn where /propose is canonical.
 ---
 
-When presenting alternatives, options, or approaches, use this format. When the ranking sits inside a proposing-state turn, /propose is the canonical contract — it covers the seven named proposal failures (hedging included) and the choice-block shape these options render in.
+# Pros Cons Confidence
 
-## Rules
+- /pcc compares two or more viable options at one Decision layer.
+- /propose is canonical inside a proposing-state turn.
+- The Goal section in the cto Agent Prompt defines the User, Architecture, and business test for confidence.
 
-- **Architecturally distinct solutions** — each option takes a fundamentally different approach, not cosmetic variations of the same idea
-- **No bad options** — every option must be genuinely viable. Don't pad the list.
-- **No rejected options** — if the user already rejected an approach in this conversation, don't resurface it
-- **No hedging** — state confidence as a percentage, not "might work" or "should be fine"
-- **No sub-part variants** — once the user picks an option, apply their refinement to it directly. Never generate variants of a sub-part of a picked option
-- **Two or more viable options required** — /pcc compares options. With one option, present it as the proposal itself without pros/cons/confidence. A single option is not a recommendation — recommendations rank multiple options. Never wrap a single option in the /pcc format
-- **Pros and cons stay inside the option** — pros describe how this option solves the stated problem; cons describe real costs or risks this option introduces. Forbidden: cross-option references ("more files than Option Z", "more complex than the alternative"), treating normal implementation cost as inherent badness ("8-file edit", "touches multiple modules"), filler cons added to balance the format. If an option has no real cons, say so — don't invent one
-- **No "accept" framing** — never tell the user to accept, absorb, or live with a con. Banned words and phrases in any pros/cons/recommendation: "accept", "accepting", "live with", "the price we pay", "tradeoff we absorb", "you'll need to accept". A con is a problem the option must attack, not a compromise the user swallows. If a con stands, either fold the solve into the option or surface it as outstanding work the option owes — never as a thing the user signs off on. With AI doing the typing, solving cons is cheap; framing them as inevitable is the failure mode this rule blocks
-- **Confidence ranks rightness against our first principles** — the percentage is how confident you are this is the right call for the user, the architecture, and the business (defined in the cto prompt's Goal section). Start the judgement there, not from the option's mechanics. It is informed by all research to date, not just this turn's. Implementability never raises it; major compromises against those three drag it down. Across options of one decision the numbers cohere — complements cannot both be high. Options clustered within ~10% of each other (88/90/92) mean you haven't differentiated them
-- **Inconsistent confidence or pros/cons signal a research gap** — if scores cluster, if pros/cons feel forced, if you can't tell why one option scores higher than another, that's the agent flagging its own lack of codebase research. Fix it by reading more code, not by adjusting numbers or reshuffling bullets. Never ship a /pcc with patched-over scores
-- **Single layer per invocation** — every option in one /pcc sits at the same decision layer (architecture / convention / implementation). Mixing is banned.
-- **Convention decisions skip /pcc** — find the repo precedent and apply it; promote to architecture only when precedent is missing or needs changing.
-- **Implementation decisions skip /pcc** — direct recommendation, agent owns.
+## 1. Confirm /pcc applies
 
-## Format per option
+### Use /pcc only for real choices
+Use /pcc only when there are two or more viable options. With one option, present the Proposal directly without pros, cons, or confidence.
 
-**Option N: [Name]** (X% confident)
-- What: 1-2 sentences
-- Precedent: the exact file or system this option builds on, named with its full path — or the research proving none exists
-- Pros: bullets
-- Cons: bullets
+### Keep one Decision layer
+Every option in one /pcc sits at the same layer: Architecture, convention, or implementation. Do not mix layers.
+
+IF the Decision is a convention Decision with repo Precedent:
+### Apply the Precedent instead
+Find the repo Precedent and use it. Promote to Architecture only when Precedent is missing or needs changing.
+
+IF the Decision is implementation:
+### Recommend directly
+The Agent owns implementation Decisions.
+
+IF the current turn is a proposing-state turn:
+### Use /propose instead
+/propose carries the pros, cons, and confidence shape on each Decision node.
+
+## 2. Filter the options
+
+### Keep Architecturally distinct options
+Each option takes a different approach. Cosmetic variants of the same idea are Fluff.
+
+### Drop options that cannot win
+Do not include bad options, padding, or an option the User already rejected in this conversation.
+
+### Do not split a picked option into sub-part variants
+Once the User picks an option, apply their refinement to it directly.
+
+## 3. Rank confidence
+
+### State confidence as a percentage
+No hedging. Never write `might work` or `should be fine`.
+
+### Rank against User, Architecture, and business
+Confidence is the Agent's percentage that the option is the right call for the User, the Architecture, and the business. It is informed by all research to date, not just this turn. Implementability never raises confidence. Major compromises against those three lower it.
+
+### Keep numbers coherent
+Complementary options cannot both be high. Options clustered within roughly 10 points mean the Agent has not differentiated them.
+
+### Treat forced pros, cons, or confidence as a research gap
+If scores cluster, pros or cons feel forced, or the ranking is unclear, read more code. Do not adjust numbers to make the Template look finished.
+
+## 4. Write the options
+
+Template:
+  ```markdown
+  **Option N: [Name]** (X% confident)
+  - What: 1-2 sentences
+  - Precedent: the exact file or system this option builds on, named with its full path — or the research proving none exists
+  - Pros: bullets
+  - Cons: bullets
+  ```
+
+### Keep pros and cons inside the option
+Pros describe how this option solves the stated problem. Cons describe real costs or risks this option introduces.
+
+Never: cross-option references like `more files than Option Z`, normal implementation cost dressed as a flaw like `touches multiple modules`, or Fluff cons added to balance the Template.
+
+### Do not invent cons
+If an option has no real con, say so.
+
+### Remove inevitability framing
+A con is a problem the option must attack, not something the User signs off on. If a con stands, fold the solve into the option or name the work the option owes.
+
+Never: `accept`, `accepting`, `live with`, `the price we pay`, `tradeoff we absorb`, `you'll need to accept`.

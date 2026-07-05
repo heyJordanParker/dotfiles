@@ -1,102 +1,100 @@
-# Examples
+# Example
 
-## Descriptions
+The Process for writing Examples that change Agent behavior. An Example is imitated; prose is
+only interpreted. The reason for the Example belongs in the Rule explanation so the Agent can
+apply it beyond the one case.
 
-**Bad:**
-```yaml
-description: Helps with naming things in code.
-```
-Why: Too vague. "Naming things" could mean anything. Claude won't know when to activate.
+## 1. Name the behavior the Example corrects
 
-**Good:**
-```yaml
-description: Use when naming anything - variables, functions, files, folders, classes, database tables, routes, CSS classes. Provides principles for consistent, readable names across all languages and contexts.
-```
-Why: Explicit list of triggers. Clear about what it provides.
+State the Agent's default and the wanted behavior. If the Example does not correct a named
+failure, cut it.
 
----
+### Pair every Example with the failure it prevents
+A credible Never proves the Example is needed. If no credible Never exists, the Rule probably
+already holds without the Example.
 
-## Principles vs Rules
+## 2. Use the block shape the Prompt architecture expects
 
-**Bad (brittle rule):**
-```markdown
-## Casing Rules
-- JavaScript: camelCase for variables, PascalCase for classes
-- Python: snake_case for variables, PascalCase for classes
-- PHP: camelCase for variables, PascalCase for classes
-- Go: camelCase for private, PascalCase for exported
-- Ruby: snake_case for variables, PascalCase for classes
-...
-```
-Why: Lookup table that's never complete. What about Rust? Kotlin? New languages?
+Example and Never are labeled lines directly under the Rule they serve. A Template is a label with
+an indented block below it.
 
-**Good (adaptable principle):**
-```markdown
-## Hierarchy of Authority
-1. **Project conventions** - existing patterns in the codebase
-2. **Language/framework conventions** - ecosystem standards
-3. **These principles** - fallback when no convention exists
+Template:
+  ```markdown
+  ### Rule title written as the action to take
+  Explanation naming the failure and the correction.
+  Example: correct behavior the Agent should imitate.
+  Never: wrong behavior paired to the correction.
+  ```
 
-Always check the project first. Consistency within the project trumps external standards.
-```
-Why: Works for any language. Teaches the thinking, not just the answer.
+Example:
+  ```markdown
+  ### Make the description the only trigger
+  The body never carries a trigger section.
+  Example: `description: Write and fix Claude Code Prompts. TRIGGER when the task says "cc". DO NOT TRIGGER to name code identifiers; use /naming.`
+  Never: `description: Helps with prompts.`
+  ```
 
----
+Never: bold leads, unlabeled good/bad pairs, or a standalone Example detached from its Rule.
 
-## Structure
+## 3. Prefer a positive recipe for output shape
 
-**Bad (bloated SKILL.md):**
-```markdown
-# Naming Skill
+When the Agent produces the wrong shape, show what the output is. Do not name the shape to avoid.
+Measured twice: a banned-shape arm produced more of the banned shape, and a scope prohibition
+moved Codex scope from 0.88 to 0.75 by planting the act it named.
 
-## When to Use
-...
+### Show the wanted shape, not the forbidden shape
+The Agent imitates the last concrete shape it sees. Put the wanted shape in the Example.
+Example: `Report: Critical, Important, Minor. Each item names the broken behavior and the fix.`
+Never: `Do not write a per-file summary.`
 
-## Core Principles
-...
+## 4. Use Never for red-flag phrases and concrete wrong cases
 
-## Casing by Language
-[50 lines of lookup tables]
+Never belongs where the Agent says a phrase right before it breaks, or where one wrong case keeps
+recurring. It is not a dump for every possible mistake.
 
-## Examples
-[100 lines of good/bad examples]
+### Name the words that precede the violation
+A red-flag Never works because the Agent can check for the exact words while writing.
+Example: `Never: "keep it as reference" — delete code written before the test.`
+Never: `Never: be sloppy.`
 
-## Edge Cases
-[30 more lines]
-```
-Why: Too much in one file. Buries the principles in details.
+## 5. Use a Template when a slot is missing
 
-**Good (lean core):**
-```markdown
-# Naming
+A Template is a fill-the-blanks Example. Use it when the failure is omission, wrong order, or a
+shape with required slots.
 
-## Hierarchy of Authority
-[5 lines]
+### Put every required slot in the Template
+A missing slot in the Template tells the Agent the slot is optional.
+Template:
+  ```markdown
+  Template:
+    Critical: behavior broken, caller affected, fix.
+    Important: unnecessary Architecture or wrong contract.
+    Minor: simplification that does not change capability.
+  ```
 
-## Core Rules
-[15 lines of principles]
+Example:
+  ```markdown
+  Critical: `description` is blank, so the Harness leaks the Skill body into listings; write the gate in frontmatter.
+  Important: a Reference contains background reading instead of one Process; fold it into SKILL.md.
+  Minor: the Rule title is a theme instead of an action; rewrite it as the action to take.
+  ```
 
-## References
-- [reference.md](reference.md) - Ecosystem casing conventions
-- [examples.md](examples.md) - Good/bad examples with reasoning
-```
-Why: Core principles scannable. Details available but not in the way.
+## 6. Keep Examples small and grounded
 
----
+One Example teaches one correction. Use code or Prompt text the Agent can imitate directly.
 
-## Examples in Skills
+### Do not use lookup tables when a ranking Rule holds
+A lookup table goes stale and teaches one case. A ranking Rule plus one Example transfers.
+Example:
+  ```markdown
+  1. Project conventions
+  2. Ecosystem conventions
+  3. The Rule in this Skill
+  ```
+Never: a casing table for every language.
 
-**Bad (no reasoning):**
-```markdown
-Bad: `getUserData`
-Good: `getUser`
-```
-Why: Doesn't explain the principle. Reader learns nothing.
-
-**Good (with reasoning):**
-```markdown
-Bad: `getUserData`
-Good: `getUser`
-Why: "Data" adds no information - of course you're getting data. Name the thing, not the mechanism.
-```
-Why: Teaches the underlying principle. Reader can apply it to new situations.
+### Keep the reason outside the label
+The label stays `Example:` or `Never:`. Put the reason in the Rule explanation before the labels
+or in the sentence after them.
+Example: `Example: \`getUser\` beats \`getUserData\`. "Data" adds nothing; name the thing.`
+Never: a separate reason label detached from its Rule.

@@ -1,120 +1,115 @@
 ---
 name: commit
 description: |
-  Mandatory contract for every commit. Loads automatically when the classifier authorizes a commit — it injects "Skills to execute: /commit" whenever the user asks to commit ("/commit", "commit this", "create a commit"). Holds the whole commit job: stage, write the message, commit, verify, then suggest which session notes should become permanent — plus the commit-message format (type prefix, what+why body, file tree). TRIGGER on every commit-authorized turn, or when the user asks to write or revise a commit message. DO NOT TRIGGER when the user has not asked to commit — applying changes, deploying, shipping, or replacing files are not commit requests.
+  Mandatory contract for every commit. Loads automatically when the classifier authorizes a commit — it injects "Skills to execute: /commit" whenever the Architect asks to commit ("/commit", "commit this", "create a commit"). Holds the whole commit job: stage, write the message, commit, verify, then suggest which session notes should become permanent — plus the commit-message format (type prefix, what+why body, file tree). TRIGGER on every commit-authorized turn, or when the Architect asks to write or revise a commit message. DO NOT TRIGGER when the Architect has not asked to commit — applying changes, deploying, shipping, or replacing files are not commit requests.
 ---
 
 # Commit
 
-You are committing work the architect approved. The cto prompt governs reading before claiming, proving it ran, and holding scope. This skill adds the commit SOP and the message format — nothing else. No test gate, no review pass: the architect runs those when they want them, they are not part of committing.
+- The Architect approved committing the work.
+- The `cto` Prompt governs reading before claiming, proving it ran, and holding scope.
+- This Skill adds the commit Process and the commit-message shape.
+- Tests and Review are separate; the Architect runs them when wanted.
 
-## Current Changes
+## 1. Load the repository state
 
+Current changes:
 !`git changes`
 
-## Full Diff
-
+Full diff:
 !`git diff HEAD`
 
-## Recent Commits
-
+Recent commits:
 !`git log --oneline -10`
 
-## SOP
+## 2. Stage the requested changes
 
-1. **Stage.** Stage all changes unless the architect named a subset. Nothing to commit → say "Nothing to commit." and stop. Sanity check before committing: secrets, credentials, unrelated files, anything that does not belong → warn and confirm.
-2. **Commit.** Write the message in the format below — match the style of the recent commits above. Commit with it. The architect can amend after: `git commit --amend`.
-3. **Verify.** Exit code 0, then `trace status` shows a clean tree. Report "Committed: <sha> <subject>".
-4. **Session notes.** After the commit, review session notes and suggest which should become permanent — in global/project Claude.md, skills, agents, rules, or commands as appropriate. Present suggestions only; do not act on them.
+Stage all changes unless the Architect named a subset.
 
-## Format
+IF no changes are available to commit:
+### Stop with the exact nothing-to-commit message
+Say `Nothing to commit.` and stop.
 
-```
-<type>: <subject - what changed, all changes summarized>
+IF current changes include secrets, credentials, or unrelated files:
+### Warn and confirm before staging
+Name the files that do not belong, then wait for the Architect before staging or committing.
 
-<what changed + why, combined naturally>
+## 3. Write and commit the message
 
-<additional context if multi-file or complex>:
-- <change 1>
-- <change 2>
+Write the message in the shape below, match recent commit style, then commit with it. The Architect can amend after with `git commit --amend`.
 
-<file tree>
-├── path/to/modified.ts*   <- brief annotation
-└── path/to/context.ts
-```
+### Use the repository commit-message shape
+The type prefix is one of `feat`, `fix`, `chore`, `refactor`, `docs`, or `test`. The subject is lowercase after the colon, under 72 characters, and summarizes every committed change. The body weaves WHAT changed and WHY together instead of splitting them into separate sections. The file tree comes last and marks modified files with `*` beside relevant context files.
 
-## Anatomy
+Template:
+  ```
+  <type>: <subject - WHAT changed, all changes summarized>
 
-```
-feat: add auto-migrations to deploy pipeline
+  <WHAT changed + WHY, combined naturally>
 
-Migrations now run automatically on every deploy via Trellis hook.
-Safe because symlink switch happens AFTER migrations succeed.
+  <additional detail if multi-file or complex>:
+  - <change 1>
+  - <change 2>
 
-deploy/
-├── hooks/build-after.yml*    <- run migrations post-deploy
-├── hooks/deploy-prepare.yml
-└── docs/migrations.md*       <- design rules added
-```
+  <file tree>
+  ├── path/to/modified.ts*   <- brief annotation
+  └── path/to/context.ts
+  ```
 
-## Rules
+### Write the commit message without self-reference
+The message names the change, not the Agent that made it.
+Never: `I added the feature`, `we fixed it`, or `Claude updated the files`.
 
-1. **Type prefix:** `feat`, `fix`, `chore`, `refactor`, `docs`, `test`
-2. **Subject:** lowercase after colon, <72 chars, summarizes all changes
-3. **Body:** what+why woven together (not separate sections)
-4. **File tree:** at end, show modified (*) and relevant context files
-5. **No self-reference:** never "I", "we", "Claude"
-6. **Bullets:** for multi-concern commits, group by area
+### Group multi-concern commits by area
+Use bullets only when a commit has more than one concern.
 
-## Examples
+Example: single-concern fix.
+  ```
+  fix: prevent cron ping pileup when requests take longer than interval
 
-### Single-concern fix
+  WordPress wp-cron.php uses ignore_user_abort(true), so PHP keeps
+  processing after client timeout. With 10s interval and 5s timeout,
+  requests piled up. Now skips ping if previous request is in flight.
 
-```
-fix: prevent cron ping pileup when requests take longer than interval
+  app/
+  ├── Services/CronPing.php*    <- added in-flight check
+  └── config/schedule.php       <- interval config lives here
+  ```
 
-WordPress wp-cron.php uses ignore_user_abort(true), so PHP keeps
-processing after client timeout. With 10s interval and 5s timeout,
-requests piled up. Now skips ping if previous request is in flight.
+Example: multi-concern feature.
+  ```
+  feat: add Matomo configurator, 1Password secrets, and security hardening
 
-app/
-├── Services/CronPing.php*    <- added in-flight check
-└── config/schedule.php       <- interval config lives here
-```
+  Matomo:
+  - MatomoConfigurator with MaxMind GeoIP download
+  - Patches to remove newsletter and update nags
 
-### Multi-concern feature
+  Secrets:
+  - 1Password integration via .vault_pass
+  - `bun secrets` command for local env vars
 
-```
-feat: add Matomo configurator, 1Password secrets, and security hardening
+  app/
+  ├── Configurators/
+  │   └── MatomoConfigurator.php*   <- new configurator
+  ├── Commands/SecretsCommand.php*  <- bun secrets
+  ├── .vault_pass*                  <- 1Password integration
+  └── trellis/
+      └── group_vars/all/vault.yml* <- encrypted secrets
+  ```
 
-Matomo:
-- MatomoConfigurator with MaxMind GeoIP download
-- Patches to remove newsletter and update nags
+Example: trivial change.
+  ```
+  chore: update aws-sdk-php to fix security advisory
 
-Secrets:
-- 1Password integration via .vault_pass
-- `bun secrets` command for local env vars
+  composer.lock*
+  ```
 
-app/
-├── Configurators/
-│   └── MatomoConfigurator.php*   <- new configurator
-├── Commands/SecretsCommand.php*  <- bun secrets
-├── .vault_pass*                  <- 1Password integration
-└── trellis/
-    └── group_vars/all/vault.yml* <- encrypted secrets
-```
+Never: `Completely turned off cors`, `Fixed stuff`, or a multi-file commit without a file tree.
 
-### Minimal (trivial changes)
+## 4. Verify the commit
 
-```
-chore: update aws-sdk-php to fix security advisory
+The commit command must exit 0, then `trace status` must show a clean tree. Report `Committed: <sha> <subject>`.
 
-composer.lock*
-```
+## 5. Suggest permanent session notes
 
-## Anti-patterns
-
-- `Completely turned off cors` → no type, no why
-- `Fixed stuff` → vague
-- `I added the feature` → self-reference
-- No file tree for multi-file changes
+After committing, read session notes and suggest which should become permanent in global or project Claude.md, Skills, Agents, Rules, or Commands. Suggest only; do not act.

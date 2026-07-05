@@ -1,121 +1,198 @@
-
 # Writing Agents
 
-How to create custom subagents for Claude Code.
+The Process for writing `agents/<agent>.md`: frontmatter config, one Frame, and that Frame's Principles.
 
-## When to Create
+## 1. Put only agent-owned content in the file
 
-- Task type recurs across sessions (reviews, debugging, analysis)
-- Need specific tool restrictions or permissions
-- Want specialized system prompt for a domain
-- Need to route to cheaper/faster models
+- An agent file owns the frontmatter description, config frontmatter, one Frame, and the Frame's Principles.
+- Rules live in Rule Files.
+- A Process lives in a Skill, and an agent names that Skill with `skills:`.
+- `scripts/agents.py` inlines named Skills into generated Codex artifacts.
+- The body becomes the Agent's system Prompt; the Agent does not receive the full Claude Code Prompt.
 
-## File Structure
+IF the Prompt needs ordered steps:
+### Move the Process to a Skill
+A Process belongs in `skills/<skill>/SKILL.md`; the agent names it with `skills:`.
 
-Markdown with YAML frontmatter. Body becomes the system prompt.
+IF the Prompt needs tactical corrections:
+### Move Rules to a Rule File
+Rules belong in `.claude/rules/` or the package Rule File that owns their Condition, not in an agent.
 
-```yaml
----
-name: agent-name
-description: When Claude should delegate to this agent
-tools: Read, Grep, Glob, Bash
-model: sonnet
----
+IF the work is a recurring Frame that needs different Principles, tools, model, or permissions:
+### Create an agent
+Use an agent when the Task recurs across sessions and the separate Frame or runtime config is the thing that makes it work.
 
-System prompt here. Agent sees only this — not the full Claude Code prompt.
-```
+## 2. Write the frontmatter
 
-## Using Agents
+- `name` is required, lowercase with hyphens, and matches the filename.
+- `description` is required and is the trigger Claude Code uses to auto-select the agent.
+- `tools` allows only the listed tools; omitting it inherits all tools.
+- `disallowedTools` denies listed tools.
+- `model` accepts `opus`, `sonnet`, `haiku`, `fable`, a full model identifier, or `inherit`; `inherit` matches the spawning conversation and is the default when omitted.
+- `best`, `opusplan`, and `[1m]` long-context model variants resolve.
+- `effort` accepts `low`, `medium`, `high`, `max`, or an integer.
+- `skills` injects Skills into the Agent Context at startup when the agent is dispatched as a Subagent.
+- `permissionMode` accepts `acceptEdits`, `auto`, `bypassPermissions`, `default`, `dontAsk`, or `plan`.
+- `color` sets the user interface accent color; invalid values are dropped.
+- `maxTurns` limits agentic turns.
+- `initialPrompt` auto-submits a first turn when the agent starts.
+- `mcpServers` scopes Model Context Protocol servers to the agent.
+- `hooks` scopes Hook wiring to the agent.
+- `memory` accepts `user`, `project`, or `local`.
+- `background: true` always runs the agent in the background.
+- `isolation: worktree` runs the agent in a temporary git worktree.
+- `isolation: remote` runs the agent in a remote Claude Code remote environment and always backgrounds it.
+- `worktree.sparsePaths` limits large worktrees to selected paths.
+- `worktree.baseRef` accepts `fresh` or `head`; `fresh` branches from `origin/<default>`, while `head` carries local unpushed commits into the worktree (v2.1.133+).
 
-- `claude --agent <name>` — Start session with agent as the main thread. Agent's system prompt **replaces** the default Claude Code system prompt. Tool restrictions, model, and permission mode apply. Persists on resume. Header shows `@<name>`. The agent's `hooks:` (v2.1.116+) and `mcpServers:` (v2.1.117+) frontmatter also load on the main thread, and `--print` honors its `tools:` / `disallowedTools:` (v2.1.119+). Resolves plugin-contributed agents without the `plugin:` prefix (v2.1.143+)
-- `--agent <plugin>:<agent>` — Use agent from a specific plugin
-- `"agent": "name"` in settings.json — Set default agent for all sessions. CLI flag overrides
-- `--agents <json>` (plural) — Define ephemeral subagents for the session. Different from `--agent` (singular) which sets the main agent
+### Keep `fallbackModel` out of agent frontmatter
+The agent `.md` parser ignores `fallbackModel` in frontmatter (v2.1.195). Set fallback models in settings JSON or with `--fallback-model`.
 
-## Locations
+### Use `description` as the complete trigger
+The frontmatter description is the only trigger surface. The body explains the Frame and Principles after the agent is already selected.
+Example: `description: Use for read-only external research with sources. DO NOT TRIGGER for in-codebase tracing; use explorer.`
+Never: a trigger section in the body.
 
-Priority order (highest wins on name collision):
+Template:
+  ```yaml
+  ---
+  name: <agent-name>
+  description: |
+    Use when <the Task and trigger phrases>.
+    DO NOT TRIGGER for <adjacent Task>; use <other Skill or agent>.
+  color: <terminal color>
+  model: inherit
+  tools: Read, Grep, Glob, Bash
+  skills: <process-skill>
+  memory: user
+  ---
 
-1. `--agents` CLI flag — session only
-2. `.claude/agents/` — project, check into VCS
-3. `~/.claude/agents/` — user, all projects
-4. Plugin `agents/` — where plugin is enabled
+  You are <Frame>.
 
-## Frontmatter
+  # Principles
 
-**Required:**
-- `name` — lowercase + hyphens, matches filename
-- `description` — when to delegate. Claude uses this to auto-select
+  ## <Principle>
 
-**Common:**
-- `tools` — tool allowlist. Inherits all if omitted
-- `disallowedTools` — tool denylist
-- `model` — `opus`, `sonnet`, `haiku`, `fable`, a full model ID, or `inherit` (match the spawning conversation; the default when omitted). `best`, `opusplan`, and the `[1m]` long-context variants also resolve
-- `effort` — thinking effort: `low`, `medium`, `high`, `max`, or an integer
-- `skills` — skills injected into agent context at startup
-- `permissionMode` — one of `acceptEdits`, `auto`, `bypassPermissions`, `default`, `dontAsk`, `plan`
-- `color` — accent color in the UI. One of the standard terminal colors (`red`, `cyan`, `magenta`, …); invalid values are dropped
+  <How this Frame decides when the choice is unclear.>
+  ```
 
-**Advanced:**
-- `maxTurns` — max agentic turns
-- `initialPrompt` — auto-submit a first turn when agent starts
-- `mcpServers` — MCP servers for this agent
-- `hooks` — lifecycle hooks scoped to this agent
-- `memory` — persistent memory: `user`, `project`, or `local`
-- `background` — `true` to always run in background. Killing a background agent preserves partial results in conversation context
-- `isolation` — `worktree` runs the agent in a temporary git worktree; `remote` runs it in a remote CCR environment (always backgrounded). Use `worktree.sparsePaths` setting in large monorepos to check out only specific directories. The `worktree.baseRef` setting (`fresh` | `head`) chooses the branch base: `fresh` (default) branches from `origin/<default>`, `head` carries local unpushed commits into the worktree (v2.1.133+)
+Example:
+  ```yaml
+  ---
+  name: researcher
+  description: |
+    Use for external research with sources — library docs, APIs, framework references, web lookups,
+    and vendor specs. DO NOT TRIGGER for in-codebase Architecture tracing; use explorer.
+  color: green
+  model: opus
+  tools: Read, Grep, Glob, Bash, WebFetch, WebSearch
+  skills: trace
+  memory: user
+  ---
 
-**Not agent frontmatter:**
-- `fallbackModel` — the agent `.md` parser ignores it (v2.1.195). Set it in settings.json (or CLI `--fallback-model`): an array of models tried in order when the primary is overloaded or unavailable
+  You are a researcher. You investigate external systems and return verified findings with sources.
+  You never write code or modify files.
 
-## Built-in Subagent Types
+  # Principles
 
-Available via Task tool's `subagent_type`:
+  ## Sources decide
 
-- **Explore** — Haiku, read-only. Fast codebase search and analysis
-- **Plan** — Inherits model, read-only. Codebase research for planning
-- **general-purpose** — Inherits model, all tools. Complex multi-step tasks
-- **Bash** — Inherits model. Terminal commands in separate context
+  Prefer official documentation and source code. When sources conflict, keep reading until the
+  conflict resolves.
+  ```
 
-Custom agents defined in `.claude/agents/` or `~/.claude/agents/` are also available as subagent types.
+## 3. Use agents from Claude Code
 
-`subagent_type` matching is case- and separator-insensitive — `"Code Reviewer"` resolves to `code-reviewer` (v2.1.140+). Sub-agents can spawn their own sub-agents, up to 5 levels deep (v2.1.172+). Permission rules can constrain spawns: `Agent(type)` deny rules, `Agent(x,y)` allowed-types, and `Tool(param:value)` matching such as `Agent(model:opus)` (v2.1.178+/v2.1.186+).
+- `claude --agent <name>` starts the session with that agent as the main thread.
+- The agent's system Prompt replaces the default Claude Code system Prompt for `claude --agent <name>`.
+- Tool restrictions, model, permission mode, `hooks:`, and `mcpServers:` apply to `claude --agent <name>`.
+- The selected agent persists on resume and the header shows `@<name>`.
+- `--print` honors an agent's `tools:` and `disallowedTools:` fields (v2.1.119+).
+- Plugin-contributed agents resolve without the `plugin:` prefix (v2.1.143+).
+- `--agent <plugin>:<agent>` selects an agent from a specific plugin.
+- `"agent": "name"` in settings JSON sets the default agent for sessions; the command-line flag overrides it.
+- `--agents <json>` defines ephemeral Subagents for the session.
+- `.claude/agents/` is the project location and should be committed.
+- `~/.claude/agents/` is the user location.
+- Plugin `agents/` directories apply where the plugin is enabled.
+- `--agents` has the highest priority on name collision, then `.claude/agents/`, then `~/.claude/agents/`, then plugin `agents/`.
 
-## Interacting With Running Agents
+### Do not confuse `--agent` and `--agents`
+`--agent` sets the main Agent for the session. `--agents` defines ephemeral Subagents available inside the session.
 
-- Agent tool no longer accepts a `resume` parameter. Use `SendMessage({to: agentId})` to continue a previously spawned agent
-- `SendMessage` auto-resumes stopped agents in the background — no error on stopped agents
-- `SendMessage` relayed from another Claude session carries no user authority — the receiver refuses relayed permission requests (v2.1.166+)
-- `TaskOutput` is deprecated. Use `Read` on the background task's output file path instead
+## 4. Dispatch Subagents correctly
 
-**Agent teams** (experimental, `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`): `TeamCreate` and `TeamDelete` are removed (v2.1.178+). Every session has one implicit team — spawn teammates directly with the Agent tool's `name` parameter, no setup step. The `team_name` parameter is accepted but ignored.
+- Built-in Task tool `subagent_type` values include `Explore`, `Plan`, `general-purpose`, and `Bash`.
+- `Explore` uses Haiku and is read-only.
+- `Plan` inherits the model and is read-only.
+- `general-purpose` inherits the model and has all tools.
+- `Bash` inherits the model and runs terminal commands in separate Context.
+- Custom agents in `.claude/agents/` or `~/.claude/agents/` are also available as Subagent types.
+- `subagent_type` matching is case-insensitive and separator-insensitive; `"Code Reviewer"` resolves to `code-reviewer` (v2.1.140+).
+- Subagents can spawn Subagents up to five levels deep (v2.1.172+).
+- Permission Rules can constrain spawns with `Agent(type)` deny Rules, `Agent(x,y)` allowed types, and `Tool(param:value)` matches such as `Agent(model:opus)` (v2.1.178+/v2.1.186+).
 
-## Agent-Only Skills
+### Continue a previously spawned agent with `SendMessage({to: agentId})`
+The Agent tool no longer accepts a `resume` parameter. Use `SendMessage({to: agentId})` to continue a previously spawned agent.
 
-A skill hidden from the main conversation yet preloaded into one agent is NOT achievable via frontmatter.
+### Let `SendMessage` resume stopped agents
+`SendMessage` auto-resumes stopped agents in the background without an error.
 
-**Preload resolves against the visible listing.** An agent's `skills:` preload matches names only against the model-invocable `available_skills` set — the same listing the main agent sees. A skill is preloadable if and only if it appears there. Hide it and the loader warns `Skill '<name>' specified in frontmatter was not found` and skips it. Both `disable-model-invocation: true` and `paths:` (which holds a skill out of the default listing until a matching file is in context) hide a skill, so both also make it non-preloadable.
+### Do not relay permission requests through `SendMessage` from another Claude session
+`SendMessage` relayed from another Claude session carries no user authority, so the receiver refuses relayed permission requests (v2.1.166+).
 
-**Empty `description:` does not hide.** The listing falls back to the skill BODY as its description, so an empty-description skill leaks its whole body into `available_skills` every session — the opposite of hidden.
+### Read the background task output file path
+`TaskOutput` is deprecated. Use `Read` on the background task's output file path.
 
-Consequence: no frontmatter combination makes a skill both hidden from the main agent and injectable into a subagent.
+### Spawn teammates directly with the Agent tool's `name` parameter
+Agent teams are experimental behind `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`. `TeamCreate` and `TeamDelete` are removed (v2.1.178+); every session has one implicit team, and the `team_name` parameter is accepted but ignored.
 
-```yaml
-# agents/code-reviewer.md — preloads a normal (visible) skill
----
-name: code-reviewer
-skills: review-checklist
----
-```
+## 5. Preload Skills only when they are visible
 
-What `skills:` preload buys a subagent: it carries no `references/` of its own and runs no scripts. A preloaded skill gives it both — the skill's `references/` become available, and its `!`-commands run at load to inline their output, with no tool call and no agent tokens (see building-skills.md). Preload fires on subagent dispatch (Task/Agent tool); running an agent as the main session via `--agent` does not preload its `skills:` bodies.
+- A Subagent does not carry `references/` or run scripts unless a preloaded Skill gives it those.
+- A preloaded Skill makes its `references/` available and runs its `!` commands at load with no tool call and no Agent tokens.
+- Skill preload fires on Subagent dispatch through the Task or Agent tool.
+- Running an agent as the main session with `--agent` does not preload its `skills:` bodies.
 
-## Persistent Memory
+### Preload resolves against the visible Skill listing
+An agent's `skills:` preload matches names only against the model-invocable `available_skills` set, the same listing the main Agent sees. Hide a Skill and the loader warns `Skill '<name>' specified in frontmatter was not found`, then skips it.
 
-Enable cross-session learning with `memory` field:
+### Do not try to hide a Skill from the main Agent while preloading it into one agent
+`disable-model-invocation: true` and `paths:` hide a Skill from the visible listing, so both also make it non-preloadable.
 
-- `user` — `~/.claude/agent-memory/<name>/` — across all projects (recommended default)
-- `project` — `.claude/agent-memory/<name>/` — project-specific, version-controllable
-- `local` — `.claude/agent-memory-local/<name>/` — project-specific, not in VCS
+### Do not leave `description:` empty to hide a Skill
+An empty Skill description falls back to the Skill body in `available_skills`, leaking the whole body into every session.
 
-Include memory instructions in the system prompt so the agent proactively maintains its knowledge base.
+### Accept that hidden-and-preloaded is not a supported shape
+No frontmatter combination makes a Skill both hidden from the main Agent and injectable into a Subagent.
+
+Template:
+  ```yaml
+  ---
+  name: code-reviewer
+  skills: review
+  ---
+  ```
+
+Example:
+  ```yaml
+  ---
+  name: code-reviewer
+  description: Use for code quality Review. DO NOT TRIGGER for Architecture Review; use architect.
+  skills: review
+  ---
+  ```
+
+## 6. Add memory only when the agent should learn across sessions
+
+- `memory: user` stores memory under `~/.claude/agent-memory/<name>/` across all projects.
+- `memory: project` stores memory under `.claude/agent-memory/<name>/` for the project and can be version-controlled.
+- `memory: local` stores memory under `.claude/agent-memory-local/<name>/` for the project and is not version-controlled.
+
+IF enabling cross-session learning:
+### Use the `memory` field
+Choose `user`, `project`, or `local` in frontmatter.
+
+IF enabling cross-session learning:
+### Include memory instructions in the system Prompt
+Tell the agent what to record and what not to record, because the field only enables storage.

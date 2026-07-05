@@ -1,5 +1,6 @@
 .DS_Store
-/.claude/
+/.claude/*
+!/.claude/rules/
 
 # tracer's per-repo disk cache (created at any repo root tracer is run in)
 .tracer-cache/

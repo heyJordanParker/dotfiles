@@ -113,6 +113,10 @@ where
     for (k, v) in env {
         cmd.env(k, v);
     }
+    // The binary walks $HOME/.claude/rules, so an inherited developer HOME leaks live Rules into doc counts.
+    if !env.iter().any(|(k, _)| *k == "HOME") {
+        cmd.env("HOME", cwd);
+    }
     let start = Instant::now();
     let out = cmd
         .output()

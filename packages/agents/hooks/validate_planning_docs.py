@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Ban deferred work in planning documents (LLM check).
 
-Planning docs are identified by path under .claude/shaping/ or a
-shaping/modeling/slicing frontmatter marker; their content is checked for
+Planning docs are identified by path under docs/shaping/ (or the legacy
+.claude/shaping/) or a shaping/modeling/slicing frontmatter marker; their content is checked for
 deferral by `claude -p`. Any failure path allows. validate-planning-docs.sh is
 the plugin-distributed shell copy of this source.
 """
@@ -71,7 +71,7 @@ def main():
     if not file_path.endswith(".md"):
         return 0
 
-    is_planning = "/.claude/shaping/" in file_path
+    is_planning = "/docs/shaping/" in file_path or "/.claude/shaping/" in file_path
     if not is_planning:
         if os.path.isfile(file_path):
             try:

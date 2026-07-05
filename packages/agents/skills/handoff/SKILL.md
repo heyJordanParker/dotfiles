@@ -1,16 +1,45 @@
 ---
 name: handoff
-description: Compact the current conversation into a handoff document for another agent to pick up.
+description: Compact the current conversation into a handoff document for another Agent to pick up.
 argument-hint: "What will the next session be used for?"
 disable-model-invocation: true
 ---
 
-Write a handoff document summarising the current conversation so a fresh agent can continue the work. Save to the temporary directory of the user's OS - not the current workspace.
+# Handoff
 
-Include a "suggested skills" section in the document, which suggests skills that the agent should invoke.
+- A handoff document lets a fresh Agent continue from the current Context.
+- The document is saved outside the workspace.
 
-Do not duplicate content already captured in other artifacts (PRDs, plans, ADRs, issues, commits, diffs). Reference them by path or URL instead.
+## 1. Set the focus
 
-Redact any sensitive information, such as API keys, passwords, or personally identifiable information.
+IF the Architect passed arguments:
+### Use them as the next session focus
+Tailor the handoff document to the work the next Agent will continue.
 
-If the user passed arguments, treat them as a description of what the next session will focus on and tailor the doc accordingly.
+## 2. Write the handoff document
+
+### Summarise the current Context
+Include the Goal, current state, Decisions made, unresolved Decisions, work completed, Verification already run, and the next concrete Task.
+
+### Reference existing artifacts instead of duplicating them
+Do not copy content already captured in product documents, Plans, Decisions, issues, commits, or diffs. Reference each by path or link.
+
+### Redact sensitive information
+Remove application programming interface keys, passwords, and personally identifiable information.
+
+## 3. Save it outside the workspace
+
+### Use the operating system temporary directory
+Save the handoff document in the temporary directory, never in the current workspace.
+
+## 4. Add suggested Skills
+
+### Include a suggested Skills section
+Name the Skills the next Agent should invoke.
+
+Template:
+  ```markdown
+  ## Suggested Skills
+
+  - /skill-name — why the next Agent needs it
+  ```

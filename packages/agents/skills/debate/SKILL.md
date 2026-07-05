@@ -1,159 +1,148 @@
 ---
 name: debate
-description: Run N independent architects debating architectural options through structured rounds. Use when the user wants multiple competing solutions evaluated, or when 3+ distinct approaches need comparison. Triggers on "debate", "competing solutions", "run architects", "architecture debate". Invocation /debate [count] "problem"
+description: Run N independent architect Agents debating Architectural options through rounds. TRIGGER when the Architect wants multiple competing solutions evaluated, when 3+ distinct approaches need comparison, or when the Prompt says "debate", "competing solutions", "run architects", "architecture debate", or `/debate [count] "problem"`.
 disable-model-invocation: true
 ---
 
 # Debate
 
-N independent architect agents propose solutions, then debate through cross-pollination rounds until convergence.
+N independent Architect Subagents propose solutions, then debate through rounds until convergence.
 
-## Triggers
+## 1. Load the team framework
 
-- "debate", "run a debate", "architecture debate"
-- "competing solutions", "compare approaches"
-- "run N architects on this"
-- Any architectural decision where independent perspectives add confidence
+Call `/team` to load the persistent-team lifecycle.
 
-## Process
+## 2. Parse input
 
-1. **Load team framework** — Use the Skill tool to call `/team`. This loads the team lifecycle framework for persistent teams.
+The first numeric argument is the Agent count. Default to 3 Agents and 5 rounds. Everything else is the problem.
 
-2. **Parse input** — Extract agent count and problem from user input.
-   - `/debate "how should we organize media by content type?"` — 3 agents (default), 5 rounds (default)
-   - `/debate 5 "how should we organize media by content type?"` — 5 agents
-   - Count is always the first argument if numeric. Everything else is the problem.
+Example: `/debate "how should we organize media by content type?"` means 3 Agents.
+Example: `/debate 5 "how should we organize media by content type?"` means 5 Agents.
 
-3. **Build the frame** — The frame is the user's problem, NOT a technical specification. Write it from the user's perspective:
-   - **User story** — What the user experiences today and what they need. In their words.
-   - **Business context** — Why this matters. Revenue, cost, maintenance, growth.
-   - **Architectural values** — The project's principles: simplicity, elegance, maintainability. Code fails in maintenance not creation. Fewer files, fewer abstractions, simpler queries. Pull these from Claude.md files.
-   - **Constraints** — Hard constraints FROM THE USER. Files to read. What's in scope, what's out. Never include your own research or conclusions — that biases agents.
+## 3. Build the Frame
 
-4. **Assign trait seeds** — Each architect gets a lightweight lens that produces diverse initial proposals without biasing conclusions. Trait seeds describe an instinct, not a persona — a favorite area to explore, not a conclusion to reach. Assign from this roster (cycle through for N > 5):
+The Frame is the User's problem from the User's perspective, not a technical mechanism.
 
-### The UX Architect
-- **Identity:** Design engineer who evaluates every technical decision through the lens of what the user sees and feels. Obsessed with the experience, not the implementation.
-- **Philosophy:** The right architecture is the one that produces the best UX. If the user can't tell the difference, the engineering difference doesn't matter. Every technical choice shows up as friction or flow. Start from the interaction, work backward to the schema.
-- **Known instincts:** Reaches for solutions that minimize user-facing complexity. Thinks in clicks, load times, and mental models. Suspicious of architectures that leak implementation details into the UI. "If the user has to understand our folder model to organize their images, we failed."
+Template:
+    User story: what the User experiences and needs, in the User's words.
+    Business: revenue, cost, maintenance, growth.
+    Architecture Principles: the project's Principles from Claude.md, including simplicity, elegance, maintainability, and code fails in maintenance not creation.
+    Prompt text: files to read, scope in, scope out.
 
-### The Shipper
-- **Identity:** Velocity-obsessed architect who measures success in working software per week. Treats unshipped code as inventory — it depreciates, never appreciates.
-- **Philosophy:** Whatever ships fastest with least risk. Proven patterns over novel ones. The best architecture is the one your team can maintain at 2am. Perfect is the enemy of deployed. Build the 80% solution, validate with real users, iterate.
-- **Known instincts:** Reaches for patterns already in the codebase. Copies what works. Suspicious of novel abstractions and "elegant" solutions nobody's battle-tested. "Show me where this pattern is already used successfully in this project."
+Never: include your own research or conclusions in the Frame; that biases the Agents.
 
-### The Maintainer
-- **Identity:** Architecture purist who optimizes for the developer who inherits this code in two years. Thinks in boundaries, contracts, and dependency direction.
-- **Philosophy:** Code fails in maintenance, not creation. Strict encapsulation, one-directional dependencies, small files. Every abstraction must earn its existence by reducing future complexity. If it's not trivial to maintain or rewrite, it's wrong.
-- **Known instincts:** Reaches for clear module boundaries, documented contracts, explicit dependency direction. Suspicious of any change that increases coupling between modules. "If adding a content type requires touching the media module, the architecture is broken."
+### The Frame leads with the User
+Solutions that do not serve the User are wrong regardless of elegance.
 
-### The Reducer
-- **Identity:** Efficiency-obsessed engineer who believes the best code is code you don't write. Counts lines, files, and abstractions like a miser counts coins.
-- **Philosophy:** Fewer lines, fewer files, fewer abstractions. If the existing data model already supports what you need, stop adding things. Convention over columns. YAGNI isn't a suggestion — it's a law. Every new column, table, or file is maintenance debt that must justify its existence.
-- **Known instincts:** Reaches for zero-schema-change solutions, naming conventions, existing flags. Suspicious of new columns, new tables, new abstractions. "If the convention hasn't failed yet, don't add infrastructure to prevent a hypothetical failure."
+## 4. Assign Architect Frames
 
-### The Polished Pragmatist
-- **Identity:** Senior architect with the taste of a designer and the instincts of a principal engineer. Synthesizes competing concerns into solutions that feel inevitable — simple enough that you wonder why anyone considered anything else.
-- **Philosophy:** Elegance is the intersection of simplicity and completeness. The right solution handles every edge case without looking like it handles any. Complexity is a smell; if the solution needs extensive documentation, it's the wrong solution. The database should tell the truth, the code should be boring, and the UX should be invisible.
-- **Known instincts:** Reaches for the solution with the fewest moving parts that still covers all cases. Synthesizes ideas from other approaches. Suspicious of both over-engineering AND under-engineering. "If you're debating whether to add a column, the answer is in the user stories — not the schema."
+Each Architect gets a one-sentence instinct that produces diverse initial Proposals. Cycle through the roster when N is greater than 5.
 
-5. **Build the architect prompt** — One prompt per architect, identical except for the trait seed. Structure:
+- User Experience Architect — Frame: User experience engineer who evaluates every technical Decision through what the User sees and feels. Principles: the right Architecture produces the best User experience; if the User cannot tell the difference, the engineering difference does not matter; every technical choice shows up as friction or ease; start from the interaction and work backward to the schema. Instincts: minimize User-facing complexity; think in clicks, load times, and mental models; distrust Architectures that leak implementation details into the user interface.
+- Shipper — Frame: velocity-obsessed Architect who measures success in working software per week and treats unshipped code as inventory that depreciates. Principles: ship fastest with least risk; proven patterns over novel ones; the best Architecture is the one the team can maintain at 2 a.m.; build the smallest complete solution, validate with real Users, iterate. Instincts: reach for patterns already in the codebase; copy what works; distrust novel abstractions and untested elegant solutions.
+- Maintainer — Frame: Architecture purist who optimizes for the developer who inherits the code in two years. Principles: code fails in maintenance, not creation; strict encapsulation; one-directional dependencies; small files; every abstraction must earn its existence by reducing future complexity; if it is not trivial to maintain or rewrite, it is wrong. Instincts: reach for clear module boundaries, documented contracts, and explicit dependency direction; distrust changes that increase coupling between modules.
+- Reducer — Frame: efficiency-obsessed engineer who believes the best code is code not written. Principles: fewer lines, fewer files, fewer abstractions; if the existing data already supports what is needed, stop adding things; convention over columns; "you are not going to need it" is law; every new column, table, or file is maintenance debt that must justify itself. Instincts: reach for zero-schema-change solutions, naming conventions, and existing flags; distrust new columns, new tables, and new abstractions.
+- Polished Pragmatist — Frame: senior Architect with the taste of a designer and the instincts of a principal engineer. Principles: elegance is the intersection of simplicity and completeness; the right solution handles every edge case without looking like it handles any; complexity is a smell; the database should tell the truth, the code should be boring, and the User experience should be invisible. Instincts: reach for the solution with the fewest moving parts that still covers all cases; synthesize ideas from other approaches; distrust both over-engineering and under-engineering.
 
-```
-You are one of N independent architects debating a problem. You will propose solutions, then participate in debate rounds.
+## 5. Build the Architect Prompt
 
-Your instinct: {trait seed — one sentence}. This is a starting lens, not a conclusion. Follow the evidence in the code.
+Write one Prompt per Architect, identical except the Frame.
 
-## Frame
+Template:
+    You are one of N independent Architects debating a problem. You will propose solutions, then participate in debate rounds.
 
-{frame from step 3 — user story, business context, architectural values, constraints}
+    Your Frame: {one sentence}. This is a starting point, not a conclusion. Follow the code.
 
-## Your Task
+    ## Frame
 
-1. Read the codebase files listed in the constraints
-2. Write 3-5 concrete user stories or user behaviors that any solution must support. These are YOUR stories — don't coordinate with other architects. Think about edge cases, not just happy paths.
-3. Propose exactly 5 architecturally distinct solutions. For each:
-   - Name and 2-3 sentence description
-   - How it handles each of YOUR user stories
-   - Pros and cons
-   - Confidence percentage
-4. Then WAIT — the facilitator will send you other architects' proposals for debate rounds.
-```
+    {Frame from step 3 — User story, Business, Architecture Principles, Prompt text}
 
-6. **Create team and dispatch** — Use the /team skill. Use TeamCreate. Spawn N architect agents as persistent teammates (subagent_type: `architect`). Name them `architect-a`, `architect-b`, etc. Dispatch all in parallel.
+    ## Your Task
 
-7. **Collect proposals** — Wait for all architects to return their proposals + user stories.
+    1. Read the codebase files listed in the Prompt.
+    2. Write 3-5 concrete User stories or User behaviors that any solution must support. These are your stories; do not coordinate with other Architects. Think about edge cases, not just happy paths.
+    3. Propose exactly 5 Architecturally distinct solutions. For each: name; 2-3 sentence description; how it handles each of your User stories; pros and cons; confidence percentage.
+    4. Then wait. The facilitator will send you other Architects' Proposals for debate rounds.
 
-8. **Run debate rounds** — Up to 5 rounds. Each round:
-   - Compose a cross-pollination message for each architect containing the OTHER architects' FULL positions (not your summary — your interpretation biases them)
-   - Include specific forcing questions (see round templates below)
-   - Send to all architects simultaneously via SendMessage
-   - Wait for all responses
+### Agents are independent
+Each Agent reads code itself. No pre-digested findings from you.
 
-9. **Early termination** — If all architects converge within 10% confidence on the same approach after any round, skip remaining rounds.
+## 6. Create the team and dispatch
 
-10. **Synthesize and report** — After final round, present:
-    - **Consensus** — items all architects agreed on
-    - **Winner** — name, description, averaged confidence, pros/cons
-    - **Runner-up** — name, key difference from winner
-    - **Key insight** — the single discovery that most influenced the outcome
-    - **Unresolved** — anything architects couldn't agree on
+Use TeamCreate. Spawn N `architect` teammates named `architect-a`, `architect-b`, and onward in parallel.
 
-## Round Templates
+## 7. Collect Proposals
 
-**Round 1 — Critique & Group**
-```
-Here are the other architects' proposals and user stories:
-{full proposals from other architects}
+Wait for every Architect to return Proposals and User stories.
 
-1. Which proposals across all architects are the same idea? Group them.
-2. Which user stories from other architects did you miss? Do your proposals handle them?
-3. What's the strongest argument AGAINST your top pick?
-4. Which proposal from another architect is the biggest threat to yours? Why?
-5. Update your confidence for all distinct approaches.
-```
+## 8. Run debate rounds
 
-**Round 2 — Narrow to top 3**
-```
-Round 1 responses:
-{full Round 1 responses from other architects}
+Run up to 5 rounds. Each round composes one Prompt per Architect containing the other Architects' full positions plus the round's forcing questions. SendMessage to all Architects simultaneously, then wait for all responses.
 
-The field is narrowing. Here are the top contenders with averaged confidence:
-{top 3-5 approaches with confidence from each architect}
+### Route, do not interpret
+Round Prompts carry other Architects' full positions, not your summary. Your interpretation biases them.
 
-1. Can you propose a HYBRID that combines the best of the top 3? Or argue why one dominates?
-2. What's the minimum viable version of your preferred approach?
-3. Final ranking of the top 3 only.
-```
+### Force engagement
+Ask "Which Proposal threatens yours?", not "What do you think?" Vague questions get vague answers.
 
-**Round 3 — Sharpen**
-```
-Round 2 responses:
-{full Round 2 responses from other architects}
+### Narrow progressively
+Round 1 covers all Proposals. Round 2 narrows to the top three. Round 3 and later use the finalists.
 
-The debate has narrowed to {2-3} finalists:
-{finalist descriptions with confidence}
+### User stories are ammunition
+Architects write User stories independently, then use each other's stories to stress-test Proposals.
 
-The sharpest tension is: {describe the core disagreement}
+Template:
+    Round 1 — Critique and group
 
-Defend or concede. Address the specific tension directly. State your final confidence.
-```
+    Here are the other Architects' Proposals and User stories:
+    {full Proposals from other Architects}
 
-**Round 4-5 — Resolve (if needed)**
-```
-Round {N-1} responses:
-{full responses}
+    1. Which Proposals across all Architects are the same idea? Group them.
+    2. Which User stories from other Architects did you miss? Do your Proposals handle them?
+    3. What is the strongest argument against your top pick?
+    4. Which Proposal from another Architect is the biggest threat to yours? Why?
+    5. Update your confidence for all distinct approaches.
 
-{Pose the specific unresolved question that's preventing convergence}
+Template:
+    Round 2 — Narrow to top three
 
-Final answer. State your position and confidence.
-```
+    Round 1 responses:
+    {full Round 1 responses from other Architects}
 
-## Key Rules
+    The field is narrowing. Here are the top contenders with averaged confidence:
+    {top 3-5 approaches with confidence from each Architect}
 
-- **Agents are independent** — each reads code themselves. No pre-digested findings from you.
-- **Frame leads with the USER** — not the technical mechanism. Solutions that don't serve the user are wrong regardless of elegance.
-- **Route, don't interpret** — cross-pollination messages contain other architects' FULL positions, not your summary. Your interpretation biases them.
-- **Force engagement** — "Which proposal threatens yours?" not "What do you think?" Vague questions get vague answers.
-- **Narrow progressively** — Round 1: all proposals. Round 2: top 3. Round 3+: finalists.
-- **User stories are ammunition** — architects write user stories independently, then use each other's stories to stress-test proposals in debate rounds.
+    1. Can you propose a combined approach that takes the best of the top three? Or argue why one dominates?
+    2. What is the smallest complete version of your preferred approach?
+    3. Give a final ranking of the top three only.
+
+Template:
+    Round 3 — Sharpen
+
+    Round 2 responses:
+    {full Round 2 responses from other Architects}
+
+    The debate has narrowed to {2-3} finalists:
+    {finalist descriptions with confidence}
+
+    The sharpest tension is: {describe the core disagreement}
+
+    Defend or concede. Address the specific tension directly. State your final confidence.
+
+Template:
+    Round 4-5 — Resolve if needed
+
+    Round {N-1} responses:
+    {full responses}
+
+    {Pose the specific unresolved question that prevents convergence}
+
+    Final answer. State your position and confidence.
+
+## 9. Stop early on convergence
+
+If all Architects converge within 10% confidence on the same approach after any round, skip the rest.
+
+## 10. Synthesize and report
+
+Report Consensus for items all Architects agreed on; Winner with name, description, averaged confidence, pros, and cons; Runner-up with the key difference; Key insight for the single finding that most influenced the outcome; and Unresolved for anything Architects could not agree on.

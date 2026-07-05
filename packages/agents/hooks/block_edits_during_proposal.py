@@ -58,7 +58,7 @@ def _allowed_target(t, cwd):
     if not t.startswith("/"):
         t = os.path.join(cwd, t)
     t = os.path.normpath(t)
-    if "/.claude/shaping/" in t or "/.claude/plans/" in t:
+    if "/docs/shaping/" in t or "/docs/plans/" in t or "/.claude/shaping/" in t or "/.claude/plans/" in t:
         return True
     if t == "/tmp" or t.startswith("/tmp/"):
         return True

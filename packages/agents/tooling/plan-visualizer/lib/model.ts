@@ -385,6 +385,59 @@ export interface CollectionItem {
   readonly change?: CodeView;
 }
 
+/* ─────────────────────────── Before / after facet ──────────────────────────
+ *
+ * The one primitive that maps the OLD architecture onto the NEW one in place.
+ * A facet is one component or one layer of the system — the store, the check,
+ * the audiences, a gate, the field read, a link tier. It carries a `before`
+ * variant and an `after` variant of the SAME thing, and an in-place toggle flips
+ * between them on the same spot: the same heading, the same explanation slot, the
+ * same code/DDL/diagram slot. This is what replaces a linear before-section then
+ * after-section — the reviewer sits on a component and flips its two states.
+ *
+ * Each variant carries its own one-line explanation (plain sentences) and one
+ * body: code AS CODE through the viewer (a block), a DDL block, or a small
+ * relationship diagram drawn from node ids. The two variants of a facet share a
+ * body kind so the toggle swaps like for like — before-DDL flips to after-DDL,
+ * before-graph to after-graph. A facet whose after-state is a change from its
+ * before-state reads through the one color system via its `state`.
+ */
+export interface PhaseVariant {
+  /** One line, plain sentences: what this component IS in this phase. */
+  readonly explain: string;
+  /** The body AS CODE through the viewer — the class, method, or shape. */
+  readonly code?: CodeBlockSpec;
+  /** The body as migration DDL / SQL through the viewer. */
+  readonly ddl?: CodeBlockSpec;
+  /** The body as a small relationship diagram — node ids to draw. */
+  readonly diagramNodeIds?: readonly string[];
+  /** Extra one-line notes for this phase, shown under the explanation. */
+  readonly notes?: readonly string[];
+}
+
+export interface BeforeAfterFacet {
+  readonly id: string;
+  /** The component / layer, named in plain language — no codes. */
+  readonly title: string;
+  /** One line shown always (phase-independent): what this facet covers. */
+  readonly summary: string;
+  /**
+   * The facet's overall change state — the badge and accent. `changed` for a
+   * component that existed and moved, `added` for one net-new after the run,
+   * `removed` for one that only existed before, `separate` for a deliberate
+   * sibling. Drives the one color system.
+   */
+  readonly state: ChangeState;
+  /** The old state of this component/layer — what the toggle shows on "before". */
+  readonly before: PhaseVariant;
+  /** The new state of this component/layer — what the toggle shows on "after". */
+  readonly after: PhaseVariant;
+  /** Set when even the after-state still needs the architect's input. */
+  readonly needsInput?: NeedsInput;
+  /** The second axis — the layer band this facet sits in (optional). */
+  readonly group?: string;
+}
+
 /* ─────────────────────────── Sections ──────────────────────────────────────── */
 
 export type Section =
@@ -444,6 +497,19 @@ export type Section =
       readonly title: string;
       readonly caption?: string;
       readonly choices: readonly Choice[];
+    }
+  | {
+      readonly kind: "beforeAfter";
+      readonly id: string;
+      readonly title: string;
+      readonly caption?: string;
+      /**
+       * The components / layers this section covers, each with its own in-place
+       * before/after toggle. Reads the document-wide phase as its default, and
+       * each facet can flip locally. This is the section that maps the old
+       * architecture onto the new one component by component.
+       */
+      readonly facets: readonly BeforeAfterFacet[];
     };
 
 /* ─────────────────────────── Problems — the organizing layer ────────────────

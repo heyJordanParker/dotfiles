@@ -1,175 +1,197 @@
-# Project Structure Conventions
+# Project Architecture
 
-## Organize by Feature, Not by File Type
+One Process: organize by User capability, colocate owned files, keep imports direct, and enforce one-way dependencies.
 
-Group code by business domain, not technical layer. Feature-based structure scales to large teams, enables independent ownership, and makes features easy to delete.
+## 1. Organize by feature until the project proves otherwise
 
-Incorrect — layer-based:
-```
-src/components/UserProfile.tsx, PostList.tsx, PaymentForm.tsx
-src/hooks/useUser.ts, usePosts.ts, usePayment.ts
-src/types/user.ts, post.ts, payment.ts
-```
+### Group code by business domain, not file type
 
-Correct — feature-based:
-```
-src/
-  features/user/ (components/, hooks/, api/, types/)
-  features/post/ (components/, hooks/, api/, types/)
-  components/    # shared UI primitives only
-  hooks/         # shared hooks only
-  utils/         # shared pure functions only
-```
+Feature-based organization supports ownership and deletion. Start layer-based only for small projects; move to feature-based at three or more features or multiple developers.
 
-Start layer-based for small projects. Migrate to feature-based at 3+ features or multiple developers.
+Never:
+  ```text
+  src/components/UserProfile.tsx, PostList.tsx, PaymentForm.tsx
+  src/hooks/useUser.ts, usePosts.ts, usePayment.ts
+  src/types/user.ts, post.ts, payment.ts
+  ```
 
-## Colocate Related Files
+Example:
+  ```text
+  src/
+    features/user/ (components/, hooks/, api/, types/)
+    features/post/ (components/, hooks/, api/, types/)
+    components/    # shared User Interface primitives only
+    hooks/         # shared hooks only
+    utils/         # shared pure functions only
+  ```
 
-Keep a component's test, styles, and types next to it. Deleting a component should delete everything related.
+## 2. Colocate files that share ownership
 
-Incorrect:
-```
-src/components/UserProfile.tsx
-src/tests/UserProfile.test.tsx
-src/styles/UserProfile.css
-```
+### Keep tests, styles, and types beside the component
 
-Correct:
-```
-src/features/user/components/UserProfile/
-  UserProfile.tsx
-  UserProfile.test.tsx
-  UserProfile.module.css
-```
+Deleting a component should delete everything related to it. Feature-specific hooks stay in the feature. Only hooks used by two or more features go in shared `hooks/`.
 
-Feature-specific hooks stay in the feature. Only hooks used by 2+ features go in the shared `hooks/` directory.
+Never:
+  ```text
+  src/components/UserProfile.tsx
+  src/tests/UserProfile.test.tsx
+  src/styles/UserProfile.css
+  ```
 
-## Do Not Use Barrel Files in Application Code
+Example:
+  ```text
+  src/features/user/components/UserProfile/
+    UserProfile.tsx
+    UserProfile.test.tsx
+    UserProfile.module.css
+  ```
 
-Barrel files (`index.ts` re-exporting submodules) force JavaScript to load every module synchronously, even when only one export is used.
+## 3. Keep imports direct
 
-- **Vercel:** 200-800ms per import; dev startup 72% slower with barrels
-- **Atlassian:** 75% build time reduction after removing barrels across 90,000+ files
-- **TkDodo:** 11,000 modules at startup dropped to 3,500 after removal (-68%)
+### Do not use barrel files in application code
 
-Tree-shaking doesn't help — test runners load everything, and bundlers can't optimize externals.
+Barrel files (`index.ts` re-exporting submodules) force JavaScript to load every module synchronously, even when only one export is used. Tree-shaking does not help because test runners load everything and bundlers cannot optimize externals.
 
-Incorrect:
-```typescript
-// features/user/index.ts
-export { UserProfile } from './components/UserProfile';
-export { useUser } from './hooks/useUser';
-```
+Measured: Vercel found 200 to 800 milliseconds per import and 72 percent slower development startup with barrels. Atlassian reduced build time 75 percent after removing barrels across more than 90,000 files. TkDodo saw 11,000 startup modules drop to 3,500, a 68 percent reduction.
 
-Correct — import directly:
-```typescript
-import { UserProfile } from '@/features/user/components/UserProfile';
-import { useUser } from '@/features/user/hooks/useUser';
-```
+Never:
+  ```typescript
+  export { UserProfile } from './components/UserProfile';
+  export { useUser } from './hooks/useUser';
+  ```
+
+Example:
+  ```typescript
+  import { UserProfile } from '@/features/user/components/UserProfile';
+  import { useUser } from '@/features/user/hooks/useUser';
+  ```
 
 Barrel files are acceptable only for published library APIs.
 
-## Use Named Exports, Not Default Exports
+### Use named exports, not default exports
 
 Named exports are grep-able, refactoring-safe, and prevent silent renames at import sites.
 
-Incorrect:
-```typescript
-export default function UserProfile() { ... }
-import Banana from './UserProfile'; // no error, breaks grep
-```
+Never:
+  ```typescript
+  export default function UserProfile() { ... }
+  import Banana from './UserProfile';
+  ```
 
-Correct:
-```typescript
-export function UserProfile() { ... }
-import { UserProfile } from './UserProfile';
-```
+Example:
+  ```typescript
+  export function UserProfile() { ... }
+  import { UserProfile } from './UserProfile';
+  ```
 
-For `React.lazy` (requires default), wrap the import:
-```typescript
-const UserProfile = lazy(() =>
-  import('./UserProfile').then(mod => ({ default: mod.UserProfile }))
-);
-```
+Example for `React.lazy` boundaries that require default:
+  ```typescript
+  const UserProfile = lazy(() =>
+    import('./UserProfile').then(module => ({ default: module.UserProfile }))
+  );
+  ```
 
-## Follow File Naming Conventions
-
-- Components: PascalCase (`UserProfile.tsx`)
-- Hooks: camelCase with `use` prefix (`useAuth.ts`)
-- Utilities: camelCase (`formatDate.ts`)
-- Tests: source name + `.test` (`UserProfile.test.tsx`)
-- Styles: source name + `.module` (`UserProfile.module.css`)
-- Route segments: kebab-case (`user-profile/page.tsx`)
-
-Pick one convention and enforce it project-wide. Consistency matters more than which you choose.
-
-## Use Absolute Imports via @/ Prefix
+### Use absolute imports via @ prefix
 
 Relative imports with `../../../` are unreadable and break when files move.
 
-```json
-{ "compilerOptions": { "baseUrl": ".", "paths": { "@/*": ["./src/*"] } } }
-```
+Example:
+  ```json
+  { "compilerOptions": { "baseUrl": ".", "paths": { "@/*": ["./src/*"] } } }
+  ```
 
-```typescript
-import { Button } from '@/components/Button';
-import { useAuth } from '@/features/auth/hooks/useAuth';
-```
+Example:
+  ```typescript
+  import { Button } from '@/components/Button';
+  import { useAuth } from '@/features/auth/hooks/useAuth';
+  ```
 
-Use relative imports only within the same directory: `./UserAvatar`.
+Use relative imports only within the same directory, such as `./UserAvatar`.
 
-## One Component per File, Split at ~150 Lines
+## 4. Name files consistently
 
-Each file exports one component. Small sub-components (<30 lines, parent-only) can stay as private helpers.
+### Follow one project-wide naming convention
 
-Split when a component exceeds ~150 lines, has its own state, or is reused elsewhere:
-```
-UserProfile/
-  UserProfile.tsx          # exported
-  UserProfileAvatar.tsx    # internal, not exported
-  UserProfile.test.tsx
-```
+Components use PascalCase (`UserProfile.tsx`). Hooks use camelCase with a `use` prefix (`useAuth.ts`). Utilities use camelCase (`formatDate.ts`). Tests use source name plus `.test` (`UserProfile.test.tsx`). Styles use source name plus `.module` (`UserProfile.module.css`). Route segments use kebab-case (`user-profile/page.tsx`).
 
-## Enforce Unidirectional Dependencies
+Pick one convention and enforce it project-wide. Consistency matters more than which convention is chosen.
 
-Code flows: `shared -> features -> app`. Features never import other features. Enforce with ESLint:
+## 5. Split files by ownership
 
-```json
-{
-  "rules": {
-    "import/no-restricted-paths": ["error", {
-      "zones": [
-        { "target": "./src/features", "from": "./src/app" },
-        { "target": "./src/features/user", "from": "./src/features/post" }
-      ]
-    }]
+### Use one component per file
+
+Each file exports one component. Small subcomponents under about 30 lines and used only by the parent can stay private.
+
+### Split around 150 lines or when ownership changes
+
+Split when a component exceeds about 150 lines, has its own state, or is reused elsewhere.
+
+Example:
+  ```text
+  UserProfile/
+    UserProfile.tsx
+    UserProfileAvatar.tsx
+    UserProfile.test.tsx
+  ```
+
+## 6. Enforce one-way dependencies
+
+### Dependencies move from shared to features to app
+
+Features never import other features. Enforce this with lint rules.
+
+Example:
+  ```json
+  {
+    "rules": {
+      "import/no-restricted-paths": ["error", {
+        "zones": [
+          { "target": "./src/features", "from": "./src/app" },
+          { "target": "./src/features/user", "from": "./src/features/post" }
+        ]
+      }]
+    }
   }
-}
-```
+  ```
 
-## Follow a Consistent Component File Order
+## 7. Keep component files predictable
 
-```typescript
-// 1. Imports (React, third-party, project, local)
-// 2. Types
-// 3. Constants
-// 4. Component (exported)
-export function UserProfile({ user }: Props) {
-  // a. Hooks → b. Derived state → c. Event handlers → d. Return JSX
-}
-// 5. Private sub-components
-```
+### Follow consistent component file order
 
-## What NOT to Do
+Template:
+  ```typescript
+  // 1. Imports: React, third-party, project, local
+  // 2. Types
+  // 3. Constants
+  // 4. Component: exported
+  export function UserProfile({ user }: Props) {
+    // a. Hooks → b. Derived state → c. Event handlers → d. Return JSX
+  }
+  // 5. Private subcomponents
+  ```
 
-**Over-nesting** — max 2-3 levels within any feature. If an import path has 4+ segments after `src/`, it's too deep.
+## 8. Cut shapes that hide ownership
 
-**Premature directories** — create a directory when you have 2+ files. A folder with one file is noise.
+### Avoid over-nesting
 
-**Generic dumping grounds** — never create `helpers/`, `common/`, `misc/`. They become junk drawers.
+Keep at most two or three levels within any feature. An import path with four or more segments after `src/` is too deep.
 
-**Mirroring backend** — don't use `models/`, `controllers/` on the frontend. Organize by UI concerns.
+### Avoid premature directories
 
-**File structure as access control** — use module exports, not `public/`/`private/` directories.
+Create a directory when there are two or more files. A folder with one file is noise.
 
-**Anticipating complexity** — match current complexity, not future. Restructure when pain appears.
+### Avoid generic dumping grounds
+
+Never create `helpers/`, `common/`, or `misc/`. They become junk drawers.
+
+### Do not mirror backend layers
+
+Do not use `models/` or `controllers/` on the frontend. Organize by User Interface concerns.
+
+### Do not use file organization as access control
+
+Use module exports, not `public/` or `private/` directories.
+
+### Do not anticipate complexity
+
+Match current complexity. Restructure when pain appears.

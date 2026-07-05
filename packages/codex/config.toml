@@ -29,12 +29,12 @@ NODE_REPL_NODE_MODULE_DIRS = "/Applications/Codex.app/Contents/Resources/cua_nod
 NODE_REPL_NODE_PATH = "/Applications/Codex.app/Contents/Resources/cua_node/bin/node"
 NODE_REPL_TRUSTED_CODE_PATHS = "/Users/jordan/.codex"
 CODEX_HOME = "/Users/jordan/.codex"
-NODE_REPL_TRUSTED_BROWSER_CLIENT_SHA256S = "cb79053fda6deb0f3b5d6f0d90d4257305ebdbd1e378a12e8fbc5bde782eb59b"
+NODE_REPL_TRUSTED_BROWSER_CLIENT_SHA256S = "60e4902788f207f88fd09344dfeafe07769488bdb2924bbb12b322c3b9d2b999"
 BROWSER_USE_AVAILABLE_BACKENDS = "chrome,iab"
 NODE_REPL_INSTRUCTIONS_USE_CASE_BROWSER = "Control the in-app browser in conjunction with the Browser Plugin."
 NODE_REPL_INSTRUCTIONS_USE_CASE_CHROME = "Control the Chrome browser in conjunction with the Chrome Plugin. Prefer this method of controlling Chrome over alternatives (such as Computer Use) unless the user explicitly mentions an alternative."
 BROWSER_USE_CODEX_APP_BUILD_FLAVOR = "prod"
-BROWSER_USE_CODEX_APP_VERSION = "26.623.81905"
+BROWSER_USE_CODEX_APP_VERSION = "26.623.101652"
 CODEX_CLI_PATH = "/Applications/Codex.app/Contents/Resources/codex"
 
 # iai-mcp memory engine — clone-and-run service in ~/Developer/services.
@@ -290,8 +290,23 @@ trusted_hash = "sha256:f88f679b4edeedb486d10907505bdfe72416ac7360555f00fe23b0690
 [hooks.state."/Users/jordan/.codex/config.toml:user_prompt_submit:0:2"]
 trusted_hash = "sha256:bb3f08b7aaf69d6b86fc0a5c1b7be812a2e7b6853ce28ebb24e02978c556be28"
 
+[hooks.state."/Users/jordan/.codex/hooks.json:pre_tool_use:0:0"]
+trusted_hash = "sha256:60d3caefc6eefde1e3c1b3f5fcd0b050fa8ab87c1831019ffd5962a93eb74967"
+
+[hooks.state."/Users/jordan/.codex/hooks.json:permission_request:0:0"]
+trusted_hash = "sha256:254f60581d1502007746ec6310ff7dc7a5cc540f08d1e7d77ef48abee34c6199"
+
+[hooks.state."/Users/jordan/.codex/hooks.json:session_start:0:0"]
+trusted_hash = "sha256:f4b442791c92f3225ddc5348949562e73b5f37e7fd7ad150adc2f5a66030cbbd"
+
+[hooks.state."/Users/jordan/.codex/hooks.json:user_prompt_submit:0:0"]
+trusted_hash = "sha256:c854cc01f2e3de10c2b4f02de063d4b2465f250e700bb392e376bfb8bb319407"
+
+[hooks.state."/Users/jordan/.codex/hooks.json:stop:0:0"]
+trusted_hash = "sha256:f9ddb26e14b04fe884321d89a0f63a5c9694069832c28c4c0ab651d53c3932ef"
+
 [marketplaces.openai-bundled]
-last_updated = "2026-07-01T08:34:58Z"
+last_updated = "2026-07-03T11:41:46Z"
 source_type = "local"
 source = "/Users/jordan/.codex/.tmp/bundled-marketplaces/openai-bundled"
 
@@ -379,4 +394,4 @@ generate_memories = true
 use_memories = true
 
 [tui.model_availability_nux]
-"gpt-5.5" = 3
+"gpt-5.5" = 4

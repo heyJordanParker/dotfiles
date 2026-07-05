@@ -247,6 +247,7 @@ fn concurrent_writers_produce_no_corruption() {
             let out = Command::new(&bin)
                 .args(["docs", "sub/util.py"])
                 .current_dir(&root)
+                .env("HOME", &root)
                 .env("CLAUDE_CODE_SESSION_ID", &sid)
                 .output()
                 .expect("spawn trace");

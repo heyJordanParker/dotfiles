@@ -1,10 +1,31 @@
 ---
 name: interview
-description: Interview the user about a plan or design, one question at a time, to sharpen it before any code is written. Use when the user wants to stress-test or pin down a plan before building.
+description: Interview the Architect about a Plan or Proposal, one question at a time, to sharpen it before any code is written. Use when the Architect wants to stress-test or pin down a Plan before building.
 ---
 
-Interview me thoroughly about every aspect of this plan until we reach a shared understanding. Walk down each branch of the design tree, resolving dependencies between decisions one-by-one. For each question, provide your recommended answer.
+# Interview
 
-Ask the questions one at a time, waiting for feedback on each question before continuing. Asking multiple questions at once is bewildering.
+- An Interview builds shared understanding before Execution.
+- Each question is grounded in code the Agent already checked.
 
-If a question can be answered by exploring the codebase, explore the codebase instead.
+## 1. Read before asking
+
+IF the codebase can answer the question:
+### Read the code instead of asking
+Do the research yourself. Never ask the Architect to provide what the code can show.
+
+## 2. Map the Decision Hierarchy
+
+### Cover every part of the Plan or Proposal
+Interview the Architect about every part until the Goal is clear.
+
+### Walk one branch at a time
+Resolve dependencies between Decisions one by one. Do not jump between unrelated branches.
+
+## 3. Ask the next question
+
+### Recommend an answer with every question
+Provide the answer the Agent recommends before asking for the Architect's correction or pick.
+
+### Ask one question at a time
+Wait for the Architect's answer before continuing. Multiple questions at once are bewildering.

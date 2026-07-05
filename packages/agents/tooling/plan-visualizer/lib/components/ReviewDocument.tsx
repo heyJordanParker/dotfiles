@@ -15,7 +15,9 @@ import { useState } from "react";
 import type { ReviewModel, Problem, Section } from "../model";
 import { STATE_ORDER, CHANGE_STATES } from "../model";
 import { AnnotationProvider } from "../annotations";
+import { PhaseProvider, PhaseToggle } from "../phase";
 import { RelationshipGraph } from "./RelationshipGraph";
+import { BeforeAfter } from "./BeforeAfter";
 import { FileTree } from "./FileTree";
 import { DatabasePanel } from "./DatabasePanel";
 import { Collection } from "./Collection";
@@ -43,6 +45,9 @@ function sectionFlag(section: Section, model: ReviewModel): number {
       for (const e of group.entries)
         if (model.nodes[e.nodeId]?.needsInput) ids.add(e.nodeId);
     return ids.size;
+  }
+  if (section.kind === "beforeAfter") {
+    return section.facets.filter((f) => f.needsInput).length;
   }
   return 0;
 }
@@ -95,6 +100,8 @@ function SectionBody({
       return <MatrixGrid matrix={section.matrix} />;
     case "choice":
       return <ChoiceList choices={section.choices} model={model} />;
+    case "beforeAfter":
+      return <BeforeAfter facets={section.facets} model={model} />;
   }
 }
 
@@ -175,12 +182,14 @@ function ProblemCard({
 export function ReviewDocument({ model }: { model: ReviewModel }) {
   return (
     <AnnotationProvider model={model}>
+    <PhaseProvider>
       <div className="doc">
         <nav className="rail">
           <div className="rail__brand">
             <span className="rail__kicker">Architecture review</span>
             <span className="rail__title">{model.title}</span>
             {model.meta && <span className="rail__meta">{model.meta}</span>}
+            <PhaseToggle variant="rail" />
           </div>
 
           <ol className="rail__nav">
@@ -234,6 +243,13 @@ export function ReviewDocument({ model }: { model: ReviewModel }) {
                 dangerouslySetInnerHTML={{ __html: model.overview }}
               />
             )}
+            <div className="hero__phase">
+              <span className="hero__phase-label">
+                Read the whole review before this run, or after it — every
+                component and layer flips in place:
+              </span>
+              <PhaseToggle variant="hero" />
+            </div>
           </header>
 
           <div className="problems">
@@ -263,6 +279,7 @@ export function ReviewDocument({ model }: { model: ReviewModel }) {
 
         <AnnotationLayer />
       </div>
+    </PhaseProvider>
     </AnnotationProvider>
   );
 }

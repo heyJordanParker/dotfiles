@@ -67,7 +67,8 @@ def resolve_path(t, cwd):
 def inside_repo(p, cwd):
     if p in _DEVICES:
         return False
-    if "/.claude/shaping/" in p or "/.claude/plans/" in p or "/.tracer-cache/" in p:
+    if ("/docs/shaping/" in p or "/docs/plans/" in p or "/.claude/shaping/" in p
+            or "/.claude/plans/" in p or "/.tracer-cache/" in p):
         return False
     return p == cwd or p.startswith(cwd + "/")
 

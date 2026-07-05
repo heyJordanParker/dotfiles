@@ -20,7 +20,7 @@ Different layers catch different cases:
 ## The Four Layers
 
 ### Layer 1: Entry Point Validation
-**Purpose:** Reject invalid input at the API boundary
+**Purpose:** Reject obviously invalid input at API boundary
 
 ```typescript
 function createProject(name: string, workingDirectory: string) {

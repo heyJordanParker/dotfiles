@@ -144,30 +144,40 @@ pub fn load_for_file(
         }
     }
 
-    if !directory_mode {
-        if let Some(home) = home_dir() {
-            let user_rules = home.join(".claude").join("rules");
-            if user_rules.is_dir() {
-                for rule_mem in scan_rules_dir(
-                    &user_rules,
+    // User-global rules (`~/.claude/rules`) split by scope. In directory mode
+    // — the session-start `trace docs <cwd>` call — only unconditional rules
+    // load: there is no file to match a `paths:` glob against, and the harness
+    // loads Claude's unconditional user-global rules at session start. In file
+    // mode — a file touch — only conditional rules load, matched against the
+    // touched file; each file's unconditional rules already surfaced at session
+    // start (session dedupe keeps them from surfacing twice).
+    if let Some(home) = home_dir() {
+        let user_rules = home.join(".claude").join("rules");
+        if user_rules.is_dir() {
+            let (conditional_only, unconditional_only) = if directory_mode {
+                (false, true)
+            } else {
+                (true, false)
+            };
+            for rule_mem in scan_rules_dir(
+                &user_rules,
+                &repo_root,
+                &file_path,
+                &mut pass_dedupe,
+                session_dedupe,
+                conditional_only,
+                unconditional_only,
+            ) {
+                let inc = load_includes(
+                    Path::new(&rule_mem.path),
+                    &rule_mem.content,
                     &repo_root,
-                    &file_path,
                     &mut pass_dedupe,
                     session_dedupe,
-                    true,
-                    false,
-                ) {
-                    let inc = load_includes(
-                        Path::new(&rule_mem.path),
-                        &rule_mem.content,
-                        &repo_root,
-                        &mut pass_dedupe,
-                        session_dedupe,
-                        0,
-                    );
-                    results.push(rule_mem);
-                    results.extend(inc);
-                }
+                    0,
+                );
+                results.push(rule_mem);
+                results.extend(inc);
             }
         }
     }

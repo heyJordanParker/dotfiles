@@ -425,6 +425,7 @@ fn no_session_id_means_load_still_returns_shape_and_writes_no_log() {
     let r = std::process::Command::new(tracer_cli_tests::trace_bin())
         .args(["docs", "load", "sub/util.py", "--source", "trace_inject_hook", "--json"])
         .current_dir(&f.root)
+        .env("HOME", &f.root)
         .env_remove("AGENT_SESSION_ID")
         .env_remove("CODEX_THREAD_ID")
         .env_remove("CLAUDE_CODE_SESSION_ID")
@@ -554,5 +555,113 @@ fn claude_md_and_agents_md_coexist_in_per_file_walk() {
         by_path.get("AGENTS.md").map(String::as_str),
         Some("agents_md"),
         "AGENTS.md gets its own kind: {v}"
+    );
+}
+
+// --- user-global rules scoping (codex rules-delivery contract) -------------
+
+/// An isolated HOME directory outside any repo, holding
+/// `.claude/rules/` — removed on drop. Kept distinct from the repo fixture so
+/// the user-global scan can't be conflated with a project `.claude/rules`.
+struct UserHome {
+    root: PathBuf,
+}
+
+impl UserHome {
+    fn new(tag: &str) -> Self {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let seq = load_seq.fetch_add(1, Ordering::SeqCst);
+        let root = std::env::temp_dir().join(format!("trace-userhome-{tag}-{nanos}-{seq}"));
+        std::fs::create_dir_all(root.join(".claude").join("rules")).unwrap();
+        UserHome { root }
+    }
+
+    fn write_rule(&self, name: &str, contents: &str) {
+        std::fs::write(self.root.join(".claude").join("rules").join(name), contents).unwrap();
+    }
+}
+
+impl Drop for UserHome {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.root);
+    }
+}
+
+/// True when some surfaced doc's path ends with `suffix`. The user-global
+/// rule renders as `~/.claude/rules/<name>` on a canonical HOME and as an
+/// absolute path when HOME is a symlink (macOS `/var` → `/private/var`), so
+/// matching on the trailing segment is robust to that canonicalization axis.
+fn any_doc_ends_with(v: &serde_json::Value, suffix: &str) -> bool {
+    v["docs"]
+        .as_array()
+        .expect("docs must be an array")
+        .iter()
+        .any(|d| d["path"].as_str().unwrap().ends_with(suffix))
+}
+
+#[test]
+fn unconditional_user_rules_reach_session_start_conditional_reach_file_touch() {
+    // The codex rules-delivery contract. Codex has no native rule loading —
+    // the injection hook runs `trace docs <cwd>` at session start (directory
+    // mode) and `trace docs <file>` on a file touch (file mode). This pins:
+    //   - session start (directory mode) surfaces the unconditional
+    //     user-global rule and NOT the conditional one (no file to match a
+    //     `paths:` glob against);
+    //   - a matching file touch (file mode) surfaces the conditional rule;
+    //   - the unconditional rule surfaced once at session start is never
+    //     surfaced a second time (session dedupe).
+    let home = UserHome::new("scoping");
+    home.write_rule("global.md", "# Global unconditional\n\nAlways applies.\n");
+    home.write_rule(
+        "pyonly.md",
+        "---\npaths: \"**/*.py\"\n---\n# Python conditional\n\nOnly for .py files.\n",
+    );
+
+    let f = docs_repo();
+    let sid = fresh_session_id("user-rules-scoping");
+    let home_str = home.root.to_string_lossy().into_owned();
+    let env = [
+        ("HOME", home_str.as_str()),
+        ("CLAUDE_CODE_SESSION_ID", sid.as_str()),
+    ];
+
+    // Session start: `trace docs <repo_root>` — directory mode.
+    let repo_root = f.root.to_string_lossy().into_owned();
+    let start = f.trace_env(&["docs", &repo_root, "--json"], &env);
+    start.ok();
+    let start_v = start.json();
+    assert!(
+        any_doc_ends_with(&start_v, ".claude/rules/global.md"),
+        "unconditional user-global rule must surface at session start: {start_v}"
+    );
+    assert!(
+        !any_doc_ends_with(&start_v, ".claude/rules/pyonly.md"),
+        "conditional user-global rule must NOT surface at session start (no file to match): {start_v}"
+    );
+
+    // File touch: `trace docs sub/util.py` — file mode, same session.
+    let touch = f.trace_env(&["docs", "sub/util.py", "--json"], &env);
+    touch.ok();
+    let touch_v = touch.json();
+    assert!(
+        any_doc_ends_with(&touch_v, ".claude/rules/pyonly.md"),
+        "conditional user-global rule must surface on a matching file touch: {touch_v}"
+    );
+    assert!(
+        !any_doc_ends_with(&touch_v, ".claude/rules/global.md"),
+        "unconditional rule surfaced at session start must not re-surface on file touch (session dedupe): {touch_v}"
+    );
+
+    // Repeat session start, same session: the unconditional rule is not
+    // delivered twice.
+    let again = f.trace_env(&["docs", &repo_root, "--json"], &env);
+    again.ok();
+    let again_v = again.json();
+    assert!(
+        !any_doc_ends_with(&again_v, ".claude/rules/global.md"),
+        "unconditional user-global rule must not be delivered twice in one session: {again_v}"
     );
 }

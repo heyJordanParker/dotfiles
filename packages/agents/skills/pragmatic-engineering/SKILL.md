@@ -1,125 +1,79 @@
 ---
 name: pragmatic-engineering
-description: Use when user says KISS, pragmatic, don't overengineer, ship it, keep it simple. Also for planning features, reviewing code, or architectural decisions.
+description: Keep engineering boring and complete. TRIGGER when the Architect says KISS, pragmatic, don't overengineer, ship it, keep it simple, or asks for a pragmatic read on a Proposal, Plan, code review, or Architectural Decision. DO NOT TRIGGER when the Architect asks for maximum rigor over shipping pressure.
 ---
 
 # Pragmatic Engineering
 
-Ship fast, ship often, ship simple.
+- One Process: ship the smallest complete change that preserves the User's capability and the Architecture.
+- Most time savings come from deletion, not acceleration.
 
-**Core principle:** The only metric that matters is shipping. Delete more than you create. Optimize for learning velocity.
+## 1. Question the requested work
 
-## The Rule
+Prove the requested work serves the User before preserving it. Question Agent-generated work especially hard.
 
-Question everything. Delete aggressively. Simplify ruthlessly. Only then optimize.
+### Read before correcting the Architect
 
-## The 5-Step Algorithm
+Correct the Architect only after reading the code. Never say "You're absolutely right!" before Verification.
 
-Apply in order. Never skip ahead.
+IF you see assumed intent:
+### Stop and research before proceeding
 
-1. **Question requirements** – All requirements are dumb until proven otherwise. Question AI-generated requirements especially hard.
-2. **Delete** – Delete aggressively. If you're not occasionally adding things back, you're not deleting enough.
-3. **Simplify** – Complexity slows everything. Never optimize something that shouldn't exist.
-4. **Speed up** – Only accelerate after steps 1-3. Most time savings are in deletion, not acceleration.
-5. **Automate** – Automate last, not first. Common mistake: automating a process that shouldn't exist.
+Do not continue from a guess.
 
-## Shipping Philosophy
+## 2. Delete
 
-### Ship to Learn
+Remove dead paths, duplicated choices, unused indirection, and code that does not serve the Goal. If deletion breaks a capability, restore only the capability.
 
-- **TOMASP** – The Only Metric A Startup Pursues: Ship
-- **2-day quality horizon** – Never more than 2 days from shippable
-- **Launch, tweak, improve** – Ship to learn, not to perfect
-- **Expose early** – Show work early, not after months of isolation
-- **Velocity matters** – Fail fast, learn fast, improve fast
+### Delete more than you create
 
-### Innovation Over Predictability
+A pragmatic change removes work before it adds work.
 
-- **Freedom to fail** – Failure drives innovation
-- **Try new things** – Optimize for experimentation
-- **Programmer happiness** – Joy of use matters
+## 3. Simplify
 
-## Code Philosophy
+Do not optimize code that should not exist. Keep files small, dependencies one-way, and each module cheap to rewrite.
 
-### Simplicity & Elegance
+### Avoid speculative abstraction
 
-- **Maintenance mode** – Code fails in maintenance, not creation
-- **Small files** – Strict encapsulation, one-directional dependencies
-- **10-minute rewrite rule** – If a component takes longer to rewrite, it's too complex
-- **No one-shot code** – Never write code for "just this once." If it's worth writing, write it properly
+Abstract after three concrete uses, never before.
 
-### Loosely Coupled, Tightly Aligned
+IF you see abstractions "for later" or two-way dependencies:
+### Stop and simplify before proceeding
 
-- **Independent components** – One-way dependencies
-- **Shared contracts** – Interfaces, not implementations
-- **YAGNI** – Abstract after duplication, not before. Abstractions emerge from 3+ duplications
+The simplest complete path is the one with the fewest moving parts that still preserves the User capability.
 
-### Build Less
+## 4. Use existing code and libraries
 
-- **Minimize code** – Intentionally build and maintain as little as possible
-- **Reuse libraries** – Never rewrite what exists
-- **Read docs first** – Understand before using
-- **3rd party for heavy lifting** – Use reliable, well-maintained external code
+Reuse repo Precedent and well-maintained third-party code before writing local machinery. Read the library behavior before building on it.
 
-## Decision Making
+IF you see duplicated third-party functionality or building before understanding library behavior:
+### Stop and research the library first
 
-### Epicenter First
+Never rebuild behavior a library already owns.
 
-- **What can't be removed?** – That's your core
-- **Interface first** – Start with user experience, build backward
-- **Appetite over estimates** – "How much is this worth?" not "How long will it take?"
+## 5. Speed up
 
-### Convention Over Configuration
+Improve performance only after deletion, simplification, and reuse. Developer experience beats runtime performance until measured User harm proves otherwise.
 
-- **Strong defaults** – Less decisions
-- **No assumptions** – Pattern matching isn't enough. Read the code
-- **Developer experience > performance** – Except when proven otherwise
+IF you see optimization before deletion:
+### Delete first
 
-## Working Style
+Do not accelerate a path that should not exist.
 
-### Iterate Over Innovate
+## 6. Automate last
 
-- **Stick with approach** – Until told to change
-- **Suggestions after** – Not during current iteration
-- **Test everything** – Untested code is a guess
-- **Verify before claiming** – Changes work before claiming completion
+Automating unnecessary work preserves the wrong path. Automate only the Process that survived the first five steps.
 
-### Good Not Nice
+IF you see automation before simplification:
+### Simplify before automating
 
-- **Don't be sycophantic** – Correct me when wrong
-- **Software > feelings** – Never say "You're absolutely right!" before reading code
-- **Report failures immediately** – Don't work around silently
-- **Say when stuck** – "I'm stuck because X. Should I Y or Z?"
+Automate the surviving Process, not the first Process you found.
 
-## Documentation
+## 7. Report failures immediately
 
-### Zero Prompting
+State the blocker, the paths attempted, and the ranked options.
 
-- **No detailed prompts** – If it requires explanation, docs are lacking
-- **Self-documenting** – Code and structure tell the story
-- **Context over comments** – Naming and organization replace prose
+IF you see hidden errors or claimed completion without Verification:
+### Stop and report the failure
 
-## Red Flags
-
-Stop if you see:
-
-- Building before understanding library behavior
-- Creating abstractions "for later"
-- Duplicating 3rd party functionality
-- Hiding errors or limitations
-- Assuming intent without asking
-- Claiming something works before testing
-- Automating before simplifying
-- Optimizing before deleting
-- Adding features before questioning requirements
-- Code that takes >10 minutes to rewrite
-- Components with bi-directional dependencies
-- Abstractions with <3 use cases
-
-## Process
-
-1. **Question** – Does this need to exist?
-2. **Delete** – What can be removed?
-3. **Simplify** – What remains, make simple
-4. **Ship** – Get it in front of users
-5. **Learn** – Iterate based on reality, not assumptions
+Never work around a failure silently.
