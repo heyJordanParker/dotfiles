@@ -6,6 +6,17 @@ export EDITOR="nvim"
 
 # Developer directories
 export SERVICES_DIR="$HOME/Developer/services"
+export DEV_FOLDER="$HOME/Developer"
+
+# Tool roots and global command path. Keep this file pure: no command
+# substitution, no output, no interactive shell setup.
+export ZSH="$HOME/.oh-my-zsh"
+export BUN_INSTALL="$HOME/.bun"
+export DEV_BROWSER="Helium"
+export BROWSER="/Applications/Helium.app/Contents/MacOS/Helium"
+export SSH_AUTH_SOCK="$HOME/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock"
+export HOMEBREW_NO_ENV_HINTS=1
+export PATH="$HOME/.local/bin:$HOME/.claude/local:$HOME/bin:$BUN_INSTALL/bin:$HOME/.antigravity/antigravity/bin:$HOME/.lando/bin:/opt/homebrew/opt/ruby/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:${PATH:-/usr/bin:/bin:/usr/sbin:/sbin}"
 
 # Safe delete - moves to Trash instead of permanent deletion
 rm() {

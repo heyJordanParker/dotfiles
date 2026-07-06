@@ -1,14 +1,6 @@
 # --- SYSTEM LIMITS ---
 ulimit -n 65536
 
-# --- PATH CONFIGURATION ---
-export ZSH="$HOME/.oh-my-zsh"
-export PATH="$HOME/.local/bin:$HOME/bin:/usr/local/bin:$PATH"
-export PATH="$HOME/.claude/local:$PATH"
-export DEV_FOLDER="$HOME/Developer"
-export DEV_BROWSER="Helium"
-export BROWSER="/Applications/Helium.app/Contents/MacOS/Helium"
-
 # --- ZINIT (Plugin Manager) ---
 # Load BEFORE OMZ so completions are in fpath when OMZ runs compinit
 source /opt/homebrew/opt/zinit/zinit.zsh
@@ -40,9 +32,6 @@ bindkey "^[[1;9C" end-of-line
 echo -ne '\e[6 q' # Cursor shape
 
 # --- TOOLS & INTEGRATIONS ---
-# 1Password
-export SSH_AUTH_SOCK="$HOME/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock"
-
 # Starship
 eval "$(starship init zsh)"
 
@@ -62,14 +51,6 @@ _zsh_autosuggest_strategy_atuin() {
     suggestion=$(ATUIN_QUERY="$1" atuin search --cmd-only --limit 1 --search-mode prefix 2>/dev/null)
 }
 ZSH_AUTOSUGGEST_STRATEGY=(atuin history completion)
-
-# Bun
-export BUN_INSTALL="$HOME/.bun"
-export PATH="$BUN_INSTALL/bin:$PATH"
-
-# Antigravity & Lando
-export PATH="$HOME/.antigravity/antigravity/bin:$PATH"
-export PATH="$HOME/.lando/bin:$PATH"
 
 # --- ALIASES ---
 alias ls='eza -1l --icons=always --hyperlink --group-directories-first'
