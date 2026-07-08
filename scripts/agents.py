@@ -3,9 +3,10 @@
 Reads packages/agents/agents/*.md and writes two siblings codex auto-discovers:
 <name>.toml (the subagent definition) and <name>.prompt.md (the frontmatter-
 stripped body, used as a base-instructions override via model_instructions_file).
-Frontmatter name/description map across; the body becomes developer_instructions.
-model/tools/skills/color/memory are dropped — codex has no key for them and our
-model names aren't codex models. Both artifacts are gitignored; this regenerates them.
+Frontmatter name/description map across; named skills are inlined into the body,
+which becomes developer_instructions. model/tools/color/memory are dropped — codex
+has no key for them and our model names aren't codex models. Both artifacts are
+gitignored; this regenerates them.
 """
 
 import glob
@@ -16,12 +17,14 @@ import frontmatter
 
 
 def generate(agents_dir):
+    skills_dir = os.path.join(os.path.dirname(agents_dir), "skills")
     written = []
     for md in sorted(glob.glob(os.path.join(agents_dir, "*.md"))):
         if md.endswith(".prompt.md"):
             continue
         fields, body = frontmatter.parse(_read(md))
         name = fields.get("name") or os.path.splitext(os.path.basename(md))[0]
+        body = _compose(body, _load_skills(name, fields.get("skills"), skills_dir))
         out = os.path.splitext(md)[0] + ".toml"
         _write(out, _render(name, fields.get("description", ""), body))
         written.append(out)
@@ -29,6 +32,43 @@ def generate(agents_dir):
         _write(prompt, body.strip() + "\n")
         written.append(prompt)
     return written
+
+
+def _load_skills(agent, value, skills_dir):
+    skills = []
+    for skill in _skill_names(value):
+        path = os.path.join(skills_dir, skill, "SKILL.md")
+        if not os.path.exists(path):
+            raise FileNotFoundError(
+                f"agent {agent!r} names missing skill {skill!r}: {path}"
+            )
+        _, body = frontmatter.parse(_read(path))
+        skills.append((skill, body))
+    return skills
+
+
+def _skill_names(value):
+    if not value:
+        return []
+    value = value.strip()
+    if value.startswith("[") and value.endswith("]"):
+        value = value[1:-1]
+    return [_unquote_name(item.strip()) for item in value.split(",") if item.strip()]
+
+
+def _unquote_name(value):
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in "'\"":
+        return value[1:-1].strip()
+    return value
+
+
+def _compose(body, skills):
+    sections = [body.strip()]
+    if skills:
+        sections.append("## Skills")
+        for name, skill_body in skills:
+            sections.append(f"### /{name}\n\n{skill_body.strip()}")
+    return "\n\n".join(section for section in sections if section).strip()
 
 
 def _render(name, description, body):
