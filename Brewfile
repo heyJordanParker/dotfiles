@@ -43,7 +43,6 @@ brew "universal-ctags"
 brew "ripgrep"
 brew "lazygit"
 brew "node"
-brew "python@3.12"              # iai-mcp memory engine runtime (requires-python >=3.11,<3.13; system python is newer)
 brew "composer"
 brew "wp-cli"
 brew "roots/tap/trellis-cli"

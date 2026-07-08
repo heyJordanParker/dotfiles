@@ -407,16 +407,6 @@
         "hooks": [
           {
             "type": "command",
-            "command": "IAI_MCP_SESSION_RECALL_CLI=$HOME/.local/bin/iai-mcp $HOME/Developer/services/iai-personal-memory-engine/src/iai_mcp/_deploy/hooks/iai-mcp-session-recall.sh",
-            "timeout": 15
-          }
-        ]
-      },
-      {
-        "matcher": "startup|resume|clear|compact",
-        "hooks": [
-          {
-            "type": "command",
             "command": "python3 ~/.agents/hooks/load_trace_context.py",
             "timeout": 20
           },
@@ -467,15 +457,6 @@
         "hooks": [
           {
             "type": "command",
-            "command": "IAI_MCP_SESSION_CAPTURE_CLI=$HOME/.local/bin/iai-mcp $HOME/Developer/services/iai-personal-memory-engine/src/iai_mcp/_deploy/hooks/iai-mcp-session-capture.sh",
-            "timeout": 35
-          }
-        ]
-      },
-      {
-        "hooks": [
-          {
-            "type": "command",
             "command": "python3 ~/.agents/hooks/babysitter.py",
             "timeout": 90
           },
@@ -514,15 +495,6 @@
           {
             "type": "command",
             "command": "bash '/Users/jordan/.claude/hooks/herdr-agent-state.sh' working",
-            "timeout": 10
-          }
-        ]
-      },
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "$HOME/Developer/services/iai-personal-memory-engine/src/iai_mcp/_deploy/hooks/iai-mcp-turn-capture.sh",
             "timeout": 10
           }
         ]

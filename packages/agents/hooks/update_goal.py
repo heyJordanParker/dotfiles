@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Maintain the session's goal, requirements, and boundaries (LLM, every turn).
 
-On every UserPromptSubmit this reads what the user said, recalls cross-session
-memory, and maintains the session's goal — one paragraph of session-spanning memory
+On every UserPromptSubmit this reads what the user said and maintains the
+session's goal — one paragraph of session-spanning memory
 of the user's intent, set when missing and updated only when the user's input
 diverges — plus requirements (what the work must do) and boundaries (what it must
 never do) on the spine, translating only what the user expressed, never inventing or
@@ -22,7 +22,6 @@ unavailable) returns 0 and never blocks the user's prompt.
 
 import os
 import re
-import subprocess
 import sys
 
 from lib import feedback, transcript
@@ -37,7 +36,6 @@ BINDING = {
 }
 
 LIST_CAP = 10
-MEMORY_TIMEOUT = 8
 
 
 def emit_context(text):
@@ -63,24 +61,6 @@ def is_system_prompt(prompt):
     return False
 
 
-# --- cross-session memory recall (iai-mcp) -------------------------------------
-
-def recall_memory(session_id):
-    """The cached session-start recall payload from the iai-mcp daemon, or "".
-
-    Best-effort: a missing CLI, non-zero exit, or timeout yields no memory rather
-    than blocking the turn."""
-    cli = os.environ.get("IAI_MCP_SESSION_RECALL_CLI") or os.path.expanduser("~/.local/bin/iai-mcp")
-    if not os.path.exists(cli):
-        return ""
-    try:
-        r = subprocess.run([cli, "session-start", "--session-id", session_id],
-                           capture_output=True, text=True, timeout=MEMORY_TIMEOUT)
-    except Exception:
-        return ""
-    return r.stdout.strip() if r.returncode == 0 else ""
-
-
 # --- LLM ------------------------------------------------------------------------
 
 SYSTEM_PROMPT = ("You maintain a session's goal, requirements, and boundaries. "
@@ -99,17 +79,15 @@ def _block(label, items):
     return "%s:\n%s" % (label, "\n".join("- %s" % i for i in items)) if items else "%s: (none)" % label
 
 
-def evaluation_prompt(prompt, goal, requirements, boundaries, memory, conversation):
+def evaluation_prompt(prompt, goal, requirements, boundaries, conversation):
     standing = "Current goal:\n%s\n\n%s\n\n%s\n" % (
         goal or "(none)", _block("Current requirements", requirements),
         _block("Current boundaries", boundaries))
-    memory_block = ("Cross-session memory (background context about the user and project):\n%s\n\n---\n"
-                    % memory) if memory else ""
     return (
 'You maintain the session\'s GOAL, REQUIREMENTS, and BOUNDARIES from what the user says.\n'
 '\n'
 '%s'
-'%s%s\n'
+'%s\n'
 'The user\'s latest message:\n%s\n'
 '\n'
 'Update the three lists to reflect what the user has expressed, and output them in full.\n'
@@ -137,7 +115,7 @@ def evaluation_prompt(prompt, goal, requirements, boundaries, memory, conversati
 '- Then add only what the latest message states that serves the goal. Output is the surviving items plus the new ones — nothing else.\n'
 '- Specific and testable is about wording only — phrase each item so it can be checked, but never add a requirement or boundary the user did not express to satisfy it.\n'
 '- Zero creativity. You are translating intent, not improving it.\n'
-        ) % (standing, memory_block, conversation, prompt)
+        ) % (standing, conversation, prompt)
 
 
 # --- message to the main agent --------------------------------------------------
@@ -205,9 +183,8 @@ def main():
     requirements = state.get("requirements") or []
     boundaries = state.get("boundaries") or []
 
-    memory = recall_memory(session_id)
     conversation = transcript.conversation_context(transcript_path)
-    eval_prompt = evaluation_prompt(prompt, goal, requirements, boundaries, memory, conversation)
+    eval_prompt = evaluation_prompt(prompt, goal, requirements, boundaries, conversation)
 
     result = run_model(system_prompt=SYSTEM_PROMPT, user_prompt=eval_prompt,
                        schema=JSON_SCHEMA, session_id=session_id, hook="update_goal")

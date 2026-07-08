@@ -37,18 +37,6 @@ BROWSER_USE_CODEX_APP_BUILD_FLAVOR = "prod"
 BROWSER_USE_CODEX_APP_VERSION = "26.623.141536"
 CODEX_CLI_PATH = "/Applications/Codex.app/Contents/Resources/codex"
 
-# iai-mcp memory engine — clone-and-run service in ~/Developer/services.
-# The wrapper talks to the launchd daemon over ~/.iai-mcp/.daemon.sock and
-# spawns the core via IAI_MCP_PYTHON when needed. Codex gets the memory tools;
-# automatic turn capture is Claude-only (ships Claude hooks).
-[mcp_servers.iai-mcp]
-command = "node"
-args = ["/Users/jordan/Developer/services/iai-personal-memory-engine/mcp-wrapper/dist/index.js"]
-
-[mcp_servers.iai-mcp.env]
-IAI_MCP_PYTHON = "/Users/jordan/Developer/services/iai-personal-memory-engine/.venv/bin/python"
-IAI_MCP_STORE = "/Users/jordan/.iai-mcp"
-
 [features]
 multi_agent = true
 goals = true

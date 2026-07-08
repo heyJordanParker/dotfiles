@@ -30,7 +30,3 @@ Run Subagents in the background so you can keep working while they run. Poll at 
 IF a Decision depends on repo or code state:
 ### Check current state with trace
 Check current state now with `trace`: `trace status`, `trace history`, or `trace blame`. Do not use raw `git status`, `git log`, or `git diff`, which give a bare list without callers, complexity, or dependents.
-
-IF this session lacks Context you need:
-### Recall memory through `iai-mcp`
-You carry memory across sessions through the `iai-mcp` server. Call `memory_recall` with a natural-language cue.

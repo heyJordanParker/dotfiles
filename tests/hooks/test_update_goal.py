@@ -1,7 +1,7 @@
 """Behavioral tests for update_goal.py — the goal/requirements/boundaries hook.
 
-The LLM call and memory recall are stubbed, so these pin the deterministic shell
-around them: the structural skips, the hard 10-item list cap, the spine write, and
+The LLM call is stubbed, so these pin the deterministic shell
+around it: the structural skips, the hard 10-item list cap, the spine write, and
 the message built back from the spine (goal/requirements/boundaries from state,
 take + optional note from the model).
 """
@@ -21,7 +21,6 @@ def spine_root(tmp_path, monkeypatch):
 
 
 def _run(monkeypatch, payload, model_result):
-    monkeypatch.setattr(update_goal, "recall_memory", lambda sid: "")
     monkeypatch.setattr(update_goal, "run_model", lambda *a, **k: model_result)
     monkeypatch.setattr(update_goal, "read_event", lambda: payload)
     captured = {}

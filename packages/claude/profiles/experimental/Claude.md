@@ -9,4 +9,3 @@ Experimental Claude Code profile for trying configuration changes while inheriti
 - `skills` is a symlink to `../../skills`.
 - `settings.json` defines an empty `hooks` object.
 - `settings.json` sets `skipDangerousModePermissionPrompt` to `true`.
-- `.mcp.json` defines the `iai-mcp` Model Context Protocol server.
