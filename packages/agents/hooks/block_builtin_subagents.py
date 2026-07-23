@@ -67,12 +67,12 @@ def main():
         return feedback.block("block_builtin_subagents", msg)
 
     model_override = field(event, "tool_input.model", "")
-    if model_override and model_override != "opus":
+    if model_override and model_override not in ("opus", "fable"):
         return feedback.block(
             "block_builtin_subagents",
             'BLOCKED: tool_input.model is set to "%s".\n\n'
             "User-defined agents declare model: opus in their frontmatter. Overriding to a cheaper model defeats the agent's design and produces lazy output.\n"
-            'Remove tool_input.model from the dispatch, or set it to "opus".' % model_override
+            'Remove tool_input.model from the dispatch, or set it to "opus" (or "fable" for the fast path).' % model_override
         )
     return 0
 

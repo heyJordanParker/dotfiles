@@ -9,3 +9,4 @@ Experimental Claude Code profile for trying configuration changes while inheriti
 - `skills` is a symlink to `../../skills`.
 - `settings.json` defines an empty `hooks` object.
 - `settings.json` sets `skipDangerousModePermissionPrompt` to `true`.
+- `settings.json` enables the `honcho` memory plugin from the `plastic-labs/claude-honcho` marketplace.

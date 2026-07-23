@@ -1,5 +1,16 @@
 {
   "hooks": {},
-  "theme": "dark",
-  "skipDangerousModePermissionPrompt": true
+  "enabledPlugins": {
+    "honcho@honcho": true
+  },
+  "extraKnownMarketplaces": {
+    "honcho": {
+      "source": {
+        "source": "github",
+        "repo": "plastic-labs/claude-honcho"
+      }
+    }
+  },
+  "skipDangerousModePermissionPrompt": true,
+  "theme": "dark"
 }
