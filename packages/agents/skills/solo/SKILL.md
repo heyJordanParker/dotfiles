@@ -1,6 +1,6 @@
 ---
 name: solo
-description: Framework for working solo — no Subagents, deep full-file reads, thorough research before acting. TRIGGER when Context can absorb the full picture. For Orchestration, use /subagents or /team.
+description: Framework for working solo — no Subagents, deep full-file reads, thorough research before acting. TRIGGER when Context can absorb the full picture. For Orchestration, use /subagents.
 ---
 
 # Solo
@@ -14,10 +14,6 @@ Read the full Architecture before touching it; fix or propose from root causes a
 IF the Task has parallel independent work:
 ### Use /subagents instead
 Solo is for work where Context can absorb the full picture.
-
-IF the Task needs persistent multi-Task coordination:
-### Use /team instead
-Teams preserve Context across turns and Slices.
 
 ## 2. Locate the relevant files
 

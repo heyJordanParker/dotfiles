@@ -257,16 +257,6 @@
         ]
       },
       {
-        "matcher": "TeamDelete",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 ~/.agents/hooks/block_team_deletion.py",
-            "timeout": 5
-          }
-        ]
-      },
-      {
         "matcher": "Bash|Agent",
         "hooks": [
           {

@@ -1,6 +1,6 @@
 ---
 name: codex
-description: Run a task through a codex agent — faster but tends to overengineer its code; great for research and quick prototypes. TRIGGER when the architect says "codex", "/codex", "use codex", "dispatch to codex", "codex review", or wants research or a quick prototype through codex. DO NOT TRIGGER for native Claude subagents (dispatch those directly) or persistent teams (/team).
+description: Run a task through a codex agent — faster but tends to overengineer its code; great for research and quick prototypes. TRIGGER when the architect says "codex", "/codex", "use codex", "dispatch to codex", "codex review", or wants research or a quick prototype through codex. DO NOT TRIGGER for native Claude subagents (dispatch those directly).
 model: opus
 effort: low
 tools: Bash

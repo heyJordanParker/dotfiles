@@ -15,7 +15,7 @@ BINDING = {
 MSG = """BLOCKED: EnterWorktree is BANNED.
 
 This project uses a single shared worktree across the main session and every
-subagent. Entering a parallel worktree fragments the team — siblings stop
+subagent. Entering a parallel worktree fragments the Subagents — siblings stop
 seeing each other's files, branch state diverges, and coordination breaks.
 The harness primitive that creates or enters a separate worktree must never
 be used here.

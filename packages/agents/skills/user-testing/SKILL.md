@@ -1,6 +1,6 @@
 ---
 name: user-testing
-description: Tests code changes by tracing real Critical Paths. Lists Critical Paths affected by uncommitted changes, spawns one Subagent per Critical Path to trace Execution and find gaps, then evaluates Architecturally. TRIGGER when the Architect says "user test", "test the Critical Paths", "trace Critical Paths", or after completing a feature.
+description: Tests code changes by tracing real Critical Paths. Lists Critical Paths affected by uncommitted changes, spawns one Subagent per Critical Path to trace Execution and find gaps, then evaluates Architecturally. TRIGGER when the Architect says "user test", "test the Critical Paths", or "trace Critical Paths".
 ---
 
 # User Testing

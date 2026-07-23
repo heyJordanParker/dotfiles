@@ -7,19 +7,16 @@ disable-model-invocation: true
 # Debate
 
 N independent Architect Subagents propose solutions, then debate through rounds until convergence.
+Dispatch and resume per /subagents; SendMessage by name carries the rounds.
 
-## 1. Load the team framework
-
-Call `/team` to load the persistent-team lifecycle.
-
-## 2. Parse input
+## 1. Parse input
 
 The first numeric argument is the Agent count. Default to 3 Agents and 5 rounds. Everything else is the problem.
 
 Example: `/debate "how should we organize media by content type?"` means 3 Agents.
 Example: `/debate 5 "how should we organize media by content type?"` means 5 Agents.
 
-## 3. Build the Frame
+## 2. Build the Frame
 
 The Frame is the User's problem from the User's perspective, not a technical mechanism.
 
@@ -34,7 +31,7 @@ Never: include your own research or conclusions in the Frame; that biases the Ag
 ### The Frame leads with the User
 Solutions that do not serve the User are wrong regardless of elegance.
 
-## 4. Assign Architect Frames
+## 3. Assign Architect Frames
 
 Each Architect gets a one-sentence instinct that produces diverse initial Proposals. Cycle through the roster when N is greater than 5.
 
@@ -44,7 +41,7 @@ Each Architect gets a one-sentence instinct that produces diverse initial Propos
 - Reducer — Frame: efficiency-obsessed engineer who believes the best code is code not written. Principles: fewer lines, fewer files, fewer abstractions; if the existing data already supports what is needed, stop adding things; convention over columns; "you are not going to need it" is law; every new column, table, or file is maintenance debt that must justify itself. Instincts: reach for zero-schema-change solutions, naming conventions, and existing flags; distrust new columns, new tables, and new abstractions.
 - Polished Pragmatist — Frame: senior Architect with the taste of a designer and the instincts of a principal engineer. Principles: elegance is the intersection of simplicity and completeness; the right solution handles every edge case without looking like it handles any; complexity is a smell; the database should tell the truth, the code should be boring, and the User experience should be invisible. Instincts: reach for the solution with the fewest moving parts that still covers all cases; synthesize ideas from other approaches; distrust both over-engineering and under-engineering.
 
-## 5. Build the Architect Prompt
+## 4. Build the Architect Prompt
 
 Write one Prompt per Architect, identical except the Frame.
 
@@ -67,15 +64,15 @@ Template:
 ### Agents are independent
 Each Agent reads code itself. No pre-digested findings from you.
 
-## 6. Create the team and dispatch
+## 5. Dispatch the Architects
 
-Use TeamCreate. Spawn N `architect` teammates named `architect-a`, `architect-b`, and onward in parallel.
+Spawn N `architect` Subagents named `architect-a`, `architect-b`, and onward in parallel, each `run_in_background: true`, per /subagents.
 
-## 7. Collect Proposals
+## 6. Collect Proposals
 
 Wait for every Architect to return Proposals and User stories.
 
-## 8. Run debate rounds
+## 7. Run debate rounds
 
 Run up to 5 rounds. Each round composes one Prompt per Architect containing the other Architects' full positions plus the round's forcing questions. SendMessage to all Architects simultaneously, then wait for all responses.
 
@@ -139,10 +136,10 @@ Template:
 
     Final answer. State your position and confidence.
 
-## 9. Stop early on convergence
+## 8. Stop early on convergence
 
 If all Architects converge within 10% confidence on the same approach after any round, skip the rest.
 
-## 10. Synthesize and report
+## 9. Synthesize and report
 
 Report Consensus for items all Architects agreed on; Winner with name, description, averaged confidence, pros, and cons; Runner-up with the key difference; Key insight for the single finding that most influenced the outcome; and Unresolved for anything Architects could not agree on.

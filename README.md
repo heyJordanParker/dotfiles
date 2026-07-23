@@ -46,7 +46,6 @@ Invoked as `/talents:<name>`:
 - **slicing** — Break modeled features into vertical implementation slices with acceptance criteria
 - **solo** — Single-agent deep-research mode, no subagents
 - **subagents** — Framework for dispatching one-shot subagents
-- **team** — Framework for creating and coordinating persistent teams
 - **trace** — Code intelligence CLI: search, callers, definitions, complexity, file/method reads with rich architectural context (requires the bundled `trace` binary; see Tracer Setup below)
 - **user-testing** — Trace real user flows through code changes, find gaps
 

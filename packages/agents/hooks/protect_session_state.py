@@ -21,7 +21,7 @@ PATTERN = (
 
 MSG = """BLOCKED: Session state files are managed by session hooks.
 
-To change modes, tell the user — e.g. "enter solo mode" or "switch to team".
+To change modes, tell the user — e.g. "enter solo mode" or "switch to subagents".
 Do not modify session state files directly."""
 
 

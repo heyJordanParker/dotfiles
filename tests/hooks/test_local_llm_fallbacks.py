@@ -70,14 +70,14 @@ def _run(hook, payload, env):
 S = {"state": "executing", "commit_requested": False}
 
 # Forced-command fallback strings classify_intent emits when the LLM is down but
-# a typed /propose | /execute | /team | /commit is present (fallback_context()
+# a typed /propose | /execute | /subagents | /commit is present (fallback_context()
 # and COMMIT_DIRECTIVE).
 PROPOSE_FALLBACK = ("This is a proposing-state turn. Load the /propose skill now and "
                     "produce the proposal under its contract.")
 EXECUTE_FALLBACK = ("This is an executing-state turn. Load the /execute skill now and "
                     "work under its contract: implement the approved work, and the moment "
                     "it needs an architectural change, stop and escalate with /pcc.")
-TEAM_FALLBACK = "Load the /team skill now."
+SUBAGENTS_FALLBACK = "Load the /subagents skill now."
 COMMIT_FALLBACK = "Skills to execute: /commit"
 
 # stdout each classify_intent case emits, as the additionalContext envelope.
@@ -119,12 +119,12 @@ CASES = [
      {"prompt": "/propose", "transcript_path": ""}, "p_ci1", None,
      (0, _ctx_standing(PROPOSE_FALLBACK), "",
       {**CI_DEFAULT_STATE, "state": "proposing"})),
-    # Compound typed command: /execute forces executing state, /team forces team
-    # approach — both fallbacks compose, both mutations persist.
-    ("ci_execute_team", "classify_intent.py",
-     {"prompt": "okay /execute and /team this", "transcript_path": ""}, "p_ci1", None,
-     (0, _ctx_standing(EXECUTE_FALLBACK + "\n\n" + TEAM_FALLBACK), "",
-      {**CI_DEFAULT_STATE, "state": "executing", "approach": "team"})),
+    # Compound typed command: /execute forces executing state, /subagents forces
+    # the subagents approach — both fallbacks compose, both mutations persist.
+    ("ci_execute_subagents", "classify_intent.py",
+     {"prompt": "okay /execute and /subagents this", "transcript_path": ""}, "p_ci1", None,
+     (0, _ctx_standing(EXECUTE_FALLBACK + "\n\n" + SUBAGENTS_FALLBACK), "",
+      {**CI_DEFAULT_STATE, "state": "executing", "approach": "subagents"})),
     # XML-tagged system message: structurally detected, hook no-ops before any
     # state file is touched.
     ("ci_xml_skip", "classify_intent.py",

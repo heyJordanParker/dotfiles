@@ -1,18 +1,18 @@
 ---
 name: subagents
-description: Framework for dispatching one-shot Subagents that complete a Task and return. Covers Prompting (WHAT/WHY, never HOW), the Story/Business/Goal/Verification/Process Prompt Template, Verification, Evidence, and coordinator-side ranking. For persistent teams, use /team.
+description: Framework for dispatching one-shot Subagents that complete a Task and return. Covers Prompting (WHAT/WHY, never HOW), the Story/Business/Goal/Verification/Process Prompt Template, Verification, Evidence, and Orchestrator-side ranking.
 ---
 
 # Subagents
 
-One-shot Subagents complete a Task and return.
-Persistent workers are Teams; use /team for iteration or multi-Slice coordination.
-Every line of code is written by a Subagent during Orchestration; the coordinator preserves Context for coordination.
+One-shot Subagents complete a Task and return; SendMessage by name resumes one for iteration.
+Every line of code is written by a Subagent during Orchestration; the Orchestrator preserves Context for coordination.
+The Orchestrator holds the big picture; Subagents ask it at decisions and report to it when done.
 
 ## 1. Prompt WHAT and WHY, never HOW
 
 ### Strip implementation detail from the Prompt
-A fresh-Context Subagent finds the right solution from the Goal. Implementation detail in the Prompt biases it toward the coordinator's assumptions, does the Subagent's research for it, and breaks when the code changes. State the User pain, the capability wanted, and observable success.
+A fresh-Context Subagent finds the right solution from the Goal. Implementation detail in the Prompt biases it toward the Orchestrator's assumptions, does the Subagent's research for it, and breaks when the code changes. State the User pain, the capability wanted, and observable success.
 
 Never: files, symbols, read order, library calls, "do not touch X", `src/foo.py`, `_extractMethod`, "read X first then Y", "use lizard.analyze", or "DO NOT modify __main__".
 
@@ -26,6 +26,17 @@ A bulk rename or format conversion is not Architectural, so specific Task steps 
 An Architect given one method cannot judge encapsulation; a reviewer given one hunk cannot find caller regressions. The Subagent narrows itself after reading.
 
 Example: Architect gets the module; reviewer gets the full diff plus surrounding code; `backend-engineer` gets the service boundary.
+
+### Split disconnected Tasks into separate Subagents
+One Subagent, one Task. Quality falls as a Subagent's Task list grows.
+
+Never: "do A, then also B, then also C" in one dispatch when the Tasks share no reasoning unit.
+
+### Dispatch one owner per system, not one Subagent per symptom
+Symptoms cluster to the system that owns them. Two Subagents touching the same file collide; give the owning system's Subagent the symptom cluster instead.
+
+### Keep a dispatched Task singular and unchanging
+The Orchestrator re-scopes by resuming the agent or dispatching anew; the Subagent never widens its own Task.
 
 ## 3. Write the Prompt Template
 
@@ -67,28 +78,52 @@ Template:
   1. Read every file marked * in the Architecture block
   2. One file at a time — read it, then edit it. No bulk-rewrite scripts, no shortcuts
   3. Implement against the Goal
-  4. For EACH Verification item: run Verification, paste the output
+  4. For EACH Verification item: exercise it; record the input, the observed output, and
+     a screenshot (agent-browser) when the behavior is visible in a browser
   5. If a Verification item fails → fix and re-verify (loop step 4)
-  6. Write your Evidence to docs/agents/<NNN>-<task-slug>/ — report.md plus screenshots
+  6. Write your Evidence to the directory the dispatch named — report.md plus screenshots.
+     A claim without output or a screenshot behind it does not go in report.md
   7. Post a completion summary: what changed, what was verified, what was tricky, where the Evidence is
 
 ## 4. Dispatch independent Subagents at once
 
-### Use background dispatch
-Independent Subagents run at the same time with `run_in_background: true`.
+### Run independent Tasks in parallel
+One message, multiple Agent calls, each with `name` and `run_in_background: true`, each
+naming its Evidence directory (docs/agents/<YYYYMMDD>-<task-slug>/). Sequence only when
+one Task's output feeds the next.
 
 Template:
   Agent(subagent_type: "backend-engineer", name: "worker",
         prompt: "<Story/Business/Goal/Verification + Architecture + Process>",
         run_in_background: true)
 
+### Resume the agent you have
+SendMessage by name resumes an agent from its transcript, even after it returned.
+
+Never: a fresh dispatch for work an existing agent owns.
+
+### Check on agents; never put them on a timer
+On the coordination cadence, read a running agent's Evidence directory; when nothing moved,
+SendMessage it for status. Only when resume fails — including an agent whose Context is
+exhausted and resumes into silence — dispatch a replacement implementing Subagent with the original
+Prompt, the current diff, and the Evidence directory.
+
+Never: kill or time out a working agent — that leaves incomplete work and an unresumable agent.
+
 ## 5. Verify, hold the Goal, and orchestrate
 
 ### Preserve Context for coordination
 Do not use Edit, Write, or NotebookEdit while coordinating. Reading a wide diff yourself burns Context: you lose Orchestration Context and miss things.
 
-### Verify small claims directly and dispatch larger Verification
-Verify a single claim under 200 lines of code yourself with /trace or a direct read. Anything larger is a hard gate for a Verification Subagent.
+### Judge the Evidence yourself
+Read the report.md against the dispatch's Verification criteria; open only the screenshot
+that settles a criterion the text cannot. Thin Evidence goes back to the same Subagent by
+name, naming the failed item. For a reported symptom, Evidence must show the symptom's own
+surface — the reporter's page, not a stand-in fixture.
+
+Never: dispatch any Subagent to re-verify a completed work item — "the screenshots look
+thin, let me have the tester confirm it". Validation runs once, against the whole
+changeset, at the end.
 
 ### Restore by hand
 Destructive-git restore is banned because Subagents nuke without checking and destroy real work. The Hooks enforce this.
@@ -123,21 +158,21 @@ Never: "build succeeds, types check, confidence 80%."
 ## 8. Record Evidence
 
 ### Evidence lands on disk
-Evidence goes in `docs/agents/<NNN>-<task-slug>/`: `report.md` plus screenshots beside it, with the directory numbered for stable order. Later Agents reference the Evidence instead of trusting the claim.
+Evidence goes in `docs/agents/<YYYYMMDD>-<task-slug>/`: `report.md` plus screenshots beside it. Later Agents reference the Evidence instead of trusting the claim.
 
-### Send incomplete claims back
-A completion claim without Evidence on disk is incomplete. Send the Subagent back to produce it before accepting the work.
+### Advance a status only with its Evidence
+A work item moves to fixed or closed only with the Evidence path that proves it; a status that moves backward gets a one-line written cause.
 
 ## 9. Rank returned options yourself
 
 ### Strip the recommendation and keep the facts
-A Subagent saw a Slice; the coordinator holds the project, its Rules, the Architect's prior calls, and sibling code. Its recommendation is one finding, not a verdict.
+A Subagent saw a Slice; the Orchestrator holds the project, its Rules, the Architect's prior calls, and sibling code. Its recommendation is one finding, not a verdict.
 
 ### Finish the research before ranking
 Re-dispatch every gap in parallel and re-run Subagents that came back thin. Stop when nothing is left to investigate, never when the batch returns. Every surviving claim comes from a read.
 
 ### Eliminate before ranking
-Drop every option that breaks a standard, convention, or Rule. The coordinator does this, not the Subagent.
+Drop every option that breaks a standard, convention, or Rule. The Orchestrator does this, not the Subagent.
 
 ### Rank in your own voice
 Rank survivors with /pcc, then recommend one in your own voice.

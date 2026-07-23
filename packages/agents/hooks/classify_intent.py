@@ -4,7 +4,7 @@
 On every UserPromptSubmit this does two jobs:
 
 - Deterministic, no LLM: typed mode-commands map straight to control state
-  (/propose /execute force STATE; /solo /subagents /team force APPROACH; /commit
+  (/propose /execute force STATE; /solo /subagents force APPROACH; /commit
   forces a commit), persisted to the session spine and echoed as the matching
   skill-load directive. Every other typed /skill is matched against the skills
   and commands on disk and echoed as a head-anchored reload directive.
@@ -86,8 +86,6 @@ def forced_commands(prompt):
         forced_approach = "solo"
     elif _typed(prompt, "/subagents"):
         forced_approach = "subagents"
-    elif _typed(prompt, "/team"):
-        forced_approach = "team"
     forced_commit = _typed(prompt, "/commit")
     return forced_state, forced_approach, forced_commit
 
@@ -107,7 +105,6 @@ def directive(forced_state, forced_approach):
     approach_line = {
         "solo": "Load the /solo skill now.",
         "subagents": "Load the /subagents skill now.",
-        "team": "Load the /team skill now.",
     }.get(forced_approach, "")
     if approach_line:
         out = (out + "\n\n" + approach_line) if out else approach_line
@@ -124,7 +121,7 @@ _COMMANDS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__f
 
 # The mode/commit commands above carry richer state/approach directives; the
 # general scan skips them so it never double-handles one.
-_SPECIAL_SKILLS = {"/propose", "/execute", "/interview", "/solo", "/subagents", "/team", "/commit"}
+_SPECIAL_SKILLS = {"/propose", "/execute", "/interview", "/solo", "/subagents", "/commit"}
 
 # A skill token counts only when its slash follows start-or-whitespace, so a name
 # embedded in a path (.../skills/architecture) never matches.

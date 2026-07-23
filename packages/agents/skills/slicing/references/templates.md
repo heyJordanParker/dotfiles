@@ -70,7 +70,7 @@ Template:
 
   > Plan contract: This is an immutable contract. Architectural deviations require explicit approval. Tactical code-level adjustments are fine.
 
-  > For Claude: Use the /team Skill to dispatch implementation.
+  > For Claude: Use the /subagents Skill to dispatch implementation.
 
   WHY: [What User problem this Slice solves]
 

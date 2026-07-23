@@ -1,15 +1,15 @@
 ---
 name: execute-plan
-description: Orchestration Process for executing Plans. Assigns Slices to a persistent team and runs Verification after each Slice. The Agent coordinates — it does not implement.
+description: Orchestration Process for executing Plans. Assigns Slices to Subagents and runs Verification after each Slice. The Orchestrator coordinates — it does not implement.
 ---
 
 # Execute Plan
 
-- The Agent coordinates a persistent team to implement a Plan Slice by Slice.
+- The Orchestrator implements the Plan's Slices through Subagents.
 - Every line of code is written by a Subagent.
-- The coordinating Agent reads summaries and spot-checks Evidence.
-- Slices run sequentially because later Slices depend on earlier changes.
-- The team persists after all Slices for fixes, iteration, and follow-ups.
+- The Orchestrator judges every Slice's Evidence per /subagents.
+- Slices with no dependency between them execute in parallel; dependent Slices wait for what they depend on.
+- Subagents stay resumable after all Slices for fixes, iteration, and follow-ups.
 
 ## 1. Check Plan readiness
 
@@ -23,15 +23,15 @@ The Plan's Architecture is immutable. Stop for Architect approval before changin
 
 The Agent owns private variable/function names within conventions, error wording, internal implementation, test organization, and comments.
 
-## 2. Create the persistent team
+## 2. Dispatch through /subagents
 
-Use /team with existing specialized agents only: `backend-engineer`, `frontend-engineer`, `architect`, and `context-engineer`.
+Dispatch every Slice per /subagents.
 
 ### Use existing specialized agents only
 Do not create custom agents for Plan Execution.
 
 ### Keep implementation inside Subagents
-The coordinating Agent does not use Edit, Write, or NotebookEdit, and does not read full implementation files.
+The Orchestrator does not use Edit, Write, or NotebookEdit, and does not read full implementation files.
 
 ## 3. Establish the baseline
 
@@ -77,21 +77,21 @@ IF readiness fails:
 ### Halt and report before executing Slices
 Do not proceed with broken infrastructure.
 
-## 6. Execute each Slice sequentially
+## 6. Execute the Slices
 
-For each Slice in order: `TaskCreate`, report `Starting Slice N/M: [name]`, dispatch the implementing Subagent, run the test suite against the baseline, dispatch a fresh Verification Subagent, fix and re-verify failures up to three times, stage the Slice, report, and `TaskUpdate` to completed.
+For each Slice: `TaskCreate`, report `Starting Slice N/M: [name]`, dispatch the implementing Subagent, run the test suite against the baseline, judge the Slice's Evidence per /subagents, fix and re-verify failures up to three times, stage the Slice, report, and `TaskUpdate` to completed.
 
 ### Create and close one Task per Slice
 Use `TaskCreate` with present-continuous `activeForm`; use `TaskUpdate` to completed or failed. Never leave Tasks hanging.
 
-### Keep Slices sequential
-Parallel Slice Execution creates merge conflicts and ordering bugs.
+### Sequence only dependent Slices
+Independent Slices run in parallel. A Slice waits only for the Slices it depends on, and Slices touching the same files sequence to avoid merge conflicts.
 
 ### Classify scope additions before acting
 Must-have blocks the Slice, so report immediately and wait for Architect approval. Nice-to-have is logged, reported in the Slice summary, and not implemented. Out-of-scope is noted in completion and not implemented.
 
 ### Use the implementing Subagent Template
-Dispatch via /team; the team persists across Slices, sharing learnings. Weave prior Slice learnings into Story or Business.
+Dispatch per /subagents; resume the same Subagents across Slices so learnings carry. Weave prior Slice learnings into Story or Business.
 
 Template:
   ```
@@ -111,7 +111,7 @@ Template:
   Before implementing:
   - List every assumption the Plan makes about the code you just read
   - For each: CONFIRMED with Evidence, or WRONG with what is actually true
-  - If any assumption is WRONG, stop and report to the coordinating Agent
+  - If any assumption is WRONG, stop and report to the Orchestrator
 
   Verification:
   [Paste the Slice's acceptance criteria from the Plan, verbatim]
@@ -133,58 +133,18 @@ Template:
   6. Post a completion summary: what changed, what was verified, what was tricky
   ```
 
-## 7. Verify the Slice independently
+## 7. Verify the Slice from its Evidence
 
-After the implementing Subagent returns, run the test suite and compare to the baseline. Then dispatch a fresh Verification Subagent, not on the team; fresh Context prevents bias from the implementing Subagent.
+After the implementing Subagent returns, run the test suite and compare to the baseline. Then judge the Slice's Evidence per /subagents against its acceptance criteria, its stated WHY, regressions, and cross-module interactions.
 
 ### Do not trust Subagent success reports
-Every Slice verifies before staging, and Verification comes from a fresh Subagent that was not on the team.
+Every Slice verifies before staging, from the Evidence on disk, never from the summary.
 
-Template:
-  ```
-  Story: Slice [N] of [Plan name] was just implemented. We need to
-  verify it meets its WHY, not just its criteria, and does not
-  regress existing behavior.
-
-  Business: Agent success reports are unreliable. Independent Verification
-  catches gaps that self-reported Verification misses. Criteria can be incomplete.
-
-  Goal: Verify this Slice against its acceptance criteria, its stated
-  WHY, regressions, and cross-module interactions.
-  If User Interface changes were made, use /agent-browser to verify visually.
-
-  Verification:
-  - Verify each acceptance criterion across all 4 categories:
-    functional, regression, dependency audit, Architecture
-  - WHY check: does this Slice achieve the WHY stated in the WHY and Story, not just the listed criteria?
-  - Cross-module check: what other modules interact with modified code?
-    For each interaction point, does the change create a new failure path?
-  - Browser test: if the Slice has User Interface changes, use /agent-browser to verify.
-    If the development server is not running, start it or report the blocker; never skip
-  - Gaps: anything not covered by criteria that broke or degraded
-
-  Architecture:
-  [Annotated file tree from the Plan's Changes section, with * marking files to inspect]
-
-  Process:
-  1. Read every file marked * in the Architecture block
-  2. Verify against the Goal
-  3. For each Verification item: run Verification and paste the output
-  4. Post the report:
-     ## Slice [N] Verification
-     ### WHY Check — PASS/FAIL with Evidence
-     ### Acceptance Criteria — per criterion PASS/FAIL with Evidence
-     ### Regressions — per file PASS/FAIL
-     ### Cross-Module Interactions — per module impact
-     ### Browser Test (if applicable)
-     ### Gaps
-  ```
-
-### Spot-check at least one PASS
-Read the Evidence yourself. If the Evidence does not support the claim, re-dispatch Verification.
+### Require Slice Evidence beyond the criteria
+The Slice's report.md covers each acceptance criterion with input and observed output, the WHY ("does this Slice achieve it, not just the listed criteria"), cross-module interaction points touched, and browser screenshots for User Interface changes.
 
 ### Fix and re-verify failures three times
-On Verification failure, dispatch a fix Subagent with the specific failures and re-verify. After three failed fix attempts, halt with what each attempt tried, why each failed, root-cause theory, and alternatives.
+On Verification failure, send the specific failures back to the implementing teammate by name and re-verify. After three failed fix attempts, halt with what each attempt tried, why each failed, root-cause theory, and alternatives.
 
 IF a failure reveals an Architectural issue:
 ### Follow the Plan Architecture change Rule
@@ -203,5 +163,5 @@ After all Slices are staged, run full /review against `git diff HEAD`, run full 
 
 Report all Slices, Verification results, scope additions, behavioral changes, and overall status.
 
-### Keep the team open
-Do not close the team after final Verification. It persists for fixes, iteration, and follow-ups.
+### Keep the Subagents resumable
+After final Verification, follow-ups and fixes resume the owning Subagents by name.

@@ -1,13 +1,13 @@
 ---
 name: codex
-description: Drive codex CLI runs as your Agents — you own Orchestration, codex does the work. One wrapper, `codex-run`, owns the mechanics (flags, output storage, stream parsing, failure detection); you write the Task Prompt and do the judgment. Calls /subagents for Orchestration doctrine on a codex-run substrate. TRIGGER when the Architect says "codex", "/codex", "codex-run", "use codex", "dispatch to codex", "run this through codex", "codex agents", "review with codex", "codex review", or asks to fan out work across codex runs. DO NOT TRIGGER for native Claude Code Subagents (use /subagents) or persistent Claude teams (use /team) — those run inside this Harness; codex is a separate CLI process.
+description: Drive codex CLI runs as your Agents — you own Orchestration, codex does the work. One wrapper, `codex-run`, owns the mechanics (flags, output storage, stream parsing, failure detection); you write the Task Prompt and do the judgment. Calls /subagents for Orchestration doctrine on a codex-run substrate. TRIGGER when the Architect says "codex", "/codex", "codex-run", "use codex", "dispatch to codex", "run this through codex", "codex agents", "review with codex", "codex review", or asks to fan out work across codex runs. DO NOT TRIGGER for native Claude Code Subagents (use /subagents) — those run inside this Harness; codex is a separate CLI process.
 ---
 
 # codex
 
 Codex runs are Agents in a separate Harness.
-The coordinator holds the Goal and Orchestration; each codex run does the work and returns.
-`codex-run` owns flags, output storage, stream parsing, and failure detection; the coordinator writes the Prompt and does the judgment.
+The Orchestrator holds the Goal and Orchestration; each codex run does the work and returns.
+`codex-run` owns flags, output storage, stream parsing, and failure detection; the Orchestrator writes the Prompt and does the judgment.
 
 ## 1. Compose through /subagents
 

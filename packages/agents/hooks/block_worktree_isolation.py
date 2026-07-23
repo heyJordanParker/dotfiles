@@ -15,7 +15,7 @@ BINDING = {
 MSG = """BLOCKED: subagent isolation: "worktree" is BANNED.
 
 The main session and every subagent in this project share a single worktree.
-Spawning a subagent into its own worktree fragments the team — siblings stop
+Spawning a subagent into its own worktree fragments the Subagents — siblings stop
 seeing each other's files, branch state diverges, and coordination breaks.
 The recent failure mode: an agent dispatched with isolation: "worktree" ran
 in a parallel tree and the parent never saw its work.

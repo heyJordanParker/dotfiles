@@ -1,6 +1,6 @@
 ---
 name: code-first
-description: Autonomous async Execution. The Architect hands off and walks away; the Agent drives the Task to done — makes every Architectural call via /trace + /pcc + ranking, executes through /subagents (or /team for 3+ subtasks), verifies by exercising the User-facing flow (real browser via the tester agent for UI), and returns finished code plus the recorded Decisions for review. TRIGGER when the Architect says "code-first", "/code-first", "execute with /subagents", "execute directly & autonomously", "drive it and report back", "iterate until done", "I'm going to bed", "off to bed", or signals an AFK / overnight handoff. DO NOT TRIGGER when the Architect wants options before action — that is the default mode (propose via /pcc and wait).
+description: Autonomous async Execution. The Architect hands off and walks away; the Agent drives the Task to done — makes every Architectural call via /trace + /pcc + ranking, executes through /subagents, verifies from each implementing Subagent's Evidence (they exercise their own flows, real browser for UI), and returns finished code plus the recorded Decisions for review. TRIGGER when the Architect says "code-first", "/code-first", "execute with /subagents", "execute directly & autonomously", "drive it and report back", "iterate until done", "I'm going to bed", "off to bed", or signals an AFK / overnight handoff. DO NOT TRIGGER when the Architect wants options before action — that is the default mode (propose via /pcc and wait).
 ---
 
 # Code-First
@@ -25,7 +25,7 @@ Dispatch a research Subagent with /trace and /subagents to study the affected ar
 
 ### Exercise User behavior, not confidence
 
-Compile, type checks, and confidence numbers are not Verification. User Interface Critical Paths run in a real browser through the tester Agent.
+Compile, type checks, and confidence numbers are not Verification. A browser-visible Critical Path goes to a Subagent carrying agent-browser, which exercises it in the real browser itself.
 
 ## 3. Make and record each Architectural call
 
@@ -48,7 +48,7 @@ Template:
 
 ## 4. Execute through Subagents
 
-Use /subagents for Execution, or /team when the Task has three or more subtasks that need persistent coordination. You orchestrate, hold the Goal, verify claims, and may /trace small files directly; larger checks go to a Verification Subagent.
+Use /subagents for Execution. You are the Orchestrator: hold the Goal and judge each Subagent's Evidence per /subagents.
 
 ### Keep issues assigned to the Subagent that owns them
 
@@ -71,17 +71,29 @@ Do not continue on corrupted shared state.
 
 Check long-running tests, builds, and Subagents on a 30-minute wall-clock cadence. The Harness re-invokes you when tracked work finishes.
 
+### State the wave at each check
+One line per cadence: which Subagents run in parallel, which wait, and why the waiting ones cannot start. Serial work must be visible, never discovered.
+
 ### Preserve Context for synthesis
 
 Fast polling drains the Context needed for the final Review.
 
+IF a blocker survives two consecutive cadence checks unchanged:
+### Notify the Architect instead of holding silently
+
+Send a PushNotification naming the blocker and what it blocks, then continue other work.
+
 ## 7. Verify every iteration
 
-Run the Verification plan every iteration. Keep the baseline tests green. User Interface Critical Paths run in a real browser through the tester Agent.
+Run the Verification plan every iteration from the implementing Subagents' Evidence per /subagents. Keep the baseline tests green.
 
 ### Done means the Critical Paths are green
 
 No coping is accepted. Iterate until every Critical Path in the plan is verified.
+
+### Validate the whole changeset once at the end
+
+When every Critical Path is green from Evidence, dispatch code-reviewer, architect, regression-reviewer, and tester across the whole changeset. Critical blocks; findings route to the owning implementing Subagent by name. Once — never per iteration.
 
 ## 8. Return finished work and Decisions
 
