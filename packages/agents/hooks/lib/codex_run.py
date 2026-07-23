@@ -54,9 +54,19 @@ _INSTRUCTIONS_KEY = "model_instructions_file"
 
 # No sandbox and no hook-trust gate: our shared Python guards govern the run, and
 # the hooks are our own vetted sources.
+#
+# Model and effort are pinned here rather than inherited from config.toml: that
+# file configures the interactive session, and an agent run is a different job —
+# a scoped task dispatched by a coordinator, not an open-ended session. Pinning
+# means the agents cannot silently drift when the interactive default changes.
+_MODEL = "gpt-5.6-sol"
+_EFFORT = "medium"
+
 _BASE_FLAGS = ["--json", "--skip-git-repo-check",
                "--dangerously-bypass-approvals-and-sandbox",
-               "--dangerously-bypass-hook-trust"]
+               "--dangerously-bypass-hook-trust",
+               "-m", _MODEL,
+               "-c", "model_reasoning_effort=%s" % _EFFORT]
 
 # Delimits the answer from the metadata trailer on stdout, so the result reads
 # cleanly with no downstream parsing: everything above the line is codex's answer,
@@ -194,7 +204,11 @@ def _dispatch(prompt_path, prompt, resume_id=None):
 
     # No final answer is a failure — a run that exits zero but produced nothing
     # usable is not a success, the same as a process failure or a failed turn.
-    failed = returncode != 0 or turn_failed or answer is None
+    # A resume that comes back under a different thread id did not resume — codex
+    # started a fresh thread (the silent death mode of resuming an exhausted
+    # session), so the requested session's context is gone and the run failed.
+    resumed_fresh = resume_id is not None and session and session != resume_id
+    failed = returncode != 0 or turn_failed or answer is None or resumed_fresh
     status = "failed" if failed else "ok"
 
     # On a failed run with no answer, codex's stderr is the only diagnosis there
@@ -211,6 +225,9 @@ def _dispatch(prompt_path, prompt, resume_id=None):
         print("\ncodex error output:\n%s" % error)
     print(_TRAILER)
     print("status:  %s" % status)
+    if resumed_fresh:
+        print("resume:  DID NOT RESUME — codex started fresh thread %s instead of %s"
+              % (session, resume_id))
     print("session: %s" % session)
     print("output:  %s" % answer_path)
     print("events:  %s" % events_path)
@@ -222,7 +239,14 @@ def _dispatch(prompt_path, prompt, resume_id=None):
 
 _USAGE = ('Usage:\n'
           '  codex-run @<agent> "<prompt>"        run codex as <agent>\n'
-          '  codex-run resume <session> "<msg>"   continue a prior run')
+          '  codex-run resume <session> "<msg>"   continue a prior run\n'
+          '  Pass - as the prompt/message to read it from stdin — immune to shell quoting.')
+
+
+def _read_prompt(arg):
+    # "-" reads the prompt from stdin so no shell-quoting of the argv form can
+    # mangle or kill the run — the quoting-death class becomes unrepresentable.
+    return sys.stdin.read() if arg == "-" else arg
 
 
 def main(argv):
@@ -232,7 +256,7 @@ def main(argv):
         if len(argv) != 3:
             print("codex-run: resume needs a session id and a message\n" + _USAGE)
             return 2
-        return _dispatch(None, argv[2], resume_id=argv[1])
+        return _dispatch(None, _read_prompt(argv[2]), resume_id=argv[1])
 
     if len(argv) != 2 or not argv[0].startswith("@"):
         print(_USAGE)
@@ -243,7 +267,7 @@ def main(argv):
         print("codex-run: unknown agent '%s'. Available: %s"
               % (argv[0], ", ".join(_available_agents())))
         return 1
-    return _dispatch(prompt_path, argv[1])
+    return _dispatch(prompt_path, _read_prompt(argv[1]))
 
 
 if __name__ == "__main__":

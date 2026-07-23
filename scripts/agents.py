@@ -42,7 +42,11 @@ def _load_skills(agent, value, skills_dir):
             raise FileNotFoundError(
                 f"agent {agent!r} names missing skill {skill!r}: {path}"
             )
-        _, body = frontmatter.parse(_read(path))
+        fields, body = frontmatter.parse(_read(path))
+        # disable-model-invocation skills are non-preloadable in Claude
+        # (writing-agents.md); skipping them here keeps codex identical.
+        if str(fields.get("disable-model-invocation", "")).lower() == "true":
+            continue
         skills.append((skill, body))
     return skills
 

@@ -1,5 +1,5 @@
-model = "gpt-5.5"
-model_reasoning_effort = "high"
+model = "gpt-5.6-sol"
+model_reasoning_effort = "medium"
 approval_policy = "never"
 personality = "pragmatic"
 
@@ -20,22 +20,40 @@ args = [ "--app", "desktop" ]
 
 [mcp_servers.node_repl]
 args = []
-command = "/Applications/Codex.app/Contents/Resources/cua_node/bin/node_repl"
+command = "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node_repl"
 startup_timeout_sec = 120
 
 [mcp_servers.node_repl.env]
 NODE_REPL_NATIVE_PIPE_CONNECT_TIMEOUT_MS = "1000"
-NODE_REPL_NODE_MODULE_DIRS = "/Applications/Codex.app/Contents/Resources/cua_node/lib/node_modules"
-NODE_REPL_NODE_PATH = "/Applications/Codex.app/Contents/Resources/cua_node/bin/node"
+NODE_REPL_NODE_MODULE_DIRS = "/Applications/ChatGPT.app/Contents/Resources/cua_node/lib/node_modules"
+NODE_REPL_NODE_PATH = "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node"
 NODE_REPL_TRUSTED_CODE_PATHS = "/Users/jordan/.codex"
 CODEX_HOME = "/Users/jordan/.codex"
-NODE_REPL_TRUSTED_BROWSER_CLIENT_SHA256S = "97669f77b3ca7114a2df05d55646416ea34b28100c07213ef9f643803449ef2f"
+NODE_REPL_TRUSTED_BROWSER_CLIENT_SHA256S = "2793c6809f8a4c90923435aa3a6d1e6f8cabb145212f06328b860b076b899525,6d25aa7656feac858f3a3bdaea5bcbab0dbfd426c9de8e6931ce90c399ee8e4f"
 BROWSER_USE_AVAILABLE_BACKENDS = "chrome,iab"
 NODE_REPL_INSTRUCTIONS_USE_CASE_BROWSER = "Control the in-app browser in conjunction with the Browser Plugin."
 NODE_REPL_INSTRUCTIONS_USE_CASE_CHROME = "Control the Chrome browser in conjunction with the Chrome Plugin. Prefer this method of controlling Chrome over alternatives (such as Computer Use) unless the user explicitly mentions an alternative."
+NODE_REPL_INSTRUCTIONS_USE_CASE_COMPUTER_USE = "Control desktop apps on macOS through Computer Use."
 BROWSER_USE_CODEX_APP_BUILD_FLAVOR = "prod"
-BROWSER_USE_CODEX_APP_VERSION = "26.623.141536"
-CODEX_CLI_PATH = "/Applications/Codex.app/Contents/Resources/codex"
+BROWSER_USE_CODEX_APP_VERSION = "26.715.71837"
+SKY_CUA_SERVICE_PATH = "/Users/jordan/.codex/plugins/cache/openai-bundled/computer-use/1.0.1000451/Codex Computer Use.app"
+CODEX_CLI_PATH = "/Applications/ChatGPT.app/Contents/Resources/codex"
+
+[mcp_servers.computer-use]
+command = "./Codex Computer Use.app/Contents/SharedSupport/SkyComputerUseClient.app/Contents/MacOS/SkyComputerUseClient"
+args = ["mcp"]
+cwd = "."
+enabled = false
+
+# Shared Honcho memory (self-hosted on the Nuremberg dev box, reachable over the
+# tailnet). Honcho's MCP is a stateless streamable-HTTP server that Codex's native
+# url transport hangs on, so we reach it through the mcp-remote stdio bridge (the
+# client Honcho documents). HONCHO_TOKEN (the admin JWT) is exported from the
+# machine-local untracked secrets — never committed here.
+[mcp_servers.honcho]
+command = "/Users/jordan/.bun/bin/bunx"
+args = ["-y", "mcp-remote", "https://devbox.tailac0786.ts.net:8443/", "--header", "Authorization:Bearer ${HONCHO_TOKEN}", "--header", "X-Honcho-User-Name:jordan", "--header", "X-Honcho-Workspace-ID:parkerlabs"]
+startup_timeout_sec = 120
 
 [features]
 multi_agent = true
@@ -62,10 +80,19 @@ enabled = true
 [plugins."pdf@openai-primary-runtime"]
 enabled = true
 
-[plugins."browser@openai-bundled"]
+[plugins."template-creator@openai-primary-runtime"]
 enabled = true
 
-[plugins."template-creator@openai-primary-runtime"]
+[plugins."visualize@openai-bundled"]
+enabled = true
+
+[plugins."sites@openai-bundled"]
+enabled = true
+
+[plugins."computer-use@openai-bundled"]
+enabled = true
+
+[plugins."browser@openai-bundled"]
 enabled = true
 
 # Codex draws from the shared Python hooks in packages/agents/hooks (stowed to
@@ -278,28 +305,13 @@ trusted_hash = "sha256:f88f679b4edeedb486d10907505bdfe72416ac7360555f00fe23b0690
 [hooks.state."/Users/jordan/.codex/config.toml:user_prompt_submit:0:2"]
 trusted_hash = "sha256:bb3f08b7aaf69d6b86fc0a5c1b7be812a2e7b6853ce28ebb24e02978c556be28"
 
-[hooks.state."/Users/jordan/.codex/hooks.json:pre_tool_use:0:0"]
-trusted_hash = "sha256:60d3caefc6eefde1e3c1b3f5fcd0b050fa8ab87c1831019ffd5962a93eb74967"
-
-[hooks.state."/Users/jordan/.codex/hooks.json:permission_request:0:0"]
-trusted_hash = "sha256:254f60581d1502007746ec6310ff7dc7a5cc540f08d1e7d77ef48abee34c6199"
-
-[hooks.state."/Users/jordan/.codex/hooks.json:session_start:0:0"]
-trusted_hash = "sha256:f4b442791c92f3225ddc5348949562e73b5f37e7fd7ad150adc2f5a66030cbbd"
-
-[hooks.state."/Users/jordan/.codex/hooks.json:user_prompt_submit:0:0"]
-trusted_hash = "sha256:c854cc01f2e3de10c2b4f02de063d4b2465f250e700bb392e376bfb8bb319407"
-
-[hooks.state."/Users/jordan/.codex/hooks.json:stop:0:0"]
-trusted_hash = "sha256:f9ddb26e14b04fe884321d89a0f63a5c9694069832c28c4c0ab651d53c3932ef"
-
 [marketplaces.openai-bundled]
-last_updated = "2026-07-07T13:30:25Z"
+last_updated = "2026-07-22T05:32:56Z"
 source_type = "local"
 source = "/Users/jordan/.codex/.tmp/bundled-marketplaces/openai-bundled"
 
 [marketplaces.openai-primary-runtime]
-last_updated = "2026-07-01T06:54:55Z"
+last_updated = "2026-07-16T07:55:00Z"
 source_type = "local"
 source = "/Users/jordan/.cache/codex-runtimes/codex-primary-runtime/plugins/openai-primary-runtime"
 
@@ -345,6 +357,27 @@ trust_level = "trusted"
 [projects."/Users/jordan/Developer/dent-skill"]
 trust_level = "trusted"
 
+[projects."/Users/jordan"]
+trust_level = "trusted"
+
+[projects."/Users/jordan/Developer/design-systems"]
+trust_level = "trusted"
+
+[projects."/Users/jordan/Documents/Codex/2026-07-11/what-are-some-good-platforms-for"]
+trust_level = "trusted"
+
+[projects."/Users/jordan/Documents/Chess"]
+trust_level = "trusted"
+
+[projects."/Users/jordan/Documents/Codex/2026-07-22/github-plugin-github-openai-curated-remote"]
+trust_level = "trusted"
+
+[projects."/Users/jordan/Documents/Codex/2026-07-22/github-plugin-github-openai-curated-remote-2"]
+trust_level = "trusted"
+
+[projects."/Users/jordan/Documents/Codex/2026-07-22/if-i-replaced-solve-a-problem"]
+trust_level = "trusted"
+
 [desktop]
 appearanceTheme = "dark"
 sansFontSize = 15
@@ -354,11 +387,15 @@ followUpQueueMode = "steer"
 git-branch-prefix = ""
 notifications-turn-mode = "off"
 notifications-permissions-enabled = false
-conversationDetailMode = "STEPS_COMMANDS"
+conversationDetailMode = "STEPS_PROSE"
 keepRemoteControlAwakeWhilePluggedIn = true
 appearanceDarkCodeThemeId = "notion"
 appearanceDiffMarkerStyle = "color"
 selected-avatar-id = "bsod"
+dock-icon-preference = "codex-system"
+hotkey-window-projectless-default-enabled = true
+dictationDictionary = []
+enabled-reasoning-efforts = ["low", "medium", "high", "xhigh"]
 
 [desktop.appearanceDarkChromeTheme]
 accent = "#3183d8"
@@ -386,3 +423,8 @@ use_memories = true
 
 [tui.model_availability_nux]
 "gpt-5.5" = 4
+
+[shell_environment_policy.set]
+BROWSER_USE_AVAILABLE_BACKENDS = "chrome,iab"
+NODE_REPL_TRUSTED_BROWSER_CLIENT_SHA256S = "2793c6809f8a4c90923435aa3a6d1e6f8cabb145212f06328b860b076b899525,6d25aa7656feac858f3a3bdaea5bcbab0dbfd426c9de8e6931ce90c399ee8e4f"
+NODE_REPL_TRUSTED_CODE_PATHS = "/Users/jordan/.codex"

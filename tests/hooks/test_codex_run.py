@@ -143,6 +143,45 @@ def test_large_stderr_does_not_deadlock(monkeypatch, tmp_path):
     assert "FATAL: model request failed" in disk.read_text()
 
 
+def test_resume_into_fresh_thread_is_failure(monkeypatch, tmp_path, capsys):
+    # A resume that comes back under a different thread id did not resume — codex
+    # started a fresh thread, so the run fails and the trailer says so loudly.
+    stream = (
+        '{"type":"thread.started","thread_id":"th_FRESH"}\n'
+        '{"type":"item.completed","item":{"type":"agent_message","text":"the answer"}}\n'
+        '{"type":"turn.completed"}'
+    )
+    _stub_codex(monkeypatch, tmp_path, stdout=stream, code=0)
+    rc = codex_run._dispatch(None, "continue", resume_id="th_REQUESTED")
+    out = capsys.readouterr().out
+    assert rc == 1
+    assert "status:  failed" in out
+    assert "DID NOT RESUME" in out
+    assert "th_FRESH" in out and "th_REQUESTED" in out
+
+
+def test_resume_same_thread_is_ok(monkeypatch, tmp_path, capsys):
+    _stub_codex(monkeypatch, tmp_path, stdout=_ANSWER_STREAM, code=0)
+    rc = codex_run._dispatch(None, "continue", resume_id="th_1")
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "DID NOT RESUME" not in out
+
+
+def test_dash_prompt_reads_stdin(monkeypatch, tmp_path, capsys):
+    # `-` reads the prompt from stdin, so shell quoting cannot mangle the run.
+    import io
+    _pin_agents(monkeypatch, tmp_path, ["architect"])
+    _stub_codex(monkeypatch, tmp_path, stdout=_ANSWER_STREAM, code=0)
+    captured = {}
+    monkeypatch.setattr(codex_run, "_dispatch",
+                        lambda path, prompt, resume_id=None: captured.update(prompt=prompt) or 0)
+    monkeypatch.setattr(sys, "stdin", io.StringIO("multi\nline 'quoted' $prompt"))
+    rc = codex_run.main(["@architect", "-"])
+    assert rc == 0
+    assert captured["prompt"] == "multi\nline 'quoted' $prompt"
+
+
 # --- @<agent> resolves only to the named-agent allowlist, never outside it --------
 
 def _pin_agents(monkeypatch, tmp_path, names):
