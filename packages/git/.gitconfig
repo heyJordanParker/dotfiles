@@ -67,3 +67,5 @@
 	helper = 
 [url "git@github.com:"]
 	insteadOf = https://github.com/
+[url "\"https://${GITHUB_TOKEN}@github.com/\""]
+	insteadOf = \"git@github.com:\"

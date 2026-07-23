@@ -16,6 +16,9 @@ export DEV_BROWSER="Helium"
 export BROWSER="/Applications/Helium.app/Contents/MacOS/Helium"
 export SSH_AUTH_SOCK="$HOME/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock"
 export HOMEBREW_NO_ENV_HINTS=1
+# npm auth lives untracked so `npm login` never writes into the dotfiles tree
+export NPM_CONFIG_USERCONFIG="$HOME/.config/npm/npmrc"
+export NPM_CONFIG_FUND=false
 export PATH="$HOME/.local/bin:$HOME/.claude/local:$HOME/bin:$BUN_INSTALL/bin:$HOME/.antigravity/antigravity/bin:$HOME/.lando/bin:/opt/homebrew/opt/ruby/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:${PATH:-/usr/bin:/bin:/usr/sbin:/sbin}"
 
 # Safe delete - moves to Trash instead of permanent deletion

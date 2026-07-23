@@ -13,7 +13,6 @@ HOME = os.path.expanduser("~")
 TARGETS = {
     "git": HOME,
     "hyprspace": HOME,
-    "npm": HOME,
     "tmux": HOME,
     "zsh": HOME,
     "claude": f"{HOME}/.claude",
