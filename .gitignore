@@ -1,4 +1,7 @@
 .DS_Store
+
+# subagent Evidence directories — session-scoped work product, never committed
+/docs/agents/
 /.claude/*
 !/.claude/rules/
 
