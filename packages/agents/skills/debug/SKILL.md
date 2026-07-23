@@ -57,19 +57,36 @@ You MUST complete each phase before proceeding to the next.
    - Read stack traces completely
    - Note line numbers, file paths, error codes
 
-2. **Reproduce Consistently**
+2. **Reproduce Consistently — on the reporter's reality**
    - Can you trigger it reliably?
    - What are the exact steps?
    - Does it happen every time?
    - If not reproducible → gather more data, don't guess
+   - Reproduce with the reporter's ACTUAL state (their real page data, their stored
+     shapes — read it read-only, rebuild on scratch), never only a simple fixture you built
+   - NEVER build a testing page to reproduce a symptom that has a live failing page.
+     Test where the failure is reported. A scratch copy is for isolating the cause,
+     built from the failing page's exact stored content, only after the real page
+     reproduced
+   - "No repro" against a symptom the reporter triggers 100% of the time means YOUR
+     reproduction was too shallow — it is never a terminal state
+   - The BEFORE evidence is the entry ticket to fixing; the AFTER runs in the same mode
+     the failure occurred in (serial reproduction if the failure was serial — focused-pass
+     ≠ serial-pass)
 
-3. **Check Recent Changes**
+3. **Rule Out the Harness Before the Product**
+   - Did the process itself die (browser crash, killed daemon, exhausted session)?
+   - Is the environment healthy (sockets, containers, cookie jars, auth state)?
+   - Does the symptom survive a clean relaunch?
+   - A harness artifact debugged as a product defect burns every agent pointed at it
+
+4. **Check Recent Changes**
    - What changed that could cause this?
    - Git diff, recent commits
    - New dependencies, config changes
    - Environmental differences
 
-4. **Gather Evidence in Multi-Component Systems**
+5. **Gather Evidence in Multi-Component Systems**
 
    **WHEN system has multiple components (CI → build → signing, API → service → database):**
 
@@ -107,7 +124,7 @@ You MUST complete each phase before proceeding to the next.
 
    **This reveals:** Which layer fails (secrets → workflow ✓, workflow → build ✗)
 
-5. **Trace Data Flow**
+6. **Trace Data Flow**
 
    **WHEN error is deep in call stack:**
 

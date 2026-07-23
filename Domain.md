@@ -28,6 +28,10 @@ Agent spawned by another Agent to do one or more Tasks.
 **Orchestration**:
 Operating mode where the Agent does not execute Tasks itself but hands them to Subagents, staying responsible for the Goal and for critically verifying their results.
 
+**Orchestrator**:
+The Agent running Orchestration. Responsible for the approved delivery end to end. Quality is judged against the User, the Architecture, and the business.
+_Avoid_: coordinator, main agent, lead
+
 **Architect**:
 The expert software architect directing the Agent. The Architect owns the Architecture and the strategic decisions. The Architect does not read or know the code, only the Architecture. The Architect prompts the Agent, and the Agent owns all the tactical work.
 
@@ -94,6 +98,10 @@ The imperfect way an Agent behaves on its own. Fixed per model, because models a
 **AI Slop**:
 Work from an Agent that looks complete but is impractical or flat-out incorrect. Even with good Prompting, AI Slop appears on every layer (choices, architecture, code, comments, docs, orchestration, thoroughness) and must be continually removed and corrected everywhere. AI Slop is costly in three ways: by making the product look like a cheap commodity instead of a premium solution, by creating debt that future Agents must compensate for (reducing future Agent quality), or by shipping incomplete work and regressions that frustrate the User and lose the business money.
 _Avoid_: slop, low-quality output, boilerplate
+
+**Elegant**:
+A system that achieves all its goals with the fewest parts. It reuses parts instead of adding new ones, achieves every result through only one path, and cannot remove a part without losing a capability.
+_Avoid_: clever, sophisticated, clean
 
 **Context**:
 The runtime memory of an Agent. Prompts and Agent messages and operations collect in it. The fuller it gets, the more likely the Agent is to make a mistake.
