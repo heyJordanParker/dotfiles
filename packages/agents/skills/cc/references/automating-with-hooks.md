@@ -66,10 +66,11 @@ Template:
   ```json
   {
     "type": "prompt",
-    "prompt": "Evaluate whether this tool use is safe. Check for system paths, credentials, and path traversal. Input: $ARGUMENTS. Return JSON: {\"decision\": \"approve|block\", \"reason\": \"...\"}",
+    "prompt": "Evaluate whether this tool use is safe. Check for system paths, credentials, and path traversal. Input: $ARGUMENTS. Return ONLY this JSON: {\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"allow|deny\",\"permissionDecisionReason\":\"...\"}}",
     "timeout": 30
   }
   ```
+Never: `{"decision": "approve|block"}` from a PreToolUse prompt Hook — since v2.1.212/v2.1.214 it fails schema validation, renders a Hook error, and halts the turn instead of feeding the reason back. `deny` blocks the tool and returns `permissionDecisionReason` to the Agent so it retries; `ask` forces the User to intervene.
 
 IF the Hook needs to inspect files or the codebase before deciding:
 ### Use an Agent Hook
