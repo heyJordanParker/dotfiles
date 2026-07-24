@@ -32,6 +32,10 @@ Operating mode where the Agent does not execute Tasks itself but hands them to S
 The Agent running Orchestration. Responsible for the approved delivery end to end. Quality is judged against the User, the Architecture, and the business.
 _Avoid_: coordinator, main agent, lead
 
+**Owner**:
+Who is responsible for something. Everything has exactly one Owner. The Owner makes every decision about it and everyone else carries feedback to the Owner instead of deciding directly.
+_Avoid_: assignee, responsible party, stakeholder
+
 **Architect**:
 The expert software architect directing the Agent. The Architect owns the Architecture and the strategic decisions. The Architect does not read or know the code, only the Architecture. The Architect prompts the Agent, and the Agent owns all the tactical work.
 

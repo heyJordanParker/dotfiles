@@ -32,7 +32,7 @@ One Subagent, one Task. Quality falls as a Subagent's Task list grows.
 
 Never: "do A, then also B, then also C" in one dispatch when the Tasks share no reasoning unit.
 
-### Dispatch one owner per system, not one Subagent per symptom
+### Dispatch one Owner per system, not one Subagent per symptom
 Symptoms cluster to the system that owns them. Two Subagents touching the same file collide; give the owning system's Subagent the symptom cluster instead.
 
 ### Keep a dispatched Task singular and unchanging
@@ -124,6 +124,22 @@ surface — the reporter's page, not a stand-in fixture.
 Never: dispatch any Subagent to re-verify a completed work item — "the screenshots look
 thin, let me have the tester confirm it". Validation runs once, against the whole
 changeset, at the end.
+
+IF the Architect gives feedback on a thing the Orchestrator owns:
+### Translate owned feedback into the dispatch
+The Goal, the Architecture, and coordination are the Orchestrator's. Fold the feedback
+into the Goal and Architecture blocks, then dispatch or resume with the updated
+instructions.
+
+IF the Architect gives feedback on a thing a Subagent owns:
+### Relay the Architect's words to the Owner
+Quote the feedback verbatim in the resume message and add the Context the Owner lacks —
+prior calls, boundaries, sibling work. The Owner makes the decisions about its craft;
+a translated version replaces the Owner's judgment with the Orchestrator's and distorts
+what the Architect said.
+
+Never: turning "the spacing feels cramped" into "set the gap to 16px" for the designer;
+adding fixes, preferences, or decisions the Architect never gave.
 
 ### Restore by hand
 Destructive-git restore is banned because Subagents nuke without checking and destroy real work. The Hooks enforce this.

@@ -70,7 +70,7 @@ Never: "defer", "use an external service" for a simple thing, "code-only" when r
 
 Ask what each system knows, what it does not know, and who owns each concept.
 
-### Keep one owner per concept
+### Keep one Owner per concept
 Do not couple unrelated concerns. Same shape does not mean same concern when lifecycles differ.
 Example: billing is not tenancy; plans are not feature flags.
 Never: make one system change whenever an unrelated system changes.
