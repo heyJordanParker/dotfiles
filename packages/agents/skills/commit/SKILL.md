@@ -38,6 +38,10 @@ Name the files that do not belong, then wait for the Architect before staging or
 
 Write the message in the shape below, match recent commit style, then commit with it. The Architect can amend after with `git commit --amend`.
 
+### Describe the staged changeset, not your own work
+Other Agents work the same branch, so the staged diff is larger than your Context. Write the message from the step-1 diff, covering every staged change equally. Run `trace diff` and read any staged change you do not recognize before writing a word about it.
+Never: a subject or body scoped to the changes you made this session while the diff carries more.
+
 ### Use the repository commit-message shape
 The type prefix is one of `feat`, `fix`, `chore`, `refactor`, `docs`, or `test`. The subject is lowercase after the colon, under 72 characters, and summarizes every committed change. The body weaves WHAT changed and WHY together instead of splitting them into separate sections. The file tree comes last and marks modified files with `*` beside relevant context files.
 
