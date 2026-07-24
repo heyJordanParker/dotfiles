@@ -25,6 +25,12 @@ creating anything.
 Similarity is a bug. A near-duplicate is the existing Skill's missing Rule, Example, Template,
 Condition, or Reference.
 
+### Model a new Process on the real human team that already does this work
+Thousands of years of human process optimization beat invention. When no repo Precedent
+exists, the Precedent is the real-world team: name the human role or process the Skill
+or Agent roster mirrors (editorial desk, agency, code review) before shaping anything.
+Never: an invented roster or Process no working human team has ever run.
+
 ### Read every file before editing an existing Skill
 Read SKILL.md and every Reference in full first. Piecemeal edits create contradictions.
 
