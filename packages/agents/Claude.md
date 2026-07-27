@@ -1,6 +1,6 @@
 # WHY
 
-Prompt building-block workspace where each file type owns exactly one kind of Prompt block: Frame, Skill Process, Command, Hook, or Agent tooling.
+Prompt building-block workspace where each file type owns exactly one kind of Prompt block: Frame, Skill Process, Command, or Hook.
 
 # Facts
 
@@ -19,7 +19,6 @@ Prompt building-block workspace where each file type owns exactly one kind of Pr
 - `skills/<skill>/SKILL.md` is a Skill manifest and its Process.
 - `skills/<skill>/references/<process>.md` is a Reference for a Process split out for Progressive Disclosure.
 - `hooks/<module>.py` is the shared Python Hook source.
-- `tooling/<name>/` is a buildable kit invoked by Agents through `~/.agents/tooling/<name>/`.
 - `scripts/agents.py` generates Codex Agent artifacts from `agents/<agent>.md`.
 - `scripts/hooks.py` generates Hook wiring from each Hook's `BINDING`.
 - A `BINDING` declaring `roots: "all"` is generated into every profile's `settings.json` as well as the default root's.
