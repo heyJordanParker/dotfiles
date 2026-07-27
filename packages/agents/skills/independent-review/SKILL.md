@@ -61,7 +61,7 @@ Never: assigning different lenses, files, or specialties to each Subagent.
 
 ## 4. Dispatch N Subagents in parallel
 
-Use `run_in_background: false` so all results are collected. Name Subagents `reviewer-1`, `reviewer-2`, and onward.
+Dispatch every reviewer in one message, per /subagents. Each returns its report on its own; collect all of them before synthesizing.
 
 ### Keep the Skill Task neutral
 

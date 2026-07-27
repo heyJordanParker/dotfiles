@@ -5,7 +5,7 @@ description: Framework for dispatching one-shot Subagents that complete a Task a
 
 # Subagents
 
-One-shot Subagents complete a Task and return; SendMessage by name resumes one for iteration.
+One-shot Subagents complete a Task and return; `SendMessage({to: agentId})` resumes one for iteration.
 Every line of code is written by a Subagent during Orchestration; the Orchestrator preserves Context for coordination.
 The Orchestrator holds the big picture; Subagents ask it at decisions and report to it when done.
 
@@ -88,23 +88,35 @@ Template:
 ## 4. Dispatch independent Subagents at once
 
 ### Run independent Tasks in parallel
-One message, multiple Agent calls, each with `name` and `run_in_background: true`, each
-naming its Evidence directory (docs/agents/<YYYYMMDD>-<task-slug>/). Sequence only when
-one Task's output feeds the next.
+One message, multiple Agent calls, each naming its Evidence directory
+(docs/agents/<YYYYMMDD>-<task-slug>/). Every dispatch is already async and parallel, so it
+returns its agentId at once and you keep working. Sequence only when one Task's output
+feeds the next.
 
 Template:
-  Agent(subagent_type: "backend-engineer", name: "worker",
-        prompt: "<Story/Business/Goal/Verification + Architecture + Process>",
-        run_in_background: true)
+  Agent(subagent_type: "backend-engineer",
+        prompt: "<Story/Business/Goal/Verification + Architecture + Process>")
+
+### Dispatch without a name
+A named dispatch is a teammate, and a teammate's report reaches you only if it calls
+SendMessage itself — reports get written in full and lost that way. Unnamed, the report
+comes back to you on its own.
+Never: `name`, or `run_in_background`, which the Agent tool has no parameter for.
 
 ### Resume the agent you have
-SendMessage by name resumes an agent from its transcript, even after it returned.
+`SendMessage({to: agentId})` resumes an agent from its transcript, even after it returned,
+using the agentId from its spawn result.
 
 Never: a fresh dispatch for work an existing agent owns.
 
+### Recover a lost agentId from disk
+`~/.claude/projects/<project>/<session>/subagents/*.meta.json` names every Subagent the
+session dispatched, with its agentType and model. Read it when the id has left your
+Context — the agent is still resumable.
+
 ### Check on agents; never put them on a timer
 On the coordination cadence, read a running agent's Evidence directory; when nothing moved,
-SendMessage it for status. Only when resume fails — including an agent whose Context is
+SendMessage it by agentId for status. Only when resume fails — including an agent whose Context is
 exhausted and resumes into silence — dispatch a replacement implementing Subagent with the original
 Prompt, the current diff, and the Evidence directory.
 
@@ -118,7 +130,7 @@ Do not use Edit, Write, or NotebookEdit while coordinating. Reading a wide diff 
 ### Judge the Evidence yourself
 Read the report.md against the dispatch's Verification criteria; open only the screenshot
 that settles a criterion the text cannot. Thin Evidence goes back to the same Subagent by
-name, naming the failed item. For a reported symptom, Evidence must show the symptom's own
+agentId, naming the failed item. For a reported symptom, Evidence must show the symptom's own
 surface — the reporter's page, not a stand-in fixture.
 
 Never: dispatch any Subagent to re-verify a completed work item — "the screenshots look

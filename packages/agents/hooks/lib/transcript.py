@@ -105,6 +105,24 @@ def current_turn_lines(path):
     return collected
 
 
+def awaits_async_work(lines):
+    """Whether the turn's raw lines dispatched work that finishes after the stop.
+
+    Two Stop gates yield on this: stopping to await a dispatch is an async pause,
+    not skipped work, because the dispatch wakes the agent when it lands.
+
+    Two substrates, two signals. A `codex-run` is a Bash call carrying
+    `run_in_background: true`. An Agent dispatch has no such flag — the tool takes
+    no parameter for it and is async in every case — so the tool call itself is
+    the signal. Keying only on the flag gated every turn that awaited a Subagent.
+    """
+    for line in lines:
+        packed = line.replace(" ", "")
+        if '"run_in_background":true' in packed or '"name":"Agent"' in packed:
+            return True
+    return False
+
+
 def tool_outcomes(recs):
     """tool_use_id -> failed(bool), read from tool_result blocks (is_error true)."""
     out = {}

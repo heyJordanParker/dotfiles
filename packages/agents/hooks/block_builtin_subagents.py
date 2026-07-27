@@ -1,5 +1,14 @@
 #!/usr/bin/env python3
-"""Redirect built-in subagents to Opus equivalents; block non-opus model overrides."""
+"""Redirect built-in subagents to Opus equivalents; block non-opus model overrides
+and named dispatches.
+
+A dispatch carrying `name` becomes an in_process_teammate, and a teammate's final
+text is never returned to the dispatcher — its only channel back is SendMessage,
+a deferred tool it has to look up before it can call. Two reviews were written in
+full and lost that way in one session. An unnamed dispatch is async, runs in
+parallel, returns its report automatically, and is resumable through the agentId
+in its spawn result, so the name buys a friendlier handle and costs the report.
+"""
 
 import sys
 
@@ -51,6 +60,12 @@ context-engineer runs on Opus, loads the cc and claude-api skills, and works aga
 
 Set subagent_type: context-engineer. State the question or the change you want made; it'll read the relevant Claude.md hierarchy itself."""
 
+NAME_MSG = """BLOCKED: tool_input.name spawns a teammate, not a Subagent.
+
+A named dispatch becomes an in_process_teammate whose report reaches you only if it calls SendMessage itself — reports get written in full and lost that way.
+
+Dispatch without a name. That returns the report to you automatically and stays resumable: SendMessage({to: agentId}) with the agentId from its spawn result."""
+
 _BY_TYPE = {
     "Explore": EXPLORE_MSG,
     "general-purpose": GENERAL_MSG,
@@ -65,6 +80,9 @@ def main():
     msg = _BY_TYPE.get(subagent_type)
     if msg is not None:
         return feedback.block("block_builtin_subagents", msg)
+
+    if field(event, "tool_input.name", ""):
+        return feedback.block("block_builtin_subagents", NAME_MSG)
 
     model_override = field(event, "tool_input.model", "")
     if model_override and model_override not in ("opus", "fable"):

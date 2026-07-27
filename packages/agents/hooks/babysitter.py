@@ -107,10 +107,9 @@ def main():
         return 0
 
     transcript_path = field(event, "transcript_path", "")
-    # Stopping to await background subagents is an async pause, not skipped work —
-    # the agent resumes when a subagent wakes it. Don't gate that.
-    if any('"run_in_background":true' in ln.replace(" ", "")
-           for ln in transcript.current_turn_lines(transcript_path)):
+    # Stopping to await dispatched work is an async pause, not skipped work — the
+    # agent resumes when the dispatch wakes it. Don't gate that.
+    if transcript.awaits_async_work(transcript.current_turn_lines(transcript_path)):
         return 0
 
     # Only the last turn: the architect's last message and this reply. babysitter

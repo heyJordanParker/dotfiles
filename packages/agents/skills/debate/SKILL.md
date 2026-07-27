@@ -7,7 +7,7 @@ disable-model-invocation: true
 # Debate
 
 N independent Architect Subagents propose solutions, then debate through rounds until convergence.
-Dispatch and resume per /subagents; SendMessage by name carries the rounds.
+Dispatch and resume per /subagents; `SendMessage({to: agentId})` carries the rounds.
 
 ## 1. Parse input
 
@@ -66,7 +66,10 @@ Each Agent reads code itself. No pre-digested findings from you.
 
 ## 5. Dispatch the Architects
 
-Spawn N `architect` Subagents named `architect-a`, `architect-b`, and onward in parallel, each `run_in_background: true`, per /subagents.
+Spawn N `architect` Subagents in one message, per /subagents.
+
+### Keep each Architect's agentId with its Frame
+Every round is addressed by agentId, so record which Frame each returned id belongs to as the dispatches come back. A lost id costs that Architect's whole position; recover it from the session's `subagents/*.meta.json` rather than dispatching a fresh Architect into a debate it did not start.
 
 ## 6. Collect Proposals
 
@@ -74,7 +77,7 @@ Wait for every Architect to return Proposals and User stories.
 
 ## 7. Run debate rounds
 
-Run up to 5 rounds. Each round composes one Prompt per Architect containing the other Architects' full positions plus the round's forcing questions. SendMessage to all Architects simultaneously, then wait for all responses.
+Run up to 5 rounds. Each round composes one Prompt per Architect containing the other Architects' full positions plus the round's forcing questions. SendMessage every Architect by agentId in one message, then wait for all responses.
 
 ### Route, do not interpret
 Round Prompts carry other Architects' full positions, not your summary. Your interpretation biases them.

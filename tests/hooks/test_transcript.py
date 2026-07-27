@@ -51,6 +51,30 @@ def test_current_turn_lines_matches_boundary(write_transcript):
     assert not any("go" in ln for ln in lines)       # boundary user line excluded
 
 
+def test_awaits_async_work_sees_a_backgrounded_bash_run():
+    """A codex-run is a Bash call carrying the flag."""
+    lines = ['{"type":"assistant","message":{"content":[{"type":"tool_use",'
+             '"name":"Bash","input":{"command":"codex-run @ponytail x",'
+             '"run_in_background": true}}]}}']
+    assert transcript.awaits_async_work(lines) is True
+
+
+def test_awaits_async_work_sees_an_agent_dispatch():
+    """An Agent dispatch carries no flag — the tool has no parameter for one and is
+    async in every case — so the tool call itself is the signal. Keying only on the
+    flag gated every turn that stopped to await a Subagent."""
+    lines = ['{"type":"assistant","message":{"content":[{"type":"tool_use",'
+             '"name":"Agent","input":{"subagent_type":"ponytail","prompt":"x"}}]}}']
+    assert transcript.awaits_async_work(lines) is True
+
+
+def test_awaits_async_work_ignores_a_turn_that_dispatched_nothing():
+    lines = ['{"type":"assistant","message":{"content":[{"type":"tool_use",'
+             '"name":"Read","input":{"file_path":"/tmp/x"}}]}}']
+    assert transcript.awaits_async_work(lines) is False
+    assert transcript.awaits_async_work([]) is False
+
+
 def test_turn_evidence_keeps_responses_marks_thinking_and_edit_outcomes():
     turn = [
         {"type": "assistant", "message": {"content": [

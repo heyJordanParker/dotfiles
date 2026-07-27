@@ -332,9 +332,9 @@ def main():
     if gate_block_count(session_id, "validate_completion") >= GATE_BLOCK_CAP:
         return 0
 
-    # Stopping to await background subagents is an async pause, not an unfinished
-    # stop — the agent resumes when a subagent wakes it. Never gate that as incomplete.
-    if any('"run_in_background":true' in ln.replace(" ", "") for ln in turn_lines):
+    # Stopping to await dispatched work is an async pause, not an unfinished stop —
+    # the agent resumes when the dispatch wakes it. Never gate that as incomplete.
+    if transcript.awaits_async_work(turn_lines):
         return 0
 
     # Interview state turns the LLM judge off for speed; the cheap deterministic

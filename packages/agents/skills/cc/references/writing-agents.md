@@ -135,6 +135,8 @@ Example:
 - `subagent_type` matching is case-insensitive and separator-insensitive; `"Code Reviewer"` resolves to `code-reviewer` (v2.1.140+).
 - Subagents can spawn Subagents up to five levels deep (v2.1.172+).
 - Permission Rules can constrain spawns with `Agent(type)` deny Rules, `Agent(x,y)` allowed types, and `Tool(param:value)` matches such as `Agent(model:opus)` (v2.1.178+/v2.1.186+).
+- Every dispatch is async: the call returns an agentId at once and the report arrives later in a completion notification.
+- Agent teams are experimental behind `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`; `TeamCreate` and `TeamDelete` are removed (v2.1.178+), every session has one implicit team, and `team_name` is accepted but ignored.
 
 ### Continue a previously spawned agent with `SendMessage({to: agentId})`
 The Agent tool no longer accepts a `resume` parameter. Use `SendMessage({to: agentId})` to continue a previously spawned agent.
@@ -148,8 +150,9 @@ The Agent tool no longer accepts a `resume` parameter. Use `SendMessage({to: age
 ### Read the background task output file path
 `TaskOutput` is deprecated. Use `Read` on the background task's output file path.
 
-### Spawn teammates directly with the Agent tool's `name` parameter
-Agent teams are experimental behind `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`. `TeamCreate` and `TeamDelete` are removed (v2.1.178+); every session has one implicit team, and the `team_name` parameter is accepted but ignored.
+### Never pass the Agent tool's `name` parameter
+`name` makes the dispatch an `in_process_teammate`, whose final text is never returned to the dispatcher — its only channel back is `SendMessage`, which the Subagent must look up before it can call. An unnamed dispatch returns the report on its own and resumes by agentId just the same. `block_builtin_subagents.py` enforces this.
+Never: `name`, or `run_in_background`, which is not a parameter of this tool.
 
 ## 5. Preload Skills only when they are visible
 
