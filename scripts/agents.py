@@ -4,8 +4,10 @@ Reads packages/agents/agents/*.md and writes two siblings codex auto-discovers:
 <name>.toml (the subagent definition) and <name>.prompt.md (the frontmatter-
 stripped body, used as a base-instructions override via model_instructions_file).
 Frontmatter name/description map across; named skills are inlined into the body,
-which becomes developer_instructions. model/tools/color/memory are dropped — codex
-has no key for them and our model names aren't codex models. Both artifacts are
+which becomes developer_instructions. model/tools/color are dropped — codex has no
+key for them, and `model` names a Claude model. memory, codex-model, and effort are
+dropped here too but are not lost: codex-run reads them straight off the definition
+file at run time, so they reach a resumed run as well as a founding one. Both artifacts are
 gitignored; this regenerates them.
 
 The .prompt.md opens with an HTML-comment marker naming the agent it belongs to.
@@ -139,3 +141,12 @@ def _read(path):
 
 def _write(path, text):
     files.write_if_changed(path, text)
+
+
+if __name__ == "__main__":
+    import sys
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    packages = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "packages")
+    written = generate(os.path.join(packages, "agents", "agents"))
+    written += generate_profiles(os.path.join(packages, "claude", "profiles"))
+    print(f"{len(written)} artifacts written")

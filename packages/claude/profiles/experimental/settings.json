@@ -1,4 +1,5 @@
 {
+  "autoMemoryEnabled": false,
   "hooks": {
     "PreToolUse": [
       {
@@ -7,6 +8,16 @@
           {
             "type": "command",
             "command": "python3 ~/.agents/hooks/block_memory_access.py",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "WebFetch|WebSearch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ~/.agents/hooks/block_research_web_tools.py",
             "timeout": 5
           }
         ]

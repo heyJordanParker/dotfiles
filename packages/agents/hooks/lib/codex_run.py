@@ -27,6 +27,14 @@ An agent whose `<name>.md` frontmatter declares `memory: none` runs with both of
 codex's memory providers switched off — the honcho MCP server and codex's own
 [memories] — so no Memory reaches the run and none is written back.
 
+An agent whose frontmatter declares `codex-model` runs on that model instead of
+the default below, and one declaring `effort` runs at that effort. Both are read
+off the definition file per run rather than baked into the generated artifacts,
+so they reach a resumed run — where the agent is recovered, not passed — by the
+same route the memory declaration does, and an edit takes effect without
+regenerating anything. `effort` is the same field Claude reads natively, so an
+agent states its effort once and both harnesses honour it.
+
 `resume` takes a session and a message and nothing else, so the founding agent is
 recovered rather than passed. The source is codex's own record: the thread's
 rollout opens with a `session_meta` carrying the `base_instructions` the run was
@@ -94,18 +102,27 @@ _INSTRUCTIONS_KEY = "model_instructions_file"
 # No sandbox and no hook-trust gate: our shared Python guards govern the run, and
 # the hooks are our own vetted sources.
 #
-# Model and effort are pinned here rather than inherited from config.toml: that
-# file configures the interactive session, and an agent run is a different job —
-# a scoped task dispatched by a coordinator, not an open-ended session. Pinning
-# means the agents cannot silently drift when the interactive default changes.
+# Model and effort default here rather than being inherited from config.toml:
+# that file configures the interactive session, and an agent run is a different
+# job — a scoped task dispatched by a coordinator, not an open-ended session.
+# Defaulting means the agents cannot silently drift when the interactive default
+# changes. An agent overrides either for itself in its frontmatter: `codex-model`
+# for the model, the codex-side counterpart of `model`, which names a Claude model
+# and so cannot serve here; and `effort`, which is one field for both harnesses,
+# because the four words Claude's key takes are the four codex takes.
 _MODEL = "gpt-5.6-sol"
 _EFFORT = "medium"
 
+# What an agent may declare: the five levels `claude --effort` lists, each of
+# which codex also accepts verbatim as model_reasoning_effort, so a declaration
+# crosses to either harness untranslated. `xhigh` and `max` are distinct levels on
+# both — translating one onto the other quietly ran an agent at a tier it did not
+# ask for, and omitting `xhigh` rejected the tier most likely to be declared.
+_EFFORTS = ("low", "medium", "high", "xhigh", "max")
+
 _BASE_FLAGS = ["--json", "--skip-git-repo-check",
                "--dangerously-bypass-approvals-and-sandbox",
-               "--dangerously-bypass-hook-trust",
-               "-m", _MODEL,
-               "-c", "model_reasoning_effort=%s" % _EFFORT]
+               "--dangerously-bypass-hook-trust"]
 
 # Delimits the answer from the metadata trailer on stdout, so the result reads
 # cleanly with no downstream parsing: everything above the line is codex's answer,
@@ -161,17 +178,57 @@ def _agent_dir(name):
     return None
 
 
+def _definition_path(name):
+    """`<name>.md` in the roster that owns the agent, or None when none does.
+
+    Every declaration is read from here, so all of them come from the roster that
+    also supplied the instructions — a profile's copy of an agent runs on the
+    profile's declarations, never a mix of two rosters'."""
+    directory = _agent_dir(name)
+    return None if directory is None else os.path.join(directory, name + ".md")
+
+
 def _declares_blank_memory(name):
     """Whether `<name>.md` declares `memory: none`.
 
-    The same declaration the Claude-side gate reads, through the same parser,
-    and from the same roster that supplied the instructions — a profile's copy of
-    an agent carries a profile's declaration, so the two must not come from
-    different directories."""
-    directory = _agent_dir(name)
-    if directory is None:
-        return False
-    return agent_memory.denies_memory(os.path.join(directory, name + ".md"))
+    The same declaration the Claude-side gate reads, through the same parser."""
+    path = _definition_path(name)
+    return False if path is None else agent_memory.denies_memory(path)
+
+
+def _declaration(name, key):
+    """What `<name>.md` declares for `key`, or None when it declares nothing."""
+    path = _definition_path(name)
+    return None if path is None else agent_memory.declaration(path, key)
+
+
+def _codex_model(name):
+    """The codex model `name` runs on: its `codex-model` declaration, or _MODEL.
+
+    The value is passed to codex unvalidated: codex owns which model names exist,
+    an allowlist here would go stale every release, and a name codex rejects fails
+    the run loudly with its own error already surfaced."""
+    return _declaration(name, "codex-model") or _MODEL
+
+
+def _codex_effort(name):
+    """The reasoning effort `name` runs at: its `effort` declaration, or _EFFORT.
+
+    `effort` is one field across both harnesses — Claude reads the declaration
+    natively and codex takes the same word verbatim, so declaring `high` cannot
+    mean high on one harness and something else on the other. Unlike the model,
+    the value is checked: the vocabulary is closed and shared, so a word outside
+    it is a typo in the definition rather than a level either harness has."""
+    declared = _declaration(name, "effort")
+    if not declared:
+        # A key with no value is an undeclared key, the same reading `codex-model`
+        # gives it — two adjacent declarations of the same shape must not resolve
+        # a blank in opposite directions.
+        return _EFFORT
+    if declared not in _EFFORTS:
+        raise ValueError("agent %r declares unknown effort %r; valid: %s"
+                         % (name, declared, ", ".join(_EFFORTS)))
+    return declared
 
 
 def _resolve_agent(token):
@@ -418,10 +475,22 @@ def _dispatch(prompt_path, prompt, agent, resume_id=None, blank_memory=False):
     # instructions, which is how a thread founded as one agent came back as
     # another with nothing in the output saying so.
     instructions = ["-c", "%s=%s" % (_INSTRUCTIONS_KEY, prompt_path)]
-    if resume_id is not None:
-        cmd = ["codex", "exec", "resume", resume_id] + _BASE_FLAGS + memory + instructions + [prompt]
-    else:
-        cmd = ["codex", "exec"] + _BASE_FLAGS + memory + instructions + [prompt]
+    # The model rides a resume for the same reason the instructions do: it is the
+    # agent's, resolved from the recovered agent, not something codex kept with
+    # the thread.
+    model = _codex_model(agent)
+    try:
+        effort = _codex_effort(agent)
+    except ValueError as exc:
+        # Everything the caller needs is on stdout, errors included — a traceback
+        # out of a wrapper whose whole interface is its printed result is not a
+        # usable failure.
+        print("codex-run: %s" % exc)
+        return 1
+    head = ["codex", "exec"] + (["resume", resume_id] if resume_id is not None else [])
+    cmd = (head + _BASE_FLAGS + ["-m", model]
+           + ["-c", "model_reasoning_effort=%s" % effort]
+           + memory + instructions + [prompt])
 
     returncode, answer, session, turn_failed, stderr = _run(cmd, events_path)
 
@@ -451,6 +520,9 @@ def _dispatch(prompt_path, prompt, agent, resume_id=None, blank_memory=False):
     # Named on every run, resumes included: the identity a continuation runs under
     # is now resolved rather than assumed, so it is worth showing.
     print("agent:   %s" % agent)
+    # Beside the agent for the same reason: which model a run used is now the
+    # agent's declaration rather than one constant, so a run states it.
+    print("model:   %s  (effort %s)" % (model, effort))
     if resumed_fresh:
         print("resume:  DID NOT RESUME — codex started fresh thread %s instead of %s"
               % (session, resume_id))

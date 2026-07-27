@@ -378,6 +378,9 @@ trust_level = "trusted"
 [projects."/Users/jordan/Documents/Codex/2026-07-22/if-i-replaced-solve-a-problem"]
 trust_level = "trusted"
 
+[projects."/private/tmp/claude-501/-Users-jordan-dotfiles/402cba6e-fc5e-4d21-9f27-f6c0d5e2e737/scratchpad/runs"]
+trust_level = "trusted"
+
 [desktop]
 appearanceTheme = "dark"
 sansFontSize = 15

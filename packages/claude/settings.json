@@ -251,6 +251,16 @@
         ]
       },
       {
+        "matcher": "WebFetch|WebSearch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ~/.agents/hooks/block_research_web_tools.py",
+            "timeout": 5
+          }
+        ]
+      },
+      {
         "matcher": "Bash|Agent",
         "hooks": [
           {

@@ -30,7 +30,7 @@ Use an agent when the Task recurs across sessions and the separate Frame or runt
 - `disallowedTools` denies listed tools.
 - `model` accepts `opus`, `sonnet`, `haiku`, `fable`, a full model identifier, or `inherit`; `inherit` matches the spawning conversation and is the default when omitted.
 - `best`, `opusplan`, and `[1m]` long-context model variants resolve.
-- `effort` accepts `low`, `medium`, `high`, `max`, or an integer.
+- `effort` takes `low`, `medium`, `high`, `xhigh`, or `max`, and one declaration governs both Harnesses. Claude also accepts an integer; that fails a codex run, so never write one.
 - `skills` injects Skills into the Agent Context at startup when the agent is dispatched as a Subagent.
 - `permissionMode` accepts `acceptEdits`, `auto`, `bypassPermissions`, `default`, `dontAsk`, or `plan`.
 - `color` sets the user interface accent color; invalid values are dropped.
@@ -38,12 +38,18 @@ Use an agent when the Task recurs across sessions and the separate Frame or runt
 - `initialPrompt` auto-submits a first turn when the agent starts.
 - `mcpServers` scopes Model Context Protocol servers to the agent.
 - `hooks` scopes Hook wiring to the agent.
-- `memory` accepts `user`, `project`, or `local` natively, plus our own `none` (step 6).
+- `memory: none` is ours, not the Harness's: it denies the Agent Memory. The key is optional and has no other value — the Harness's `user`, `project`, and `local` are off in every root (step 6).
+- `codex-model` is ours, not the Harness's: the model the Agent runs on under codex, where `model` names a Claude model and reaches nothing.
 - `background: true` always runs the agent in the background.
 - `isolation: worktree` runs the agent in a temporary git worktree.
 - `isolation: remote` runs the agent in a remote Claude Code remote environment and always backgrounds it.
 - `worktree.sparsePaths` limits large worktrees to selected paths.
 - `worktree.baseRef` accepts `fresh` or `head`; `fresh` branches from `origin/<default>`, while `head` carries local unpushed commits into the worktree (v2.1.133+).
+
+IF an Agent should run on a different codex model:
+### Declare `codex-model` only on Evidence covering the Agent's whole job
+The key is per Agent, so every Skill it runs moves with it. Evidence from one Skill is not Evidence for the Agent.
+Never: moving an Agent to a cheaper model because one of its Skills scored well on it.
 
 ### Keep `fallbackModel` out of agent frontmatter
 The agent `.md` parser ignores `fallbackModel` in frontmatter (v2.1.195). Set fallback models in settings JSON or with `--fallback-model`.
@@ -181,26 +187,11 @@ Example:
   ---
   ```
 
-## 6. Choose the `memory` value for the right one of the two systems
+## 6. Decide whether the Agent needs Memory
 
-The field carries two unrelated systems. The native values switch on a per-agent directory the Harness writes and auto-loads. Our own `none` denies the Agent Memory, which every Agent reaches by default. `none` is not "off" for the native directories, and `user` is not permission for Memory.
-
-- `memory: user` stores files under `~/.claude/agent-memory/<name>/` across all projects.
-- `memory: project` stores files under `.claude/agent-memory/<name>/` for the project and can be version-controlled.
-- `memory: local` stores files under `.claude/agent-memory-local/<name>/` for the project and is not version-controlled.
-- `memory: none` is ours, not the Harness's: `block_memory_access.py` refuses the honcho tools to a Subagent of that agent, and `codex-run` switches codex's memory providers off for its runs.
-- The Harness validates the field as `enum(["user", "project", "local"])`, so `none` is not a value it accepts and no native directory is auto-loaded for an agent declaring it. Declaring `none` therefore silences both systems at once, which is the intent.
-- Omitting the key leaves Memory reachable, which is what most agents want.
-- `autoMemoryEnabled: false` in the default root's `settings.json` switches the native system off for the whole root, so a native value there loads and writes nothing. The profile roots do not set the key, so the native system is live under each of them.
+- Needs it: write no `memory` key at all.
+- Does not need it: write `memory: none`, which denies the Agent Memory on both Harnesses. The value is ours, not the Harness's.
 
 IF the agent is a one-shot execution agent:
 ### Declare `memory: none`
 A conclusion drawn weeks ago sidetracks a one-shot Task, and a write from one pollutes Memory for every Agent after it. Declare it and give the run everything it needs in the Prompt.
-
-IF enabling cross-session learning under a profile root:
-### Use a native `memory` value
-Choose `user`, `project`, or `local` in frontmatter. Under the default root the value is inert until `autoMemoryEnabled` is turned back on, so declaring it there buys nothing.
-
-IF enabling cross-session learning:
-### Include recording instructions in the system Prompt
-Tell the agent what to record and what not to record, because the field only enables storage.

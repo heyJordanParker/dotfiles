@@ -17,6 +17,8 @@ The three behaviors under test:
 import os
 import sys
 
+import pytest
+
 from conftest import PY_HOOKS
 
 sys.path.insert(0, os.path.join(PY_HOOKS, "lib"))
@@ -500,6 +502,195 @@ def test_resume_of_a_bare_codex_thread_stops(monkeypatch, tmp_path, capsys):
     _no_codex(monkeypatch)
     assert codex_run.main(["resume", "th_1", "continue"]) == 1
     assert "unidentifiable" in capsys.readouterr().out
+
+
+# --- an agent runs on the model its definition declares ---------------------------
+
+def _capture_cmd(monkeypatch, tmp_path):
+    cmds = []
+    monkeypatch.setattr(codex_run, "_run",
+                        lambda cmd, events: cmds.append(cmd) or (0, "answer", "th_1", False, ""))
+    monkeypatch.setattr(codex_run, "_output_paths",
+                        lambda: (str(tmp_path / "a.txt"), str(tmp_path / "e.jsonl")))
+    return cmds
+
+
+def _model_of(cmd):
+    return cmd[cmd.index("-m") + 1]
+
+
+def _effort_of(cmd):
+    return next(v.split("=", 1)[1] for v in cmd if v.startswith("model_reasoning_effort="))
+
+
+def test_declared_codex_model_reaches_codex(monkeypatch, tmp_path, capsys):
+    """`codex-model` is the codex counterpart of `model`: the run uses it."""
+    agents = _pin_agents(monkeypatch, tmp_path, ["research-judge"])
+    (agents / "research-judge.md").write_text(
+        "---\nname: research-judge\nmodel: opus\ncodex-model: gpt-5.6-luna\n---\n\nbody\n")
+    cmds = _capture_cmd(monkeypatch, tmp_path)
+    assert codex_run.main(["@research-judge", "judge this"]) == 0
+    assert _model_of(cmds[0]) == "gpt-5.6-luna"
+    assert "model:   gpt-5.6-luna" in capsys.readouterr().out
+
+
+def test_undeclared_agent_runs_the_default_model(monkeypatch, tmp_path):
+    """Omitting the key changes nothing — the whole roster keeps today's model."""
+    agents = _pin_agents(monkeypatch, tmp_path, ["ponytail"])
+    (agents / "ponytail.md").write_text("---\nname: ponytail\nmodel: opus\n---\n\nbody\n")
+    cmds = _capture_cmd(monkeypatch, tmp_path)
+    assert codex_run.main(["@ponytail", "do x"]) == 0
+    assert _model_of(cmds[0]) == codex_run._MODEL
+    assert cmds[0].count("-m") == 1
+
+
+def test_agent_with_no_definition_file_runs_the_default_model(monkeypatch, tmp_path):
+    """A roster holding only the generated prompt.md still runs — the model falls
+    back rather than the run failing on a missing definition."""
+    _pin_agents(monkeypatch, tmp_path, ["architect"])
+    cmds = _capture_cmd(monkeypatch, tmp_path)
+    assert codex_run.main(["@architect", "do x"]) == 0
+    assert _model_of(cmds[0]) == codex_run._MODEL
+
+
+def test_codex_model_comes_from_the_roster_that_supplied_the_instructions(monkeypatch, tmp_path):
+    """Same rule as the memory declaration: a profile's copy of an agent carries
+    the profile's model, never the shared roster's."""
+    shared = _pin_agents(monkeypatch, tmp_path, ["researcher"])
+    (shared / "researcher.md").write_text(
+        "---\nname: researcher\ncodex-model: gpt-5.6-sol\n---\n\nbody\n")
+    profile = _pin_profile(monkeypatch, tmp_path, ["researcher"])
+    (profile / "researcher.md").write_text(
+        "---\nname: researcher\ncodex-model: gpt-5.6-luna\n---\n\nbody\n")
+    assert codex_run._codex_model("researcher") == "gpt-5.6-luna"
+
+
+def test_declared_model_is_not_rewritten(monkeypatch, tmp_path):
+    """The value reaches codex as written. The parse lowercases nothing now that
+    it serves a key whose values this module does not own — only the memory
+    comparison lowers, where widening a denial is safe."""
+    agents = _pin_agents(monkeypatch, tmp_path, ["research-judge"])
+    (agents / "research-judge.md").write_text(
+        "---\nname: research-judge\ncodex-model: GPT-5.6-Luna\n---\n\nbody\n")
+    assert codex_run._codex_model("research-judge") == "GPT-5.6-Luna"
+
+
+def test_unreadable_definition_still_denies_memory(monkeypatch, tmp_path):
+    """The two keys share a parse but not their answer to an unreadable file. An
+    unreadable definition denies memory; asking `declaration` for that key is
+    refused outright, so the permissive answer cannot be reached by mistake."""
+    import agent_memory
+    directory = tmp_path / "researcher.md"
+    directory.mkdir()  # a directory where the definition should be
+    assert agent_memory.denies_memory(str(directory)) is True
+    with pytest.raises(ValueError):
+        agent_memory.declaration(str(directory), "memory")
+
+
+def test_unreadable_definition_fails_the_run_rather_than_defaulting(monkeypatch, tmp_path):
+    """A declaration that was written and could not be read is a broken agent.
+    Running the default instead would be indistinguishable, in the output, from
+    an agent that declared nothing."""
+    import agent_memory
+    agents = _pin_agents(monkeypatch, tmp_path, ["research-judge"])
+    (agents / "research-judge.md").write_bytes(
+        b"---\nname: research-judge\ncodex-model: gpt-\xff\xfe-luna\n---\n")
+    with pytest.raises(UnicodeDecodeError):
+        agent_memory.declaration(str(agents / "research-judge.md"), "codex-model")
+    with pytest.raises(UnicodeDecodeError):
+        codex_run._codex_model("research-judge")
+
+
+def test_declared_effort_reaches_codex(monkeypatch, tmp_path, capsys):
+    """`effort` is one field for both harnesses: the word Claude reads natively
+    is translated into codex's value rather than ignored."""
+    agents = _pin_agents(monkeypatch, tmp_path, ["explorer"])
+    (agents / "explorer.md").write_text("---\nname: explorer\neffort: high\n---\n\nbody\n")
+    cmds = _capture_cmd(monkeypatch, tmp_path)
+    assert codex_run.main(["@explorer", "map this"]) == 0
+    assert _effort_of(cmds[0]) == "high"
+    assert "effort high" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("declared", ["low", "medium", "high", "xhigh", "max"])
+def test_every_level_claude_accepts_reaches_codex_unchanged(monkeypatch, tmp_path, declared):
+    """The five levels `claude --effort` lists are the five codex takes, so each
+    crosses untranslated. `xhigh` and `max` are separate tiers on both: mapping
+    one onto the other ran an agent at a tier it did not declare, and rejecting
+    `xhigh` hard-failed every codex run of an agent declaring it."""
+    agents = _pin_agents(monkeypatch, tmp_path, ["architect"])
+    (agents / "architect.md").write_text(
+        "---\nname: architect\neffort: %s\n---\n\nbody\n" % declared)
+    cmds = _capture_cmd(monkeypatch, tmp_path)
+    assert codex_run.main(["@architect", "review"]) == 0
+    assert _effort_of(cmds[0]) == declared
+
+
+def test_undeclared_agent_runs_the_default_effort(monkeypatch, tmp_path):
+    """Pinned to the literal, not to the constant: asserting against `_EFFORT`
+    would follow the production value wherever it moved and never fail."""
+    agents = _pin_agents(monkeypatch, tmp_path, ["ponytail"])
+    (agents / "ponytail.md").write_text("---\nname: ponytail\nmodel: opus\n---\n\nbody\n")
+    cmds = _capture_cmd(monkeypatch, tmp_path)
+    assert codex_run.main(["@ponytail", "do x"]) == 0
+    assert _effort_of(cmds[0]) == "medium"
+    assert len([v for v in cmds[0] if v.startswith("model_reasoning_effort=")]) == 1
+
+
+def test_blank_declarations_read_as_undeclared(monkeypatch, tmp_path):
+    """`effort:` and `codex-model:` are the same line shape, so a key written with
+    no value must resolve the same way for both — not a default for one and a
+    failed run for the other."""
+    agents = _pin_agents(monkeypatch, tmp_path, ["ponytail"])
+    (agents / "ponytail.md").write_text(
+        "---\nname: ponytail\neffort:\ncodex-model:\n---\n\nbody\n")
+    assert codex_run._codex_effort("ponytail") == codex_run._EFFORT
+    assert codex_run._codex_model("ponytail") == codex_run._MODEL
+
+
+@pytest.mark.parametrize("declared", ["none", "3", "HIGH", "highest"])
+def test_unknown_effort_fails_rather_than_defaulting(monkeypatch, tmp_path, capsys, declared):
+    """The vocabulary is exactly what Claude's own key accepts, so a word outside
+    it is a typo, not something to silently replace with the default. `none` is
+    excluded on purpose: it is model_call's floor for its own calls, and Claude's
+    key does not take it, so honouring it here would let the field mean something
+    on codex it cannot mean on Claude."""
+    agents = _pin_agents(monkeypatch, tmp_path, ["ponytail"])
+    (agents / "ponytail.md").write_text(
+        "---\nname: ponytail\neffort: %s\n---\n\nbody\n" % declared)
+    _no_codex(monkeypatch)
+    monkeypatch.setattr(codex_run, "_output_paths",
+                        lambda: (str(tmp_path / "a.txt"), str(tmp_path / "e.jsonl")))
+
+    rc = codex_run.main(["@ponytail", "do x"])
+    out = capsys.readouterr().out
+    assert rc == 1
+    assert declared in out and "unknown effort" in out
+    assert "Traceback" not in out
+
+
+def test_resume_runs_at_the_recovered_agents_effort(monkeypatch, tmp_path):
+    """codex does not keep the effort with the thread any more than the model, so
+    a continuation takes it from the recovered agent."""
+    agents = _pin_agents(monkeypatch, tmp_path, ["explorer"])
+    (agents / "explorer.md").write_text("---\nname: explorer\neffort: high\n---\n\nbody\n")
+    _pin_rollout(monkeypatch, tmp_path, "th_1", "instructions for explorer")
+    cmds = _capture_cmd(monkeypatch, tmp_path)
+    assert codex_run.main(["resume", "th_1", "continue"]) == 0
+    assert _effort_of(cmds[0]) == "high"
+
+
+def test_resume_runs_on_the_recovered_agents_model(monkeypatch, tmp_path):
+    """A resume is passed a session and a message and nothing else, so the model
+    has to come from the recovered agent — codex does not keep it with the
+    thread, exactly as it does not keep the instructions."""
+    agents = _pin_agents(monkeypatch, tmp_path, ["research-judge"])
+    (agents / "research-judge.md").write_text(
+        "---\nname: research-judge\ncodex-model: gpt-5.6-luna\n---\n\nbody\n")
+    _pin_rollout(monkeypatch, tmp_path, "th_1", "instructions for research-judge")
+    cmds = _capture_cmd(monkeypatch, tmp_path)
+    assert codex_run.main(["resume", "th_1", "continue"]) == 0
+    assert _model_of(cmds[0]) == "gpt-5.6-luna"
 
 
 def test_unknown_agent_dispatch_lists_available(monkeypatch, tmp_path, capsys):
