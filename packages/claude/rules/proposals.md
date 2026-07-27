@@ -37,6 +37,10 @@ Say what was decided, what it runs into, and what changes if it moves, then let 
 Ship the best option you know.
 Never: present a worse option with a footnote pointing at the better one.
 
+IF an option's viability can be tested here:
+### Exercise the option before presenting it
+Run the command, hit the API, render the page. An option reaching the Architect untested converts his review time into your test run.
+
 ### Make every Architectural Decision prominent
 Every Architectural Decision gets its own heading or callout. Name it in one sentence, with everything needed to evaluate it sitting right there. Never bury it in a line.
 

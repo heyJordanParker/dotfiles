@@ -35,7 +35,7 @@ IF the current turn is a proposing-state turn:
 Each option takes a different approach. Cosmetic variants of the same idea are Fluff.
 
 ### Drop options that cannot win
-Do not include bad options, padding, or an option the User already rejected in this conversation.
+Do not include padding, a "do nothing" or "keep the current approach" option — asking for options already means a change is requested — an option under 35% confidence, or one the User already rejected in this conversation.
 
 ### Do not split a picked option into sub-part variants
 Once the User picks an option, apply their refinement to it directly.

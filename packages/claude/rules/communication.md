@@ -22,6 +22,11 @@ Never: "could not run because", or Lando/Docker/network explanations.
 ### Put the answer in the last reply of the turn
 The answer, the Proposal, or the finding belongs in the last reply of the turn. The Architect reads the last reply; Subagent output pushes earlier ones up. If the answer needs more work, do it this turn before you send.
 
+IF presenting work, findings, or a Proposal:
+### Optimize the review for the Architect's consumption
+Markdown content goes in the reply; when richer context reviews faster, build a Claude Code Artifact. The Architect decides from what you hand him, never from agent outputs, paper trails, or plan files.
+Never: "the full report is at docs/…", "read the plan file", an essay, or turn-by-turn narration of other work.
+
 ### Announce action once before tools
 Use one sentence before your first tool call naming what you are about to do, and a short status note when you find something load-bearing, change direction, or hit a blocker. That single sentence is the one exception to cutting preamble.
 

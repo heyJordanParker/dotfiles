@@ -13,6 +13,12 @@ IF the control run does not fail:
 The base Disposition already holds. A correction for a failure that did not appear is
 Overprompting.
 
+IF testing a tactical Prompt change:
+### Test only at visible magnitude
+A tactical change earns a test run only when it can move the output 35% or more, rising
+with the decision's share of the total output. Below that the effect cannot be evaluated
+in a complex system — fold it into a bigger change or cut it.
+
 ### Record the rationalization verbatim
 The Agent's own words name the gap. The correction must answer those words, not a theme invented
 afterward.
