@@ -241,6 +241,16 @@
         ]
       },
       {
+        "matcher": "mcp__plugin_honcho_honcho__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ~/.agents/hooks/block_memory_access.py",
+            "timeout": 5
+          }
+        ]
+      },
+      {
         "matcher": "Bash|Agent",
         "hooks": [
           {

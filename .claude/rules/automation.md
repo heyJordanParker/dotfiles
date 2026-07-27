@@ -20,5 +20,5 @@ Run `python3 scripts/sync.py` once up front. The pre-commit Hook reruns it on ev
 
 IF changing where a Hook fires:
 ### Edit `BINDING` and sync
-Edit the Hook's `BINDING` and run `sync.py`.
-Never: hand-edit the generated regions.
+Edit the Hook's `BINDING` and run `sync.py`. Add `roots: "all"` when the Hook must hold in every profile config root, not the default one alone.
+Never: hand-edit the generated regions, in `settings.json`, in a profile's `settings.json`, or in `config.toml`.

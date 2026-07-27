@@ -38,7 +38,7 @@ Use an agent when the Task recurs across sessions and the separate Frame or runt
 - `initialPrompt` auto-submits a first turn when the agent starts.
 - `mcpServers` scopes Model Context Protocol servers to the agent.
 - `hooks` scopes Hook wiring to the agent.
-- `memory` accepts `user`, `project`, or `local`.
+- `memory` accepts `user`, `project`, or `local` natively, plus our own `none` (step 6).
 - `background: true` always runs the agent in the background.
 - `isolation: worktree` runs the agent in a temporary git worktree.
 - `isolation: remote` runs the agent in a remote Claude Code remote environment and always backgrounds it.
@@ -64,7 +64,6 @@ Template:
   model: inherit
   tools: Read, Grep, Glob, Bash
   skills: <process-skill>
-  memory: user
   ---
 
   You are <Frame>.
@@ -87,7 +86,6 @@ Example:
   model: opus
   tools: Read, Grep, Glob, Bash, WebFetch, WebSearch
   skills: trace
-  memory: user
   ---
 
   You are a researcher. You investigate external systems and return verified findings with sources.
@@ -183,16 +181,26 @@ Example:
   ---
   ```
 
-## 6. Add memory only when the agent should learn across sessions
+## 6. Choose the `memory` value for the right one of the two systems
 
-- `memory: user` stores memory under `~/.claude/agent-memory/<name>/` across all projects.
-- `memory: project` stores memory under `.claude/agent-memory/<name>/` for the project and can be version-controlled.
-- `memory: local` stores memory under `.claude/agent-memory-local/<name>/` for the project and is not version-controlled.
+The field carries two unrelated systems. The native values switch on a per-agent directory the Harness writes and auto-loads. Our own `none` denies the Agent Memory, which every Agent reaches by default. `none` is not "off" for the native directories, and `user` is not permission for Memory.
+
+- `memory: user` stores files under `~/.claude/agent-memory/<name>/` across all projects.
+- `memory: project` stores files under `.claude/agent-memory/<name>/` for the project and can be version-controlled.
+- `memory: local` stores files under `.claude/agent-memory-local/<name>/` for the project and is not version-controlled.
+- `memory: none` is ours, not the Harness's: `block_memory_access.py` refuses the honcho tools to a Subagent of that agent, and `codex-run` switches codex's memory providers off for its runs.
+- The Harness validates the field as `enum(["user", "project", "local"])`, so `none` is not a value it accepts and no native directory is auto-loaded for an agent declaring it. Declaring `none` therefore silences both systems at once, which is the intent.
+- Omitting the key leaves Memory reachable, which is what most agents want.
+- `autoMemoryEnabled: false` in the default root's `settings.json` switches the native system off for the whole root, so a native value there loads and writes nothing. The profile roots do not set the key, so the native system is live under each of them.
+
+IF the agent is a one-shot execution agent:
+### Declare `memory: none`
+A conclusion drawn weeks ago sidetracks a one-shot Task, and a write from one pollutes Memory for every Agent after it. Declare it and give the run everything it needs in the Prompt.
+
+IF enabling cross-session learning under a profile root:
+### Use a native `memory` value
+Choose `user`, `project`, or `local` in frontmatter. Under the default root the value is inert until `autoMemoryEnabled` is turned back on, so declaring it there buys nothing.
 
 IF enabling cross-session learning:
-### Use the `memory` field
-Choose `user`, `project`, or `local` in frontmatter.
-
-IF enabling cross-session learning:
-### Include memory instructions in the system Prompt
+### Include recording instructions in the system Prompt
 Tell the agent what to record and what not to record, because the field only enables storage.

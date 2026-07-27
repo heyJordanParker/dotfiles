@@ -7,10 +7,48 @@ the codex-agent and codex-review skills and needed no judgment. This module owns
 all of it, so the agent only writes the task prompt.
 
 `codex-run @<agent> "<prompt>"` resolves `@<agent>` to that agent's
-frontmatter-stripped instruction body (`~/.agents/agents/<name>.prompt.md`, the
-same artifact that boots codex as the CTO) and runs codex with it as the
+frontmatter-stripped instruction body (`<roster>/<name>.prompt.md`, the same
+artifact that boots codex as the CTO) and runs codex with it as the
 base-instructions override. `codex-run resume <session_id> "<msg>"` continues a
 prior run. An unknown agent exits non-zero listing the available agents.
+
+There is more than one roster. The active config root's `agents/` is searched
+first and the shared `~/.agents/agents` second, because a profile is its own
+config root with its own agents and those are real agents while that profile is
+active — resolving only the shared roster made every profile-only agent
+unreachable on codex. Active root first means a name held by both runs as the
+profile's, matching which definition governs on the Claude side; keeping the
+shared roster behind it means entering a profile adds a roster rather than
+losing one. The instructions and the memory declaration always come from the
+same roster, so a profile's copy of an agent cannot run under another roster's
+declaration.
+
+An agent whose `<name>.md` frontmatter declares `memory: none` runs with both of
+codex's memory providers switched off — the honcho MCP server and codex's own
+[memories] — so no Memory reaches the run and none is written back.
+
+`resume` takes a session and a message and nothing else, so the founding agent is
+recovered rather than passed. The source is codex's own record: the thread's
+rollout opens with a `session_meta` carrying the `base_instructions` the run was
+founded on, and those instructions name their agent — every generated .prompt.md
+opens with an inert HTML-comment marker holding the agent's name, so the name
+rides into the record and comes back out as an exact lookup. Identity therefore
+survives any rewording of an agent's text; before the marker it was inferred by
+matching the recorded prose back against the corpus, and a reworded opening line
+orphaned every thread founded before that edit. A marker naming something outside
+the roster resolves to nothing, so the runnable set stays the allowlist.
+
+Threads founded before the marker carry no name and still resolve through that
+prose matching. The continuation then runs with the recovered agent's
+instructions override and that agent's memory declaration — the same two things
+the founding run had. Because the record is codex's, recovery works on every
+thread it ever wrote, including those founded before this code existed, and it
+states what actually reached the model rather than what this wrapper meant to
+send.
+
+An unidentifiable thread fails the run rather than continuing: answering as
+codex's global default agent, silently and under a different character while the
+surviving history keeps the replies on topic, is the defect this recovery removes.
 
 Our shared Python guards govern the run, not codex's sandbox — the architect does
 not want codex sandboxes — so every run passes
@@ -44,6 +82,7 @@ import subprocess
 import sys
 import time
 
+import agent_memory
 import session_state
 
 AGENTS_DIR = os.path.expanduser("~/.agents/agents")
@@ -74,15 +113,65 @@ _BASE_FLAGS = ["--json", "--skip-git-repo-check",
 _TRAILER = "--- codex-run ---"
 
 
+def _roster_dirs():
+    """The agents directories `@<agent>` resolves against, active root first.
+
+    A profile is its own config root with its own roster, so an agent that lives
+    only in a profile is a real agent while that profile is active and has to be
+    runnable here. The active root's agents/ is read first — the same root, by
+    the same rule, that the Claude-side gate reads a declaration from — so a name
+    held by both a profile and the shared roster runs as the profile's, never the
+    other way round. The shared roster follows rather than being replaced, so
+    entering a profile adds a roster instead of losing one.
+
+    The default root's agents/ is a symlink to the shared roster, so the two
+    entries collapse to one; deduplication is on realpath, which catches that and
+    any other aliasing between the roots."""
+    root = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude")
+    dirs, seen = [], set()
+    for candidate in (os.path.join(root, "agents"), AGENTS_DIR):
+        key = os.path.realpath(candidate)
+        if key not in seen:
+            seen.add(key)
+            dirs.append(candidate)
+    return dirs
+
+
 def _available_agents():
-    """The agent names runnable as @<agent> — one per <name>.prompt.md."""
-    if not os.path.isdir(AGENTS_DIR):
-        return []
-    names = []
-    for entry in sorted(os.listdir(AGENTS_DIR)):
-        if entry.endswith(".prompt.md"):
-            names.append(entry[: -len(".prompt.md")])
-    return names
+    """The agent names runnable as @<agent> — one per <name>.prompt.md, across
+    every roster, with the first roster holding a name owning it."""
+    names, seen = [], set()
+    for directory in _roster_dirs():
+        if not os.path.isdir(directory):
+            continue
+        for entry in sorted(os.listdir(directory)):
+            if entry.endswith(".prompt.md"):
+                name = entry[: -len(".prompt.md")]
+                if name not in seen:
+                    seen.add(name)
+                    names.append(name)
+    return sorted(names)
+
+
+def _agent_dir(name):
+    """The roster directory that owns `name`, or None when no roster holds it."""
+    for directory in _roster_dirs():
+        if os.path.isfile(os.path.join(directory, name + ".prompt.md")):
+            return directory
+    return None
+
+
+def _declares_blank_memory(name):
+    """Whether `<name>.md` declares `memory: none`.
+
+    The same declaration the Claude-side gate reads, through the same parser,
+    and from the same roster that supplied the instructions — a profile's copy of
+    an agent carries a profile's declaration, so the two must not come from
+    different directories."""
+    directory = _agent_dir(name)
+    if directory is None:
+        return False
+    return agent_memory.denies_memory(os.path.join(directory, name + ".md"))
 
 
 def _resolve_agent(token):
@@ -90,14 +179,130 @@ def _resolve_agent(token):
 
     The runnable set is exactly the named-agent allowlist (`_available_agents`),
     so the name must be one of those exact names — a name carrying path segments
-    (`@../../something`) is rejected as unknown rather than joined onto the agents
-    dir, which would let it reach an instruction file outside the named set."""
+    (`@../../something`) is rejected as unknown rather than joined onto a roster
+    dir, which would let it reach an instruction file outside the named set. The
+    allowlist lists bare filenames only, so no name in it can carry a segment."""
     if not token.startswith("@"):
         return None
     name = token[1:]
     if name not in _available_agents():
         return None
-    return os.path.join(AGENTS_DIR, name + ".prompt.md")
+    directory = _agent_dir(name)
+    return None if directory is None else os.path.join(directory, name + ".prompt.md")
+
+
+# --- which agent founded a thread, read from codex's own record --------------------
+
+CODEX_HOME = os.path.expanduser("~/.codex")
+
+
+def _rollout_path(session):
+    """The rollout codex wrote for `session`, or None.
+
+    The id is validated before it reaches the glob, so a session argument cannot
+    smuggle pattern metacharacters into the search."""
+    from glob import glob
+    if not session_state._is_valid_session_id(session):
+        return None
+    name = "rollout-*-%s.jsonl" % session
+    for pattern in (os.path.join(CODEX_HOME, "sessions", "**", name),
+                    os.path.join(CODEX_HOME, "archived_sessions", name)):
+        for match in sorted(glob(pattern, recursive=True)):
+            return match
+    return None
+
+
+def _founding_instructions(session):
+    """The base instructions the thread was founded on, from its rollout's
+    session_meta — codex's own record of the run, so it states what actually
+    reached the model rather than what this wrapper meant to send."""
+    import json
+    path = _rollout_path(session)
+    if path is None:
+        return None
+    try:
+        with open(path, encoding="utf-8") as fh:
+            first = fh.readline()
+    except OSError:
+        return None
+    try:
+        event = json.loads(first)
+    except ValueError:
+        return None
+    payload = event.get("payload")
+    if event.get("type") != "session_meta" or not isinstance(payload, dict):
+        return None
+    instructions = payload.get("base_instructions")
+    if isinstance(instructions, dict):
+        return instructions.get("text")
+    return instructions if isinstance(instructions, str) else None
+
+
+# The name-carrying line scripts/agents.py writes at the top of every generated
+# .prompt.md. An HTML comment renders as nothing and instructs nothing, so it is
+# inert to the model reading the instructions and carries identity only.
+_MARKER_OPEN = "<!-- codex-run agent: "
+_MARKER_CLOSE = "-->"
+
+
+def _marked_agent(text):
+    """The agent name the marker line at the top of `text` declares, or None.
+
+    Only the first line is considered, so a marker quoted further down the body
+    cannot claim an identity."""
+    head = text.strip().splitlines()[:1]
+    if not head:
+        return None
+    line = head[0].strip()
+    if not line.startswith(_MARKER_OPEN) or not line.endswith(_MARKER_CLOSE):
+        return None
+    return line[len(_MARKER_OPEN):-len(_MARKER_CLOSE)].strip() or None
+
+
+def _without_marker(text):
+    text = text.strip()
+    if _marked_agent(text) is None:
+        return text
+    return text.split("\n", 1)[1].strip() if "\n" in text else ""
+
+
+def _founding_agent(session):
+    """The agent whose instructions founded `session`, or None if none matches.
+
+    The recorded instructions name their own agent when the thread was founded
+    after the marker existed, so identity is an exact lookup rather than a guess
+    read off prose — rewording an agent's text cannot orphan such a thread. The
+    name still resolves through `_available_agents`, so a stale or tampered
+    marker naming something outside the roster resolves to nothing.
+
+    Threads founded before the marker carry no name, so the text matching stays
+    for them: whole text first, then the first line, both compared with the
+    marker stripped off the corpus so the marker's arrival did not move the
+    opener out from under every pre-existing thread. A first line claimed by more
+    than one agent resolves to nothing rather than to a guess."""
+    recorded = _founding_instructions(session)
+    if not recorded or not recorded.strip():
+        return None
+    named = _marked_agent(recorded)
+    if named:
+        return named if named in _available_agents() else None
+    body = _without_marker(recorded)
+    head = body.splitlines()[0].strip() if body else ""
+    by_head = []
+    for name in _available_agents():
+        directory = _agent_dir(name)
+        if directory is None:
+            continue
+        try:
+            with open(os.path.join(directory, name + ".prompt.md"), encoding="utf-8") as fh:
+                source = _without_marker(fh.read())
+        except OSError:
+            continue
+        if source == body:
+            return name
+        if source.splitlines()[:1] == [head]:
+            by_head.append(name)
+    return by_head[0] if len(by_head) == 1 else None
 
 
 # --- output storage: session dir via the spine, /tmp fallback ---------------------
@@ -181,7 +386,20 @@ def _run(cmd, events_path):
     return returncode, answer, session, turn_failed, stderr_chunks[0]
 
 
-def _dispatch(prompt_path, prompt, resume_id=None):
+# An agent declaring `memory: none` runs with every memory provider off, not just
+# one. codex has two: the honcho MCP server, whose tools are never registered so
+# Memory is out of reach for reads and writes alike rather than gated after
+# the fact; and codex's own [memories], which needs no tool call at all because
+# it injects a Memory section and MEMORY_SUMMARY straight into the run. Switching
+# off only honcho left a blank-declared agent reading Memory through
+# the second provider — `generate_memories` covers the write direction too, so a
+# one-shot run cannot deposit anything for a later run to read.
+_NO_MEMORY_FLAGS = ["-c", "mcp_servers.honcho.enabled=false",
+                    "-c", "memories.use_memories=false",
+                    "-c", "memories.generate_memories=false"]
+
+
+def _dispatch(prompt_path, prompt, agent, resume_id=None, blank_memory=False):
     """Build the codex command, run it, store the answer, print the clean result.
 
     Returns the process exit code, raised to 1 on a turn.failed event or a run
@@ -194,11 +412,16 @@ def _dispatch(prompt_path, prompt, resume_id=None):
     resume), and the on-disk output and events paths. Nothing the caller needs is
     anywhere else — no stderr, no pipe."""
     answer_path, events_path = _output_paths()
+    memory = _NO_MEMORY_FLAGS if blank_memory else []
+    # The instructions override rides on a resume too. codex does not persist it
+    # with the thread: a continuation without it runs on the global default
+    # instructions, which is how a thread founded as one agent came back as
+    # another with nothing in the output saying so.
+    instructions = ["-c", "%s=%s" % (_INSTRUCTIONS_KEY, prompt_path)]
     if resume_id is not None:
-        cmd = ["codex", "exec", "resume", resume_id] + _BASE_FLAGS + [prompt]
+        cmd = ["codex", "exec", "resume", resume_id] + _BASE_FLAGS + memory + instructions + [prompt]
     else:
-        cmd = ["codex", "exec"] + _BASE_FLAGS + \
-              ["-c", "%s=%s" % (_INSTRUCTIONS_KEY, prompt_path), prompt]
+        cmd = ["codex", "exec"] + _BASE_FLAGS + memory + instructions + [prompt]
 
     returncode, answer, session, turn_failed, stderr = _run(cmd, events_path)
 
@@ -225,6 +448,9 @@ def _dispatch(prompt_path, prompt, resume_id=None):
         print("\ncodex error output:\n%s" % error)
     print(_TRAILER)
     print("status:  %s" % status)
+    # Named on every run, resumes included: the identity a continuation runs under
+    # is now resolved rather than assumed, so it is worth showing.
+    print("agent:   %s" % agent)
     if resumed_fresh:
         print("resume:  DID NOT RESUME — codex started fresh thread %s instead of %s"
               % (session, resume_id))
@@ -256,7 +482,18 @@ def main(argv):
         if len(argv) != 3:
             print("codex-run: resume needs a session id and a message\n" + _USAGE)
             return 2
-        return _dispatch(None, _read_prompt(argv[2]), resume_id=argv[1])
+        session = argv[1]
+        agent = _founding_agent(session)
+        prompt_path = _resolve_agent("@" + agent) if agent else None
+        if prompt_path is None:
+            # Loud stop, not a silent continuation: without the founding agent the
+            # run would answer as codex's global default with the thread's history
+            # intact, which reads as the same agent and is not.
+            print("codex-run: cannot resume %s — its founding agent is unidentifiable%s"
+                  % (session, "" if agent is None else " ('%s' is not a runnable agent)" % agent))
+            return 1
+        return _dispatch(prompt_path, _read_prompt(argv[2]), agent, resume_id=session,
+                         blank_memory=_declares_blank_memory(agent))
 
     if len(argv) != 2 or not argv[0].startswith("@"):
         print(_USAGE)
@@ -267,7 +504,8 @@ def main(argv):
         print("codex-run: unknown agent '%s'. Available: %s"
               % (argv[0], ", ".join(_available_agents())))
         return 1
-    return _dispatch(prompt_path, _read_prompt(argv[1]))
+    return _dispatch(prompt_path, _read_prompt(argv[1]), argv[0][1:],
+                     blank_memory=_declares_blank_memory(argv[0][1:]))
 
 
 if __name__ == "__main__":

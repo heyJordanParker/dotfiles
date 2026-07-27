@@ -134,22 +134,22 @@ def test_hook_without_binding_is_skipped(hooks_dir):
 
 # --- Claude wiring -----------------------------------------------------------
 
-def test_claude_all_and_claude_hooks_present(hooks_dir, settings_path, config_path):
-    generator.generate(str(hooks_dir), str(settings_path), str(config_path))
+def test_claude_all_and_claude_hooks_present(hooks_dir, settings_path, config_path, profiles_dir):
+    generator.generate(str(hooks_dir), str(settings_path), str(config_path), str(profiles_dir))
     settings = json.loads(settings_path.read_text())
     commands = _claude_commands(settings)
     assert "python3 ~/.agents/hooks/guard_shell.py" in commands      # harness: all
     assert "python3 ~/.agents/hooks/classify_prompt.py" in commands  # harness: claude
 
 
-def test_claude_unmanaged_entries_survive_noop_byte_identical(hooks_dir, settings_path, config_path):
+def test_claude_unmanaged_entries_survive_noop_byte_identical(hooks_dir, settings_path, config_path, profiles_dir):
     """A no-op regeneration leaves the inline-prompt gate and the shell-glue
     entry byte-identical — same hook objects, in the same groups, unchanged.
     These have no BINDING source; only managed `.py` command entries are rewritten."""
     inline_prompt = {"type": "prompt", "prompt": "Question quality gate."}
     shell_glue = {"type": "command", "command": "bash '/Users/jordan/.claude/hooks/herdr.sh' working"}
 
-    generator.generate(str(hooks_dir), str(settings_path), str(config_path))
+    generator.generate(str(hooks_dir), str(settings_path), str(config_path), str(profiles_dir))
     hooks_section = json.loads(settings_path.read_text())["hooks"]
 
     all_entries = [h for groups in hooks_section.values() for group in groups for h in group["hooks"]]
@@ -157,31 +157,31 @@ def test_claude_unmanaged_entries_survive_noop_byte_identical(hooks_dir, setting
     assert shell_glue in all_entries
 
 
-def test_claude_non_hook_sections_untouched(hooks_dir, settings_path, config_path):
+def test_claude_non_hook_sections_untouched(hooks_dir, settings_path, config_path, profiles_dir):
     before = json.loads(settings_path.read_text())["permissions"]
-    generator.generate(str(hooks_dir), str(settings_path), str(config_path))
+    generator.generate(str(hooks_dir), str(settings_path), str(config_path), str(profiles_dir))
     after = json.loads(settings_path.read_text())["permissions"]
     assert after == before
 
 
-def test_claude_noop_is_idempotent(hooks_dir, settings_path, config_path):
-    generator.generate(str(hooks_dir), str(settings_path), str(config_path))
+def test_claude_noop_is_idempotent(hooks_dir, settings_path, config_path, profiles_dir):
+    generator.generate(str(hooks_dir), str(settings_path), str(config_path), str(profiles_dir))
     once = settings_path.read_text()
-    generator.generate(str(hooks_dir), str(settings_path), str(config_path))
+    generator.generate(str(hooks_dir), str(settings_path), str(config_path), str(profiles_dir))
     assert settings_path.read_text() == once
 
 
 # --- codex wiring ------------------------------------------------------------
 
-def test_codex_excludes_claude_only_hook(hooks_dir, settings_path, config_path):
-    generator.generate(str(hooks_dir), str(settings_path), str(config_path))
+def test_codex_excludes_claude_only_hook(hooks_dir, settings_path, config_path, profiles_dir):
+    generator.generate(str(hooks_dir), str(settings_path), str(config_path), str(profiles_dir))
     text = config_path.read_text()
     assert "guard_shell.py" in text          # harness: all -> present
     assert "classify_prompt.py" not in text  # harness: claude -> absent
 
 
-def test_codex_trust_hash_for_every_command(hooks_dir, settings_path, config_path):
-    generator.generate(str(hooks_dir), str(settings_path), str(config_path))
+def test_codex_trust_hash_for_every_command(hooks_dir, settings_path, config_path, profiles_dir):
+    generator.generate(str(hooks_dir), str(settings_path), str(config_path), str(profiles_dir))
     text = config_path.read_text()
     commands = re.findall(r'^command = "(.+)"$', text, re.M)
     assert commands, "expected at least one emitted codex command"
@@ -190,29 +190,29 @@ def test_codex_trust_hash_for_every_command(hooks_dir, settings_path, config_pat
         assert f'trusted_hash = "sha256:{digest}"' in text
 
 
-def test_codex_non_hook_sections_untouched(hooks_dir, settings_path, config_path):
+def test_codex_non_hook_sections_untouched(hooks_dir, settings_path, config_path, profiles_dir):
     before = config_path.read_text()
-    generator.generate(str(hooks_dir), str(settings_path), str(config_path))
+    generator.generate(str(hooks_dir), str(settings_path), str(config_path), str(profiles_dir))
     after = config_path.read_text()
     for section in ('model = "gpt-5.5"', "[features]", "hooks = true",
                     '[projects."/Users/jordan/dotfiles"]', 'trust_level = "trusted"'):
         assert section in before and section in after
 
 
-def test_codex_noop_is_idempotent(hooks_dir, settings_path, config_path):
-    generator.generate(str(hooks_dir), str(settings_path), str(config_path))
+def test_codex_noop_is_idempotent(hooks_dir, settings_path, config_path, profiles_dir):
+    generator.generate(str(hooks_dir), str(settings_path), str(config_path), str(profiles_dir))
     once = config_path.read_text()
-    generator.generate(str(hooks_dir), str(settings_path), str(config_path))
+    generator.generate(str(hooks_dir), str(settings_path), str(config_path), str(profiles_dir))
     assert config_path.read_text() == once
 
 
 # --- timeout -----------------------------------------------------------------
 
-def test_timeout_rendered_into_both_wirings_only_when_declared(hooks_dir, settings_path, config_path):
+def test_timeout_rendered_into_both_wirings_only_when_declared(hooks_dir, settings_path, config_path, profiles_dir):
     """A BINDING with `timeout` renders it into both wirings (Claude `timeout`
     field, codex `timeout = N`); a BINDING without one renders no timeout in
     either. validate_completion declares timeout 90; guard_shell declares none."""
-    generator.generate(str(hooks_dir), str(settings_path), str(config_path))
+    generator.generate(str(hooks_dir), str(settings_path), str(config_path), str(profiles_dir))
     settings = json.loads(settings_path.read_text())
     config = config_path.read_text()
 
@@ -225,6 +225,85 @@ def test_timeout_rendered_into_both_wirings_only_when_declared(hooks_dir, settin
     without_timeout = _claude_entry(settings, "python3 ~/.agents/hooks/guard_shell.py")
     assert "timeout" not in without_timeout
     assert "command = \"python3 /Users/jordan/.agents/hooks/guard_shell.py\"\ntimeout" not in config
+
+
+# --- roots -------------------------------------------------------------------
+
+@pytest.fixture
+def profiles_dir(tmp_path):
+    """Two profile config roots, each with its own settings.json — one declaring
+    an empty hooks object, one with an unmanaged entry to preserve."""
+    d = tmp_path / "profiles"
+    (d / "copywriter").mkdir(parents=True)
+    (d / "experimental").mkdir(parents=True)
+    (d / "copywriter" / "settings.json").write_text(json.dumps({
+        "hooks": {"Stop": [{"hooks": [{"type": "prompt", "prompt": "profile gate"}]}]},
+        "theme": "dark",
+    }, indent=2) + "\n")
+    (d / "experimental" / "settings.json").write_text(json.dumps({"hooks": {}}, indent=2) + "\n")
+    return d
+
+
+def test_roots_all_hook_lands_in_every_profile(hooks_dir, settings_path, config_path, profiles_dir):
+    _write_hook(hooks_dir, "block_memory_access", {
+        "events": {"PreToolUse": ["mcp__plugin_honcho_honcho__.*"]},
+        "harness": "claude",
+        "roots": "all",
+    })
+    generator.generate(str(hooks_dir), str(settings_path), str(config_path), str(profiles_dir))
+
+    for profile in ("copywriter", "experimental"):
+        settings = json.loads((profiles_dir / profile / "settings.json").read_text())
+        assert "python3 ~/.agents/hooks/block_memory_access.py" in _claude_commands(settings)
+    # and in the default root too
+    assert "python3 ~/.agents/hooks/block_memory_access.py" in \
+        _claude_commands(json.loads(settings_path.read_text()))
+
+
+def test_profiles_get_only_the_opted_in_hooks(hooks_dir, settings_path, config_path, profiles_dir):
+    """A profile that declares no hooks stays that way apart from the opt-ins —
+    the workflow hooks belong to the default root alone."""
+    _write_hook(hooks_dir, "block_memory_access", {
+        "events": {"PreToolUse": ["mcp__plugin_honcho_honcho__.*"]},
+        "harness": "claude",
+        "roots": "all",
+    })
+    generator.generate(str(hooks_dir), str(settings_path), str(config_path), str(profiles_dir))
+    commands = _claude_commands(json.loads((profiles_dir / "experimental" / "settings.json").read_text()))
+    assert commands == ["python3 ~/.agents/hooks/block_memory_access.py"]
+
+
+def test_profile_unmanaged_entries_and_settings_survive(hooks_dir, settings_path, config_path, profiles_dir):
+    _write_hook(hooks_dir, "block_memory_access", {
+        "events": {"PreToolUse": ["mcp__plugin_honcho_honcho__.*"]},
+        "harness": "claude",
+        "roots": "all",
+    })
+    generator.generate(str(hooks_dir), str(settings_path), str(config_path), str(profiles_dir))
+    settings = json.loads((profiles_dir / "copywriter" / "settings.json").read_text())
+    assert settings["theme"] == "dark"
+    assert settings["hooks"]["Stop"] == [{"hooks": [{"type": "prompt", "prompt": "profile gate"}]}]
+
+
+def test_profile_generation_is_idempotent(hooks_dir, settings_path, config_path, profiles_dir):
+    _write_hook(hooks_dir, "block_memory_access", {
+        "events": {"PreToolUse": ["mcp__plugin_honcho_honcho__.*"]},
+        "harness": "claude",
+        "roots": "all",
+    })
+    path = profiles_dir / "copywriter" / "settings.json"
+    generator.generate(str(hooks_dir), str(settings_path), str(config_path), str(profiles_dir))
+    once = path.read_text()
+    generator.generate(str(hooks_dir), str(settings_path), str(config_path), str(profiles_dir))
+    assert path.read_text() == once
+
+
+def test_profiles_untouched_without_an_opted_in_hook(hooks_dir, settings_path, config_path, profiles_dir):
+    """No hook declares roots: all, so no profile gains anything."""
+    path = profiles_dir / "experimental" / "settings.json"
+    before = path.read_text()
+    generator.generate(str(hooks_dir), str(settings_path), str(config_path), str(profiles_dir))
+    assert path.read_text() == before
 
 
 # --- helpers -----------------------------------------------------------------

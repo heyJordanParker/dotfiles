@@ -7,7 +7,15 @@ runs on both harnesses or Claude only:
     BINDING = {
         "events": {"<Event>": ["<matcher>", ...], ...},
         "harness": "all" | "claude",
+        "roots": "all",            # optional
     }
+
+`roots: "all"` puts a hook in every Claude config root — the default settings.json
+and each profile's — instead of the default root alone. A profile is a hand-kept
+copy, so a guard that must hold everywhere would otherwise depend on someone
+remembering to paste it into each one. Everything without the key stays in the
+default root only, which is where all the workflow hooks belong: a profile that
+declares `"hooks": {}` means it, and is left with only the hooks that opt in.
 
 This reads every hook's BINDING statically (ast.literal_eval — never imports or
 runs the hook, the way frontmatter.py reads agent files), then rewrites the
@@ -263,14 +271,32 @@ def _state_region_end(text, search_from):
 
 # --- entry point -------------------------------------------------------------
 
-def generate(hooks_dir, claude_settings_path, codex_config_path):
+def generate(hooks_dir, claude_settings_path, codex_config_path, profiles_dir):
     bindings = read_bindings(hooks_dir)
 
-    with open(claude_settings_path, encoding="utf-8") as f:
-        settings = json.load(f)
-    settings = render_claude(settings, bindings)
-    files.write_if_changed(claude_settings_path, json.dumps(settings, indent=2) + "\n")
+    _write_claude(claude_settings_path, bindings)
+    for path in _profile_settings(profiles_dir):
+        _write_claude(path, {m: b for m, b in bindings.items() if b.get("roots") == "all"})
 
     with open(codex_config_path, encoding="utf-8") as f:
         config_text = f.read()
     files.write_if_changed(codex_config_path, render_codex(config_text, bindings))
+
+
+def _profile_settings(profiles_dir):
+    """Every profile's own settings.json. A profile slot that is a symlink back to
+    the default settings.json is skipped — writing through it would double-render
+    the default root's hooks into itself."""
+    found = []
+    for name in sorted(os.listdir(profiles_dir)):
+        path = os.path.join(profiles_dir, name, "settings.json")
+        if os.path.isfile(path) and not os.path.islink(path):
+            found.append(path)
+    return found
+
+
+def _write_claude(path, bindings):
+    with open(path, encoding="utf-8") as f:
+        settings = json.load(f)
+    settings = render_claude(settings, bindings)
+    files.write_if_changed(path, json.dumps(settings, indent=2) + "\n")

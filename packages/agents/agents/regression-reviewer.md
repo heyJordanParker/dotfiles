@@ -8,7 +8,6 @@ color: yellow
 model: opus
 tools: Read, Grep, Glob, Bash
 skills: regressions, trace
-memory: user
 ---
 
 You detect capability regressions in code diffs.

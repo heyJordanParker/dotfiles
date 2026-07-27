@@ -7,6 +7,12 @@ Frontmatter name/description map across; named skills are inlined into the body,
 which becomes developer_instructions. model/tools/color/memory are dropped — codex
 has no key for them and our model names aren't codex models. Both artifacts are
 gitignored; this regenerates them.
+
+The .prompt.md opens with an HTML-comment marker naming the agent it belongs to.
+codex records the base instructions verbatim in the thread's rollout, so the
+marker rides into the record and `codex-run resume` reads the founding agent's
+name straight out of it instead of matching the prose back against the corpus.
+The comment renders as nothing and instructs nothing — it carries identity only.
 """
 
 import glob
@@ -20,7 +26,10 @@ def generate(agents_dir):
     skills_dir = os.path.join(os.path.dirname(agents_dir), "skills")
     written = []
     for md in sorted(glob.glob(os.path.join(agents_dir, "*.md"))):
-        if md.endswith(".prompt.md"):
+        if md.endswith(".prompt.md") or os.path.islink(md):
+            # A symlinked definition is another roster's agent borrowed by name;
+            # it generates where it really lives, and generating it again here
+            # would put a second copy of the same artifact in this directory.
             continue
         fields, body = frontmatter.parse(_read(md))
         name = fields.get("name") or os.path.splitext(os.path.basename(md))[0]
@@ -29,9 +38,33 @@ def generate(agents_dir):
         _write(out, _render(name, fields.get("description", ""), body))
         written.append(out)
         prompt = os.path.splitext(md)[0] + ".prompt.md"
-        _write(prompt, body.strip() + "\n")
+        _write(prompt, _marker(name) + body.strip() + "\n")
         written.append(prompt)
     return written
+
+
+def generate_profiles(profiles_dir):
+    """Generate the same artifacts for each profile's own agents.
+
+    A profile is its own config root with its own roster, and `codex-run`
+    resolves against the active root, so a profile agent needs the artifacts a
+    shared one has or it is Claude-only. A symlinked agents/ is the shared roster
+    under another name and is skipped — it generates where it really lives.
+    """
+    written = []
+    if not os.path.isdir(profiles_dir):
+        return written
+    for name in sorted(os.listdir(profiles_dir)):
+        agents_dir = os.path.join(profiles_dir, name, "agents")
+        if os.path.isdir(agents_dir) and not os.path.islink(agents_dir):
+            written.extend(generate(agents_dir))
+    return written
+
+
+def _marker(name):
+    # Read back by lib/codex_run.py's _marked_agent on resume; the two spellings
+    # are pinned together by tests/hooks/test_codex_run.py.
+    return "<!-- codex-run agent: %s -->\n\n" % name
 
 
 def _load_skills(agent, value, skills_dir):

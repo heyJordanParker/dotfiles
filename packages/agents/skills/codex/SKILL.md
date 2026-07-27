@@ -32,9 +32,20 @@ Template:
 `@<agent>` resolves to that Agent type's own Prompt. An unknown Agent type exits non-zero and lists the available ones, so a typo is self-correcting.
 
 ### Run every codex-run in the background
-A foreground run blocks Orchestration on the codex turn; a guard blocks it otherwise. Use `run_in_background: true` and read the result when it lands.
+A foreground run blocks Orchestration on the codex turn. Use `run_in_background: true` and read the result when it lands.
 
 Never: a foreground codex-run.
+
+### Run the same Agent on both Harnesses when two perspectives are worth more than one
+Every Agent you can dispatch as a Subagent runs on either Harness under one definition: by name, or through `codex-run @<name>`. Both in one message gives two independent workers on the same Task, and the trailer tells the results apart — the codex answer carries one, the Subagent's does not.
+
+Example: `Agent(subagent_type: "ponytail")` and `codex-run @ponytail "<same task>"` in the same message.
+
+### Expect the active profile's Agents on top of the shared roster
+`codex-run` resolves `@<name>` against the active config root's Agents first and the shared roster second, so a profile's own Agents are runnable while that profile is active and the shared roster stays reachable behind them. A name both hold runs as the profile's, the same definition that governs a Subagent dispatch. `codex-run` lists what it can run when a name misses.
+
+### Expect a run to have no Memory when its Agent declares it
+An Agent whose definition declares `memory: none` runs without Memory, on a founding run and on a resume alike. Give such a run everything it needs in the Prompt — it recalls nothing from earlier work.
 
 ## 3. Read the final answer as a claim
 
@@ -48,6 +59,7 @@ Template:
   <the final answer codex produced>
   --- codex-run ---
   status:  ok            # or "failed"
+  agent:   <name>        # the Agent the run ran as, recovered by the wrapper on a resume
   session: <id>          # the run's identity; pass to `codex-run resume`
   output:  <path>        # the final answer on disk, in this session's own directory
   events:  <path>        # the raw event stream on disk
@@ -57,6 +69,10 @@ Template:
 IF the codex run needs iteration:
 ### Resume the same session
 Use `codex-run resume <session> "<msg>"` with feedback so the run keeps full Context. Do not re-explain to a fresh run.
+
+IF a resume reports the founding Agent is unidentifiable:
+### Start a fresh run instead of retrying
+A thread founded before the wrapper recorded Agent names, or founded outside the wrapper, cannot be continued as the Agent that started it, and the wrapper refuses rather than answering as something else. Retrying the resume returns the same refusal. Dispatch a fresh `codex-run @<agent>` carrying the Context the resume would have kept.
 
 ## 5. Close research gaps
 

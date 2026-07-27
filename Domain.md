@@ -110,6 +110,9 @@ _Avoid_: clever, sophisticated, clean
 **Context**:
 The runtime memory of an Agent. Prompts and Agent messages and operations collect in it. The fuller it gets, the more likely the Agent is to make a mistake.
 
+**Memory**:
+Persistent Agent memory. Given to orchestrating Agents.
+
 **Harness**:
 The program that runs an Agent. It loops the Agent by feeding it Prompts, running its tools, and feeding results back, until the work is done. Claude Code and Codex are Harnesses.
 

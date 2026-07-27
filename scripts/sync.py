@@ -18,10 +18,12 @@ PACKAGES = os.path.join(ROOT, "packages")
 def main():
     stow.restow(PACKAGES)
     agents.generate(os.path.join(PACKAGES, "agents", "agents"))
+    agents.generate_profiles(os.path.join(PACKAGES, "claude", "profiles"))
     hooks.generate(
         os.path.join(PACKAGES, "agents", "hooks"),
         os.path.join(PACKAGES, "claude", "settings.json"),
         os.path.join(PACKAGES, "codex", "config.toml"),
+        os.path.join(PACKAGES, "claude", "profiles"),
     )
 
 
