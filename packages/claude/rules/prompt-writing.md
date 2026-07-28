@@ -11,6 +11,10 @@ paths:
 ---
 
 ### Write Prompts through /cc
-Load /cc and follow its Process. Read the Prompt Architecture before writing. Trace every
-term to Domain.md or the code — a term that traces to neither is coined; consult the
-Architect instead of writing it.
+Load /cc and follow its Process. Read Domain.md and the Prompt Architecture before writing,
+and place every block per the Architecture's allowance. Trace every term to Domain.md or the
+code — a term that traces to neither is coined; consult the Architect instead of writing it.
+
+### Escalate a new Prompt file, file type, or name to the Architect
+A new Prompt file, a new file type, or a new name is an Architectural Decision. The Architect
+makes it.

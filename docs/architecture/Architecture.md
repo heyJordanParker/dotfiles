@@ -20,7 +20,7 @@ The Architect-approved architecture for the prompt system: agents, skills, hooks
 3. **Plans** — `docs/plans/<kebab-name>-V<N>.md` (moved from `~/.claude/plans/`); versions are new files, never overwrites. The plan-quality rules glob follows the move.
 4. **Evidence** — `docs/agents/<YYYYMMDD>-<task-slug>/`: one directory per piece of Evidence, report.md plus screenshots beside it. Scoped to the Task, not to a plan — an Agent producing Evidence off a Proposal or a bare Prompt writes to the same place with the same shape. When a plan, Slice, or Skill step demands Evidence, it names the expected directory, and the completion gate's deterministic check is that the named report.md exists non-empty.
 5. **Session state** — sessions root, `<id>/state.json`, Subagents nested.
-6. **The experiment record** — the recorded prompt experiments and their scores: the Evidence behind the prompt Decisions. `docs/architecture/prompt-experiment-findings.md` and `docs/architecture/prompt-score-ledger.md` (the current prompt-eval-* filenames get renamed in the landing pass). Append-only.
+6. **The experiment record** — the recorded prompt experiments and their scores: the Evidence behind the prompt Decisions. `docs/architecture/prompt-experiment-findings.md` and `docs/architecture/prompt-score-ledger.md`. Append-only.
 
 ## One home per piece
 

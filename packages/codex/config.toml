@@ -105,15 +105,7 @@ enabled = true
 type = "command"
 command = "python3 /Users/jordan/.agents/hooks/auto_approve_permissions.py"
 
-[[hooks.PostCompact]]
-[[hooks.PostCompact.hooks]]
-type = "command"
-command = "python3 /Users/jordan/.agents/hooks/record_session_event.py"
-
 [[hooks.PostToolUse]]
-[[hooks.PostToolUse.hooks]]
-type = "command"
-command = "python3 /Users/jordan/.agents/hooks/record_session_event.py"
 [[hooks.PostToolUse.hooks]]
 type = "command"
 command = "python3 /Users/jordan/.agents/hooks/sync_shaping.py"
@@ -197,11 +189,6 @@ type = "command"
 command = "python3 /Users/jordan/.agents/hooks/reload_harness_context.py"
 timeout = 20
 
-[[hooks.Stop]]
-[[hooks.Stop.hooks]]
-type = "command"
-command = "python3 /Users/jordan/.agents/hooks/record_session_event.py"
-
 [[hooks.UserPromptSubmit]]
 [[hooks.UserPromptSubmit.hooks]]
 type = "command"
@@ -220,13 +207,7 @@ timeout = 70
 [hooks.state."/Users/jordan/.codex/config.toml:permission_request:0:0"]
 trusted_hash = "sha256:656616071d3d2abed860afda33188761c309868a336b6be57f23cbb7cdc02715"
 
-[hooks.state."/Users/jordan/.codex/config.toml:post_compact:0:0"]
-trusted_hash = "sha256:5c8c432bec9f847e9cbabb4a58b294342b74f3dfce249429fcc27bc79cd65c33"
-
 [hooks.state."/Users/jordan/.codex/config.toml:post_tool_use:0:0"]
-trusted_hash = "sha256:6376a5027c597fa18f111864ca94e2569b317c4a7301c5713e11a6da2e74dab7"
-
-[hooks.state."/Users/jordan/.codex/config.toml:post_tool_use:0:1"]
 trusted_hash = "sha256:61b67f474129b3537c505b06dfb22db2ef07631aea238c56f906b4b55931a24b"
 
 [hooks.state."/Users/jordan/.codex/config.toml:pre_tool_use:0:0"]
@@ -285,9 +266,6 @@ trusted_hash = "sha256:355c47c9a0bc8b62ed7be4326eeaec5c438a71c91f9dacea054958ad1
 
 [hooks.state."/Users/jordan/.codex/config.toml:session_start:0:3"]
 trusted_hash = "sha256:516723226b89e96b9a6f6b9e164ba720f2ec35d1ebdbf85d485cf94a7c676e79"
-
-[hooks.state."/Users/jordan/.codex/config.toml:stop:0:0"]
-trusted_hash = "sha256:6c511e305c4fbfcb001f3ed3e3325c7e6fe2ddc1e93ebb285bb6fae92c5d3baf"
 
 [hooks.state."/Users/jordan/.codex/config.toml:user_prompt_submit:0:0"]
 trusted_hash = "sha256:f4bcb6b8adedd9f331ada7139dcccefab5724bf99ed4630c9cfdb55c3716fc56"
@@ -375,6 +353,15 @@ trust_level = "trusted"
 trust_level = "trusted"
 
 [projects."/private/tmp/claude-501/-Users-jordan-dotfiles/6959cf32-5d53-49d3-96fe-d764d7dfd406/scratchpad/ro"]
+trust_level = "trusted"
+
+[projects."/private/tmp/dent-research-2/scratchpad-prompts"]
+trust_level = "trusted"
+
+[projects."/private/tmp/dent-research-2"]
+trust_level = "trusted"
+
+[projects."/private/tmp/extract-test"]
 trust_level = "trusted"
 
 [desktop]

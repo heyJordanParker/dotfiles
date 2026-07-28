@@ -47,11 +47,6 @@ def _now():
     return int(out.stdout.strip())
 
 
-def _iso_now():
-    out = subprocess.run(["date", "-u", "+%FT%TZ"], capture_output=True, text=True)
-    return out.stdout.strip()
-
-
 def _err(msg):
     sys.stderr.write(msg + "\n")
 
@@ -117,41 +112,6 @@ def _release_lock(path):
         pass
 
 
-def _truncate(path):
-    d = os.path.dirname(path)
-    try:
-        os.makedirs(d, exist_ok=True)
-    except Exception:
-        return False
-    try:
-        fd, tmp = tempfile.mkstemp(prefix=".session-state.", dir=d)
-        os.close(fd)
-        os.replace(tmp, path)
-        return True
-    except Exception:
-        try:
-            os.unlink(tmp)
-        except Exception:
-            pass
-        return False
-
-
-def _bump(state_file, field):
-    if not os.path.isfile(state_file):
-        return False
-    if not _with_lock(state_file):
-        return False
-    try:
-        state = _read_json(state_file)
-        if state is None:
-            return False
-        cur = state.get(field) or 0
-        state[field] = cur + 1
-        return _atomic_write(state_file, _dump(state))
-    finally:
-        _release_lock(state_file)
-
-
 def _human_prompt(content):
     """True if human-typed, False if system-injected."""
     if content == "":
@@ -188,18 +148,9 @@ def _default_main_state(session_id):
         "state": "proposing",
         "commit_requested": False,
         "goal": None,
-        "requirements": [],
-        "boundaries": [],
         "notes": [],
         "gate_blocks": {},
-        "pane": None,
-        "tmux-pane": None,
-        "session_start": None,
-        "human_turns": 0,
         "current_turn_start": None,
-        "previous_turn_start": None,
-        "last_stop": None,
-        "tools_used": 0,
         "schema_version": 1,
     }
 
@@ -209,14 +160,7 @@ def _default_subagent_state(session_id, parent_id=""):
         "session_id": session_id,
         "role": "subagent",
         "parent_session_id": (parent_id if parent_id else None),
-        "pane": None,
-        "tmux-pane": None,
-        "session_start": None,
-        "human_turns": 0,
         "current_turn_start": None,
-        "previous_turn_start": None,
-        "last_stop": None,
-        "tools_used": 0,
         "schema_version": 1,
     }
 
@@ -381,18 +325,6 @@ def cmd_start(args):
     session_dir = _ensure_session(session_id, parent_override)
     if session_dir is None:
         return 1
-
-    state_file = os.path.join(session_dir, "state.json")
-    if not _with_lock(state_file):
-        _err("Error: lock timeout: %s" % state_file)
-        return 1
-    try:
-        state = _read_json(state_file)
-        if isinstance(state, dict) and state.get("session_start") is None:
-            state["session_start"] = _now()
-            _atomic_write(state_file, _dump(state))
-    finally:
-        _release_lock(state_file)
 
     if transcript_path:
         _atomic_write(os.path.join(session_dir, "transcript"), transcript_path)
@@ -637,276 +569,12 @@ def cmd_prompt(args):
         if not isinstance(state, dict):
             _err("Error: failed to record prompt event: %s" % state_file)
             return 1
-        state["previous_turn_start"] = state.get("current_turn_start")
         state["current_turn_start"] = _now()
-        state["human_turns"] = (state.get("human_turns") or 0) + 1
         if not _atomic_write(state_file, _dump(state)):
             return 1
         return 0
     finally:
         _release_lock(state_file)
-
-
-def cmd_stopped(args):
-    if len(args) < 1:
-        _err("Error: stopped requires session_id")
-        return 1
-    session_id = args[0]
-    if not _is_valid_session_id(session_id):
-        _err("Error: invalid session_id: %s" % session_id)
-        return 1
-    session_dir = _ensure_session(session_id)
-    if session_dir is None:
-        return 1
-    state_file = os.path.join(session_dir, "state.json")
-    if not _with_lock(state_file):
-        _err("Error: lock timeout: %s" % state_file)
-        return 1
-    try:
-        state = _read_json(state_file)
-        if not isinstance(state, dict):
-            _err("Error: failed to record stop event: %s" % state_file)
-            return 1
-        state["last_stop"] = _now()
-        if not _atomic_write(state_file, _dump(state)):
-            return 1
-        return 0
-    finally:
-        _release_lock(state_file)
-
-
-def cmd_tool_used(args):
-    if len(args) < 1:
-        _err("Error: tool-used requires session_id")
-        return 1
-    session_id = args[0]
-    if not _is_valid_session_id(session_id):
-        _err("Error: invalid session_id: %s" % session_id)
-        return 1
-    session_dir = _ensure_session(session_id)
-    if session_dir is None:
-        return 1
-    return 0 if _bump(os.path.join(session_dir, "state.json"), "tools_used") else 1
-
-
-def cmd_read(args):
-    if len(args) < 2:
-        _err("Error: read requires session_id and file_path")
-        return 1
-    session_id, value = args[0], args[1]
-    if not _is_valid_session_id(session_id):
-        _err("Error: invalid session_id: %s" % session_id)
-        return 1
-    session_dir = _ensure_session(session_id)
-    if session_dir is None:
-        return 1
-    target = os.path.join(session_dir, "reads.jsonl")
-    entry = _dump({"path": value, "ts": _iso_now()})
-    with open(target, "a", encoding="utf-8") as fh:
-        fh.write(entry + "\n")
-    return 0
-
-
-def cmd_skill(args):
-    if len(args) < 2:
-        _err("Error: skill requires session_id and skill_name")
-        return 1
-    session_id, value = args[0], args[1]
-    if not _is_valid_session_id(session_id):
-        _err("Error: invalid session_id: %s" % session_id)
-        return 1
-    session_dir = _ensure_session(session_id)
-    if session_dir is None:
-        return 1
-    target = os.path.join(session_dir, "skills.jsonl")
-    entry = _dump({"skill": value, "ts": _iso_now()})
-    with open(target, "a", encoding="utf-8") as fh:
-        fh.write(entry + "\n")
-    return 0
-
-
-def cmd_compacted(args):
-    if len(args) < 1:
-        _err("Error: compacted requires session_id")
-        return 1
-    session_id = args[0]
-    if not _is_valid_session_id(session_id):
-        _err("Error: invalid session_id: %s" % session_id)
-        return 1
-    session_dir = _ensure_session(session_id)
-    if session_dir is None:
-        return 1
-    _truncate(os.path.join(session_dir, "reads.jsonl"))
-    _truncate(os.path.join(session_dir, "skills.jsonl"))
-    return 0
-
-
-def cmd_find_by_pane(args):
-    if len(args) < 1:
-        _err("Error: find-by-pane requires pane_id")
-        return 1
-    field = "pane"
-    if args[0] == "--tmux":
-        field = "tmux-pane"
-        args = args[1:]
-        if len(args) < 1:
-            _err("Error: --tmux requires pane_id")
-            return 1
-    pane_id = args[0]
-    sessions_root = _sessions_root()
-    if not os.path.isdir(sessions_root):
-        return 0
-    files = sorted(glob(os.path.join(sessions_root, "*", "state.json"))) + \
-        sorted(glob(os.path.join(sessions_root, "*", "subagents", "*", "state.json")))
-    for f in files:
-        if not os.path.isfile(f):
-            continue
-        state = _read_json(f)
-        if isinstance(state, dict) and state.get(field) == pane_id:
-            sid = state.get("session_id")
-            if sid:
-                print(sid)
-                return 0
-    return 0
-
-
-def cmd_list(args):
-    if len(args) > 0 and args[0] == "--subagents":
-        rest = args[1:]
-        if len(rest) < 1:
-            _err("Error: --subagents requires parent_id")
-            return 1
-        parent_id = rest[0]
-        if not _is_valid_session_id(parent_id):
-            _err("Error: invalid parent_id: %s" % parent_id)
-            return 1
-        subagents_dir = os.path.join(_sessions_root(), parent_id, "subagents")
-        if not os.path.isdir(subagents_dir):
-            return 0
-        for d in sorted(glob(os.path.join(subagents_dir, "*"))):
-            if os.path.isdir(d):
-                print(os.path.basename(d))
-        return 0
-
-    sessions_root = _sessions_root()
-    if not os.path.isdir(sessions_root):
-        return 0
-    for d in sorted(glob(os.path.join(sessions_root, "*"))):
-        if os.path.isdir(d):
-            print(os.path.basename(d))
-    return 0
-
-
-def cmd_stats(args):
-    if len(args) < 1:
-        _err("Error: stats requires session_id")
-        return 1
-    session_id = args[0]
-    if not _is_valid_session_id(session_id):
-        _err("Error: invalid session_id: %s" % session_id)
-        return 1
-    session_dir = _session_dir(session_id)
-    if not session_dir:
-        print("{}")
-        return 0
-    state_file = os.path.join(session_dir, "state.json")
-    if not os.path.isfile(state_file):
-        print("{}")
-        return 0
-    state = _read_json(state_file)
-    if not isinstance(state, dict):
-        print("{}")
-        return 0
-    now = _now()
-    session_start = state.get("session_start")
-    current_turn_start = state.get("current_turn_start")
-    previous_turn_start = state.get("previous_turn_start")
-    last_stop = state.get("last_stop")
-    out = {
-        "session_start": session_start,
-        "session_duration": (now - session_start) if session_start is not None else None,
-        "human_turns": state.get("human_turns") or 0,
-        "current_turn_start": current_turn_start,
-        "current_turn_duration": (now - current_turn_start) if current_turn_start is not None else None,
-        "previous_turn_start": previous_turn_start,
-        "previous_turn_duration": (
-            (last_stop - previous_turn_start)
-            if (last_stop is not None and previous_turn_start is not None and last_stop > previous_turn_start)
-            else None
-        ),
-        "last_stop": last_stop,
-        "tools_used": state.get("tools_used") or 0,
-    }
-    print(_dump(out))
-    return 0
-
-
-def _stats_obj(session_id):
-    session_dir = _session_dir(session_id)
-    if not session_dir:
-        return {}
-    state_file = os.path.join(session_dir, "state.json")
-    if not os.path.isfile(state_file):
-        return {}
-    state = _read_json(state_file)
-    if not isinstance(state, dict):
-        return {}
-    now = _now()
-    session_start = state.get("session_start")
-    return {
-        "human_turns": state.get("human_turns") or 0,
-        "session_duration": (now - session_start) if session_start is not None else 0,
-        "tools_used": state.get("tools_used") or 0,
-    }
-
-
-def cmd_is_long_running(args):
-    if len(args) < 1:
-        _err("Error: is-long-running requires session_id")
-        return 1
-    session_id = args[0]
-    rest = args[1:]
-    if not _is_valid_session_id(session_id):
-        _err("Error: invalid session_id: %s" % session_id)
-        return 1
-    turns_threshold = 5
-    seconds_threshold = 600
-    tools_threshold = 30
-    i = 0
-    while i < len(rest):
-        flag = rest[i]
-        if flag == "--turns":
-            if i + 1 >= len(rest):
-                _err("Error: --turns requires a value")
-                return 1
-            turns_threshold = int(rest[i + 1])
-            i += 2
-        elif flag == "--seconds":
-            if i + 1 >= len(rest):
-                _err("Error: --seconds requires a value")
-                return 1
-            seconds_threshold = int(rest[i + 1])
-            i += 2
-        elif flag == "--tools":
-            if i + 1 >= len(rest):
-                _err("Error: --tools requires a value")
-                return 1
-            tools_threshold = int(rest[i + 1])
-            i += 2
-        else:
-            _err("Error: unknown flag: %s" % flag)
-            return 1
-    s = _stats_obj(session_id)
-    turns = s.get("human_turns") or 0
-    duration = s.get("session_duration") or 0
-    tools = s.get("tools_used") or 0
-    if turns >= turns_threshold:
-        return 0
-    if duration >= seconds_threshold:
-        return 0
-    if tools >= tools_threshold:
-        return 0
-    return 1
 
 
 _DISPATCH = {
@@ -916,15 +584,6 @@ _DISPATCH = {
     "set": cmd_set,
     "merge": cmd_merge,
     "prompt": cmd_prompt,
-    "stopped": cmd_stopped,
-    "tool-used": cmd_tool_used,
-    "read": cmd_read,
-    "skill": cmd_skill,
-    "compacted": cmd_compacted,
-    "find-by-pane": cmd_find_by_pane,
-    "list": cmd_list,
-    "stats": cmd_stats,
-    "is-long-running": cmd_is_long_running,
 }
 
 

@@ -88,16 +88,6 @@
         ]
       }
     ],
-    "PostCompact": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 ~/.agents/hooks/record_session_event.py"
-          }
-        ]
-      }
-    ],
     "PostToolUse": [
       {
         "matcher": "*",
@@ -105,15 +95,6 @@
           {
             "type": "command",
             "command": "[ -n \"$SUPERSET_HOME_DIR\" ] && [ -x \"$SUPERSET_HOME_DIR/hooks/notify.sh\" ] && SUPERSET_AGENT_ID=claude \"$SUPERSET_HOME_DIR/hooks/notify.sh\" || true"
-          }
-        ]
-      },
-      {
-        "matcher": "*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 ~/.agents/hooks/record_session_event.py"
           }
         ]
       },
@@ -212,11 +193,6 @@
             "type": "command",
             "command": "python3 ~/.agents/hooks/block_worktree_isolation.py",
             "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "python3 ~/.agents/hooks/validate_subagent_prompt.py",
-            "timeout": 60
           }
         ]
       },
@@ -291,7 +267,7 @@
         ]
       },
       {
-        "matcher": "Read|Skill",
+        "matcher": "Skill",
         "hooks": [
           {
             "type": "command",
@@ -463,10 +439,6 @@
             "type": "command",
             "command": "python3 ~/.agents/hooks/babysitter.py",
             "timeout": 90
-          },
-          {
-            "type": "command",
-            "command": "python3 ~/.agents/hooks/record_session_event.py"
           },
           {
             "type": "command",

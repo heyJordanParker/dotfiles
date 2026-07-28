@@ -7,7 +7,6 @@ description: Add pros, cons, and confidence to options in a Prompt. TRIGGER when
 
 - /pcc compares two or more viable options at one Decision layer.
 - /propose is canonical inside a proposing-state turn.
-- The Goal section in the cto Agent Prompt defines the User, Architecture, and business test for confidence.
 
 ## 1. Confirm /pcc applies
 
@@ -56,14 +55,20 @@ If scores cluster, pros or cons feel forced, or the ranking is unclear, read mor
 
 ## 4. Write the options
 
+This Template is the one option format. /propose and the proposals rules defer to it.
+
 Template:
-  ```markdown
-  **Option N: [Name]** (X% confident)
-  - What: 1-2 sentences
-  - Precedent: the exact file or system this option builds on, named with its full path — or the research proving none exists
-  - Pros: bullets
-  - Cons: bullets
+  **Option N: [Name]**
+
+  What: 1-2 sentences, concretely, in our code.
+  Precedent: the exact file or system this option builds on, named with its full path — or the research proving none exists.
+
+  ```diff
+  + how this option solves the stated problem
+  - the real cost it adds, the one not seen until it bites
   ```
+
+  Confidence: 82%
 
 ### Keep pros and cons inside the option
 Pros describe how this option solves the stated problem. Cons describe real costs or risks this option introduces.

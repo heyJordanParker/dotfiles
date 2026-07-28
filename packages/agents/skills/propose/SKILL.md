@@ -9,7 +9,7 @@ description: |
 - A Proposal is the Agent's proposed path to a Goal, organized for Architect Review.
 - The Proposal is the Decision Hierarchy: dominant Decision first, gated Decisions nested beneath it, genuine peers side by side.
 - Slices, steps, and files tag onto Decisions; they never organize the Proposal.
-- The cto Agent Prompt already covers Verification, no hedging, full reads, and regressions. This Skill adds the Proposal shape.
+- This Skill adds the Proposal shape.
 
 ## 1. Write the shell
 
@@ -117,28 +117,8 @@ Use a plain heading with no `Decide:`, `Fork:`, or `Choice:` prefix. End it with
 ### Put node content in the fixed order
 Each Decision node carries, in order: map if useful, artifacts, options in the /pcc shape, then one work-tag naming the files, methods, and Slice this Decision lands in.
 
-Template:
-  ```markdown
-  **Option A — on the existing service.** What it is, concretely, in our code.
-
-  - Precedent: the exact file or system this builds on, full path — or research proving none exists
-  - pro: how it solves the stated problem
-  - con: the real cost it adds, the one not seen until it bites
-  - confidence: 82%
-
-  **Option B — a new single-purpose class.** What it is, concretely.
-
-  - Precedent: ...
-  - pro: ...
-  - con: the one cost that ruled it out
-  - confidence: 55%
-  ```
-
-### Keep cons real
-A con is a real cost the option adds. It is never a cross-option comparison, normal implementation effort dressed as a flaw, or Fluff to balance the Template. If an option has no real con, say so.
-
-### Keep confidence differentiated
-Confidences differ by more than 10 points. Clustered confidences mean the analysis is unfinished. Read more code; do not renumber.
+### Write every option in the /pcc Template
+Options render in the /pcc Template. It is the one option format; do not vary it here.
 
 IF the Decision is settled:
 ### Put the surviving option first

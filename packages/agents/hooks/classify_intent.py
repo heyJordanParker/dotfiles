@@ -358,7 +358,7 @@ def main():
     conversation = transcript.conversation_context(transcript_path)
     result = run_model(system_prompt=SYSTEM_PROMPT,
                        user_prompt=evaluation_prompt(prompt, notes, conversation),
-                       schema=JSON_SCHEMA, session_id=session_id, hook="classify_intent")
+                       schema=JSON_SCHEMA)
 
     if result:
         new_notes = result.get("notes")

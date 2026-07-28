@@ -406,7 +406,7 @@ def main():
     )
 
     result = run_model(system_prompt=SYSTEM_PROMPT, user_prompt=eval_prompt,
-                       schema=JSON_SCHEMA, session_id=session_id, hook="validate_completion")
+                       schema=JSON_SCHEMA)
     if not result:
         return 0
 

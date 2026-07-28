@@ -55,7 +55,7 @@ def main():
 
     result = run_model(system_prompt=SYSTEM_PROMPT,
                        user_prompt=_eval_prompt(json.dumps(tool_input, ensure_ascii=False)),
-                       schema=JSON_SCHEMA, session_id=session_id, hook="validate_question_quality")
+                       schema=JSON_SCHEMA)
     if not result:
         return 0
     if result.get("ok") is False:

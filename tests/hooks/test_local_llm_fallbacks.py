@@ -99,7 +99,7 @@ def _ctx_standing(text):
 # Default control fields classify_intent writes for a non-skipped session before
 # its (offline-unreachable) classifier runs: the spine's _default_main_state.
 CI_DEFAULT_STATE = {"approach": "subagents", "state": "proposing", "commit_requested": False,
-                    "goal": None, "requirements": [], "boundaries": [], "notes": []}
+                    "goal": None, "notes": []}
 
 # validate_completion's forwarded-recommendation gate raises a non-halting concern
 # (exit 0, systemMessage on stdout via feedback.raise_concern), not a hard block.

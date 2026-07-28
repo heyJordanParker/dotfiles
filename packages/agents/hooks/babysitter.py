@@ -124,7 +124,7 @@ def main():
 
     result = run_model(system_prompt=SYSTEM_PROMPT,
                        user_prompt=_eval_prompt(request, last_msg, current_state),
-                       schema=JSON_SCHEMA, session_id=session_id, hook="babysitter")
+                       schema=JSON_SCHEMA)
     if not result:
         return 0
 

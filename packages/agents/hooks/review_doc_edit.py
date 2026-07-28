@@ -338,8 +338,7 @@ def main():
 
     prompt = _build_prompt(file_path, content, diff, related, exists)
     result = run_model("high", system_prompt=SYSTEM_PROMPT, user_prompt=prompt,
-                       schema=JSON_SCHEMA, session_id=field(event, "session_id", ""),
-                       hook="review_doc_edit")
+                       schema=JSON_SCHEMA)
     if not result:
         return 0
 

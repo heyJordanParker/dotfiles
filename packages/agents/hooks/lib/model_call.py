@@ -16,11 +16,7 @@ Backends (default `openai`, set via MODEL_CALL_BACKEND):
 - local — the review-prompt CLI. Cannot serve general classification or a bare
   run, so its adapter returns the explicit unsupported error.
 
-Two optional capabilities, both off by default:
-- measure — when on, records ONE normalized event per call into a per-session log
-  (model_calls.jsonl beside reads.jsonl/skills.jsonl), following the same
-  per-session event-log pattern the session-state helper uses. Only fields
-  reliable and identical in meaning for every backend are recorded.
+One optional capability, off by default:
 - raw — "run this model with all its extra features off." Each adapter maps that
   single intent onto its own scaffolding (claude drops the system prompt).
 
@@ -31,7 +27,6 @@ import json
 import os
 import re
 import subprocess
-import time
 import urllib.error
 import urllib.request
 
@@ -80,10 +75,8 @@ def _extract_json(text):
         return None
 
 
-# --- adapters: each owns its transport, raw mapping, and token normalization -----
-# Every adapter returns (parsed_or_None, model_name, raw_flag, input_tokens, output_tokens).
-# input_tokens/output_tokens are the normalized comparable counts, or None when
-# the backend gave us no usage block.
+# --- adapters: each owns its transport and raw mapping ---------------------------
+# Every adapter returns the parsed JSON dict, or None on any failure.
 
 CLAUDE_MODEL = "opus"
 
@@ -101,30 +94,14 @@ def _call_claude(effort, system_prompt, user_prompt, schema, raw):
         r = subprocess.run(cmd, input=prompt, capture_output=True, text=True,
                            timeout=120, env=env)
     except Exception:
-        return None, CLAUDE_MODEL, raw, None, None
+        return None
     if r.returncode != 0:
-        return None, CLAUDE_MODEL, raw, None, None
+        return None
     try:
         envelope = json.loads(r.stdout)
     except Exception:
-        return None, CLAUDE_MODEL, raw, None, None
-    parsed = _extract_json(envelope.get("result", ""))
-    inp, out = _claude_tokens(envelope.get("usage"))
-    return parsed, CLAUDE_MODEL, raw, inp, out
-
-
-def _claude_tokens(usage):
-    """Total prompt tokens claude processed = fresh + cache-read + cache-creation.
-
-    claude reports the cached portions in separate fields, so they are summed to
-    mean the same thing openai's single input_tokens already means.
-    """
-    if not isinstance(usage, dict):
-        return None, None
-    inp = (usage.get("input_tokens", 0)
-           + usage.get("cache_read_input_tokens", 0)
-           + usage.get("cache_creation_input_tokens", 0))
-    return inp, usage.get("output_tokens")
+        return None
+    return _extract_json(envelope.get("result", ""))
 
 
 OPENAI_MODEL = "gpt-5.5"
@@ -138,7 +115,7 @@ def _call_openai(effort, system_prompt, user_prompt, schema, raw):
         tok = auth["tokens"]["access_token"]
         acct = auth["tokens"]["account_id"]
     except Exception:
-        return None, OPENAI_MODEL, raw, None, None
+        return None
     prompt = user_prompt + "\n\n" + _shape_line(schema)
     body = {"model": OPENAI_MODEL, "store": False, "stream": True,
             "input": [{"type": "message", "role": "user",
@@ -154,7 +131,6 @@ def _call_openai(effort, system_prompt, user_prompt, schema, raw):
                  "accept": "text/event-stream", "content-type": "application/json",
                  "session_id": "00000000-0000-0000-0000-0000000000ev"}, method="POST")
     final = ""
-    usage = None
     try:
         with urllib.request.urlopen(req, timeout=120) as r:
             for raw_line in r:
@@ -167,24 +143,9 @@ def _call_openai(effort, system_prompt, user_prompt, schema, raw):
                 ev = json.loads(p)
                 if ev.get("type") == "response.output_text.delta":
                     final += ev.get("delta", "")
-                u = ev.get("response", {}).get("usage")
-                if u:
-                    usage = u
     except (urllib.error.HTTPError, Exception):
-        return None, OPENAI_MODEL, raw, None, None
-    inp, out = _openai_tokens(usage)
-    return _extract_json(final), OPENAI_MODEL, raw, inp, out
-
-
-def _openai_tokens(usage):
-    """openai's input_tokens is already the grand total of prompt tokens processed.
-
-    cached_tokens is a subset already counted inside input_tokens, so it is NOT
-    added — that would double-count. The single number is the comparable total.
-    """
-    if not isinstance(usage, dict):
-        return None, None
-    return usage.get("input_tokens"), usage.get("output_tokens")
+        return None
+    return _extract_json(final)
 
 
 _LOCAL_UNSUPPORTED = ("local backend (review-prompt) cannot serve general "
@@ -204,55 +165,15 @@ _ADAPTERS = {"claude": _call_claude, "openai": _call_openai, "local": _call_loca
 # --- the one entrypoint the four hooks call -------------------------------------
 
 def run_model(effort="none", *, system_prompt, user_prompt, schema, backend=None,
-              measure=False, raw=False, session_id="", hook=""):
+              raw=False):
     """Resolve the backend, run one model call, return the parsed JSON dict or None.
 
     effort is one of EFFORT_LEVELS (default "none"), translated to the backend's own
     accepted value. system_prompt / user_prompt / schema are keyword-only and
-    required. The backend defaults to openai. With measure on, one normalized event
-    is recorded to the per-session log; with measure off, nothing is written. raw
-    runs the backend with its extra features off (claude drops the system prompt).
+    required. The backend defaults to openai. raw runs the backend with its extra
+    features off (claude drops the system prompt).
     """
     if effort not in EFFORT_LEVELS:
         raise ValueError("unknown effort %r; valid: %s" % (effort, ", ".join(EFFORT_LEVELS)))
-    name = _resolve_backend(backend)
-    adapter = _ADAPTERS[name]
-    started = time.monotonic()
-    parsed, model, raw_flag, inp, out = adapter(effort, system_prompt, user_prompt, schema, raw)
-    latency = round(time.monotonic() - started, 3)
-    if measure:
-        _record(session_id, hook, name, model, raw_flag, latency, inp, out,
-                "ok" if parsed else "parse_fail")
-    return parsed
-
-
-# --- optional measurement: one normalized record per call -----------------------
-
-def _record(session_id, hook, backend, model, raw, latency, input_tokens,
-            output_tokens, outcome):
-    """Append one normalized event to the per-session model_calls.jsonl.
-
-    Follows session_state's per-session event-log pattern: resolve the session
-    dir, append one minified JSON line. Only fields reliable and identical in
-    meaning for every backend — no cost, no cache split, nothing null for some
-    backend.
-    """
-    import session_state
-    if not session_id or not session_state._is_valid_session_id(session_id):
-        return
-    session_dir = session_state._ensure_session(session_id)
-    if session_dir is None:
-        return
-    entry = session_state._dump({
-        "ts": session_state._iso_now(),
-        "hook": hook,
-        "backend": backend,
-        "model": model,
-        "raw": raw,
-        "latency": latency,
-        "input_tokens": input_tokens,
-        "output_tokens": output_tokens,
-        "outcome": outcome,
-    })
-    with open(os.path.join(session_dir, "model_calls.jsonl"), "a", encoding="utf-8") as fh:
-        fh.write(entry + "\n")
+    adapter = _ADAPTERS[_resolve_backend(backend)]
+    return adapter(effort, system_prompt, user_prompt, schema, raw)

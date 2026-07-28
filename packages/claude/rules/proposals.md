@@ -45,7 +45,7 @@ Run the command, hit the API, render the page. An option reaching the Architect 
 Every Architectural Decision gets its own heading or callout. Name it in one sentence, with everything needed to evaluate it sitting right there. Never bury it in a line.
 
 ### Ground every tradeoff in code
-Every choice is a tradeoff, and the pros and cons come from reading the code, not speculation. An option is a heading; its pros and cons render in a ` ```diff ` block, one short line each; a confidence line follows. A con is a real downside or risk. Writing code and changing files is the job, never a con.
+Every choice is a tradeoff, and the pros and cons come from reading the code, not speculation. Options render in the /pcc Template, the one option format. A con is a real downside or risk. Writing code and changing files is the job, never a con.
 
 ### Escalate at the lowest intensity that carries the Decision
 Order is the default signal: put the Decision where it is read first, no label. A bracketed heading label like `#[Critical]` is for a Decision that shapes everything downstream. A `> ⚠️` blockquote is only for a change that loses Users money or makes the Architecture fundamentally worse, and reads as "oh shit" — almost never.

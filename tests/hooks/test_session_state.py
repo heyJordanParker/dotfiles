@@ -1,13 +1,13 @@
 """Spine coverage for lib/session_state.py — the per-session state store every
 hook reads and writes through.
 
-This guards the store's load-bearing properties in-process: atomic
-concurrent increments, corrupt/empty/missing-state healing, subagent nesting and
-resolution, the append-only event logs, and their truncation on compaction.
+This guards the store's load-bearing properties in-process: concurrent writes,
+corrupt/empty/missing-state healing, subagent nesting and resolution, and the
+per-turn stop-gate counters.
 
 Every test runs against a per-test data root (CLAUDE_DATA_ROOT / CLAUDE_PROJECTS_ROOT
 under tmp_path) — nothing touches the real ~/.claude. Time is driven by monkeypatching
-the module's two clock functions.
+the module's clock function.
 """
 
 import json
@@ -18,9 +18,8 @@ import threading
 import pytest
 from conftest import PY_HOOKS
 
-# The module under test imports as a bare `session_state` from its own lib dir
-# (model_call._record does `import session_state`); put that dir on the path so
-# both styles resolve to the one module.
+# The module under test imports as a bare `session_state` from its own lib dir;
+# put that dir on the path so both styles resolve to the one module.
 sys.path.insert(0, os.path.join(PY_HOOKS, "lib"))
 
 import session_state  # noqa: E402
@@ -42,18 +41,13 @@ def root(tmp_path, monkeypatch):
 
 @pytest.fixture
 def clock(monkeypatch):
-    """Drive session_state's two clock functions deterministically. Returns a
-    setter; the ISO string is derived from the epoch so timestamps stay ordered."""
+    """Drive session_state's clock deterministically. Returns a setter."""
     state = {"now": 1000}
 
     def _set(value):
         state["now"] = value
 
-    def _iso():
-        return "1970-01-01T00:00:%02dZ" % (state["now"] % 60)
-
     monkeypatch.setattr(session_state, "_now", lambda: state["now"])
-    monkeypatch.setattr(session_state, "_iso_now", _iso)
     return _set
 
 
@@ -94,12 +88,9 @@ def test_start_creates_main_state_with_defaults(root, clock):
     assert st["state"] == "proposing"
     assert st["commit_requested"] is False
     assert st["goal"] is None
-    assert st["requirements"] == []
-    assert st["boundaries"] == []
     assert st["notes"] == []
     assert st["gate_blocks"] == {}
-    assert st["pane"] is None
-    assert st["tmux-pane"] is None
+    assert st["current_turn_start"] is None
     assert st["schema_version"] == 1
 
 
@@ -110,15 +101,6 @@ def test_start_is_idempotent(root, clock):
     assert session_state.cmd_get(["m", "approach"]) == 0  # exit only; value below
     st = _read(_state(root, "m"))
     assert st["approach"] == "team"  # re-start did not clobber the mutation
-
-
-def test_start_records_session_start_once(root, clock):
-    clock(4242)
-    _run(["start", "m", "--transcript-path", "/foo/m.jsonl"])
-    assert _read(_state(root, "m"))["session_start"] == 4242
-    clock(9999)
-    _run(["start", "m", "--transcript-path", "/foo/m.jsonl"])
-    assert _read(_state(root, "m"))["session_start"] == 4242  # not overwritten
 
 
 def test_start_without_transcript_is_main(root, clock):
@@ -141,8 +123,8 @@ def test_subagent_nests_under_parent(root, clock):
     assert st["session_id"] == "agent-xyz"
     assert st["parent_session_id"] == "parent"
     # subagent state omits the main-only control + goal fields
-    for omitted in ("approach", "state", "goal", "requirements", "boundaries",
-                    "notes", "banned_phrases", "gate_blocks", "commit_requested"):
+    for omitted in ("approach", "state", "goal", "notes", "gate_blocks",
+                    "commit_requested"):
         assert omitted not in st
 
 
@@ -279,10 +261,10 @@ def test_get_on_corrupt_state_is_soft(root, clock, capsys):
 def test_set_parses_json_scalars(root, clock):
     _run(["start", "s", "--transcript-path", "/foo/s.jsonl"])
     _run(["set", "s", "commit_requested", "true"])
-    _run(["set", "s", "tools_used", "3"])
+    _run(["set", "s", "current_turn_start", "3"])
     st = _read(_state(root, "s"))
     assert st["commit_requested"] is True
-    assert st["tools_used"] == 3
+    assert st["current_turn_start"] == 3
 
 
 def test_set_falls_back_to_string(root, clock):
@@ -322,7 +304,7 @@ def test_invalid_session_ids_rejected(root, clock, bad):
     assert _run(["start", bad, "--transcript-path", "/foo/x.jsonl"]) == 1
     assert _run(["set", bad, "approach", "team"]) == 1
     assert _run(["get", bad, "approach"]) == 1
-    assert _run(["read", bad, "/x"]) == 1
+    assert _run(["merge", bad, '{"approach":"team"}']) == 1
 
 
 @pytest.mark.parametrize("good", [
@@ -343,7 +325,7 @@ def test_get_missing_session_is_soft(root, clock):
 
 def test_get_null_field_emits_nothing(root, clock, capsys):
     _run(["start", "g", "--transcript-path", "/foo/g.jsonl"])
-    session_state.cmd_get(["g", "pane"])
+    session_state.cmd_get(["g", "goal"])
     assert capsys.readouterr().out == ""
 
 
@@ -365,96 +347,8 @@ def test_get_path_resolves_subagent(root, clock, capsys):
 
 
 # ---------------------------------------------------------------------------
-# Event logs: reads / skills append correctly, coexist, nest (DoD)
+# Concurrency (DoD: concurrent writers never corrupt the state file)
 # ---------------------------------------------------------------------------
-
-def _logfile(root, sid, name):
-    return os.path.join(str(root), "sessions", sid, name)
-
-
-def test_read_appends_jsonl(root, clock):
-    _run(["start", "a", "--transcript-path", "/foo/a.jsonl"])
-    _run(["read", "a", "/some/file.ts"])
-    with open(_logfile(root, "a", "reads.jsonl")) as fh:
-        entry = json.loads(fh.readline())
-    assert entry["path"] == "/some/file.ts"
-    assert isinstance(entry["ts"], str)
-
-
-def test_skill_appends_jsonl_without_path_field(root, clock):
-    _run(["start", "a", "--transcript-path", "/foo/a.jsonl"])
-    _run(["skill", "a", "/cc"])
-    with open(_logfile(root, "a", "skills.jsonl")) as fh:
-        entry = json.loads(fh.readline())
-    assert entry["skill"] == "/cc"
-    assert "path" not in entry
-
-
-def test_reads_and_skills_coexist(root, clock):
-    _run(["start", "a", "--transcript-path", "/foo/a.jsonl"])
-    _run(["read", "a", "/f1.ts"])
-    _run(["skill", "a", "/cc"])
-    _run(["read", "a", "/f2.ts"])
-    _run(["skill", "a", "/pcc"])
-    with open(_logfile(root, "a", "reads.jsonl")) as fh:
-        assert len(fh.readlines()) == 2
-    with open(_logfile(root, "a", "skills.jsonl")) as fh:
-        assert len(fh.readlines()) == 2
-
-
-def test_sequential_appends_accumulate(root, clock):
-    _run(["start", "a", "--transcript-path", "/foo/a.jsonl"])
-    for i in range(100):
-        _run(["read", "a", "/path/%d" % i])
-    with open(_logfile(root, "a", "reads.jsonl")) as fh:
-        assert len(fh.readlines()) == 100
-
-
-def test_subagent_log_is_isolated(root, clock):
-    _run(["start", "p", "--transcript-path", "/p/p/p.jsonl"])
-    _run(["start", "agent-s", "--transcript-path", "/p/p/subagents/agent-s.jsonl"])
-    _run(["skill", "agent-s", "/subagents"])
-    assert os.path.isfile(_logfile(root, "p/subagents/agent-s", "skills.jsonl"))
-    assert not os.path.isfile(_logfile(root, "p", "skills.jsonl"))
-
-
-# ---------------------------------------------------------------------------
-# Concurrency (DoD: many concurrent increments all land, none lost)
-# ---------------------------------------------------------------------------
-
-def _spawn(fn, count):
-    threads = [threading.Thread(target=fn) for _ in range(count)]
-    for t in threads:
-        t.start()
-    for t in threads:
-        t.join()
-
-
-def test_concurrent_tool_used_loses_no_increment(root, clock):
-    _run(["start", "tu", "--transcript-path", "/foo/tu.jsonl"])
-
-    def bump():
-        for _ in range(25):
-            _run(["tool-used", "tu"])
-
-    _spawn(bump, 4)
-    assert _read(_state(root, "tu"))["tools_used"] == 100
-
-
-def test_concurrent_appends_preserve_every_line(root, clock):
-    _run(["start", "a", "--transcript-path", "/foo/a.jsonl"])
-
-    def append():
-        for i in range(50):
-            _run(["read", "a", "/p/%d" % i])
-
-    _spawn(append, 2)
-    with open(_logfile(root, "a", "reads.jsonl")) as fh:
-        lines = fh.readlines()
-    assert len(lines) == 100
-    for ln in lines:
-        json.loads(ln)  # every line is valid JSON
-
 
 def test_concurrent_set_keeps_state_valid(root, clock):
     _run(["start", "c", "--transcript-path", "/foo/c.jsonl"])
@@ -488,9 +382,10 @@ def _prompt(content, sid, monkeypatch):
 
 
 def test_human_prompt_opens_turn(root, clock, monkeypatch):
+    clock(1100)
     _run(["start", "hp", "--transcript-path", "/foo/hp.jsonl"])
     _prompt("fix the bug in PaymentService", "hp", monkeypatch)
-    assert _read(_state(root, "hp"))["human_turns"] == 1
+    assert _read(_state(root, "hp"))["current_turn_start"] == 1100
 
 
 @pytest.mark.parametrize("injected", [
@@ -502,9 +397,7 @@ def test_human_prompt_opens_turn(root, clock, monkeypatch):
 def test_system_injected_prompts_filtered(root, clock, monkeypatch, injected):
     _run(["start", "sys", "--transcript-path", "/foo/sys.jsonl"])
     _prompt(injected, "sys", monkeypatch)
-    st = _read(_state(root, "sys"))
-    assert st["human_turns"] == 0
-    assert st["current_turn_start"] is None
+    assert _read(_state(root, "sys"))["current_turn_start"] is None
 
 
 def test_turn_rotation(root, clock, monkeypatch):
@@ -512,96 +405,14 @@ def test_turn_rotation(root, clock, monkeypatch):
     _run(["start", "rot", "--transcript-path", "/foo/rot.jsonl"])
     clock(1100)
     _prompt("first", "rot", monkeypatch)
-    st = _read(_state(root, "rot"))
-    assert st["human_turns"] == 1
-    assert st["current_turn_start"] == 1100
-    assert st["previous_turn_start"] is None
+    assert _read(_state(root, "rot"))["current_turn_start"] == 1100
     clock(1200)
     _prompt("second", "rot", monkeypatch)
-    st = _read(_state(root, "rot"))
-    assert st["human_turns"] == 2
-    assert st["current_turn_start"] == 1200
-    assert st["previous_turn_start"] == 1100
+    assert _read(_state(root, "rot"))["current_turn_start"] == 1200
 
 
 # ---------------------------------------------------------------------------
-# stats / is-long-running derived snapshot
-# ---------------------------------------------------------------------------
-
-def test_stats_snapshot(root, clock, monkeypatch, capsys):
-    clock(10000)
-    _run(["start", "st", "--transcript-path", "/foo/st.jsonl"])
-    clock(10100)
-    _prompt("first", "st", monkeypatch)
-    clock(10150)
-    session_state.cmd_stats(["st"])
-    out = json.loads(capsys.readouterr().out)
-    assert out["session_start"] == 10000
-    assert out["session_duration"] == 150
-    assert out["human_turns"] == 1
-    assert out["current_turn_start"] == 10100
-    assert out["current_turn_duration"] == 50
-    assert out["previous_turn_start"] is None
-    assert out["previous_turn_duration"] is None
-
-
-def test_stats_missing_session_is_empty_object(root, clock, capsys):
-    session_state.cmd_stats(["nope"])
-    assert capsys.readouterr().out.strip() == "{}"
-
-
-def test_is_long_running_thresholds(root, clock, monkeypatch):
-    clock(0)
-    _run(["start", "lr", "--transcript-path", "/foo/lr.jsonl"])
-    clock(100)
-    assert _run(["is-long-running", "lr"]) == 1  # below all
-    for i in range(5):
-        clock(100 + i)
-        _prompt("p%d" % i, "lr", monkeypatch)
-    assert _run(["is-long-running", "lr"]) == 0  # 5 turns crosses default
-    assert _run(["is-long-running", "lr", "--turns", "10"]) == 1  # raised above 5
-
-
-# ---------------------------------------------------------------------------
-# Compaction truncates the event logs but not state.json (DoD)
-# ---------------------------------------------------------------------------
-
-def test_compacted_truncates_logs(root, clock):
-    _run(["start", "cp", "--transcript-path", "/foo/cp.jsonl"])
-    for i in range(5):
-        _run(["read", "cp", "/path/%d" % i])
-    for i in range(3):
-        _run(["skill", "cp", "/s%d" % i])
-    assert _run(["compacted", "cp"]) == 0
-    assert os.path.getsize(_logfile(root, "cp", "reads.jsonl")) == 0
-    assert os.path.getsize(_logfile(root, "cp", "skills.jsonl")) == 0
-
-
-def test_compacted_preserves_state_counters(root, clock, monkeypatch):
-    _run(["start", "cp", "--transcript-path", "/foo/cp.jsonl"])
-    _prompt("first", "cp", monkeypatch)
-    _run(["tool-used", "cp"])
-    _run(["tool-used", "cp"])
-    _run(["compacted", "cp"])
-    st = _read(_state(root, "cp"))
-    assert st["human_turns"] == 1
-    assert st["tools_used"] == 2
-
-
-def test_appends_after_compaction_start_fresh(root, clock):
-    _run(["start", "cp", "--transcript-path", "/foo/cp.jsonl"])
-    _run(["read", "cp", "/before"])
-    _run(["compacted", "cp"])
-    _run(["read", "cp", "/after-1"])
-    _run(["read", "cp", "/after-2"])
-    with open(_logfile(root, "cp", "reads.jsonl")) as fh:
-        lines = fh.readlines()
-    assert len(lines) == 2
-    assert json.loads(lines[0])["path"] == "/after-1"
-
-
-# ---------------------------------------------------------------------------
-# end / list / find-by-pane
+# end
 # ---------------------------------------------------------------------------
 
 def test_end_removes_session_and_cascades(root, clock):
@@ -622,37 +433,6 @@ def test_end_subagent_keeps_parent(root, clock):
 
 def test_end_missing_session_is_idempotent(root, clock):
     assert _run(["end", "nope"]) == 0
-
-
-def test_list_excludes_subagents(root, clock, capsys):
-    _run(["start", "m", "--transcript-path", "/p/m/m.jsonl"])
-    _run(["start", "agent-s", "--transcript-path", "/p/m/subagents/agent-s.jsonl"])
-    session_state.cmd_list([])
-    assert capsys.readouterr().out.split() == ["m"]
-
-
-def test_list_subagents(root, clock, capsys):
-    _run(["start", "m", "--transcript-path", "/p/m/m.jsonl"])
-    _run(["start", "agent-a", "--transcript-path", "/p/m/subagents/agent-a.jsonl"])
-    _run(["start", "agent-b", "--transcript-path", "/p/m/subagents/agent-b.jsonl"])
-    session_state.cmd_list(["--subagents", "m"])
-    assert sorted(capsys.readouterr().out.split()) == ["agent-a", "agent-b"]
-
-
-def test_find_by_pane(root, clock, capsys):
-    _run(["start", "f", "--transcript-path", "/foo/f.jsonl"])
-    _run(["set", "f", "pane", "zellij-A"])
-    session_state.cmd_find_by_pane(["zellij-A"])
-    assert capsys.readouterr().out.strip() == "f"
-
-
-def test_find_by_pane_tmux_field_is_separate(root, clock, capsys):
-    _run(["start", "f", "--transcript-path", "/foo/f.jsonl"])
-    _run(["set", "f", "tmux-pane", "Coding:1:0"])
-    session_state.cmd_find_by_pane(["Coding:1:0"])            # default reads .pane
-    assert capsys.readouterr().out.strip() == ""
-    session_state.cmd_find_by_pane(["--tmux", "Coding:1:0"])  # --tmux reads .tmux-pane
-    assert capsys.readouterr().out.strip() == "f"
 
 
 # ---------------------------------------------------------------------------

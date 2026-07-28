@@ -1,9 +1,8 @@
-"""Behavioral tests for update_goal.py — the goal/requirements/boundaries hook.
+"""Behavioral tests for update_goal.py — the session-goal hook.
 
-The LLM call is stubbed, so these pin the deterministic shell
-around it: the structural skips, the hard 10-item list cap, the spine write, and
-the message built back from the spine (goal/requirements/boundaries from state,
-take + optional note from the model).
+The LLM call is stubbed, so these pin the deterministic shell around it: the
+structural skips, the spine write, and the message built back from the spine
+(goal from state, take + optional note from the model).
 """
 
 import pytest
@@ -50,54 +49,44 @@ def test_llm_down_writes_no_goal(monkeypatch, spine_root):
     assert load_state("ug1").get("goal") is None
 
 
-def test_list_cap_enforced(monkeypatch, spine_root):
-    reqs = ["r%d" % i for i in range(15)]
-    bnds = ["b%d" % i for i in range(12)]
+def test_goal_written_to_spine(monkeypatch, spine_root):
     rc, text = _run(monkeypatch,
-                    {"session_id": "ug1", "prompt": "do x"},
-                    {"goal": "Do x.", "requirements": reqs, "boundaries": bnds})
+                    {"session_id": "ug1", "prompt": "do x"}, {"goal": "Do x."})
     assert rc == 0
-    st = load_state("ug1")
-    assert st["goal"] == "Do x."
-    assert st["requirements"] == reqs[:10]
-    assert st["boundaries"] == bnds[:10]
+    assert load_state("ug1")["goal"] == "Do x."
 
 
-def test_message_emits_goal_note_not_lists(monkeypatch, spine_root):
+def test_message_emits_goal_and_note(monkeypatch, spine_root):
     _, text = _run(monkeypatch,
                    {"session_id": "ug1", "prompt": "do x"},
-                   {"goal": "Do x.", "requirements": ["must y"], "boundaries": ["never z"],
-                    "note": "heads up"})
+                   {"goal": "Do x.", "note": "heads up"})
     assert "Session goal:\nDo x." in text
-    # requirements/boundaries stay on the spine but are NOT shown to the main agent
-    assert "Requirements:" not in text and "must y" not in text
-    assert "Boundaries:" not in text and "never z" not in text
     assert text.endswith("heads up")
 
 
-def test_note_omitted_when_absent(monkeypatch, spine_root):
+def test_no_rendered_opening_demanded(monkeypatch, spine_root):
+    """The hook injects the goal as context; it never tells the agent to render it."""
     _, text = _run(monkeypatch,
-                   {"session_id": "ug1", "prompt": "do x"},
-                   {"goal": "Do x.", "requirements": [], "boundaries": []})
-    assert "Read the architect literally and follow exactly" in text  # every-turn opener directive
-    assert text.endswith("Session goal:\nDo x.")          # goal last, no note appended
+                   {"session_id": "ug1", "prompt": "do x"}, {"goal": "Do x."})
+    assert text == "Session goal:\nDo x."       # goal only, no directive, no note
 
 
-def test_carries_goal_forward_when_model_omits_lists(monkeypatch, spine_root):
-    _run(monkeypatch, {"session_id": "ug1", "prompt": "first"},
-         {"goal": "G1.", "requirements": ["a"], "boundaries": ["b"]})
-    # A later turn whose model result omits the arrays must not wipe the spine.
-    _, text = _run(monkeypatch, {"session_id": "ug1", "prompt": "second"}, {"goal": "G2."})
-    st = load_state("ug1")
-    assert st["goal"] == "G2."
-    assert st["requirements"] == ["a"]
-    assert st["boundaries"] == ["b"]
+def test_goal_updates_across_turns(monkeypatch, spine_root):
+    _run(monkeypatch, {"session_id": "ug1", "prompt": "first"}, {"goal": "G1."})
+    _run(monkeypatch, {"session_id": "ug1", "prompt": "second"}, {"goal": "G2."})
+    assert load_state("ug1")["goal"] == "G2."
+
+
+def test_goal_survives_a_turn_the_model_omits_it(monkeypatch, spine_root):
+    _run(monkeypatch, {"session_id": "ug1", "prompt": "first"}, {"goal": "G1."})
+    _run(monkeypatch, {"session_id": "ug1", "prompt": "second"}, {"take": "asking a question"})
+    assert load_state("ug1")["goal"] == "G1."
 
 
 def test_take_emitted_with_inference_framing(monkeypatch, spine_root):
     _, text = _run(monkeypatch,
                    {"session_id": "ug1", "prompt": "no, narrow it to X"},
-                   {"goal": "Do x.", "requirements": [], "boundaries": [],
+                   {"goal": "Do x.",
                     "take": "The user is correcting the agent toward narrowing the boundary."})
     assert "The user is correcting the agent toward narrowing the boundary." in text
     # framed as the hook's inference, not the architect's own words

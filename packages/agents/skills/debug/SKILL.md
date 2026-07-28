@@ -193,7 +193,7 @@ You MUST complete each phase before proceeding to the next.
    - Automated test if possible
    - One-off test script if no framework
    - MUST have before fixing
-   - Use the `superpowers:test-driven-development` skill for writing proper failing tests
+   - Write the test against the root cause and watch it fail before you fix
 
 2. **Implement Single Fix**
    - Address the root cause identified
@@ -299,15 +299,3 @@ These techniques are part of systematic debugging and available in this director
 - **`references/root-cause-tracing.md`** - Trace bugs backward through call stack to find original trigger
 - **`references/defense-in-depth.md`** - Add validation at multiple layers after finding root cause
 - **`references/condition-based-waiting.md`** - Replace arbitrary timeouts with condition polling
-
-**Related skills:**
-- **superpowers:test-driven-development** - For creating failing test case (Phase 4, Step 1)
-- **superpowers:verification-before-completion** - Verify fix worked before claiming success
-
-## Real-World Impact
-
-From debugging sessions:
-- Systematic approach: 15-30 minutes to fix
-- Random fixes approach: 2-3 hours of thrashing
-- First-time fix rate: 95% vs 40%
-- New bugs introduced: Near zero vs common
