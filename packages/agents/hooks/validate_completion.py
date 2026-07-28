@@ -39,10 +39,14 @@ GATE_BLOCK_CAP = 1
 # partial-read-then-edit case and a file that never recorded any read at all.
 COVERAGE_FLOOR = 0.5
 
+# Claude only, for the reason babysitter.py carries: every input this validator
+# reads — the turn's boundary, its edits, its tool outcomes — is parsed out of
+# Claude's transcript, and codex's rollout has none of those record shapes. On
+# codex it would report zero mutations for every turn, always.
 BINDING = {
     "events": {"Stop": []},
     "timeout": 90,
-    "harness": "all",
+    "harness": "claude",
 }
 
 JSON_SCHEMA = '{"type":"object","properties":{"allow":{"type":"boolean"},"reason":{"type":"string"}},"required":["allow"]}'

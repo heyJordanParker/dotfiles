@@ -38,6 +38,13 @@ import re
 # scripts/frontmatter.py's key pattern, so the two agree on what a key line is.
 _KEY = re.compile(r"^([A-Za-z_][\w-]*):\s?(.*)$")
 
+# The environment variable carrying the running agent's definition path into a
+# codex run. Named here because both ends read declarations through this module:
+# codex_run.py sets it when it launches, and the codex-side gates read it to find
+# the file whose declarations they enforce. A codex session that is not a
+# codex-run agent does not set it, and an absent value means no agent to gate.
+AGENT_FILE_VAR = "CODEX_RUN_AGENT_FILE"
+
 
 def denies_memory(path):
     """Whether the definition at `path` denies its agent Memory.

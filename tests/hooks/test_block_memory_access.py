@@ -148,7 +148,7 @@ def test_codex_blank_agent_run_carries_the_disable_flag(monkeypatch, tmp_path):
     """The flag reaches the actual codex argv, not just _dispatch's signature."""
     cmds = []
     monkeypatch.setattr(codex_run, "_run",
-                        lambda cmd, events: cmds.append(cmd) or (0, "answer", "th_1", False, ""))
+                        lambda cmd, events, definition_path='': cmds.append(cmd) or (0, "answer", "th_1", False, ""))
     monkeypatch.setattr(codex_run, "_output_paths",
                         lambda: (str(tmp_path / "a.txt"), str(tmp_path / "e.jsonl")))
     codex_run._dispatch(str(tmp_path / "p.md"), "task", "architect", blank_memory=True)
@@ -163,7 +163,7 @@ def test_codex_blank_agent_run_disables_both_providers(monkeypatch, tmp_path):
     because it injects a Memory section straight into the run."""
     cmds = []
     monkeypatch.setattr(codex_run, "_run",
-                        lambda cmd, events: cmds.append(cmd) or (0, "answer", "th_1", False, ""))
+                        lambda cmd, events, definition_path='': cmds.append(cmd) or (0, "answer", "th_1", False, ""))
     monkeypatch.setattr(codex_run, "_output_paths",
                         lambda: (str(tmp_path / "a.txt"), str(tmp_path / "e.jsonl")))
     codex_run._dispatch(str(tmp_path / "p.md"), "task", "architect", blank_memory=True)
@@ -185,7 +185,7 @@ def test_codex_resume_applies_the_founding_agents_declaration(monkeypatch, tmp_p
     _pin_rollout(monkeypatch, tmp_path, "th_keeps", "instructions for architect")
     cmds = []
     monkeypatch.setattr(codex_run, "_run",
-                        lambda cmd, events: cmds.append(cmd) or (0, "answer", cmd[3], False, ""))
+                        lambda cmd, events, definition_path='': cmds.append(cmd) or (0, "answer", cmd[3], False, ""))
     monkeypatch.setattr(codex_run, "_output_paths",
                         lambda: (str(tmp_path / "a.txt"), str(tmp_path / "e.jsonl")))
     assert codex_run.main(["resume", "th_blank", "continue"]) == 0

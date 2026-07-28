@@ -75,3 +75,59 @@ def test_writing_a_script_is_allowed_with_warning(proposing):
 
 def test_writing_a_repo_file_still_blocks(proposing):
     assert _run({"file_path": os.path.join(REPO, "scratch.py")}).returncode == 2
+
+
+# --- a dispatched codex agent is not the architect's conversation -------------
+
+def _run_as(tool_input, agent_file, tool_name="Bash"):
+    env = dict(os.environ)
+    if agent_file:
+        env["CODEX_RUN_AGENT_FILE"] = agent_file
+    else:
+        env.pop("CODEX_RUN_AGENT_FILE", None)
+    payload = json.dumps({"session_id": SID, "cwd": REPO,
+                          "tool_name": tool_name, "tool_input": tool_input})
+    return subprocess.run(["python3", HOOK], input=payload, text=True,
+                          capture_output=True, env=env).returncode
+
+
+AGENT = os.path.join(REPO, "packages", "agents", "agents", "ponytail.md")
+
+
+@pytest.mark.parametrize("command", [
+    "python3 scripts/sync.py",
+    "node build.js",
+    "echo hi > packages/out.txt",
+])
+def test_a_dispatched_codex_agent_is_not_gated(proposing, command):
+    """Its task arrived already scoped, so there is no proposal it is holding up.
+
+    The state it carries is the intent classifier's read of its dispatch prompt,
+    which defaults to proposing — gating on that refused a codex agent every
+    interpreter and every in-repo write for its whole run.
+    """
+    assert _run_as({"command": command}, AGENT) == 0
+
+
+@pytest.mark.parametrize("command", [
+    "python3 scripts/sync.py",
+    "echo hi > packages/out.txt",
+])
+def test_a_session_that_is_not_a_dispatched_agent_is_still_gated(proposing, command):
+    assert _run_as({"command": command}, None) == 2
+
+
+_PATCH = ("*** Begin Patch\n*** Update File: docs/x.md\n@@\n"
+          "+echo hi > packages/out.txt\n*** End Patch")
+
+
+def test_a_patch_body_is_not_parsed_as_shell(proposing):
+    """codex delivers apply_patch as tool_input.command carrying the patch body.
+
+    Parsed as shell, a `+` line adding a redirect reads as a redirect, so a
+    legitimate edit was refused for text inside its own diff — and a patch that
+    rewrote repo files passed, because it carried no shell syntax. The write is
+    what this gate cares about, and it is blocked as a write.
+    """
+    assert _run_as({"command": _PATCH}, None, tool_name="apply_patch") == 2
+    assert _run_as({"command": _PATCH}, AGENT, tool_name="apply_patch") == 0

@@ -23,7 +23,7 @@ from conftest import PY_HOOKS
 
 sys.path.insert(0, os.path.join(PY_HOOKS, "lib"))
 
-from lib import codex_run  # noqa: E402
+from lib import agent_memory, codex_run  # noqa: E402
 
 
 def _stub_codex(monkeypatch, tmp_path, *, stdout="", stderr="", code=0):
@@ -359,7 +359,7 @@ def _pin_rollout(monkeypatch, tmp_path, session, instructions, archived=False):
 
 def _no_codex(monkeypatch):
     monkeypatch.setattr(codex_run, "_run",
-                        lambda cmd, events: (_ for _ in ()).throw(AssertionError("codex ran")))
+                        lambda cmd, events, definition_path='': (_ for _ in ()).throw(AssertionError("codex ran")))
 
 
 def test_founding_agent_is_recovered_from_the_rollout(monkeypatch, tmp_path, capsys):
@@ -370,7 +370,7 @@ def test_founding_agent_is_recovered_from_the_rollout(monkeypatch, tmp_path, cap
     _pin_rollout(monkeypatch, tmp_path, "th_1", "instructions for researcher")
     cmds = []
     monkeypatch.setattr(codex_run, "_run",
-                        lambda cmd, events: cmds.append(cmd) or (0, "answer", "th_1", False, ""))
+                        lambda cmd, events, definition_path='': cmds.append(cmd) or (0, "answer", "th_1", False, ""))
     monkeypatch.setattr(codex_run, "_output_paths",
                         lambda: (str(tmp_path / "a.txt"), str(tmp_path / "e.jsonl")))
 
@@ -400,7 +400,7 @@ def test_marker_names_the_founding_agent(monkeypatch, tmp_path, capsys):
                  "<!-- codex-run agent: researcher -->\n\nThe body it was founded on.\n")
     cmds = []
     monkeypatch.setattr(codex_run, "_run",
-                        lambda cmd, events: cmds.append(cmd) or (0, "answer", "th_1", False, ""))
+                        lambda cmd, events, definition_path='': cmds.append(cmd) or (0, "answer", "th_1", False, ""))
     monkeypatch.setattr(codex_run, "_output_paths",
                         lambda: (str(tmp_path / "a.txt"), str(tmp_path / "e.jsonl")))
 
@@ -506,13 +506,78 @@ def test_resume_of_a_bare_codex_thread_stops(monkeypatch, tmp_path, capsys):
 
 # --- an agent runs on the model its definition declares ---------------------------
 
-def _capture_cmd(monkeypatch, tmp_path):
+def _capture_cmd(monkeypatch, tmp_path, definitions=None):
     cmds = []
-    monkeypatch.setattr(codex_run, "_run",
-                        lambda cmd, events: cmds.append(cmd) or (0, "answer", "th_1", False, ""))
+
+    def run(cmd, events, definition_path=""):
+        cmds.append(cmd)
+        if definitions is not None:
+            definitions.append(definition_path)
+        return 0, "answer", "th_1", False, ""
+
+    monkeypatch.setattr(codex_run, "_run", run)
     monkeypatch.setattr(codex_run, "_output_paths",
                         lambda: (str(tmp_path / "a.txt"), str(tmp_path / "e.jsonl")))
     return cmds
+
+
+def test_the_definition_path_reaches_the_run(monkeypatch, tmp_path):
+    """The codex-side gates read declarations off the file, so the run carries it.
+
+    The path rather than the agent's name: the roster resolution that produced it
+    is subtle, and a gate re-deriving it would be a second implementation of the
+    thing the shared parser exists to stop drifting.
+    """
+    agents = _pin_agents(monkeypatch, tmp_path, ["explorer"])
+    (agents / "explorer.md").write_text("---\nname: explorer\ntools: Bash\n---\n\nbody\n")
+    seen = []
+    _capture_cmd(monkeypatch, tmp_path, definitions=seen)
+    assert codex_run.main(["@explorer", "look"]) == 0
+    assert seen == [str(agents / "explorer.md")]
+
+
+def test_the_definition_path_is_exported_to_codex(monkeypatch, tmp_path):
+    """It rides in the environment, which is how a hook inside the run reads it."""
+    captured = {}
+
+    class _Proc:
+        stdout = []
+        stderr = type("_S", (), {"read": staticmethod(lambda: "")})()
+
+        @staticmethod
+        def wait():
+            return 0
+
+    def popen(cmd, **kwargs):
+        captured.update(kwargs.get("env") or {})
+        return _Proc()
+
+    monkeypatch.setattr(codex_run.subprocess, "Popen", popen)
+    codex_run._run(["codex"], str(tmp_path / "e.jsonl"), "/roster/explorer.md")
+    assert captured[agent_memory.AGENT_FILE_VAR] == "/roster/explorer.md"
+
+
+def test_an_inherited_definition_path_does_not_leak_into_an_unresolved_run(monkeypatch, tmp_path):
+    """A stale value from an outer codex-run would gate this one as the wrong
+    agent, which is worse than not gating it at all."""
+    captured = {}
+
+    class _Proc:
+        stdout = []
+        stderr = type("_S", (), {"read": staticmethod(lambda: "")})()
+
+        @staticmethod
+        def wait():
+            return 0
+
+    def popen(cmd, **kwargs):
+        captured.update(kwargs.get("env") or {})
+        return _Proc()
+
+    monkeypatch.setenv(agent_memory.AGENT_FILE_VAR, "/roster/outer.md")
+    monkeypatch.setattr(codex_run.subprocess, "Popen", popen)
+    codex_run._run(["codex"], str(tmp_path / "e.jsonl"), "")
+    assert agent_memory.AGENT_FILE_VAR not in captured
 
 
 def _model_of(cmd):

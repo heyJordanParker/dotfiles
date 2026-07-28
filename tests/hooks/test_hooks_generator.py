@@ -180,14 +180,72 @@ def test_codex_excludes_claude_only_hook(hooks_dir, settings_path, config_path, 
     assert "classify_prompt.py" not in text  # harness: claude -> absent
 
 
-def test_codex_trust_hash_for_every_command(hooks_dir, settings_path, config_path, profiles_dir):
+def test_codex_event_tables_are_pascal_case(hooks_dir, settings_path, config_path, profiles_dir):
+    """The table name is the Event verbatim.
+
+    codex renames the fields of its hooks struct to the PascalCase event names and
+    sets no deny_unknown_fields, so a snake_case table is an unknown key: it parses
+    to an empty struct, discovers no handler, and warns about nothing. Every codex
+    hook was inert this way, which is invisible from the config file alone.
+    """
+    generator.generate(str(hooks_dir), str(settings_path), str(config_path), str(profiles_dir))
+    text = config_path.read_text()
+    assert "[[hooks.PreToolUse]]" in text
+    assert "[[hooks.pre_tool_use]]" not in text
+
+
+def _expected_trust_hash(module, snake_event, timeout):
+    """The hash codex computes for one emitted handler.
+
+    Spelled out here rather than called from the generator so the test pins the
+    formula instead of agreeing with whatever the generator currently does.
+    """
+    identity = {
+        "event_name": snake_event,
+        "hooks": [{"type": "command",
+                   "command": f"python3 {generator.CODEX_HOOK_DIR}/{module}.py",
+                   "async": False,
+                   "timeout": timeout}],
+    }
+    canonical = json.dumps(identity, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def test_codex_trust_hash_covers_the_normalized_identity(hooks_dir, settings_path, config_path, profiles_dir):
+    """The hash covers codex's normalized identity, not the command string.
+
+    codex hashes the event's snake_case label plus the matcher group reduced to the
+    one handler with its timeout resolved, key-sorted and serialized compactly. A
+    hash it disagrees with reads as Modified and suppresses the handler as quietly
+    as a misnamed table does.
+    """
+    generator.generate(str(hooks_dir), str(settings_path), str(config_path), str(profiles_dir))
+    text = config_path.read_text()
+    digest = _expected_trust_hash("validate_completion", "stop", 90)
+    assert f'trusted_hash = "sha256:{digest}"' in text
+    assert hashlib.sha256(
+        f"python3 {generator.CODEX_HOOK_DIR}/validate_completion.py".encode()
+    ).hexdigest() not in text          # the command-string hash codex rejects
+
+
+def test_codex_trust_hash_resolves_an_omitted_timeout(hooks_dir, settings_path, config_path, profiles_dir):
+    """An omitted timeout is absent from the file but present in the hash.
+
+    codex resolves it to its own default before hashing, so a hash taken over what
+    the file shows drifts for exactly the hooks that declare no timeout.
+    """
+    generator.generate(str(hooks_dir), str(settings_path), str(config_path), str(profiles_dir))
+    text = config_path.read_text()
+    digest = _expected_trust_hash("guard_shell", "pre_tool_use", generator._CODEX_DEFAULT_TIMEOUT)
+    assert f'trusted_hash = "sha256:{digest}"' in text
+
+
+def test_codex_emits_a_trust_entry_per_command(hooks_dir, settings_path, config_path, profiles_dir):
     generator.generate(str(hooks_dir), str(settings_path), str(config_path), str(profiles_dir))
     text = config_path.read_text()
     commands = re.findall(r'^command = "(.+)"$', text, re.M)
     assert commands, "expected at least one emitted codex command"
-    for command in commands:
-        digest = hashlib.sha256(command.encode("utf-8")).hexdigest()
-        assert f'trusted_hash = "sha256:{digest}"' in text
+    assert len(re.findall(r"^trusted_hash = ", text, re.M)) == len(commands)
 
 
 def test_codex_non_hook_sections_untouched(hooks_dir, settings_path, config_path, profiles_dir):
@@ -324,3 +382,15 @@ def _claude_commands(settings):
         for h in group["hooks"]
         if h.get("type") == "command"
     ]
+
+
+def test_an_event_codex_cannot_fire_stops_the_generator(hooks_dir, settings_path, config_path, profiles_dir):
+    """A codex-bound Event codex has no field for must fail loudly.
+
+    codex sets no deny_unknown_fields on its hooks struct, so a table it does not
+    know is dropped in silence — the failure that left the whole codex wiring inert.
+    A generator that emits one ships that silence again.
+    """
+    _write_hook(hooks_dir, "on_session_end", {"events": {"SessionEnd": []}, "harness": "all"})
+    with pytest.raises(ValueError, match="codex has no SessionEnd event"):
+        generator.generate(str(hooks_dir), str(settings_path), str(config_path), str(profiles_dir))

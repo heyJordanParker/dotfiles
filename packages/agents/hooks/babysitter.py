@@ -29,10 +29,14 @@ from lib.session_state import bump_gate_block, gate_block_count, load_state
 # the turn — it flags an obvious problem once and trusts the agent after that.
 GATE_BLOCK_CAP = 1
 
+# Claude only. The judgement is built on Claude's transcript — the turn boundary,
+# the request, the tool evidence — and codex's rollout carries none of those
+# shapes, so on codex it would judge a bare last message with no request and no
+# evidence, at the cost of a model call per stop.
 BINDING = {
     "events": {"Stop": []},
     "timeout": 90,
-    "harness": "all",
+    "harness": "claude",
 }
 
 JSON_SCHEMA = ('{"type":"object","properties":{"allow":{"type":"boolean"},'

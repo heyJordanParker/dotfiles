@@ -41,7 +41,12 @@ import files
 CLAUDE_HOOK_DIR = "~/.agents/hooks"
 CODEX_HOOK_DIR = "/Users/jordan/.agents/hooks"
 
-# Codex lifecycle event name (snake_case) keyed on the shared Event name.
+# Every event codex has a field for, snake_case label keyed on the shared Event
+# name. This is the whole set — codex's hooks struct sets no deny_unknown_fields,
+# so a table it has no field for is dropped without a warning, which is how the
+# entire codex wiring sat inert. An Event absent here is one codex cannot fire, so
+# emitting it would ship that same silence; `render_codex` raises instead.
+# `SessionEnd` was listed here and is not one of codex's.
 CODEX_EVENT = {
     "PreToolUse": "pre_tool_use",
     "PostToolUse": "post_tool_use",
@@ -53,7 +58,6 @@ CODEX_EVENT = {
     "PostCompact": "post_compact",
     "SubagentStart": "subagent_start",
     "SubagentStop": "subagent_stop",
-    "SessionEnd": "session_end",
 }
 
 
@@ -201,39 +205,79 @@ def render_codex(config_text, bindings):
 
 
 def _codex_hook_blocks(groups):
-    """The [[hooks.<Event>]] TOML text plus, per codex event, the ordered
+    """The [[hooks.<Event>]] TOML text plus, per Event, the ordered
     (command, timeout) list (codex fires per event without tool matchers; the
     Python hook self-filters, matching the existing config). timeout is omitted
     from the block when the BINDING omits it.
+
+    The table name is the Event verbatim — codex deserializes the `hooks` table
+    into a struct whose fields are renamed to the PascalCase event names, with no
+    deny_unknown_fields. A snake_case table is an unknown key: it parses to an
+    empty struct, no handler is ever discovered, and nothing warns. Every codex
+    hook was silently inert until this used the Event name.
     """
     hooks_by_event = {}
     for (event, _matcher_key), commands in groups.items():
-        codex_event = CODEX_EVENT[event]
-        hooks_by_event.setdefault(codex_event, [])
+        if event not in CODEX_EVENT:
+            raise ValueError(
+                "codex has no %s event; a BINDING declaring it with harness "
+                "all/codex would be dropped silently. Bind it to claude." % event)
+        hooks_by_event.setdefault(event, [])
         for command, timeout in commands:
-            if (command, timeout) not in hooks_by_event[codex_event]:
-                hooks_by_event[codex_event].append((command, timeout))
+            if (command, timeout) not in hooks_by_event[event]:
+                hooks_by_event[event].append((command, timeout))
 
     blocks = []
-    for codex_event in sorted(hooks_by_event):
-        lines = [f"[[hooks.{codex_event}]]"]
-        for command, timeout in hooks_by_event[codex_event]:
-            lines += [f"[[hooks.{codex_event}.hooks]]", 'type = "command"', f'command = "{command}"']
+    for event in sorted(hooks_by_event):
+        lines = [f"[[hooks.{event}]]"]
+        for command, timeout in hooks_by_event[event]:
+            lines += [f"[[hooks.{event}.hooks]]", 'type = "command"', f'command = "{command}"']
             if timeout is not None:
                 lines.append(f"timeout = {timeout}")
         blocks.append("\n".join(lines))
     return "\n\n".join(blocks), hooks_by_event
 
 
+# A handler codex resolves but we never write: an omitted timeout resolves to
+# codex's own default, and the hash covers the resolved value, not the file's.
+_CODEX_DEFAULT_TIMEOUT = 600
+
+
+def _codex_trust_hash(event, command, timeout):
+    """The trust hash codex computes for one handler.
+
+    Not a hash of the command. Codex builds a normalized identity — the event's
+    snake_case label plus the matcher group reduced to this one handler, with the
+    timeout resolved — serializes it, sorts every key, and hashes the compact
+    JSON bytes. Absent fields (matcher, statusMessage, commandWindows) drop out
+    rather than serializing as null.
+    """
+    identity = {
+        "event_name": CODEX_EVENT[event],
+        "hooks": [{
+            "type": "command",
+            "command": command,
+            "async": False,
+            "timeout": _CODEX_DEFAULT_TIMEOUT if timeout is None else timeout,
+        }],
+    }
+    canonical = json.dumps(identity, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
 def _codex_state_table(hooks_by_event):
     """The [hooks.state] trust table: one entry per emitted command, keyed
-    config.toml:<event>:<group_index>:<hook_index>, hashed over the command.
+    config.toml:<snake_event>:<group_index>:<hook_index>. The key keeps the
+    snake_case label even though the table above it is PascalCase.
+
+    A hash codex disagrees with reads as Modified, a missing one as Untrusted,
+    and either suppresses the handler as silently as a misnamed table does.
     """
     entries = []
-    for codex_event in sorted(hooks_by_event):
-        for hook_index, (command, _timeout) in enumerate(hooks_by_event[codex_event]):
-            key = f"/Users/jordan/.codex/config.toml:{codex_event}:0:{hook_index}"
-            digest = hashlib.sha256(command.encode("utf-8")).hexdigest()
+    for event in sorted(hooks_by_event):
+        for hook_index, (command, timeout) in enumerate(hooks_by_event[event]):
+            key = f"/Users/jordan/.codex/config.toml:{CODEX_EVENT[event]}:0:{hook_index}"
+            digest = _codex_trust_hash(event, command, timeout)
             entries.append(f'[hooks.state."{key}"]\ntrusted_hash = "sha256:{digest}"')
     return "[hooks.state]\n\n" + "\n\n".join(entries)
 

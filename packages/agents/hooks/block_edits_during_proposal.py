@@ -12,9 +12,9 @@ import os
 import re
 import sys
 
-from lib import feedback
+from lib import agent_memory, feedback
 from lib.command import command_head, git_normalize, segments
-from lib.event import field, owner_session, read_event
+from lib.event import canonical_tool, field, owner_session, read_event
 from lib.session_state import load_state
 
 BINDING = {
@@ -160,12 +160,27 @@ def block(msg=BLOCK_MSG):
 
 def main():
     event = read_event()
+    # A codex-run agent is a dispatched executor, not a conversation with the
+    # architect: its task arrived already scoped, and there is no proposal pending
+    # for it to be holding up. The state it does carry is written by the intent
+    # classifier reading its dispatch prompt, which defaults to proposing and would
+    # otherwise refuse the agent every interpreter and every in-repo write for the
+    # whole run.
+    if os.environ.get(agent_memory.AGENT_FILE_VAR):
+        return 0
     session_id = owner_session(event)
     if not session_id:
         return 0
     state = load_state(session_id).get("state") or "proposing"
     if state != "proposing":
         return 0
+
+    # codex delivers an apply_patch as tool_input.command carrying the patch body,
+    # so the shell parse below would read the diff's own text as commands — a `+`
+    # line adding a redirect reads as a redirect. The write itself is what this
+    # gate cares about, and it has no file_path to check it against.
+    if canonical_tool(event) == "write" and not field(event, "tool_input.file_path", ""):
+        return block()
 
     cwd = field(event, "cwd", "") or os.getcwd()
     file_path = field(event, "tool_input.file_path", "")

@@ -109,7 +109,7 @@ _INSTRUCTIONS_KEY = "model_instructions_file"
 # changes. An agent overrides either for itself in its frontmatter: `codex-model`
 # for the model, the codex-side counterpart of `model`, which names a Claude model
 # and so cannot serve here; and `effort`, which is one field for both harnesses,
-# because the four words Claude's key takes are the four codex takes.
+# because the five words Claude's key takes are the five codex takes.
 _MODEL = "gpt-5.6-sol"
 _EFFORT = "medium"
 
@@ -387,13 +387,19 @@ def _resolve_output_dir():
 
 # --- the codex invocation ---------------------------------------------------------
 
-def _run(cmd, events_path):
+def _run(cmd, events_path, definition_path=""):
     """Run codex, tee the event stream to events_path, return (returncode, answer,
     session_id, turn_failed, stderr). The stream is the single source: the final
     answer is the last agent_message item.completed, the session id is
     thread.started's thread_id, a turn.failed event marks a failed turn even on a
     zero exit. codex's stderr is captured so a failed run is diagnosable — on
     failure it carries the actual error text the event stream never produced.
+
+    The agent's definition path rides into codex's environment, which is how a
+    hook inside the run learns which agent it is gating. The path rather than the
+    name on purpose: the roster resolution that produced it is subtle (active
+    config root first, shared roster second) and a hook re-deriving it is a second
+    implementation of the thing that must not drift.
 
     Both pipes are drained concurrently: stderr on a reader thread while the main
     loop drains stdout. Reading stdout to exhaustion before touching stderr would
@@ -407,10 +413,17 @@ def _run(cmd, events_path):
     answer = None
     session = ""
     turn_failed = False
+    env = dict(os.environ)
+    if definition_path:
+        env[agent_memory.AGENT_FILE_VAR] = definition_path
+    else:
+        # An inherited value from an outer codex-run would gate this run as the
+        # wrong agent, which is worse than not gating it.
+        env.pop(agent_memory.AGENT_FILE_VAR, None)
     try:
         proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL,
                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                text=True)
+                                text=True, env=env)
     except Exception as exc:
         # Surface the reason in the answer slot so _dispatch prints it on stdout.
         return 1, "codex-run: failed to launch codex: %s" % exc, "", False, ""
@@ -492,7 +505,8 @@ def _dispatch(prompt_path, prompt, agent, resume_id=None, blank_memory=False):
            + ["-c", "model_reasoning_effort=%s" % effort]
            + memory + instructions + [prompt])
 
-    returncode, answer, session, turn_failed, stderr = _run(cmd, events_path)
+    returncode, answer, session, turn_failed, stderr = _run(
+        cmd, events_path, _definition_path(agent) or "")
 
     # No final answer is a failure — a run that exits zero but produced nothing
     # usable is not a success, the same as a process failure or a failed turn.
