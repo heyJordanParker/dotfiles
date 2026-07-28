@@ -46,3 +46,7 @@ Run `agent-browser skills list` to see everything available on the installed ver
 ## Observability Dashboard
 
 The dashboard runs independently of browser sessions on port 4848 and can also be opened through a proxied or forwarded URL such as `https://dashboard.agent-browser.localhost`. Agents should stay on the dashboard origin: session tabs, status, and stream traffic are proxied internally, so session ports do not need to be exposed.
+
+### Close your session before finishing
+Run `agent-browser close` (per named session you opened) before reporting done.
+An abandoned session is a known failure.

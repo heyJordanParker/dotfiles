@@ -156,6 +156,11 @@
           },
           {
             "type": "command",
+            "command": "python3 ~/.agents/hooks/block_invalid_browsers.py",
+            "timeout": 5
+          },
+          {
+            "type": "command",
             "command": "python3 ~/.agents/hooks/block_path_assignment.py",
             "timeout": 5
           },
@@ -442,6 +447,11 @@
           },
           {
             "type": "command",
+            "command": "python3 ~/.agents/hooks/close_abandoned_browsers.py",
+            "timeout": 60
+          },
+          {
+            "type": "command",
             "command": "python3 ~/.agents/hooks/validate_completion.py",
             "timeout": 90
           }
@@ -490,6 +500,17 @@
             "type": "command",
             "command": "python3 ~/.agents/hooks/update_goal.py",
             "timeout": 70
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ~/.agents/hooks/close_abandoned_browsers.py",
+            "timeout": 60
           }
         ]
       }

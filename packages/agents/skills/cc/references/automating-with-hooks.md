@@ -279,7 +279,7 @@ Example: `{ "permissions": { "additionalDirectories": ["../docs/"] } }`
 - An Agent Hook requires `type: "agent"` and `prompt: string`; `model`, `timeout`, `statusMessage`, and `once` are optional.
 - Agent Hooks default to 60 seconds, while prompt Hooks default to 30 seconds.
 - HTTP Hooks post Hook input JSON to the URL and expect the same decision JSON back.
-- Observed in 2.1.131: `SubagentStop`, `TaskCompleted`, `TaskCreated`, and `SubagentStart` did not appear in any of 138 debug logs surveyed, including 134 historical logs and 4 controlled `claude --debug` runs covering Subagent dispatch.
+- Observed in 2.1.220: `SubagentStart` and `SubagentStop` both fire, `SubagentStop` carries `agent_id`, `agent_type`, `agent_transcript_path`, and `last_assistant_message`, and a `SubagentStart` is not guaranteed a matching `SubagentStop`, since an observed failed dispatch emitted only `SubagentStart`.
 - Subagent inner tool calls do fire `PreToolUse` and `PostToolUse` with the parent's `session_id` and the Subagent identity in `agent_id` and `agent_type`.
 - Official Hook docs live at <https://code.claude.com/docs/en/hooks>.
 
