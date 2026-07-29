@@ -90,18 +90,32 @@ def is_subagent_prompt(event):
 _FORCED_STATE = {"/propose": "proposing", "/execute": "executing", "/interview": "interview"}
 _FORCED_APPROACH = {"/solo": "solo", "/subagents": "subagents"}
 
-# A line's leading run of slash tokens: "/execute /commit fix the parser" types two
-# commands, "okay /execute" types none. Anywhere past that run — mid-sentence,
-# quoted, backticked, inside a pasted report or a numbered list — the token is
-# discussion about the command, not the architect switching mode.
-_LEADING_RUN = re.compile(r"^[ \t]*((?:/[a-z][a-z0-9-]*(?:[ \t]+|$))+)", re.M)
+# The architect types his commands anywhere, phrased naturally: "sure, /execute &
+# /commit after", or mid-sentence on a later line. So every slash token counts, on
+# any line at any position, minus backticked and double-quoted spans, which are
+# discussion about a command rather than a mode switch.
+_ANY_TOKEN = re.compile(r"(?:^|\s)(/[a-z][a-z0-9-]*)")
+
+_FENCED_SPAN = re.compile(r"```.*?```", re.DOTALL)
+# Inline delimiters pair only within one line, so a stray unpaired backtick or
+# quote can never swallow a command typed on a later line.
+_INLINE_SPAN = re.compile(r"`[^`\n]*`|\"[^\"\n]*\"")
+
+# Spans blank to a non-whitespace filler: blanking to spaces would manufacture a
+# whitespace-preceded token out of a glued path ("see`x`/execute", "foo"/propose).
+_SPAN_FILLER = "#"
+
+
+def _fill(match):
+    return "".join("\n" if ch == "\n" else _SPAN_FILLER for ch in match.group(0))
+
+
+def blank_spans(prompt):
+    return _INLINE_SPAN.sub(_fill, _FENCED_SPAN.sub(_fill, prompt))
 
 
 def leading_commands(prompt):
-    found = []
-    for match in _LEADING_RUN.finditer(prompt):
-        found.extend(match.group(1).split())
-    return found
+    return _ANY_TOKEN.findall(prompt)
 
 
 def forced_commands(prompt):
@@ -353,7 +367,10 @@ def main():
     if is_system_prompt(prompt):
         return 0
 
-    forced_state, forced_approach, forced_commit = forced_commands(prompt)
+    # One blanking feeds both deterministic scans, so a quoted sentence can never
+    # count as a mode command for one scan and a typed skill for the other.
+    scanned = blank_spans(prompt)
+    forced_state, forced_approach, forced_commit = forced_commands(scanned)
 
     # Ensure the session exists and apply any typed mode-commands.
     update = {}
@@ -376,7 +393,7 @@ def main():
         context = WRITE_FAILED_NOTICE if update else ""
 
     # Every other typed /skill: a head-anchored reload directive, leading the block.
-    typed = typed_skills(prompt)
+    typed = typed_skills(scanned)
     if typed:
         skills_block = skills_directive(typed)
         context = (skills_block + "\n\n" + context) if context else skills_block
