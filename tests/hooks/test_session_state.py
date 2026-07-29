@@ -245,6 +245,28 @@ def test_start_heals_corrupt_state(root, clock):
     assert st["session_id"] == "heal"
 
 
+def test_heal_preserves_the_prior_mode(root, clock):
+    # A truncated write leaves unparseable JSON; healing to defaults would drop the
+    # architect's typed /execute back to proposing and block their edits.
+    path = _seed_session_dir(root, "mode")
+    with open(path, "w") as fh:
+        fh.write('{"session_id":"mode","role":"main","state":"executing","appro')
+    assert _run(["set", "mode", "approach", "solo"]) == 0
+    st = _read(path)
+    assert st["state"] == "executing"
+    assert "prior_state_lost" not in st
+
+
+def test_heal_flags_an_unrecoverable_mode(root, clock):
+    path = _seed_session_dir(root, "lost")
+    with open(path, "w") as fh:
+        fh.write("garbage not json")
+    assert _run(["set", "lost", "approach", "solo"]) == 0
+    st = _read(path)
+    assert st["state"] == "proposing"
+    assert st["prior_state_lost"] is True
+
+
 def test_get_on_corrupt_state_is_soft(root, clock, capsys):
     path = _seed_session_dir(root, "soft")
     with open(path, "w") as fh:

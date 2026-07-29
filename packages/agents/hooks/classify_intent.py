@@ -61,32 +61,61 @@ def is_system_prompt(prompt):
         return True
     if prompt.startswith("Base directory for this skill:"):
         return True
+    # Machine-authored replays: a stop-gate's own feedback and a relayed message
+    # from another session both come back through UserPromptSubmit carrying
+    # whatever text they quote, so a /propose inside them must never write state.
+    if prompt.startswith("Stop hook feedback:"):
+        return True
+    if prompt.startswith("Another Claude session sent a message:"):
+        return True
+    return False
+
+
+def is_subagent_prompt(event):
+    """True when the payload belongs to a subagent turn.
+
+    A Claude subagent's payload carries the parent's UUID in session_id, so the id
+    can't tell them apart; the sidechain markers can. Both spellings are checked
+    because the harness snake-cases its own payload keys and passes the transcript
+    record's camelCase keys through unchanged.
+    """
+    for key in ("isSidechain", "is_sidechain", "agentId", "agent_id"):
+        if field(event, key, ""):
+            return True
     return False
 
 
 # --- typed mode-commands (deterministic) ---------------------------------------
 
-def _typed(prompt, token):
-    """Bounded literal-token match: /propose matches, /proposed and /commit-x don't."""
-    padded = " %s " % prompt
-    pattern = r"(^|[^A-Za-z0-9])" + re.escape(token) + r"($|[^A-Za-z0-9-])"
-    return re.search(pattern, padded) is not None
+_FORCED_STATE = {"/propose": "proposing", "/execute": "executing", "/interview": "interview"}
+_FORCED_APPROACH = {"/solo": "solo", "/subagents": "subagents"}
+
+# A line's leading run of slash tokens: "/execute /commit fix the parser" types two
+# commands, "okay /execute" types none. Anywhere past that run — mid-sentence,
+# quoted, backticked, inside a pasted report or a numbered list — the token is
+# discussion about the command, not the architect switching mode.
+_LEADING_RUN = re.compile(r"^[ \t]*((?:/[a-z][a-z0-9-]*(?:[ \t]+|$))+)", re.M)
+
+
+def leading_commands(prompt):
+    found = []
+    for match in _LEADING_RUN.finditer(prompt):
+        found.extend(match.group(1).split())
+    return found
 
 
 def forced_commands(prompt):
     forced_state = ""
-    if _typed(prompt, "/propose"):
-        forced_state = "proposing"
-    elif _typed(prompt, "/execute"):
-        forced_state = "executing"
-    elif _typed(prompt, "/interview"):
-        forced_state = "interview"
     forced_approach = ""
-    if _typed(prompt, "/solo"):
-        forced_approach = "solo"
-    elif _typed(prompt, "/subagents"):
-        forced_approach = "subagents"
-    forced_commit = _typed(prompt, "/commit")
+    forced_commit = False
+    # Last typed command wins, so a corrected mode later in the message holds.
+    for token in leading_commands(prompt):
+        if token in _FORCED_STATE:
+            forced_state = _FORCED_STATE[token]
+        elif token in _FORCED_APPROACH:
+            forced_approach = _FORCED_APPROACH[token]
+        elif token == "/commit":
+            forced_commit = True
     return forced_state, forced_approach, forced_commit
 
 
@@ -112,6 +141,10 @@ def directive(forced_state, forced_approach):
 
 
 COMMIT_DIRECTIVE = "Skills to execute: /commit"
+
+WRITE_FAILED_NOTICE = ("The typed command could not be applied: the session state "
+                       "write failed. The mode is unchanged. Tell the architect "
+                       "before doing anything else.")
 
 
 # --- typed skills (deterministic) ----------------------------------------------
@@ -310,7 +343,7 @@ def main():
     event = read_event()
 
     session_id = field(event, "session_id", "")
-    if not session_id or session_id.startswith("agent-"):
+    if not session_id or is_subagent_prompt(event):
         return 0
 
     prompt = field(event, "prompt", "")
@@ -330,12 +363,17 @@ def main():
         update["approach"] = forced_approach
     if forced_commit:
         update["commit_requested"] = True
-    merge_state(session_id, update)
+    stored = merge_state(session_id, update)
 
-    # Deterministic context: the typed-command skill-load directives.
-    context = directive(forced_state, forced_approach)
-    if forced_commit:
-        context = (context + "\n\n" + COMMIT_DIRECTIVE) if context else COMMIT_DIRECTIVE
+    # Deterministic context: the typed-command skill-load directives. Announcing a
+    # mode the write never stored leaves the agent working under one mode while the
+    # gates enforce the other, so the directive rides only on a confirmed write.
+    if stored:
+        context = directive(forced_state, forced_approach)
+        if forced_commit:
+            context = (context + "\n\n" + COMMIT_DIRECTIVE) if context else COMMIT_DIRECTIVE
+    else:
+        context = WRITE_FAILED_NOTICE if update else ""
 
     # Every other typed /skill: a head-anchored reload directive, leading the block.
     typed = typed_skills(prompt)

@@ -122,7 +122,7 @@ CASES = [
     # Compound typed command: /execute forces executing state, /subagents forces
     # the subagents approach — both fallbacks compose, both mutations persist.
     ("ci_execute_subagents", "classify_intent.py",
-     {"prompt": "okay /execute and /subagents this", "transcript_path": ""}, "p_ci1", None,
+     {"prompt": "/execute /subagents this", "transcript_path": ""}, "p_ci1", None,
      (0, _ctx_standing(EXECUTE_FALLBACK + "\n\n" + SUBAGENTS_FALLBACK), "",
       {**CI_DEFAULT_STATE, "state": "executing", "approach": "subagents"})),
     # XML-tagged system message: structurally detected, hook no-ops before any
@@ -130,9 +130,10 @@ CASES = [
     ("ci_xml_skip", "classify_intent.py",
      {"prompt": "<task-notification>x</task-notification>", "transcript_path": ""}, "p_ci1", None,
      (0, "", "", None)),
-    # agent- session id: subagent prompts are skipped, no state written.
+    # Sidechain payload: a subagent's prompt carries the parent's session id, so the
+    # sidechain flag is what skips it — no state written on the parent.
     ("ci_agent_skip", "classify_intent.py",
-     {"prompt": "/propose", "transcript_path": ""}, None, None,
+     {"prompt": "/propose", "transcript_path": "", "isSidechain": True}, None, None,
      (0, "", "", None)),
     # Typed /commit with the LLM down: forces commit_requested via the fallback
     # path; the /commit contract is emitted and the flag persists.

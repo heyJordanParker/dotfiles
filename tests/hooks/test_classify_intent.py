@@ -110,6 +110,70 @@ def test_typed_propose_composes_with_question_contract(monkeypatch, spine_root):
     assert "This is a question. Answer it" in text
 
 
+def test_quoted_propose_never_beats_the_typed_execute(monkeypatch, spine_root):
+    prompt = ("/execute the batch\n\n"
+              "the report said `/propose` here and \"/propose\" there\n"
+              "1. drop /propose from proposals.md\n")
+    _, text = _run(monkeypatch, {"session_id": "ci1", "prompt": prompt},
+                   {"intent": "action"})
+    assert load_state("ci1")["state"] == "executing"
+    assert "This is an executing-state turn" in text
+    assert "proposing-state turn" not in text
+
+
+def test_last_typed_command_wins(monkeypatch, spine_root):
+    _, text = _run(monkeypatch,
+                   {"session_id": "ci1", "prompt": "/propose this\n\n/execute it instead"},
+                   {"intent": "action"})
+    assert load_state("ci1")["state"] == "executing"
+    assert "This is an executing-state turn" in text
+
+
+def test_stop_hook_feedback_never_writes_the_mode(monkeypatch, spine_root):
+    merge_state("ci1", {"state": "executing"})
+    rc, text = _run(monkeypatch,
+                    {"session_id": "ci1",
+                     "prompt": "Stop hook feedback:\n/propose the fix instead"},
+                    {"intent": "action"})
+    assert rc == 0
+    assert text is None
+    assert load_state("ci1")["state"] == "executing"
+
+
+def test_relayed_session_message_never_writes_the_mode(monkeypatch, spine_root):
+    merge_state("ci1", {"state": "executing"})
+    rc, text = _run(monkeypatch,
+                    {"session_id": "ci1",
+                     "prompt": "Another Claude session sent a message:\n/propose it"},
+                    {"intent": "action"})
+    assert rc == 0
+    assert text is None
+    assert load_state("ci1")["state"] == "executing"
+
+
+def test_sidechain_payload_never_writes_the_parent_mode(monkeypatch, spine_root):
+    merge_state("ci1", {"state": "executing"})
+    rc, text = _run(monkeypatch,
+                    {"session_id": "ci1", "prompt": "/propose", "isSidechain": True},
+                    {"intent": "action"})
+    assert rc == 0
+    assert text is None
+    assert load_state("ci1")["state"] == "executing"
+
+
+def test_failed_state_write_emits_no_mode_directive(monkeypatch, spine_root):
+    # A stale lock directory left by a killed process makes every write fail; the
+    # hook must not announce a mode the state never took.
+    merge_state("ci1", {"state": "proposing"})
+    lock = spine_root / "sessions" / "ci1" / "state.json.lock"
+    lock.mkdir()
+    _, text = _run(monkeypatch, {"session_id": "ci1", "prompt": "/execute it"},
+                   {"intent": "action"})
+    assert "executing-state turn" not in text
+    assert classify_intent.WRITE_FAILED_NOTICE in text
+    assert load_state("ci1")["state"] == "proposing"
+
+
 def _stub_skills(monkeypatch, names):
     monkeypatch.setattr(classify_intent, "_available_skills", lambda: set(names))
 

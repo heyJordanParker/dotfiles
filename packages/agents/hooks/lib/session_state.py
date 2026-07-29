@@ -165,6 +165,29 @@ def _default_subagent_state(session_id, parent_id=""):
     }
 
 
+_MODES = ("proposing", "executing", "interview")
+_STATE_FIELD = re.compile(r'"state"\s*:\s*"(%s)"' % "|".join(_MODES))
+
+
+def _prior_mode(path):
+    """The mode recorded in a state.json that is about to be healed, or "".
+
+    Healing rewrites the file from defaults, which would silently drop the
+    architect's typed mode back to proposing and block their edits. A truncated or
+    half-written file no longer parses, so the raw text is searched too.
+    """
+    obj = _read_json(path)
+    if isinstance(obj, dict) and obj.get("state") in _MODES:
+        return obj["state"]
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            raw = fh.read()
+    except Exception:
+        return ""
+    match = _STATE_FIELD.search(raw)
+    return match.group(1) if match else ""
+
+
 def _is_valid_session_id(sid):
     if not sid:
         return False
@@ -265,6 +288,11 @@ def _ensure_session(session_id, parent_override=""):
                 default_state = _default_subagent_state(session_id, existing_parent)
             else:
                 default_state = _default_main_state(session_id)
+                prior_mode = _prior_mode(state_file)
+                if prior_mode:
+                    default_state["state"] = prior_mode
+                else:
+                    default_state["prior_state_lost"] = True
             _atomic_write(state_file, _dump(default_state))
         return session_dir
 
