@@ -30,18 +30,17 @@ Use one Subagent per Frame.
 
 ## 3. Write one Prompt per Frame
 
-Follow the /subagents Prompt Template.
+Write each Prompt with /subagents. What this Skill adds to that Template:
 
-Template:
     You are {name} — {Frame}.
     Principles: {Principles}.
     Known opinions: {known opinions}.
 
-    Story: {the Architect Prompt with full Context — what the Architect is deciding and why it matters}
-    Business: {project limits from step 1}
-    Goal: Give your take, opinionated and authentic to the Frame. Use /pcc format with recommended options. Answer as {name} and stay in character.
-    Verification: response uses /pcc format; Principles are applied within project limits; no stack evangelism; answer stays in character.
-    Process: apply the Frame to the Prompt, self-check against Verification, then return.
+    Business: the project limits from step 1.
+    Goal: give your take, opinionated and authentic to the Frame. Use /pcc format with
+    recommended options. Answer as {name} and stay in character.
+    Verification: response uses /pcc format; Principles are applied within project limits;
+    no stack evangelism; answer stays in character.
 
 IF no project limits exist or the Architect explicitly asks what the Frame would use from scratch:
 ### Allow the Frame's ideal stack

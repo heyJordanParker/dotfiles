@@ -78,12 +78,8 @@ Template:
   1. Read every file marked * in the Architecture block
   2. One file at a time — read it, then edit it. No bulk-rewrite scripts, no shortcuts
   3. Implement against the Goal
-  4. For EACH Verification item: exercise it; record the input, the observed output, and
-     a screenshot (agent-browser) when the behavior is visible in a browser
-  5. If a Verification item fails → fix and re-verify (loop step 4)
-  6. Write your Evidence to the directory the dispatch named — report.md plus screenshots.
-     A claim without output or a screenshot behind it does not go in report.md
-  7. Post a completion summary: what changed, what was verified, what was tricky, where the Evidence is
+  4. Use /prove for every Verification item, writing report.md to the Evidence directory
+     the dispatch named. A failing item is fixed and re-proved, never reported as progress
 
 ## 4. Dispatch independent Subagents at once
 
@@ -102,6 +98,15 @@ A named dispatch is a teammate, and a teammate's report reaches you only if it c
 SendMessage itself — reports get written in full and lost that way. Unnamed, the report
 comes back to you on its own.
 Never: `name`, or `run_in_background`, which the Agent tool has no parameter for.
+
+IF you are running AS a Subagent and dispatch child processes:
+### End your turn only after every child has returned and you read its output
+A Subagent's final message ends it and kills every child process still in flight — "waiting for completion" as a sign-off is quitting, not waiting. Inside a Subagent, waiting is polling in a live turn: check whether the work is done, repeatedly, never a background task plus a Monitor and never a guessed duration. An output you have not read is work that did not happen.
+Never: a final message saying "waiting", "monitors armed", or "will report when complete".
+
+IF a child command would outlive the Bash 600-second ceiling:
+### Split the child work into dispatches that finish inside the ceiling
+The ceiling silently converts a long foreground wait into a background task — the same fatal state. Chunk the work, or leave it to a persistent context instead of a Subagent.
 
 ### Resume the agent you have
 `SendMessage({to: agentId})` resumes an agent from its transcript, even after it returned,
@@ -172,26 +177,15 @@ When a finding contradicts what the Architect reported, the finding is incomplet
 ### Reject effort arguments
 "Done", "tests pass", and "no change needed" earn belief only after a repo check. "Out of scope", "too many files", and "too slow" are effort arguments, not scope. "It was broken before" is false until a clean baseline run proves it. "I'm blocked" is usually a skipped simple step: retry, restart the server, clear the cache, re-run.
 
-## 7. Verify behavior, not guesses
+## 7. Hold the returned work to the Evidence bar
 
-### Require concrete input and observed output
-Before accepting "done", the Subagent answers in writing: what concrete input ran and what exact output came back, which Critical Path was exercised start to finish, what was not exercised, and what breaks if production hits it.
-
-### Treat compile checks as necessary but incomplete
-Compiling, type-checking, linting, "logic is sound", and "looks correct" prove nothing about behavior. A confidence percentage is a guess wearing a number.
-
-Example: "POSTed `{email: a@b.co}` to `/api/v1/form-submit`; got 200; redirect to `/thanks`; happy path exercised; editor variant not exercised."
-Never: "build succeeds, types check, confidence 80%."
-
-## 8. Record Evidence
-
-### Evidence lands on disk
-Evidence goes in `docs/agents/<YYYYMMDD>-<task-slug>/`: `report.md` plus screenshots beside it. Later Agents reference the Evidence instead of trusting the claim.
+### Judge the Evidence with /prove
+Use /prove for what counts as an observed run, what `report.md` carries, and the baseline a pre-existing failure needs. Accept "done" only against that bar.
 
 ### Advance a status only with its Evidence
 A work item moves to fixed or closed only with the Evidence path that proves it; a status that moves backward gets a one-line written cause.
 
-## 9. Rank returned options yourself
+## 8. Rank returned options yourself
 
 ### Strip the recommendation and keep the facts
 A Subagent saw a Slice; the Orchestrator holds the project, its Rules, the Architect's prior calls, and sibling code. Its recommendation is one finding, not a verdict.

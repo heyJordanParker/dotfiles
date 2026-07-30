@@ -21,6 +21,8 @@ Ask the Architect one self-contained Architecture Decision question at a time.
 Template:
   ## Architecture
 
+  [annotated file tree, per /show-architecture]
+
   src/
   ├── auth/
   │   ├── validate.ts*      <- adding phone validation
@@ -29,8 +31,6 @@ Template:
   │   └── routes.ts*        <- will call the validator
   └── tests/
       └── auth.test.ts*     <- new test cases
-
-  Legend: * = affected file, <- = Context
 
   ---
 

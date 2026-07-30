@@ -34,7 +34,7 @@ Recent commits:
 8. Draft assumptions with confidence scores.
 9. If any assumption is below 70%, ask the Architect before proceeding.
 10. Draft the Plan with Decisions, not options.
-11. Validate with the `pragmatic-engineering` Skill.
+11. Validate with /pragmatic-engineering.
 12. Present the Plan to the Architect for approval.
 
 Template:
@@ -47,11 +47,9 @@ Template:
   1. [step]
 
   ## Architecture
-  path/to/
-  ├── file.ts   # what it does
-  └── other.ts  # what it does
+  [annotated file tree, per /show-architecture]
 
-  ## New Names (using `/naming`)
+  ## New Names (using /naming)
   - name — description
 
   ## Won't

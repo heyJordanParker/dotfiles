@@ -1,7 +1,6 @@
 ---
 name: review
-description: Run the full code review gate on uncommitted changes by dispatching the reviewer Subagents in parallel, aggregating Critical, Important, and Minor findings, and blocking on Critical. TRIGGER on "/review", "code review", "review the changes", or before commit when the Architect asks for review.
-disable-model-invocation: true
+description: Run the full code review gate on uncommitted changes by dispatching the reviewer Subagents in parallel, aggregating Critical, Important, and Minor findings, and blocking on Critical. Owns the aggregation Template and the Critical/Important/Minor gate. TRIGGER on "/review", "code review", "review the changes", or before commit when the Architect asks for review.
 ---
 
 # Review

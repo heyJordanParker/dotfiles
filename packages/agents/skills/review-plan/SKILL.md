@@ -1,7 +1,6 @@
 ---
 name: review-plan
 description: Reviews Shaping, Modeling, Slicing, and Plan Prompts under docs/shaping/[feature]. Dispatches five parallel specialized Subagents. TRIGGER when the Architect asks to review a Shaping, Modeling, Slicing, or Plan artifact.
-disable-model-invocation: true
 ---
 
 # Review Plan
@@ -36,28 +35,9 @@ Use [agent-prompts.md](references/agent-prompts.md) to build the five review-pla
 
 Launch all five reviewer Subagents through the Agent tool with the Prompts from step 2.
 
-## 4. Aggregate the findings
+## 4. Aggregate the findings and apply the gate
 
-Prefix each issue with the Subagent name and group by severity.
+Use /review for the aggregation Template and the gate. Title the report `# Plan Review` and prefix each issue with the Subagent name that found it.
 
-Template:
-    # Plan Review
-
-    ## Critical
-    [issues from all Subagents, prefixed with Subagent name]
-
-    ## Important
-    [issues from all Subagents, prefixed with Subagent name]
-
-    ## Minor
-    [issues from all Subagents, prefixed with Subagent name]
-
-If all clear: "No issues found."
-
-## 5. Apply the gate
-
-Critical blocks until artifacts are revised.
-
-Important is reported to the Architect.
-
-Minor is reported and does not block.
+### Block until the artifacts are revised
+Critical here blocks the artifact, not a commit: the Shaping, Modeling, Slicing, or Plan Prompt is revised before Execution starts.

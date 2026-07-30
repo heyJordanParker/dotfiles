@@ -48,19 +48,18 @@ Show the Critical Paths and wait before dispatching Subagents.
 
 Spawn one Subagent per approved Critical Path through /subagents, all in parallel. Each Subagent works independently with no shared state.
 
-Template:
+Write each dispatch with /subagents, carrying the Intent and the Summary from step 1. What this Skill adds to that Template:
+
   ```markdown
-  Story: A User is performing [Critical Path name]. We need to verify that recent code changes do not break this Critical Path and that no gaps exist in the Execution path.
+  Goal: Trace [Critical Path name] step by step through the code. For each step, read the
+  actual code that executes. Report gaps, missing error handling, broken state transitions,
+  or paths that do not work.
 
-  Business: [Intent from step 1]
+  Verification: every step traced to actual code with file:line references; each code path
+  followed through controller, service, and model where those layers exist; gaps listed;
+  state transitions verified; edge cases identified.
 
-  What changed: [Summary from step 1]
-
-  Goal: Trace [Critical Path name] step by step through the code. For each step, read the actual code that executes. Report gaps, missing error handling, broken state transitions, or paths that do not work.
-
-  Verification: Every step traced to actual code with file:line references; each code path followed through controller, service, and model where those layers exist; gaps listed; state transitions verified; edge cases identified.
-
-  Process: Trace the numbered steps from the Critical Path definition, use the annotated file tree from step 1, and return:
+  Return:
 
   ## [Critical Path Name]
 

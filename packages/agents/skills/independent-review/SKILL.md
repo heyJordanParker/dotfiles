@@ -31,27 +31,18 @@ Example: `/independent-review 5 "review for security vulnerabilities"` runs five
 
 Every Subagent receives the exact same Prompt with no variation.
 
-Template:
-    Story: {Task — what the Architect wants analyzed, reviewed, or tested, and why}
+Write the Prompt with /subagents. What this Skill adds to that Template:
 
-    Business: {Rules — codebase Context, stack, and what matters}
-
-    Goal: Perform this analysis independently. Be thorough. Document every finding with Evidence: file paths, line numbers, and concrete examples. Do not hedge; state conclusions directly.
+    Goal: perform this analysis independently. Document every finding with Evidence —
+    file paths, line numbers, concrete examples. State conclusions directly.
 
     Verification:
     - Every finding includes Evidence, not just assertions.
     - Conclusions are stated directly, not hedged.
     - Output is structured with clear sections.
 
-    Architecture:
-    {Task scope. For a Review of code changes, use Current Changes and Full Diff above; mark files to inspect with *.}
-
-    Process:
-    1. Read the Task scope and every file marked * in the Architecture block.
-    2. Complete the analysis, Review, or test independently.
-    3. For each Verification item, run Verification and paste the observed output.
-    4. If a Verification item fails, fix the work and re-verify.
-    5. Post a completion summary: what was checked, what was verified, and what was tricky.
+    Architecture: the Task scope. For a Review of code changes, use Current Changes and
+    Full Diff above; mark files to inspect with `*`.
 
 ### Keep Subagent inputs identical
 

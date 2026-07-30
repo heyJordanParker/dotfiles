@@ -45,29 +45,14 @@ After the Architect answers, use that command for the baseline and every Slice c
 
 Dispatch `context-engineer` before implementation, then spot-check the Claude.md changes. Subagents make wrong assumptions when Claude.md does not capture the Plan's WHY and Rules; the retro found this in 31 of 182 failures.
 
-Template:
-  ```
-  Story: We are about to execute a Plan. Claude.md files need the Plan's WHY,
-  Rules, Architecture, and boundaries before Subagents start working.
+Write the dispatch with /subagents. Its Goal is to read the Plan and the Shaping Prompt and update the relevant Claude.md files so a Subagent reading them understands the WHY, Rules, boundaries, and Architecture.
 
-  Business: Subagents read Claude.md files for Context. When these files do not
-  carry the Plan's WHY and Rules, Subagents make wrong assumptions; the retro
-  found this in 31 of 182 failures.
-
-  Goal: Read the Plan file at [path] and the Shaping Prompt at [path].
-  Update the relevant Claude.md files so a Subagent reading them understands
-  the WHY, Rules, boundaries, and Architecture for this work.
-
-  Verification:
+Verification for this dispatch:
   - Relevant Claude.md files carry WHY from the Plan
   - Rules and boundaries from the Plan are reflected
   - Architecture and Precedents are documented
   - No fabricated WHY; only what the Plan and Shaping Prompts establish
   - No pre-researched content; read the files directly
-
-  Architecture:
-  [Annotated file tree of Claude.md files relevant to this Plan's scope]
-  ```
 
 ## 5. Verify readiness
 
@@ -91,47 +76,24 @@ Independent Slices run in parallel. A Slice waits only for the Slices it depends
 Must-have blocks the Slice, so report immediately and wait for Architect approval. Nice-to-have is logged, reported in the Slice summary, and not implemented. Out-of-scope is noted in completion and not implemented.
 
 ### Use the implementing Subagent Template
-Dispatch per /subagents; resume the same Subagents across Slices so learnings carry. Weave prior Slice learnings into Story or Business.
+Write the dispatch with /subagents; resume the same Subagents across Slices so learnings carry. Weave prior Slice learnings into Story or Business — a library limitation goes in Business, a broken test goes in Story.
 
-Template:
-  ```
-  Story: [What the User will experience when this Slice is done — from
-  the Plan's Slice description and demo line]
+What this Plan adds to that Template:
 
-  Business: [WHY from the Plan. What problem this solves. What Rules apply.]
+  Goal: the Plan's Architecture is immutable — adapt tactically to what you find in
+  the code, never change the Architectural approach.
 
-  [Weave in Slice learnings from previous Slices — a library limitation
-  goes in Business, a broken test goes in Story]
+  Before implementing: list every assumption the Plan makes about the code you just
+  read; mark each CONFIRMED with Evidence or WRONG with what is actually true; stop
+  and report to the Orchestrator if any is WRONG.
 
-  Goal: Implement [Slice name] as defined in the Plan. Read all files
-  marked * in the Changes section. The Plan's Architecture is immutable
-  — adapt tactically to what you find in the code, but do not change the
-  Architectural approach.
-
-  Before implementing:
-  - List every assumption the Plan makes about the code you just read
-  - For each: CONFIRMED with Evidence, or WRONG with what is actually true
-  - If any assumption is WRONG, stop and report to the Orchestrator
-
-  Verification:
-  [Paste the Slice's acceptance criteria from the Plan, verbatim]
-  - All acceptance criteria verified with Evidence, using command output instead of assertions
+  Verification: the Slice's acceptance criteria from the Plan, verbatim, plus —
   - Report any tactical deviations made and why
   - Flag any change to User-visible behavior, error handling, or authentication behavior as BEHAVIORAL CHANGE
   - For any file deletion, rename, or moved symbol: trace all references and report the chain
   - Report Slice learnings for future Slices
 
-  Architecture:
-  [Annotated file tree from the Plan's Changes section, with * marking files to read]
-
-  Process:
-  1. Read every file marked * in the Architecture block
-  2. Produce the assumption audit; stop if any assumption is WRONG
-  3. Implement against the Goal
-  4. For each Verification item: run Verification and paste the output
-  5. If a Verification item fails, fix and re-verify by repeating step 4
-  6. Post a completion summary: what changed, what was verified, what was tricky
-  ```
+  Architecture: the annotated file tree from the Plan's Changes section, `*` marking files to read.
 
 ## 7. Verify the Slice from its Evidence
 

@@ -79,7 +79,7 @@ Put a Data Store in the Place whose behavior reads it. Lift it only when multipl
 
 ## 4. Present Database Schema
 
-Use annotated file trees for models and migrations touched. Mark modified files with `*`, indent fields, use `<- + method(): type` for new methods, and `<- existing` for Context.
+Use /show-architecture for the tree of models and migrations touched. On top of it here: indent fields under their model, `<- + method(): type` for a new method, `<- existing` for Context.
 
 Template:
   ```text

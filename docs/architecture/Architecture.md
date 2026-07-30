@@ -5,7 +5,7 @@ The Architect-approved architecture for the prompt system: agents, skills, hooks
 ## The allowance per Prompt file
 
 - **`packages/agents/agents/<name>.md`** — description gate, config frontmatter, one Frame, its Principles. No Process — every Process is a Skill the agent names; the generator (`scripts/agents.py`) inlines the named Skill into the codex artifacts, deterministic composition in code.
-- **`packages/agents/skills/<name>/SKILL.md`** — three-slot description, one Process as ordered steps, each step its Rules (with Conditions as needed), Examples, Templates, closing on checkable Verification. Steps stay in SKILL.md; anything a step consults — a table, catalog, Template, subprocess — is a Reference behind a pointer.
+- **`packages/agents/skills/<name>/SKILL.md`** — three-slot description, one Process as ordered steps, each step its Rules (with Conditions as needed), Examples, Templates, closing on checkable Verification. Steps stay in SKILL.md; anything a step consults — a table, catalog, Template, subprocess — is a Reference behind a pointer, and a Process another Skill owns is named, never restated. A `disable-model-invocation` Skill can name others but cannot be named: the Architect fires it, Agents cannot load it.
 - **`packages/agents/skills/<name>/references/<problem>.md`** — what one pointer names. Unreached References are deleted.
 - **`packages/agents/commands/<name>.md`** — a Skill's shape; the Architect fires it.
 - **`packages/claude/rules/<topic>.md`** — Rules logically grouped by purpose. The `paths:` glob is the file's centralized Condition; any individual Rule may carry its own Condition when it needs one ("When X:", markdown only, no XML) — less common precisely because the glob already scoped the file. A Condition may also load a Skill when the Rules behind it are a whole Process.
@@ -18,19 +18,21 @@ The Architect-approved architecture for the prompt system: agents, skills, hooks
 1. **Decisions** — `docs/architecture/decisions/000N-<the-decision>.md`; situation, choice, why, one to three sentences, plus measured scores when an experiment produced them. The Agent proposes Decisions; only the Architect makes them — typically through /interview.
 2. **Shaping** — `docs/shaping/<feature>/` (moved from `~/.claude/shaping/`): frame.md, shaping.md (`shaping: true`), affordances.md (`modeling: true`), slices.md, V<N>-plan.md, research-<topic>.md. Frontmatter types the artifact; the sync Hook fires on the frontmatter, so the move costs the Hook nothing.
 3. **Plans** — `docs/plans/<kebab-name>-V<N>.md` (moved from `~/.claude/plans/`); versions are new files, never overwrites. The plan-quality rules glob follows the move.
-4. **Evidence** — `docs/agents/<YYYYMMDD>-<task-slug>/`: one directory per piece of Evidence, report.md plus screenshots beside it. Scoped to the Task, not to a plan — an Agent producing Evidence off a Proposal or a bare Prompt writes to the same place with the same shape. When a plan, Slice, or Skill step demands Evidence, it names the expected directory, and the completion gate's deterministic check is that the named report.md exists non-empty.
+4. **Evidence** — `docs/agents/<YYYYMMDD>-<task-slug>/`: one directory per Evidence record, report.md plus screenshots beside it. Scoped to the Task, not to a plan — an Agent producing Evidence off a Proposal or a bare Prompt writes to the same place with the same shape. When a plan, Slice, or Skill step demands Evidence, it names the expected directory, and the completion gate's deterministic check is that the named report.md exists non-empty.
 5. **Session state** — sessions root, `<id>/state.json`, Subagents nested.
 6. **The experiment record** — the recorded prompt experiments and their scores: the Evidence behind the prompt Decisions. `docs/architecture/prompt-experiment-findings.md` and `docs/architecture/prompt-score-ledger.md`. Append-only.
 
-## One home per piece
+## One home per block
 
-| piece | home |
+A block has exactly one home. Every other Prompt that needs it names that home instead of carrying a copy, so Skills compose: a Process is written once, changes in one place, and any step that needs it says `/skill-name`. Both Harnesses load the named Skill, whole, including its `!` autorun output.
+
+| block | home |
 |---|---|
 | Frame, Principles | agent file |
 | Rule | rules file (grouped by purpose), Hook (per-turn/at-action), or Skill step (part of a Process) — with a Condition wherever needed |
 | Example, Template | beside its Rule or step |
 | Condition | the glob for a whole rules file; inline on any Rule; on a Skill step; or a rules-file line loading a Skill |
-| Process | Skill / Command / Reference |
+| Process | Skill / Command / Reference, named by every step that needs it |
 | WHY | folder's Claude.md, loading its references |
 | domain language | Domain.md |
 | Decision | docs/architecture/decisions/ |

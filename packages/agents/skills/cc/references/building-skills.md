@@ -100,9 +100,6 @@ The link line names the doing, not the component.
 Example: `Your Example is not changing behavior → building-examples.md`.
 Never: `hooks.md — hook system`.
 
-### Point to the existing Skill instead of copying it
-When another Skill already owns the Process, name it. Copying creates stale duplicates.
-
 ## 6. Fill the Template
 
 Template:
@@ -146,8 +143,8 @@ Example:
 
   ## 1. Name the Prompt type and fill only what it owns
 
-  ### Move a misplaced piece to its home first
-  A piece in the wrong file type invalidates every later step.
+  ### Move a misplaced block to its home first
+  A block in the wrong file type invalidates every later step.
 
   ## References (each solves one problem)
 

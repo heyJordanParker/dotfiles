@@ -25,8 +25,8 @@ Template:
   docs/architecture/decisions/  <- Decisions
   Domain.md                     <- the domain's words, nothing else
 
-### Move a misplaced piece to its home first
-A piece in the wrong file type invalidates every later step.
+### Move a misplaced block to its home first
+A block in the wrong file type invalidates every later step.
 
 ### Agents never carry Rules or a Process
 A Process is a Skill the agent names via `skills:`; `scripts/agents.py` inlines named Skills into the codex artifacts. Rules load from rules files by glob.
@@ -39,6 +39,10 @@ A blank filled for symmetry is Fluff. A Skill never carries a Frame, never Princ
 
 ### Only a Process becomes a Reference
 A roster, catalog, worked-example set, or data table stays in SKILL.md even when that makes it long. Never split out content needed 80% of the time: the Agent writes a working Prompt from SKILL.md alone. A Reference that reads as optional background is never opened; cut it or fold it back. The link line names the problem the Reference solves.
+
+### A Process another Skill owns is named, never restated
+Use `/skill-name` in the step that needs it. Both Harnesses load the named Skill, whole.
+Never name a `disable-model-invocation` Skill — the Architect fires those; an Agent's load falls through to whatever Claude ships under that name.
 
 ### A deterministic Hook IS its Rule
 Duplicate prose is cut. A model-backed Hook batches its event's Rules into one call and fails open, so the prose fallback stays.
