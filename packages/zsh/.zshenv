@@ -16,6 +16,8 @@ export DEV_BROWSER="Helium"
 export BROWSER="/Applications/Helium.app/Contents/MacOS/Helium"
 export SSH_AUTH_SOCK="$HOME/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock"
 export HOMEBREW_NO_ENV_HINTS=1
+# agent-browser sessions leaked by agents self-clean fast instead of idling an hour
+export AGENT_BROWSER_IDLE_TIMEOUT_MS=300000
 # npm auth lives untracked so `npm login` never writes into the dotfiles tree
 export NPM_CONFIG_USERCONFIG="$HOME/.config/npm/npmrc"
 export NPM_CONFIG_FUND=false

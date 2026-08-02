@@ -44,26 +44,13 @@ def _codex_local_shell(command):
         "action": {"type": "exec", "command": ["/bin/zsh", "-lc", command]}}}
 
 
-def _info(active, browser_launched):
-    """A `session info --json` payload, as agent-browser 0.33.1 emits it."""
-    return json.dumps({"success": True, "data": {
-        "active": active, "namespace": None, "session": "probe",
-        "socketDir": "/Users/jordan/.agent-browser",
-        "runtime": {"browserLaunched": browser_launched, "engine": "chrome",
-                    "pageCount": 1 if browser_launched else 0} if active else None}})
-
-
 @pytest.fixture
 def closed(monkeypatch):
-    """Record the argv of every agent-browser run; report every probed session
-    with a browser open except `ghost`, so the liveness filter is exercised."""
+    """Record the argv of every agent-browser run."""
     calls = []
 
     def _run(argv):
         calls.append(argv)
-        if "info" in argv:
-            name = argv[argv.index("--session") + 1] if "--session" in argv else "default"
-            return _info(True, name != "ghost")
         return ""
 
     monkeypatch.setattr(hook, "_run", _run)
@@ -482,35 +469,20 @@ def test_an_unresolvable_session_name_is_skipped(monkeypatch, write_transcript, 
     assert closed == []
 
 
-# --- liveness and failure ----------------------------------------------------
+# --- close behavior and failure ----------------------------------------------
 
-def test_session_not_live_is_not_closed(monkeypatch, write_transcript, closed):
-    """A daemon still up with no browser launched is not a leak — the fixture
-    reports `ghost` that way, and it must not be closed."""
-    path = write_transcript([_bash("agent-browser --session ghost open example.com")])
-    assert _subagent_stop(monkeypatch, path) == 0
-    assert ["agent-browser", "--session", "ghost", "close"] not in closed
-
-
-def test_dead_daemon_is_not_closed(monkeypatch, write_transcript):
-    """`session list` still names a session whose daemon exited; the inactive
-    info payload carries no runtime, and nothing is closed."""
-    calls = []
-
-    def _run(argv):
-        calls.append(argv)
-        return _info(False, False) if "info" in argv else ""
-
-    monkeypatch.setattr(hook, "_run", _run)
+def test_close_is_unconditional_and_never_probes(monkeypatch, write_transcript, closed):
+    """`close` on a dead session is a clean no-op, so an abandoned session is
+    closed directly — a liveness probe would only spend an extra subprocess per
+    session to skip no-op closes."""
     path = write_transcript([_bash("agent-browser --session probe open example.com")])
     assert _subagent_stop(monkeypatch, path) == 0
-    assert ["agent-browser", "--session", "probe", "close"] not in calls
+    assert ["agent-browser", "--session", "probe", "close"] in closed
+    assert not any("info" in argv for argv in closed)
 
 
 def test_close_failure_neither_raises_nor_blocks(monkeypatch, write_transcript):
     def _explode(argv):
-        if "info" in argv:
-            return _info(True, True)
         raise OSError("agent-browser: command not found")
 
     monkeypatch.setattr(hook, "_run", _explode)
@@ -519,7 +491,7 @@ def test_close_failure_neither_raises_nor_blocks(monkeypatch, write_transcript):
 
 
 def test_many_sessions_fit_the_timeout(monkeypatch, write_transcript, closed):
-    """Per-session info+close is bounded and the sessions run concurrently, so a
+    """Per-session close is bounded and the sessions run concurrently, so a
     multi-session cleanup is not killed midway by the BINDING timeout."""
     opens = [_bash("agent-browser --session s%d open example.com" % i) for i in range(24)]
     path = write_transcript(opens)
@@ -527,4 +499,4 @@ def test_many_sessions_fit_the_timeout(monkeypatch, write_transcript, closed):
     for i in range(24):
         assert ["agent-browser", "--session", "s%d" % i, "close"] in closed
     assert hook.BINDING["timeout"] >= hook._BUDGET
-    assert hook._BUDGET >= 24 / hook._WORKERS * 2 * hook._SUBPROCESS_TIMEOUT
+    assert hook._BUDGET >= 24 / hook._WORKERS * hook._SUBPROCESS_TIMEOUT

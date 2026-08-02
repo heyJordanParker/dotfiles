@@ -6,12 +6,16 @@ completion: the agent finishes without running `agent-browser close` and the
 daemon idles until its timeout, or forever in the exempt modes. So the harness
 cleans up instead of the agent. On a real end this reads the stopping agent's
 own transcript, replays every agent-browser invocation in order, keeps the
-sessions whose final state is open, and closes the ones agent-browser still
-reports live.
+sessions whose final state is open, and closes them. The close is unconditional:
+`close` on a session that is already dead is a clean no-op that leaves no daemon
+behind (verified against 0.33.1), so a liveness probe would only spend an extra
+subprocess per session to skip no-op closes.
 
 Wrong-close outranks leak. A leaked session falls to agent-browser's own idle
 timeout; a session closed out from under a sibling agent destroys live work.
-Two principles follow, and every rule below is one of them applied:
+The transcript-ownership rules below are the only gate — there is no liveness
+check between them and the close. Two principles follow, and every rule below
+is one of them applied:
 
 1. Never close what the transcript did not provably open. A session is claimed
    only from an agent-browser call in executed command position — the resolved
@@ -407,35 +411,8 @@ def _argv(key, tail):
     return argv + tail
 
 
-def is_live(key):
-    """Whether agent-browser's own records still show a browser open on `key`.
-
-    `session list` is not the check: it reports every socket name it knows,
-    including ones whose daemon has exited. `session info` is per session and
-    carries both flags — `active` for the daemon, `runtime.browserLaunched` for a
-    browser actually open on it, which is the leak. Probing an unknown session
-    reports inactive and launches nothing.
-    """
-    try:
-        data = json.loads(_run(_argv(key, ["session", "info", "--json"])))
-    except Exception:
-        return False
-    if not isinstance(data, dict):
-        return False
-    info = data.get("data")
-    if not isinstance(info, dict) or not info.get("active"):
-        return False
-    runtime = info.get("runtime")
-    return isinstance(runtime, dict) and bool(runtime.get("browserLaunched"))
-
-
 def close_session(key):
     _run(_argv(key, ["close"]))
-
-
-def _close_if_live(key, deadline):
-    if time.monotonic() < deadline and is_live(key):
-        close_session(key)
 
 
 def _is_codex_rollout(path):
@@ -472,7 +449,9 @@ def main():
             return 0
         deadline = time.monotonic() + _BUDGET
         with concurrent.futures.ThreadPoolExecutor(max_workers=_WORKERS) as pool:
-            list(pool.map(lambda key: _close_if_live(key, deadline), abandoned))
+            list(pool.map(
+                lambda key: close_session(key) if time.monotonic() < deadline else None,
+                abandoned))
     except Exception:
         return 0
     return 0
