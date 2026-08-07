@@ -134,6 +134,6 @@ Ask where logic lives, what changes are needed, how the system performs an actio
 Never: effort estimates, vague difficulty questions, or yes/no questions that do not reveal mechanics.
 
 ### Research acceptance names information
-Acceptance describes the understanding the Agent will have after research.
+Acceptance describes the understanding you will have after research.
 Example: we can describe how Users set their language and where non-English titles appear.
 Never: we can decide if we should proceed.

@@ -6,7 +6,7 @@ description: Interview the Architect about a Plan or Proposal, one question at a
 # Interview
 
 - An Interview builds shared understanding before Execution.
-- Each question is grounded in code the Agent already checked.
+- Each question is grounded in code you already checked.
 
 ## 1. Read before asking
 
@@ -25,7 +25,7 @@ Resolve dependencies between Decisions one by one. Do not jump between unrelated
 ## 3. Ask the next question
 
 ### Recommend an answer with every question
-Provide the answer the Agent recommends before asking for the Architect's correction or pick.
+Provide the answer you recommend before asking for the Architect's correction or pick.
 
 ### Ask one question at a time
 Wait for the Architect's answer before continuing. Multiple questions at once are bewildering.

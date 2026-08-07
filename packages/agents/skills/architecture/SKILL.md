@@ -7,7 +7,7 @@ description: TRIGGER when presenting Architectural options, Architecting systems
 
 - Architecture Decisions are expensive to reverse.
 - The Architect reviews Architecture: files, public APIs, database, ownership, dependency direction, and module boundaries.
-- The Agent owns HOW; the Architect owns Architecture.
+- You own HOW; the Architect owns Architecture.
 
 ## 1. Start with WHY and the highest Decision
 
@@ -18,7 +18,7 @@ Defaults, naming, edge cases, and implementation details wait until the data mod
 Never: ask about defaults before the data model, naming before the Architecture, edge cases before the happy path, or implementation details before the approach.
 
 ### Separate Architecture, Convention, and implementation
-Architecture is module boundaries, public contracts, data ownership, dependency direction, new modules, and schema mutations. Convention follows repo Precedent. Implementation is the Agent's tactical work: method internals, error messages, and control flow.
+Architecture is module boundaries, public contracts, data ownership, dependency direction, new modules, and schema mutations. Convention follows repo Precedent. Implementation is your tactical work: method internals, error messages, and control flow.
 Never: present an implementation choice as an Architectural Decision.
 
 ## 2. Break the Architecture before presenting it

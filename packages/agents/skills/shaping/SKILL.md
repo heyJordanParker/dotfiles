@@ -22,7 +22,7 @@ Broad refactor energy earns broader Architecture options. Careful adjustment ene
 ## 2. Maintain requirements as R
 
 ### R states what is needed
-Use `R0, R1...` for the problem space. R is negotiated with the Architect, not auto-filled by the Agent. R says what must be true, not which shape satisfies it.
+Use `R0, R1...` for the problem space. R is negotiated with the Architect, never auto-filled by you. R says what must be true, not which shape satisfies it.
 
 ### Keep top-level R readable
 Use no more than nine top-level Rs. Group overflow as `R3.1`, `R3.2`.
@@ -108,7 +108,7 @@ IF mechanics or feasibility are uncertain:
 Research learns how the existing system works and what it would take to build a part before proposing it. Dispatch multiple researcher Subagents in parallel when multiple unknowns exist.
 
 ### Research acceptance names understanding, not a Decision
-Acceptance says what the Agent will be able to describe after research. The Decision clears the flag afterward; the research does not.
+Acceptance says what you will be able to describe after research. The Decision clears the flag afterward; the research does not.
 Example: we can describe how Users set their language.
 Never: whether this is a blocker.
 

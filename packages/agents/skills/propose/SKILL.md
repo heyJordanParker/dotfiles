@@ -6,7 +6,7 @@ description: |
 
 # Proposal
 
-- A Proposal is the Agent's proposed path to a Goal, organized for Architect Review.
+- A Proposal is your proposed path to a Goal, organized for Architect Review.
 - The Proposal is the Decision Hierarchy: dominant Decision first, gated Decisions nested beneath it, genuine peers side by side.
 - Slices, steps, and files tag onto Decisions; they never organize the Proposal.
 - This Skill adds the Proposal shape.
@@ -109,10 +109,14 @@ Example:
 
 Validation runs server-side after the presigned PUT because the browser cannot be trusted to enforce the 20MB / 20MP ingest ceiling. That is the only WHY the prose owes.
 
+IF proposing a file change:
+### Make the file path the heading
+Use the file path as the heading, then the exact current text and the exact replacement.
+
 ## 5. Write each Decision node
 
 ### Head each Decision with its question and state
-Use a plain heading with no `Decide:`, `Fork:`, or `Choice:` prefix. End it with `(settled, NN%)` when the Agent broke the Architecture and one option won, or `(open — your call)` when the Architect must weigh Context the code cannot answer.
+Use a plain heading with no `Decide:`, `Fork:`, or `Choice:` prefix. End it with `(settled, NN%)` when you broke the Architecture and one option won, or `(open — your call)` when the Architect must weigh Context the code cannot answer.
 
 ### Put node content in the fixed order
 Each Decision node carries, in order: map if useful, artifacts, options in the /pcc shape, then one work-tag naming the files, methods, and Slice this Decision lands in.
@@ -153,8 +157,8 @@ Emit a question only for a real external Context gap: environment, prerequisite,
 ### Prevent the seven named Proposal failures
 1. `vacuous-proposal` — Proposal shape, no Architectural Decision in it. Fix: every node names a concrete change and a real alternative.
 2. `capability-loss` — the User can no longer do something, or the system can no longer do something. Every removal names what it removed and where the protected capability now lives. Backwards compatibility is not a capability.
-3. `worse-option-shipped` — the work-tag points at an option the Agent knows is suboptimal. The work-tag points at the option the Agent believes most correct. Diff size is never the reason.
-4. `requirement-drop` — a stated requirement is relaxed, narrowed, or deferred. Every requirement appears, met. A conflict is a Decision, never something the Agent resolves by dropping a requirement.
+3. `worse-option-shipped` — the work-tag points at an option you know is suboptimal. The work-tag points at the option you believe most correct. Diff size is never the reason.
+4. `requirement-drop` — a stated requirement is relaxed, narrowed, or deferred. Every requirement appears, met. A conflict is a Decision, never something you resolve by dropping a requirement.
 5. `contradiction-elision` — a conflict between requirements, or between a requirement and the code, is hidden. Surface it as the Architect's Decision.
 6. `mixed-layer-pcc` — parent and child Decisions are flattened as peers. Gated Decisions nest, so a parent answer visibly deletes its children.
 7. `hedged-proposal` — the Proposal says `likely`, `may`, `should` in the expected-behavior sense, `probably`, `might`, `could`, `perhaps`, `I would expect`, `in theory`, `it appears that`, or `it seems`. Open the file, read the function, and write what is. The one exception is a genuine stated unknown: `I have not checked X`.

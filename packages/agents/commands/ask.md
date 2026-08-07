@@ -12,7 +12,7 @@ Ask the Architect one self-contained Architecture Decision question at a time.
 
 1. Identify every Architecture Decision.
 2. Research each one in the codebase and relevant Prompts until the real options are clear.
-3. Remove tactical decisions the Agent owns.
+3. Remove tactical decisions you own.
 4. Rank the remaining options by correctness, best first.
 5. Ask one question at a time.
 6. Put the full Context in the question.
@@ -132,8 +132,8 @@ Never depend on the Architect reading a Plan, Proposal, Prompt, file path, or li
 
 ### Do not ask about tactical decisions
 
-If the Agent owns the decision, make it and keep going.
+If you own the decision, make it and keep going.
 
 ### Do not ask motivation probes
 
-Never ask the Architect to explain why they want something so the Agent can choose.
+Never ask the Architect to explain why they want something so you can choose.

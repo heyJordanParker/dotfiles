@@ -8,7 +8,7 @@ The Architect-approved architecture for the prompt system: agents, skills, hooks
 - **`packages/agents/skills/<name>/SKILL.md`** — three-slot description, one Process as ordered steps, each step its Rules (with Conditions as needed), Examples, Templates, closing on checkable Verification. Steps stay in SKILL.md; anything a step consults — a table, catalog, Template, subprocess — is a Reference behind a pointer, and a Process another Skill owns is named, never restated. A `disable-model-invocation` Skill can name others but cannot be named: the Architect fires it, Agents cannot load it.
 - **`packages/agents/skills/<name>/references/<problem>.md`** — what one pointer names. Unreached References are deleted.
 - **`packages/agents/commands/<name>.md`** — a Skill's shape; the Architect fires it.
-- **`packages/claude/rules/<topic>.md`** — Rules logically grouped by purpose. The `paths:` glob is the file's centralized Condition; any individual Rule may carry its own Condition when it needs one ("When X:", markdown only, no XML) — less common precisely because the glob already scoped the file. A Condition may also load a Skill when the Rules behind it are a whole Process.
+- **`packages/claude/rules/<topic>.md`** — Rules logically grouped by purpose. The `paths:` glob is the file's centralized Condition; any individual Rule may carry its own Condition when it needs one ("When X:", markdown only, no XML) — less common precisely because the glob already scoped the file. A Condition may also load a Skill when the Rules behind it are a whole Process. A rules file may open with the Principles its Rules serve, written to the Agent as "you", before the first Rule.
 - **`packages/agents/hooks/<module>.py`** — per-turn and at-action Rules. Deterministic Hook = one Rule, is the Rule; LLM Hook = that event's Rules batched; fail-open Hooks keep a prose fallback.
 - **`Claude.md`** — the folder's WHY, and it loads the relevant references: its Decisions (`docs/architecture/decisions/`), a Design.md, whatever record the WHY rests on. Never Rules, Process, vocabulary, or inline Decisions.
 - **`Domain.md`** — the domain's words, nothing else.
@@ -28,7 +28,7 @@ A block has exactly one home. Every other Prompt that needs it names that home i
 
 | block | home |
 |---|---|
-| Frame, Principles | agent file |
+| Frame, Principles | agent file; Principles shared by every Agent open the rules file whose Rules they serve |
 | Rule | rules file (grouped by purpose), Hook (per-turn/at-action), or Skill step (part of a Process) — with a Condition wherever needed |
 | Example, Template | beside its Rule or step |
 | Condition | the glob for a whole rules file; inline on any Rule; on a Skill step; or a rules-file line loading a Skill |

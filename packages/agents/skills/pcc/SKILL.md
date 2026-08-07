@@ -22,7 +22,7 @@ Find the repo Precedent and use it. Promote to Architecture only when Precedent 
 
 IF the Decision is implementation:
 ### Recommend directly
-The Agent owns implementation Decisions.
+You own implementation Decisions.
 
 IF the current turn is a proposing-state turn:
 ### Use /propose instead
@@ -45,10 +45,10 @@ Once the User picks an option, apply their refinement to it directly.
 No hedging. Never write `might work` or `should be fine`.
 
 ### Rank against User, Architecture, and business
-Confidence is the Agent's percentage that the option is the right call for the User, the Architecture, and the business. It is informed by all research to date, not just this turn. Implementability never raises confidence. Major compromises against those three lower it.
+Confidence is your percentage that the option is the right call for the User, the Architecture, and the business. It is informed by all research to date, not just this turn. Implementability never raises confidence. Major compromises against those three lower it.
 
 ### Keep numbers coherent
-Complementary options cannot both be high. Options clustered within roughly 10 points mean the Agent has not differentiated them.
+Complementary options cannot both be high. Options clustered within roughly 10 points mean you have not differentiated them.
 
 ### Treat forced pros, cons, or confidence as a research gap
 If scores cluster, pros or cons feel forced, or the ranking is unclear, read more code. Do not adjust numbers to make the Template look finished.
