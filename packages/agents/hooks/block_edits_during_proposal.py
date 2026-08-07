@@ -28,10 +28,15 @@ BINDING = {
 BLOCK_MSG = """BLOCKED: A proposal is expected — do not edit code.
 
 Update your proposal based on the user's feedback and present it again.
-Only edit code after the user approves."""
+Only edit code after the user approves.
+
+To write a plan, shaping doc, or Evidence, use docs/plans/, docs/shaping/,
+docs/agents/, or /tmp/ — this gate does not apply there. Never relocate a
+file elsewhere to dodge the gate."""
 
 _DEVICES = {"/dev/null", "/dev/stdout", "/dev/stderr", "/dev/tty"}
 _ASSIGN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+_OUR_TREE = ("/dotfiles/", "/.agents/", "/.claude/")
 
 # Commands whose every path argument is a file they create, delete, move, or
 # rewrite — so each one is a mutation target. `mv` is here, not in _DEST_MUTATORS,
@@ -48,8 +53,12 @@ _OWNER_MUTATORS = {"chmod", "chown", "chgrp"}
 _GIT_TREE_MUTATORS = re.compile(r"git\s+(rm|clean|mv)\b")
 
 
+def _is_our_tree(path):
+    return any(fragment in path + "/" for fragment in _OUR_TREE)
+
+
 def _allowed_target(t, cwd):
-    """True = allowed, False = blocked (a mutation that lands inside the repo)."""
+    """True = allowed, False = blocked (a mutation that lands in our tree)."""
     t = t.strip().strip('"').strip("'")
     if t in _DEVICES:
         return True
@@ -58,13 +67,18 @@ def _allowed_target(t, cwd):
     if not t.startswith("/"):
         t = os.path.join(cwd, t)
     t = os.path.normpath(t)
-    if "/docs/shaping/" in t or "/docs/plans/" in t or "/.claude/shaping/" in t or "/.claude/plans/" in t:
-        return True
+    # t + "/" so the directory itself is allowed, not only paths inside it —
+    # `mkdir -p docs/agents` must pass, not just writes to files under it.
+    probe = t + "/"
+    for d in ("/docs/shaping/", "/docs/plans/", "/docs/agents/",
+              "/.claude/shaping/", "/.claude/plans/"):
+        if d in probe:
+            return True
     if t == "/tmp" or t.startswith("/tmp/"):
         return True
     if t == "/private/tmp" or t.startswith("/private/tmp/"):
         return True
-    if t == cwd or t.startswith(cwd + "/"):
+    if t == cwd or t.startswith(cwd + "/") or _is_our_tree(t):
         return False
     return True
 
@@ -134,9 +148,10 @@ def _segment_targets(words):
 
 INTERP_MSG = """BLOCKED: running an interpreter is disabled while a proposal is expected.
 
-Writing files is fine (including under /tmp) — but executing python/node/bash/etc.,
-inline or as a script, is blocked until the proposal is approved. Run it after
-approval, or ask the user to run it manually. Codex review still works via codex-run."""
+Writing files is fine (including under /tmp), and scripts already in the repo still
+run — but a script from outside it, or code passed inline, is blocked until the
+proposal is approved. Run it after approval, or ask the user to run it manually.
+Codex review still works via codex-run."""
 
 SCRIPT_WARNING = ("Heads up — a proposal is expected: you can write this script, but "
                   "executing it (python/node/bash/…) is blocked until the proposal is approved.")
@@ -148,6 +163,29 @@ _SCRIPT_EXTS = (".py", ".sh", ".bash", ".zsh", ".js", ".mjs", ".cjs", ".ts", ".r
 
 def _is_script(path):
     return path.strip().strip("\"'").endswith(_SCRIPT_EXTS)
+
+
+def _allowed_interpreter(words, cwd):
+    i = 0
+    while i < len(words) and _ASSIGN.match(words[i]):
+        i += 1
+    if i < len(words) and os.path.basename(words[i].strip("\"'")) == "env":
+        i += 1
+        while i < len(words) and _ASSIGN.match(words[i]):
+            i += 1
+    i += 1
+    if any(t == "-c" or t == "-e" or t == "--command" or t == "--eval" for t in words[i:]):
+        return False
+    for t in words[i:]:
+        if t.startswith("-"):
+            continue
+        if t.startswith("~"):
+            t = os.path.expanduser("~") + t[1:]
+        if not t.startswith("/"):
+            t = os.path.join(cwd, t)
+        t = os.path.realpath(t)
+        return os.path.isfile(t) and _is_our_tree(t)
+    return False
 
 
 def warn(msg):
@@ -203,7 +241,8 @@ def main():
         return block()
     for seg in segs:
         if command_head(seg) in _INTERPRETERS:
-            return block(INTERP_MSG)
+            if not _allowed_interpreter(seg, cwd):
+                return block(INTERP_MSG)
         for target in _segment_targets(seg):
             if not _allowed_target(target, cwd):
                 return block()

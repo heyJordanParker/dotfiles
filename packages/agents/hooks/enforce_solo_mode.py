@@ -24,8 +24,18 @@ Read the relevant files yourself and keep context in this conversation.
 This covers the Agent tool and the codex / codex-run / claude commands.
 If you need to switch modes, ask the user."""
 
-# A subagent-spawning command at the head of a shell segment.
-_SUBAGENT_CMD = re.compile(r"(?:^|[;&|(]\s*)(?:codex-run|codex|claude)(?:\s|$)")
+# A subagent command at a shell-segment head, including env/path prefixes and
+# the immediate script inside `bash -c`; this intentionally is not a shell parser.
+_SUBAGENT_CMD = re.compile(r"""(?:
+    (?:^|[;&|(\n])\s*
+    (?:env\s+(?:[A-Za-z_][A-Za-z0-9_]*=\S+\s+)*)?
+    (?:\S*/)?
+    (?:codex-run|codex|claude)(?=\s|$)
+  |
+    (?:^|[;&|(\n])\s*bash\s+-c\s+['\"]\s*
+    (?:\S*/)?
+    (?:codex-run|codex|claude)(?=\s|$)
+)""", re.VERBOSE)
 
 
 def main():

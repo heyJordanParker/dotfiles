@@ -1,107 +1,95 @@
 """codex_run — run codex as one of our named agents, mechanically.
 
-The orchestrating agent used to hand-assemble the whole `codex exec` invocation
-every time it dispatched codex as one of our agents: the flags, a `/tmp` output
-path, an inline JSONL parser, a failure grep. That assembly was duplicated across
-the codex-agent and codex-review skills and needed no judgment. This module owns
-all of it, so the agent only writes the task prompt.
+The orchestrating agent used to hand-assemble the whole codex invocation every
+time it dispatched codex as one of our agents: the flags, a `/tmp` output path,
+an inline JSONL parser, a failure grep. That assembly was duplicated across the
+codex skills and needed no judgment. This module owns all of it, so the agent
+only writes the task prompt.
 
 `codex-run @<agent> "<prompt>"` resolves `@<agent>` to that agent's
 frontmatter-stripped instruction body (`<roster>/<name>.prompt.md`, the same
-artifact that boots codex as the CTO) and runs codex with it as the
-base-instructions override. `codex-run resume <session_id> "<msg>"` continues a
-prior run. An unknown agent exits non-zero listing the available agents.
+artifact that boots codex as the CTO) and runs codex under it. An unknown agent
+exits non-zero listing the available agents.
 
-There is more than one roster. The active config root's `agents/` is searched
-first and the shared `~/.agents/agents` second, because a profile is its own
-config root with its own agents and those are real agents while that profile is
-active — resolving only the shared roster made every profile-only agent
-unreachable on codex. Active root first means a name held by both runs as the
-profile's, matching which definition governs on the Claude side; keeping the
-shared roster behind it means entering a profile adds a roster rather than
-losing one. The instructions and the memory declaration always come from the
-same roster, so a profile's copy of an agent cannot run under another roster's
-declaration.
+The transport is `codex app-server`, one process per run, owned by this runner
+and spoken to over newline-delimited JSON-RPC on its stdio. It replaced a
+one-shot `codex exec --json` subprocess, which gave the wrapper no way to say
+anything to codex once the run began: there was no cancellation, so killing a
+run killed codex mid-apply_patch and left half-edited files, and there was no
+liveness check, so a wedged codex hung until the harness ceiling. A live
+connection has a control channel (`turn/interrupt`) and a message stream whose
+silence the idle deadlines measure, so both are now reachable.
 
-An agent whose `<name>.md` frontmatter declares `memory: none` runs with both of
-codex's memory providers switched off — the honcho MCP server and codex's own
-[memories] — so no Memory reaches the run and none is written back.
+Everything an agent declares rides inline on `thread/start` and `thread/resume`:
+the instructions as `baseInstructions`, the model and effort as their own
+fields, and `memory: none` as a `config` object switching off both of codex's
+memory providers. Nothing is written to disk for codex to read, and nothing is
+inherited from the interactive `config.toml`, so a run states in one request
+exactly what governs it — including its MCP servers, which a run that named
+none simply did not have.
 
-An agent whose frontmatter declares `codex-model` runs on that model instead of
-the default below, and one declaring `effort` runs at that effort. Both are read
-off the definition file per run rather than baked into the generated artifacts,
-so they reach a resumed run — where the agent is recovered, not passed — by the
-same route the memory declaration does, and an edit takes effect without
-regenerating anything. `effort` is the same field Claude reads natively, so an
-agent states its effort once and both harnesses honour it.
+Every run writes a job record — a JSON file beside the answer and the event
+stream, sharing their collision-free stem, which is therefore the job id. The
+record holds the agent, codex's thread id and rollout path, the model, the
+effort, the status and phase, the pids, the output paths and the timestamps.
+That record is what makes a continuation cheap: `codex-run resume <job> "<msg>"`
+reads the founding agent off a field this runner wrote, where the old wrapper
+had to work it out by globbing codex's session archive for the thread's rollout
+and matching the recorded instructions back against every agent's prompt.md.
+Identity is now recorded, not reconstructed.
 
-`resume` takes a session and a message and nothing else, so the founding agent is
-recovered rather than passed. The source is codex's own record: the thread's
-rollout opens with a `session_meta` carrying the `base_instructions` the run was
-founded on, and those instructions name their agent — every generated .prompt.md
-opens with an inert HTML-comment marker holding the agent's name, so the name
-rides into the record and comes back out as an exact lookup. Identity therefore
-survives any rewording of an agent's text; before the marker it was inferred by
-matching the recorded prose back against the corpus, and a reworded opening line
-orphaned every thread founded before that edit. A marker naming something outside
-the roster resolves to nothing, so the runnable set stays the allowlist.
+A resume whose thread codex no longer holds starts a fresh thread from the
+record's own settings and reruns the turn once, saying plainly in the output
+that it did not resume — the alternative, a silent fresh thread, reads exactly
+like a continuation and is not one.
 
-Threads founded before the marker carry no name and still resolve through that
-prose matching. The continuation then runs with the recovered agent's
-instructions override and that agent's memory declaration — the same two things
-the founding run had. Because the record is codex's, recovery works on every
-thread it ever wrote, including those founded before this code existed, and it
-states what actually reached the model rather than what this wrapper meant to
-send.
+Our shared Python guards govern the run, not codex's sandbox — the architect
+does not want codex sandboxes — so every run asks for `danger-full-access` with
+approvals `never`. Our hooks are our own vetted sources, so every run also sets
+`bypass_hook_trust`, which runs them without codex's per-command trust gate.
 
-An unidentifiable thread fails the run rather than continuing: answering as
-codex's global default agent, silently and under a different character while the
-surviving history keeps the replies on topic, is the defect this recovery removes.
-
-Our shared Python guards govern the run, not codex's sandbox — the architect does
-not want codex sandboxes — so every run passes
-`--dangerously-bypass-approvals-and-sandbox`. Our hooks are our own vetted
-sources, so every run also passes `--dangerously-bypass-hook-trust`, which runs
-them without codex's per-command trust gate (and without reading or writing its
-trust table).
-
-Output (the final answer and the raw event stream) lands in the session's own
-directory via the session-state helper, never `/tmp`, with collision-free names
-for parallel runs, and the same no-session fallback the model runner uses.
-
-The stream is parsed for the final answer and the session id; the run exits
-non-zero on a process failure, a `turn.failed` event (a turn that fails but exits
-zero still trips this), or a run that produced no final answer (a turn yielding
-nothing usable is a failure too). codex's stderr is captured, and on a failed run
-with no answer it is surfaced as the result on stdout and on disk — so a failed
-run is diagnosable rather than a bare "[no answer]".
+Output lands in the session's own directory via the session-state helper, never
+`/tmp`, with the same no-session fallback the model runner uses.
 
 The result is printed to stdout, ready to read with no downstream parsing: the
-final answer, a `--- codex-run ---` delimiter, then the status, the session id
-(for resume), and the on-disk output and events paths. Nothing the caller needs
-goes to stderr or requires a pipe — the wrapper is the whole interface.
+final answer, a `--- codex-run ---` delimiter, then the status, the agent, the
+model, the job id (for resume), codex's thread id, and the on-disk output and
+events paths. Nothing the caller needs goes to stderr or requires a pipe — the
+wrapper is the whole interface.
+
+Alongside the run commands there is a job surface over those records: `status`
+lists this session's jobs (`--all` scans sibling sessions), `result` prints an
+answer, `log` renders an event stream as activity, `events` prints it raw,
+`history` names codex's rollout and the Claude transcript, `cancel` interrupts a
+turn and then kills the process tree, and `watch` tails a lifecycle feed.
+
+That feed carries lifecycle only — started and the terminal line — because it
+is built to be read by Claude Code's Monitor,
+which allows ten events then one per two seconds and dies after thirty seconds
+of continuous suppression. A single run in this repository emits sixty to a
+hundred protocol events, around nine in ten of them command executions, so
+forwarding events would kill the monitor within the first turn. Two lines per
+job is the whole budget, and `status --all` is the cross-session view.
 
 Stdlib only, matching the other hooks. Run via the `codex-run` launcher, which
 exec's `main()`.
 """
 
+import fcntl
+import json
 import os
+import shlex
+import signal
 import subprocess
 import sys
+import threading
 import time
+from glob import glob
 
-import agent_memory
-import session_state
+from lib import agent_memory, session_state
 
 AGENTS_DIR = os.path.expanduser("~/.agents/agents")
 
-# The base-instructions override codex applies per run — the same key the global
-# config.toml uses to boot the CTO, set here per-agent instead.
-_INSTRUCTIONS_KEY = "model_instructions_file"
-
-# No sandbox and no hook-trust gate: our shared Python guards govern the run, and
-# the hooks are our own vetted sources.
-#
 # Model and effort default here rather than being inherited from config.toml:
 # that file configures the interactive session, and an agent run is a different
 # job — a scoped task dispatched by a coordinator, not an open-ended session.
@@ -110,25 +98,23 @@ _INSTRUCTIONS_KEY = "model_instructions_file"
 # for the model, the codex-side counterpart of `model`, which names a Claude model
 # and so cannot serve here; and `effort`, which is one field for both harnesses,
 # because the five words Claude's key takes are the five codex takes.
-_MODEL = "gpt-5.6-sol"
+_MODEL = "gpt-5.6-terra"
 _EFFORT = "medium"
 
 # What an agent may declare: the five levels `claude --effort` lists, each of
-# which codex also accepts verbatim as model_reasoning_effort, so a declaration
-# crosses to either harness untranslated. `xhigh` and `max` are distinct levels on
-# both — translating one onto the other quietly ran an agent at a tier it did not
-# ask for, and omitting `xhigh` rejected the tier most likely to be declared.
+# which codex also accepts verbatim, so a declaration crosses to either harness
+# untranslated. `xhigh` and `max` are distinct levels on both — translating one
+# onto the other quietly ran an agent at a tier it did not ask for, and omitting
+# `xhigh` rejected the tier most likely to be declared.
 _EFFORTS = ("low", "medium", "high", "xhigh", "max")
-
-_BASE_FLAGS = ["--json", "--skip-git-repo-check",
-               "--dangerously-bypass-approvals-and-sandbox",
-               "--dangerously-bypass-hook-trust"]
 
 # Delimits the answer from the metadata trailer on stdout, so the result reads
 # cleanly with no downstream parsing: everything above the line is codex's answer,
-# everything below is status / session / output / events.
+# everything below is status / agent / model / job / thread / output / events.
 _TRAILER = "--- codex-run ---"
 
+
+# --- the agent roster ---------------------------------------------------------------
 
 def _roster_dirs():
     """The agents directories `@<agent>` resolves against, active root first.
@@ -212,14 +198,17 @@ def _codex_model(name):
 
 
 def _codex_effort(name):
-    """The reasoning effort `name` runs at: its `effort` declaration, or _EFFORT.
+    """The reasoning effort `name` runs at: `codex-effort`, then `effort`, then _EFFORT.
 
     `effort` is one field across both harnesses — Claude reads the declaration
     natively and codex takes the same word verbatim, so declaring `high` cannot
-    mean high on one harness and something else on the other. Unlike the model,
-    the value is checked: the vocabulary is closed and shared, so a word outside
-    it is a typo in the definition rather than a level either harness has."""
-    declared = _declaration(name, "effort")
+    mean high on one harness and something else on the other. `codex-effort`
+    sits above it for the codex run alone, the effort counterpart of
+    `codex-model`, so one agent can run the two harnesses at different depths.
+    Unlike the model, the value is checked: the vocabulary is closed and shared,
+    so a word outside it is a typo in the definition rather than a level either
+    harness has."""
+    declared = _declaration(name, "codex-effort") or _declaration(name, "effort")
     if not declared:
         # A key with no value is an undeclared key, the same reading `codex-model`
         # gives it — two adjacent declarations of the same shape must not resolve
@@ -229,6 +218,14 @@ def _codex_effort(name):
         raise ValueError("agent %r declares unknown effort %r; valid: %s"
                          % (name, declared, ", ".join(_EFFORTS)))
     return declared
+
+
+# The harness declaration, read as the counterpart of the Claude-side gate. An
+# absent key and `all` both permit this run; anything else does not, including a
+# value that is not a harness at all. The comparison is exact for the reason the
+# model comparison is: this is an allowlist, so lowering it would widen permission
+# rather than a denial.
+_HERE = ("all", "codex")
 
 
 def _resolve_agent(token):
@@ -248,132 +245,236 @@ def _resolve_agent(token):
     return None if directory is None else os.path.join(directory, name + ".prompt.md")
 
 
-# --- which agent founded a thread, read from codex's own record --------------------
+# --- the app-server transport -------------------------------------------------------
 
-CODEX_HOME = os.path.expanduser("~/.codex")
+_CLIENT = {"name": "codex-run", "title": "codex-run", "version": "1"}
 
+# Declined at the handshake rather than filtered after arrival: the deltas are
+# per-token, and a run that streams them writes tens of thousands of lines into
+# the event file for an answer the item/completed already carries whole.
+_DECLINED = ["item/agentMessage/delta", "item/reasoning/summaryTextDelta",
+             "item/reasoning/summaryPartAdded", "item/reasoning/textDelta"]
 
-def _rollout_path(session):
-    """The rollout codex wrote for `session`, or None.
+# Our hooks are our own vetted sources, so the run does not need codex's
+# per-command trust gate. This is the app-server spelling of the
+# `--dangerously-bypass-hook-trust` flag the exec transport passed.
+#
+# mcp_servers rides here because the app-server inherits nothing from
+# config.toml — an agent run that does not name a server has none, which is why
+# a codex-run agent saw no MCP tools at all. context7 is named because the
+# researcher runs on codex and current library documentation is its whole job.
+_CONFIG = {"bypass_hook_trust": True,
+            "mcp_servers": {"context7": {
+                "command": "/Users/jordan/.bun/bin/bunx",
+                "args": ["-y", "@upstash/context7-mcp"],
+                "startup_timeout_sec": 120}}}
 
-    The id is validated before it reaches the glob, so a session argument cannot
-    smuggle pattern metacharacters into the search."""
-    from glob import glob
-    if not session_state._is_valid_session_id(session):
-        return None
-    name = "rollout-*-%s.jsonl" % session
-    for pattern in (os.path.join(CODEX_HOME, "sessions", "**", name),
-                    os.path.join(CODEX_HOME, "archived_sessions", name)):
-        for match in sorted(glob(pattern, recursive=True)):
-            return match
-    return None
+# An agent declaring `memory: none` runs with every memory provider off, not just
+# one. Honcho is reached through the `honcho` command, which block_memory_access
+# refuses for a blank-declared agent on either harness. codex's own [memories] is
+# the second provider and needs no tool call at all, because it injects a Memory
+# section and MEMORY_SUMMARY straight into the run — leaving it on let a
+# blank-declared agent read Memory with Honcho already out of reach.
+# `generate_memories` covers the write direction too, so a one-shot run cannot
+# deposit anything for a later run to read.
+_NO_MEMORY_CONFIG = {"memories": {"use_memories": False, "generate_memories": False}}
 
+# A request codex has not answered in this long is a wedge, not slow work: every
+# one of these is a handshake or a thread call, none of which waits on a model.
+_REQUEST_LIMIT = 180
 
-def _founding_instructions(session):
-    """The base instructions the thread was founded on, from its rollout's
-    session_meta — codex's own record of the run, so it states what actually
-    reached the model rather than what this wrapper meant to send."""
-    import json
-    path = _rollout_path(session)
-    if path is None:
-        return None
-    try:
-        with open(path, encoding="utf-8") as fh:
-            first = fh.readline()
-    except OSError:
-        return None
-    try:
-        event = json.loads(first)
-    except ValueError:
-        return None
-    payload = event.get("payload")
-    if event.get("type") != "session_meta" or not isinstance(payload, dict):
-        return None
-    instructions = payload.get("base_instructions")
-    if isinstance(instructions, dict):
-        return instructions.get("text")
-    return instructions if isinstance(instructions, str) else None
+# Silence this long is the liveness check the exec transport had no equivalent
+# for. It is deliberately far above a long reasoning pause — deltas are declined,
+# so a max-effort turn can legitimately say nothing for minutes — and is there to
+# end a codex that has stopped rather than one that is thinking.
+# A turn can reason for several minutes before opening its first item.  That is
+# not the same failure as codex going quiet after it has returned a tool result:
+# the latter has a much tighter deadline, while this remains the backstop for a
+# wholly silent run.
+_POST_TOOL_IDLE_LIMIT = 600
+_IDLE_LIMIT = 1200
 
-
-# The name-carrying line scripts/agents.py writes at the top of every generated
-# .prompt.md. An HTML comment renders as nothing and instructs nothing, so it is
-# inert to the model reading the instructions and carries identity only.
-_MARKER_OPEN = "<!-- codex-run agent: "
-_MARKER_CLOSE = "-->"
-
-
-def _marked_agent(text):
-    """The agent name the marker line at the top of `text` declares, or None.
-
-    Only the first line is considered, so a marker quoted further down the body
-    cannot claim an identity."""
-    head = text.strip().splitlines()[:1]
-    if not head:
-        return None
-    line = head[0].strip()
-    if not line.startswith(_MARKER_OPEN) or not line.endswith(_MARKER_CLOSE):
-        return None
-    return line[len(_MARKER_OPEN):-len(_MARKER_CLOSE)].strip() or None
+# How long a cancelled turn is given to unwind after turn/interrupt before the
+# process tree goes. The point of the interrupt is that codex finishes the file
+# write it is inside; that takes seconds, not minutes.
+_CANCEL_GRACE = 30
 
 
-def _without_marker(text):
-    text = text.strip()
-    if _marked_agent(text) is None:
-        return text
-    return text.split("\n", 1)[1].strip() if "\n" in text else ""
+class _ServerError(Exception):
+    pass
 
 
-def _founding_agent(session):
-    """The agent whose instructions founded `session`, or None if none matches.
+class _Server:
+    """One `codex app-server` process, spoken to over JSON-RPC on its stdio.
 
-    The recorded instructions name their own agent when the thread was founded
-    after the marker existed, so identity is an exact lookup rather than a guess
-    read off prose — rewording an agent's text cannot orphan such a thread. The
-    name still resolves through `_available_agents`, so a stale or tampered
-    marker naming something outside the roster resolves to nothing.
+    Both pipes are drained on their own threads. Reading stdout to exhaustion
+    before touching stderr would deadlock on a run that writes enough stderr to
+    fill its pipe buffer: codex blocks writing stderr, stops producing stdout,
+    and the runner blocks reading stdout that never comes.
 
-    Threads founded before the marker carry no name, so the text matching stays
-    for them: whole text first, then the first line, both compared with the
-    marker stripped off the corpus so the marker's arrival did not move the
-    opener out from under every pre-existing thread. A first line claimed by more
-    than one agent resolves to nothing rather than to a guess."""
-    recorded = _founding_instructions(session)
-    if not recorded or not recorded.strip():
-        return None
-    named = _marked_agent(recorded)
-    if named:
-        return named if named in _available_agents() else None
-    body = _without_marker(recorded)
-    head = body.splitlines()[0].strip() if body else ""
-    by_head = []
-    for name in _available_agents():
-        directory = _agent_dir(name)
-        if directory is None:
-            continue
+    The process is started in its own session, so its pid is also its process
+    group id and `terminate` reaches every command codex spawned rather than
+    codex alone."""
+
+    def __init__(self, cwd, env, on_message):
+        self._on_message = on_message
+        self._pending = {}
+        self._lock = threading.Lock()
+        self._last_id = 0
+        self._stderr = []
+        self._closed = False
+        self.proc = subprocess.Popen(
+            ["codex", "app-server"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, text=True, cwd=cwd, env=env, start_new_session=True)
+        threading.Thread(target=self._read, daemon=True).start()
+        self._stderr_reader = threading.Thread(target=self._drain_stderr, daemon=True)
+        self._stderr_reader.start()
+
+    def handshake(self):
+        self.request("initialize", {"clientInfo": _CLIENT,
+                                    "capabilities": {"optOutNotificationMethods": _DECLINED}})
+        self._send({"method": "initialized", "params": {}})
+
+    def request(self, method, params, timeout=_REQUEST_LIMIT):
+        with self._lock:
+            self._last_id += 1
+            request_id = self._last_id
+            answered, box = threading.Event(), {}
+            self._pending[request_id] = (answered, box)
+        self._send({"id": request_id, "method": method, "params": params})
+        if not answered.wait(timeout):
+            raise _ServerError("codex app-server did not answer %s within %ds" % (method, timeout))
+        if "error" in box:
+            error = box["error"] or {}
+            raise _ServerError(error.get("message") or ("%s failed" % method))
+        return box.get("result") or {}
+
+    @property
+    def stderr(self):
+        return "".join(chunk for chunk in self._stderr if chunk)
+
+    def close(self):
+        if self._closed:
+            return
+        self._closed = True
         try:
-            with open(os.path.join(directory, name + ".prompt.md"), encoding="utf-8") as fh:
-                source = _without_marker(fh.read())
+            self.proc.stdin.close()
         except OSError:
-            continue
-        if source == body:
-            return name
-        if source.splitlines()[:1] == [head]:
-            by_head.append(name)
-    return by_head[0] if len(by_head) == 1 else None
+            pass
+        try:
+            self.proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            self.terminate()
+        # On a failed run codex's stderr is the whole diagnosis, and it is read
+        # straight after this returns — joining makes it there rather than racing.
+        self._stderr_reader.join(timeout=5)
+
+    def terminate(self):
+        _terminate_tree(self.proc.pid)
+
+    def _send(self, message):
+        try:
+            self.proc.stdin.write(json.dumps(message) + "\n")
+            self.proc.stdin.flush()
+        except (OSError, ValueError) as exc:
+            raise _ServerError("codex app-server is not accepting input: %s" % exc)
+
+    def _drain_stderr(self):
+        self._stderr.append(self.proc.stderr.read())
+
+    def _read(self):
+        for line in self.proc.stdout:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                message = json.loads(line)
+            except ValueError:
+                self._on_message({"method": "error", "params": {
+                    "error": {"message": "invalid app-server output: %s" % line}}})
+                continue
+            if "method" in message and "id" in message:
+                # Nothing here answers a server-initiated request, and leaving one
+                # unanswered wedges the turn waiting on a reply that never comes.
+                try:
+                    self._send({"id": message["id"],
+                                "error": {"code": -32601,
+                                          "message": "codex-run answers no server requests"}})
+                except _ServerError:
+                    pass
+            elif "id" in message:
+                with self._lock:
+                    slot = self._pending.pop(message["id"], None)
+                if slot:
+                    slot[1].update(message)
+                    slot[0].set()
+            try:
+                self._on_message(message)
+            except OSError as exc:
+                # A record write happens here on the reader thread. Turn its failure
+                # into the terminal notification the main thread is waiting for.
+                self._on_message({"method": "error", "params": {
+                    "error": {"message": "cannot write job record: %s" % exc}}})
+                self._on_message({"method": "turn/failed", "params": {}})
+                return
+        # stdout closed: fail everything still waiting rather than let it block to
+        # its own timeout, one request at a time.
+        with self._lock:
+            waiting, self._pending = list(self._pending.values()), {}
+        for answered, box in waiting:
+            box["error"] = {"message": "codex app-server exited"}
+            answered.set()
 
 
-# --- output storage: session dir via the spine, /tmp fallback ---------------------
+def _terminate_tree(pid):
+    """Signal a process group, then make sure it is gone.
+
+    The group, not the pid: codex runs the model's commands as its own children,
+    so signalling one process leaves the shell it was inside running."""
+    if not pid:
+        return False
+    try:
+        os.killpg(pid, signal.SIGTERM)
+    except OSError:
+        return False
+    for _ in range(40):
+        time.sleep(0.25)
+        try:
+            os.killpg(pid, 0)
+        except OSError:
+            return True
+    try:
+        os.killpg(pid, signal.SIGKILL)
+    except OSError:
+        pass
+    return True
+
+
+def _alive(pid):
+    if not pid:
+        return False
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    return True
+
+
+# --- job records --------------------------------------------------------------------
 
 def _output_paths():
-    """A collision-free (answer_file, events_file) pair under the session dir.
+    """The (answer, events, record) triple for one run, sharing a stem.
 
     Resolves the session through the spine exactly as model_call._record does;
     falls back to /tmp when there is no valid session (the same no-session
     fallback spirit — the runner must still surface its files). The pid +
-    high-resolution timestamp stem is unique per parallel invocation."""
+    high-resolution timestamp stem is unique per parallel invocation, which is
+    what lets it serve as the job id."""
     stem = "codex-run-%d-%d" % (os.getpid(), time.time_ns())
     base = _resolve_output_dir()
-    return os.path.join(base, stem + ".txt"), os.path.join(base, stem + ".jsonl")
+    return (os.path.join(base, stem + ".txt"),
+            os.path.join(base, stem + ".jsonl"),
+            os.path.join(base, stem + ".json"))
 
 
 def _resolve_output_dir():
@@ -385,173 +486,816 @@ def _resolve_output_dir():
     return "/tmp"
 
 
-# --- the codex invocation ---------------------------------------------------------
+def _transcript_path():
+    """The Claude transcript for this session, recorded by the session-state spine."""
+    try:
+        with open(os.path.join(_resolve_output_dir(), "transcript"), encoding="utf-8") as fh:
+            return fh.read().strip()
+    except OSError:
+        return ""
 
-def _run(cmd, events_path, definition_path=""):
-    """Run codex, tee the event stream to events_path, return (returncode, answer,
-    session_id, turn_failed, stderr). The stream is the single source: the final
-    answer is the last agent_message item.completed, the session id is
-    thread.started's thread_id, a turn.failed event marks a failed turn even on a
-    zero exit. codex's stderr is captured so a failed run is diagnosable — on
-    failure it carries the actual error text the event stream never produced.
 
-    The agent's definition path rides into codex's environment, which is how a
-    hook inside the run learns which agent it is gating. The path rather than the
-    name on purpose: the roster resolution that produced it is subtle (active
-    config root first, shared roster second) and a hook re-deriving it is a second
-    implementation of the thing that must not drift.
+def _save_record(record):
+    """Write the record whole or not at all — `status` reads these while runs write
+    them, and a half-written record reads as a corrupt job rather than a live one."""
+    path = record["record"]
+    temporary = path + ".writing"
+    with open(temporary, "w", encoding="utf-8") as fh:
+        json.dump(record, fh, indent=1)
+        fh.write("\n")
+    os.replace(temporary, path)
 
-    Both pipes are drained concurrently: stderr on a reader thread while the main
-    loop drains stdout. Reading stdout to exhaustion before touching stderr would
-    deadlock on a run that writes enough stderr to fill its pipe buffer — codex
-    blocks writing stderr, stops producing stdout, and the runner blocks reading
-    stdout that never comes. Draining both at once means neither pipe can fill and
-    stall the other, regardless of how much codex writes to either."""
-    import json
-    import threading
 
-    answer = None
-    session = ""
-    turn_failed = False
+def _load_record(path):
+    try:
+        with open(path, encoding="utf-8") as fh:
+            record = json.load(fh)
+    except (OSError, ValueError) as exc:
+        raise OSError("cannot read job record %s: %s" % (path, exc))
+    if not isinstance(record, dict):
+        raise OSError("cannot read job record %s: expected a JSON object" % path)
+    return record
+
+
+def _job_dirs(everywhere):
+    """Where job records live: this session's directory, and every sibling
+    session's when the caller asked for all of them."""
+    dirs, seen = [], set()
+    for candidate in [_resolve_output_dir()] + (_sibling_dirs() if everywhere else []):
+        key = os.path.realpath(candidate)
+        if key not in seen and os.path.isdir(candidate):
+            seen.add(key)
+            dirs.append(candidate)
+    return dirs
+
+
+def _sibling_dirs():
+    root = os.path.join(session_state._data_root(), "sessions")
+    found = []
+    for pattern in (os.path.join(root, "*"), os.path.join(root, "*", "subagents", "*")):
+        found.extend(sorted(path for path in glob(pattern) if os.path.isdir(path)))
+    found.append("/tmp")
+    return found
+
+
+def _records_in(directory):
+    records = []
+    for path in sorted(glob(os.path.join(directory, "codex-run-*.json"))):
+        try:
+            record = _load_record(path)
+        except OSError as exc:
+            # stderr, not stdout: the lifecycle hooks call this on every Stop and
+            # SessionEnd, and their stdout is the harness's channel, not ours.
+            print("codex-run: %s" % exc, file=sys.stderr)
+            continue
+        records.append(_reconcile_record(record))
+    return records
+
+
+def _reconcile_record(record):
+    """Make a dead runner's durable record terminal when a reader observes it."""
+    if record.get("status") == "running" and not _alive(record.get("pid")):
+        record.update(status="failed", phase="failed",
+                      error=record.get("error") or "codex-run runner exited unexpectedly",
+                      ended_at=int(time.time()))
+        _save_record(record)
+    return record
+
+
+def live_jobs(session_id):
+    """The live codex jobs owned by one Claude session's record directory."""
+    if not session_state._is_valid_session_id(session_id):
+        return []
+    directory = session_state._session_dir(session_id)
+    if not directory:
+        return []
+    return [record for record in _records_in(directory)
+            if record.get("status") == "running" and _alive(record.get("pid"))]
+
+
+def terminate_job(record, grace=0.25):
+    """End a recorded run without ever signalling a Claude process group.
+
+    app-server owns its own process group; the runner does not, so only the
+    former is group-signalled.  The short grace fits Claude's SessionEnd budget
+    and the runner is then killed directly if its signal handler did not finish.
+    """
+    server_pid, pid = record.get("server_pid"), record.get("pid")
+    if _alive(server_pid):
+        try:
+            os.killpg(server_pid, signal.SIGTERM)
+        except OSError:
+            pass
+    if _alive(pid):
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except OSError:
+            pass
+    time.sleep(grace)
+    if _alive(server_pid):
+        try:
+            os.killpg(server_pid, signal.SIGKILL)
+        except OSError:
+            pass
+    if _alive(pid):
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except OSError:
+            pass
+    record.update(status="cancelled", phase="session-ended", ended_at=int(time.time()))
+    _save_record(record)
+
+
+def _find_job(token):
+    """The one job whose id starts with `token`, or a message saying why not.
+
+    A prefix is an identity claim, not a local convenience. Search every session
+    before accepting it so a match in this session cannot silently resume a
+    different job than the caller intended."""
+    matches = []
+    for directory in _job_dirs(True):
+        matches.extend(record for record in _records_in(directory)
+                       if (record.get("job") or "").startswith(token))
+    if len(matches) == 1:
+        return matches[0], ""
+    if len(matches) > 1:
+        return None, ("codex-run: '%s' matches %d jobs: %s"
+                      % (token, len(matches),
+                         ", ".join(sorted(record["job"] for record in matches)[:5])))
+    return None, ("codex-run: no job matching '%s'. Run `codex-run status --all` to list them."
+                  % token)
+
+
+# --- the lifecycle feed -------------------------------------------------------------
+
+# One file per Claude session, appended by every run in it. Each line is written
+# in one call and stays under the length limit, so parallel runs appending at once
+# interleave whole lines rather than fragments of each other's.
+_FEED = "codex-run.feed"
+_LINE_LIMIT = 500
+_FEED_BURST = 10
+_FEED_INTERVAL = 2
+
+def _feed_path():
+    return os.path.join(_resolve_output_dir(), _FEED)
+
+
+def _emit(state, job, agent, detail):
+    line = "%s %-8s %s %s %s" % (time.strftime("%H:%M:%S"), state, job, agent, detail)
+    try:
+        with open(_feed_path() + ".gate", "a+", encoding="utf-8") as gate:
+            fcntl.flock(gate, fcntl.LOCK_EX)
+            try:
+                gate.seek(0)
+                tokens, updated = json.load(gate)
+            except (ValueError, TypeError):
+                tokens, updated = _FEED_BURST, time.time()
+            now = time.time()
+            tokens = min(_FEED_BURST, tokens + (now - updated) / _FEED_INTERVAL)
+            if tokens < 1:
+                time.sleep((1 - tokens) * _FEED_INTERVAL)
+                now = time.time()
+                tokens = min(_FEED_BURST, tokens + (now - updated) / _FEED_INTERVAL)
+            gate.seek(0)
+            gate.truncate()
+            json.dump((tokens - 1, now), gate)
+            gate.flush()
+            with open(_feed_path(), "a", encoding="utf-8") as fh:
+                fh.write(line[:_LINE_LIMIT].rstrip() + "\n")
+            fcntl.flock(gate, fcntl.LOCK_UN)
+    except OSError as exc:
+        raise OSError("cannot append lifecycle feed: %s" % exc)
+
+
+def _elapsed(seconds):
+    seconds = int(seconds)
+    return "%ds" % seconds if seconds < 60 else "%dm%02ds" % (seconds // 60, seconds % 60)
+
+
+# --- one run ------------------------------------------------------------------------
+
+# What the model is doing, named from the item codex opened and retained on the
+# job record for the statusline.
+_PHASES = {"reasoning": "thinking", "commandExecution": "running",
+           "fileChange": "editing", "mcpToolCall": "calling",
+           "collabAgentToolCall": "delegating", "webSearch": "searching",
+            "agentMessage": "answering"}
+_TOOL_ITEMS = {"commandExecution", "fileChange", "mcpToolCall", "collabAgentToolCall"}
+
+_PROMPT_EXCERPT = 160
+
+
+class _Job:
+    """One run's live state and the record it keeps on disk.
+
+    Every exit path — a clean turn, a failed one, a cancelled one, a codex that
+    never started — goes through `finish`, so a record left saying `running` means
+    the runner itself died rather than that the run is still going."""
+
+    def __init__(self, agent, model, effort, prompt, resumed_from=None):
+        answer_path, events_path, record_path = _output_paths()
+        self.id = os.path.basename(record_path)[: -len(".json")]
+        self.agent = agent
+        self.answer = None
+        self.error = None
+        self.cancelled = False
+        self.started = time.time()
+        self.last_seen = self.started
+        self.last_tool_completed_at = None
+        self.done = threading.Event()
+        self._record_lock = threading.Lock()
+        self.events = None
+        self.record = {
+            "job": self.id,
+            "agent": agent,
+            "model": model,
+            "effort": effort,
+            "status": "running",
+            "phase": "starting",
+            "activity": "",
+            "error": None,
+            "fresh_input_tokens": 0,
+            "thread": None,
+            "turn": None,
+            "rollout": None,
+            "resumed_from": resumed_from,
+            "resumed": None,
+            "pid": os.getpid(),
+            "server_pid": None,
+            "answer": answer_path,
+            "events": events_path,
+            "record": record_path,
+            "session": session_state.own_session_id(),
+            "transcript": _transcript_path(),
+            "cwd": os.getcwd(),
+            "prompt": prompt[:_PROMPT_EXCERPT],
+            "started_at": int(self.started),
+            "updated_at": int(self.started),
+            "ended_at": None,
+        }
+        _save_record(self.record)
+        try:
+            self.events = open(events_path, "w", encoding="utf-8")
+        except OSError as exc:
+            self.error = "cannot create event stream: %s" % exc
+            self.save(status="failed", phase="failed", error=self.error,
+                      ended_at=int(time.time()))
+            return
+        try:
+            _emit("started", self.id, agent, "%s/%s — %s"
+                  % (model, effort, " ".join(prompt.split())[:_PROMPT_EXCERPT]))
+        except OSError as exc:
+            self.error = str(exc)
+            self.save(status="failed", phase="failed", error=self.error,
+                      ended_at=int(time.time()))
+            self.events.close()
+            return
+
+    @property
+    def answer_path(self):
+        return self.record["answer"]
+
+    def save(self, **fields):
+        with self._record_lock:
+            self.record.update(fields)
+            self.record["updated_at"] = int(time.time())
+            _save_record(self.record)
+
+    def request_cancel(self):
+        self.cancelled = True
+
+    def handle(self, message):
+        """Tee every inbound message to the event stream and read the few that say
+        what the run is doing. Items from a subagent thread are recorded but never
+        answer for the run: codex spawns its own threads, and taking their final
+        message as this run's answer returns the wrong text under the right id."""
+        self.last_seen = time.time()
+        try:
+            self.events.write(json.dumps(message) + "\n")
+            self.events.flush()
+        except (OSError, ValueError) as exc:
+            self.error = "cannot append event stream: %s" % exc
+            self.done.set()
+            return
+        method = message.get("method")
+        params = message.get("params") or {}
+        if not method or not self._ours(params):
+            return
+        if method == "item/started":
+            item = params.get("item") or {}
+            phase = _PHASES.get(item.get("type"))
+            if item.get("type") == "commandExecution":
+                command = item.get("command") or ""
+                try:
+                    words = shlex.split(command)
+                except ValueError:
+                    words = []
+                if (len(words) >= 3 and os.path.basename(words[0]) in ("sh", "bash", "zsh")
+                        and words[1] == "-lc"):
+                    command = words[2]
+                self.save(phase=phase, activity=" ".join(command.split()))
+            elif phase and phase != self.record["phase"]:
+                self.save(phase=phase)
+        elif method == "item/completed":
+            item = params.get("item") or {}
+            if item.get("type") == "commandExecution":
+                self.save(activity="")
+            if item.get("type") in _TOOL_ITEMS:
+                self.last_tool_completed_at = time.time()
+            if item.get("type") == "agentMessage" and item.get("text"):
+                self.answer = item["text"]
+        elif method == "thread/tokenUsage/updated":
+            total = ((params.get("tokenUsage") or {}).get("total") or {})
+            input_tokens, cached_input_tokens = total.get("inputTokens"), total.get("cachedInputTokens")
+            if isinstance(input_tokens, int) and isinstance(cached_input_tokens, int):
+                self.save(fresh_input_tokens=max(0, input_tokens - cached_input_tokens))
+        elif method == "error":
+            error = params.get("error") or params
+            self.error = self.error or error.get("message") or "codex reported an error"
+        elif method == "turn/completed":
+            turn = params.get("turn") or {}
+            if turn.get("status") != "completed":
+                self.error = self.error or ("turn %s" % turn.get("status"))
+            self.done.set()
+        elif method == "turn/failed":
+            self.error = self.error or "turn failed"
+            self.done.set()
+
+    def wait(self, server):
+        """Block until the turn ends, the architect cancels it, or codex goes quiet."""
+        interrupted = None
+        while not self.done.wait(1.0):
+            now = time.time()
+            if server.proc.poll() is not None:
+                self.error = self.error or "codex app-server exited unexpectedly"
+                return
+            if self.cancelled and interrupted is None:
+                interrupted = now
+                self.save(phase="cancelling")
+                try:
+                    server.request("turn/interrupt",
+                                   {"threadId": self.record["thread"],
+                                    "turnId": self.record["turn"]}, timeout=15)
+                except _ServerError:
+                    pass
+            if interrupted is not None:
+                if now - interrupted > _CANCEL_GRACE:
+                    return
+            elif (self.last_tool_completed_at is not None
+                  and now - self.last_tool_completed_at > _POST_TOOL_IDLE_LIMIT):
+                self.error = ("codex went silent for %ds after a tool result"
+                              % _POST_TOOL_IDLE_LIMIT)
+                self._interrupt(server)
+                return
+            elif now - self.last_seen > _IDLE_LIMIT:
+                self.error = self.error or ("codex sent nothing for %ds" % _IDLE_LIMIT)
+                self._interrupt(server)
+                return
+
+    def _interrupt(self, server):
+        try:
+            server.request("turn/interrupt",
+                           {"threadId": self.record["thread"],
+                            "turnId": self.record["turn"]}, timeout=15)
+        except _ServerError as exc:
+            self.error = "\n".join(part for part in
+                                   [self.error, "cannot interrupt turn: %s" % exc] if part)
+
+    def finish(self, status):
+        self.save(status=status, phase="done" if status == "ok" else status,
+                  error=self.error, ended_at=int(time.time()))
+        if self.events is not None:
+            self.events.close()
+        try:
+            _emit(status, self.id, self.agent, "%s %d chars"
+                  % (_elapsed(time.time() - self.started), os.path.getsize(self.answer_path)))
+        except OSError as exc:
+            self.error = str(exc)
+            self.save(status="failed", phase="failed", error=self.error,
+                      ended_at=int(time.time()))
+
+    def _ours(self, params):
+        mine, theirs = self.record.get("thread"), params.get("threadId")
+        return mine is None or theirs is None or theirs == mine
+
+def _refuse_harness(agent):
+    """The refusal a `harness` declaration earns this run, or None.
+
+    The two refusals are separate because their fixes are: a claude-only agent is
+    dispatched elsewhere, while an unrecognized value is a broken definition and
+    runs nowhere — sending that one to Claude would only earn a second refusal."""
+    declared = _declaration(agent, "harness")
+    if declared is None or declared in _HERE:
+        return None
+    if declared == "claude":
+        return ('codex-run: the %s agent declares `harness: claude` — it does not run here.\n'
+                '\n'
+                'Dispatch it on Claude instead, with the same task prompt:\n'
+                '\n'
+                '  Agent(subagent_type: "%s", prompt: "<the same task prompt>")'
+                % (agent, agent))
+    return ('codex-run: the %s agent declares `harness: %s`, which is not a harness.\n'
+            '\n'
+            'Valid values are `all`, `claude`, and `codex`, and omitting the key means\n'
+            '`all`. The comparison is exact, so a wrong case is a wrong value. The agent\n'
+            'runs nowhere until this is corrected — an unrecognized declaration denies\n'
+            'rather than permits, so a typo cannot quietly widen where an agent runs.\n'
+            '\n'
+            'Fix the `harness:` line in %s.md, then run it again.'
+            % (agent, declared, agent))
+
+
+def _thread_params(instructions, config, model, cwd):
+    return {"cwd": cwd, "model": model, "approvalPolicy": "never",
+            "sandbox": "danger-full-access",
+            "baseInstructions": instructions, "config": config}
+
+
+def _dispatch(agent, prompt, resume=None):
+    """Run one turn as `agent` and print the whole result on stdout.
+
+    Returns the exit code, non-zero on any failure: a codex that would not start,
+    a protocol error, a turn that failed, a cancelled turn, or a run that produced
+    no final answer — a turn yielding nothing usable is a failure too.
+
+    `resume` is the record of the job being continued. Its thread is asked for
+    first; when codex no longer holds that thread the run starts a fresh one from
+    the same settings and says so, because the alternative — a silent fresh thread
+    under a resume command — reads exactly like a continuation and is not one."""
+    prompt_path = _resolve_agent("@" + agent)
+    if prompt_path is None:
+        print("codex-run: unknown agent '@%s'. Available: %s"
+              % (agent, ", ".join(_available_agents())))
+        return 1
+    try:
+        refusal = _refuse_harness(agent)
+        if refusal:
+            print(refusal)
+            return 1
+        model = _codex_model(agent)
+        effort = _codex_effort(agent)
+        with open(prompt_path, encoding="utf-8") as fh:
+            instructions = fh.read()
+        config = dict(_CONFIG)
+        if _declares_blank_memory(agent):
+            config = {**config, **_NO_MEMORY_CONFIG}
+    except (OSError, UnicodeDecodeError, ValueError) as exc:
+        try:
+            job = _Job(agent, _MODEL, _EFFORT, prompt,
+                       resumed_from=(resume or {}).get("job"))
+        except OSError as record_error:
+            print("codex-run: cannot write job record: %s" % record_error)
+            return 1
+        job.error = "cannot prepare agent: %s" % exc
+        body = "[no answer — run failed]\n\n%s" % job.error
+        try:
+            with open(job.answer_path, "w", encoding="utf-8") as fh:
+                fh.write(body + "\n")
+        except OSError as answer_error:
+            job.error = "cannot write preparation failure answer: %s" % answer_error
+            body += "\n\n%s" % job.error
+        job.finish("failed")
+        print(body)
+        _print_trailer(job.record)
+        return 1
     env = dict(os.environ)
-    if definition_path:
-        env[agent_memory.AGENT_FILE_VAR] = definition_path
+    definition = _definition_path(agent)
+    if definition:
+        # The path rather than the name on purpose: the roster resolution that
+        # produced it is subtle, and a hook re-deriving it would be a second
+        # implementation of the thing that must not drift.
+        env[agent_memory.AGENT_FILE_VAR] = definition
     else:
         # An inherited value from an outer codex-run would gate this run as the
         # wrong agent, which is worse than not gating it.
         env.pop(agent_memory.AGENT_FILE_VAR, None)
+
     try:
-        proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL,
-                                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                text=True, env=env)
-    except Exception as exc:
-        # Surface the reason in the answer slot so _dispatch prints it on stdout.
-        return 1, "codex-run: failed to launch codex: %s" % exc, "", False, ""
-
-    stderr_chunks = []
-    stderr_reader = threading.Thread(target=lambda: stderr_chunks.append(proc.stderr.read()))
-    stderr_reader.start()
-
-    with open(events_path, "w", encoding="utf-8") as events:
-        for line in proc.stdout:
-            events.write(line)
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                event = json.loads(line)
-            except ValueError:
-                continue
-            etype = event.get("type")
-            if etype == "thread.started":
-                session = event.get("thread_id") or session
-            elif etype == "turn.failed":
-                turn_failed = True
-            elif etype == "item.completed":
-                item = event.get("item")
-                if isinstance(item, dict) and item.get("type") == "agent_message" and item.get("text"):
-                    answer = item["text"]
-    stderr_reader.join()
-    returncode = proc.wait()
-    return returncode, answer, session, turn_failed, stderr_chunks[0]
-
-
-# An agent declaring `memory: none` runs with every memory provider off, not just
-# one. codex has two: the honcho MCP server, whose tools are never registered so
-# Memory is out of reach for reads and writes alike rather than gated after
-# the fact; and codex's own [memories], which needs no tool call at all because
-# it injects a Memory section and MEMORY_SUMMARY straight into the run. Switching
-# off only honcho left a blank-declared agent reading Memory through
-# the second provider — `generate_memories` covers the write direction too, so a
-# one-shot run cannot deposit anything for a later run to read.
-_NO_MEMORY_FLAGS = ["-c", "mcp_servers.honcho.enabled=false",
-                    "-c", "memories.use_memories=false",
-                    "-c", "memories.generate_memories=false"]
-
-
-def _dispatch(prompt_path, prompt, agent, resume_id=None, blank_memory=False):
-    """Build the codex command, run it, store the answer, print the clean result.
-
-    Returns the process exit code, raised to 1 on a turn.failed event or a run
-    that produced no final answer — a turn that yields nothing usable is a failure,
-    not a success.
-
-    The whole result lands on stdout, ready to read with no downstream parsing:
-    the final answer (or, on a failed run with no answer, codex's captured error
-    text), then a delimited trailer carrying the status, the session id (for
-    resume), and the on-disk output and events paths. Nothing the caller needs is
-    anywhere else — no stderr, no pipe."""
-    answer_path, events_path = _output_paths()
-    memory = _NO_MEMORY_FLAGS if blank_memory else []
-    # The instructions override rides on a resume too. codex does not persist it
-    # with the thread: a continuation without it runs on the global default
-    # instructions, which is how a thread founded as one agent came back as
-    # another with nothing in the output saying so.
-    instructions = ["-c", "%s=%s" % (_INSTRUCTIONS_KEY, prompt_path)]
-    # The model rides a resume for the same reason the instructions do: it is the
-    # agent's, resolved from the recovered agent, not something codex kept with
-    # the thread.
-    model = _codex_model(agent)
-    try:
-        effort = _codex_effort(agent)
-    except ValueError as exc:
-        # Everything the caller needs is on stdout, errors included — a traceback
-        # out of a wrapper whose whole interface is its printed result is not a
-        # usable failure.
-        print("codex-run: %s" % exc)
+        job = _Job(agent, model, effort, prompt,
+                   resumed_from=(resume or {}).get("job"))
+    except OSError as exc:
+        print("codex-run: cannot write job record: %s" % exc)
         return 1
-    head = ["codex", "exec"] + (["resume", resume_id] if resume_id is not None else [])
-    cmd = (head + _BASE_FLAGS + ["-m", model]
-           + ["-c", "model_reasoning_effort=%s" % effort]
-           + memory + instructions + [prompt])
+    if job.error:
+        body = "[no answer — run failed]\n\n%s" % job.error
+        try:
+            with open(job.answer_path, "w", encoding="utf-8") as fh:
+                fh.write(body + "\n")
+        except OSError as exc:
+            job.error = "cannot write final answer: %s" % exc
+            body += "\n\n%s" % job.error
+        job.finish("failed")
+        print(body)
+        _print_trailer(job.record)
+        return 1
+    try:
+        signal.signal(signal.SIGTERM, lambda *_: job.request_cancel())
+        signal.signal(signal.SIGINT, lambda *_: job.request_cancel())
+    except ValueError:
+        pass  # not the main thread; cancellation is reachable only from it
 
-    returncode, answer, session, turn_failed, stderr = _run(
-        cmd, events_path, _definition_path(agent) or "")
+    server, lost = None, ""
+    try:
+        server = _Server(job.record["cwd"], env, job.handle)
+        job.save(server_pid=server.proc.pid)
+        server.handshake()
+        params = _thread_params(instructions, config, model, job.record["cwd"])
+        if resume:
+            try:
+                thread = server.request("thread/resume",
+                                        dict(params, threadId=resume.get("thread")))["thread"]
+                job.record["resumed"] = True
+            except _ServerError as exc:
+                lost = str(exc)
+                thread = server.request("thread/start", params)["thread"]
+                job.record["resumed"] = False
+        else:
+            thread = server.request("thread/start", params)["thread"]
+        job.save(thread=thread.get("id"), rollout=thread.get("path"))
+        turn = server.request("turn/start", {
+            "threadId": thread.get("id"),
+            "input": [{"type": "text", "text": prompt}],
+            "model": model,
+            "effort": effort})["turn"]
+        job.save(turn=turn.get("id"), phase="thinking")
+        job.wait(server)
+    except _ServerError as exc:
+        job.error = job.error or str(exc)
+    except OSError as exc:
+        # A codex that is not installed or not on PATH — surfaced in the answer
+        # slot like any other failure, never as a traceback.
+        job.error = job.error or ("cannot run codex app-server: %s" % exc)
+    finally:
+        if server is not None:
+            server.close()
 
-    # No final answer is a failure — a run that exits zero but produced nothing
-    # usable is not a success, the same as a process failure or a failed turn.
-    # A resume that comes back under a different thread id did not resume — codex
-    # started a fresh thread (the silent death mode of resuming an exhausted
-    # session), so the requested session's context is gone and the run failed.
-    resumed_fresh = resume_id is not None and session and session != resume_id
-    failed = returncode != 0 or turn_failed or answer is None or resumed_fresh
-    status = "failed" if failed else "ok"
+    if job.answer is None and not job.error and not job.cancelled:
+        job.error = "turn completed but produced no message"
+    status = "cancelled" if job.cancelled else (
+        "failed" if (job.error or job.answer is None) else "ok")
 
     # On a failed run with no answer, codex's stderr is the only diagnosis there
     # is — persist it as the output so the failing run is debuggable on disk.
-    error = stderr.strip()
-    disk = answer if answer is not None else (
-        "[no answer — run %s]\n\n%s" % (status, error) if error
+    trouble = "\n".join(part for part in
+                        [job.error, (server.stderr.strip() if server else "")] if part)
+    body = job.answer if job.answer is not None else (
+        "[no answer — run %s]\n\n%s" % (status, trouble) if trouble
         else "[no answer — run %s]" % status)
-    with open(answer_path, "w", encoding="utf-8") as fh:
-        fh.write(disk + "\n")
+    try:
+        with open(job.answer_path, "w", encoding="utf-8") as fh:
+            fh.write(body + "\n")
+    except OSError as exc:
+        job.error = "cannot write final answer: %s" % exc
+        status = "failed"
+        body += "\n\n%s" % job.error
 
-    print(disk)
-    if failed and error:
-        print("\ncodex error output:\n%s" % error)
+    job.finish(status)
+    status = job.record["status"]
+
+    print(body)
+    if status != "ok" and trouble and job.answer is not None:
+        print("\ncodex error output:\n%s" % trouble)
+    if lost:
+        print("\ncodex-run: DID NOT RESUME — %s. Started fresh thread %s from job %s's settings;\n"
+              "this turn ran with none of that thread's history."
+              % (lost, job.record["thread"], resume.get("job")))
+    _print_trailer(job.record)
+    return 0 if status == "ok" else 1
+
+
+def _print_trailer(record):
     print(_TRAILER)
-    print("status:  %s" % status)
-    # Named on every run, resumes included: the identity a continuation runs under
-    # is now resolved rather than assumed, so it is worth showing.
-    print("agent:   %s" % agent)
-    # Beside the agent for the same reason: which model a run used is now the
-    # agent's declaration rather than one constant, so a run states it.
-    print("model:   %s  (effort %s)" % (model, effort))
-    if resumed_fresh:
-        print("resume:  DID NOT RESUME — codex started fresh thread %s instead of %s"
-              % (session, resume_id))
-    print("session: %s" % session)
-    print("output:  %s" % answer_path)
-    print("events:  %s" % events_path)
-
-    return 1 if failed else 0
+    print("status:  %s" % record.get("status"))
+    print("agent:   %s" % record.get("agent"))
+    print("model:   %s  (effort %s)" % (record.get("model"), record.get("effort")))
+    print("job:     %s" % record.get("job"))
+    print("thread:  %s" % (record.get("thread") or ""))
+    print("output:  %s" % record.get("answer"))
+    print("events:  %s" % record.get("events"))
 
 
-# --- entrypoint -------------------------------------------------------------------
+# --- the job surface ----------------------------------------------------------------
+
+def _display_status(record):
+    return record.get("status") or "?"
+
+
+def _cmd_status(argv):
+    everywhere = "--all" in argv
+    records = []
+    for directory in _job_dirs(everywhere):
+        records.extend(_records_in(directory))
+    if not records:
+        print("codex-run: no jobs%s" % ("" if everywhere else " in this session (try --all)"))
+        return 0
+    # The job id breaks the tie: its stem carries a nanosecond stamp, where the
+    # record's timestamp is whole seconds and two parallel runs share one.
+    records.sort(key=lambda record: (record.get("started_at") or 0, record.get("job") or ""),
+                 reverse=True)
+    print("%-38s %-18s %-9s %-10s %-7s %s"
+          % ("JOB", "AGENT", "STATUS", "PHASE", "TIME", "PROMPT"))
+    for record in records:
+        ended = record.get("ended_at") or int(time.time())
+        print("%-38s %-18s %-9s %-10s %-7s %s"
+              % (record.get("job"), record.get("agent"), _display_status(record),
+                 record.get("phase"), _elapsed(ended - (record.get("started_at") or ended)),
+                 " ".join((record.get("prompt") or "").split())[:60]))
+    return 0
+
+
+def _cmd_result(argv):
+    record, complaint = _find_job(argv[0])
+    if record is None:
+        print(complaint)
+        return 1
+    try:
+        with open(record.get("answer") or "", encoding="utf-8") as fh:
+            print(fh.read().rstrip())
+    except OSError:
+        print("[no answer on disk — the job is %s]" % _display_status(record))
+    _print_trailer(dict(record, status=_display_status(record)))
+    return 0
+
+
+def _cmd_history(argv):
+    record, complaint = _find_job(argv[0])
+    if record is None:
+        print(complaint)
+        return 1
+    print("job:        %s" % record.get("job"))
+    print("agent:      %s" % record.get("agent"))
+    print("thread:     %s" % (record.get("thread") or ""))
+    print("rollout:    %s" % (record.get("rollout") or "[codex wrote none]"))
+    print("transcript: %s" % (record.get("transcript") or "[no Claude transcript recorded]"))
+    return 0
+
+
+def _cmd_events(argv):
+    record, complaint = _find_job(argv[0])
+    if record is None:
+        print(complaint)
+        return 1
+    tail = 0
+    if "--tail" in argv:
+        position = argv.index("--tail")
+        if position + 1 >= len(argv) or not argv[position + 1].isdigit():
+            print("codex-run: --tail needs a number")
+            return 2
+        tail = int(argv[position + 1])
+    try:
+        with open(record.get("events") or "", encoding="utf-8") as fh:
+            lines = fh.read().splitlines()
+    except OSError:
+        print("codex-run: no event stream on disk for %s" % record.get("job"))
+        return 1
+    for line in (lines[-tail:] if tail else lines):
+        print(line)
+    return 0
+
+
+def _summarize(item):
+    """One line of activity for an item codex finished, or None when it is noise."""
+    kind = item.get("type")
+    if kind == "commandExecution":
+        return "command  %s (exit %s)" % (" ".join((item.get("command") or "").split())[:200],
+                                          item.get("exitCode"))
+    if kind == "fileChange":
+        return "edit     %s" % ", ".join(
+            change.get("path", "?") for change in (item.get("changes") or []))[:200]
+    if kind == "mcpToolCall":
+        return "tool     %s/%s (%s)" % (item.get("server"), item.get("tool"), item.get("status"))
+    if kind == "webSearch":
+        return "search   %s" % (item.get("query") or "")[:200]
+    if kind == "agentMessage":
+        return "message  %s" % " ".join((item.get("text") or "").split())[:200]
+    if kind == "collabAgentToolCall":
+        return "subagent %s (%s)" % (item.get("tool"), item.get("status"))
+    return None
+
+
+def _cmd_log(argv):
+    record, complaint = _find_job(argv[0])
+    if record is None:
+        print(complaint)
+        return 1
+    try:
+        with open(record.get("events") or "", encoding="utf-8") as fh:
+            lines = fh.read().splitlines()
+    except OSError:
+        print("codex-run: no event stream on disk for %s" % record.get("job"))
+        return 1
+    printed = 0
+    for line in lines:
+        try:
+            message = json.loads(line)
+        except ValueError:
+            continue
+        method, params = message.get("method"), message.get("params") or {}
+        if method == "turn/started":
+            print("turn started")
+        elif method == "turn/completed":
+            print("turn %s" % (params.get("turn") or {}).get("status"))
+        elif method == "error":
+            print("error    %s" % ((params.get("error") or params).get("message") or ""))
+        elif method == "item/completed":
+            summary = _summarize(params.get("item") or {})
+            if summary:
+                print(summary)
+                printed += 1
+    if not printed:
+        print("[no activity recorded — the job is %s]" % _display_status(record))
+    return 0
+
+
+def _cmd_cancel(argv):
+    record, complaint = _find_job(argv[0])
+    if record is None:
+        print(complaint)
+        return 1
+    if _display_status(record) not in ("running",):
+        print("codex-run: %s is already %s" % (record.get("job"), _display_status(record)))
+        return 0
+    # The runner owns the connection, so it is the only process that can send
+    # turn/interrupt on it. SIGTERM asks it to; the process tree is the fallback
+    # for a runner too wedged to answer its own signal.
+    try:
+        os.kill(record["pid"], signal.SIGTERM)
+    except OSError as exc:
+        print("codex-run: cannot signal the runner for %s: %s" % (record.get("job"), exc))
+        return 1
+    print("codex-run: interrupting %s (%s)…" % (record.get("job"), record.get("agent")))
+    for _ in range(int((_CANCEL_GRACE + 20) / 0.5)):
+        time.sleep(0.5)
+        try:
+            current = _load_record(record["record"])
+        except OSError as exc:
+            print("codex-run: %s" % exc)
+            return 1
+        if (current.get("status") or "") != "running":
+            print("codex-run: %s is %s" % (record.get("job"), current.get("status")))
+            return 0
+    _terminate_tree(record.get("server_pid"))
+    try:
+        os.kill(record["pid"], signal.SIGKILL)
+    except OSError as exc:
+        record.update(status="failed", phase="failed",
+                      error="cannot force-cancel runner: %s" % exc,
+                      ended_at=int(time.time()))
+        _save_record(record)
+        print("codex-run: cannot force-cancel %s: %s" % (record.get("job"), exc))
+        return 1
+    record.update(status="cancelled", phase="cancelled", ended_at=int(time.time()))
+    _save_record(record)
+    print("codex-run: %s did not stop on its own — killed the codex process tree."
+          % record.get("job"))
+    return 1
+
+
+def _cmd_watch(argv):
+    """Follow this session's lifecycle feed, one line per meaningful event.
+
+    Runs until it is killed. The recent backlog is printed first so a monitor
+    attaching mid-run sees the jobs already in flight instead of an empty screen
+    until the next line lands."""
+    path = _feed_path()
+    print("watching %s" % path)
+    position = 0
+    try:
+        with open(path, encoding="utf-8") as fh:
+            recent = fh.read().splitlines()
+        for line in recent[-5:]:
+            print(line)
+        position = sum(len(line) + 1 for line in recent)
+    except OSError as exc:
+        print("codex-run: cannot read lifecycle feed %s: %s" % (path, exc))
+        return 1
+    while True:
+        try:
+            with open(path, encoding="utf-8") as fh:
+                fh.seek(position)
+                fresh = fh.read()
+                position = fh.tell()
+            for line in fresh.splitlines():
+                print(line, flush=True)
+        except OSError as exc:
+            print("codex-run: cannot read lifecycle feed %s: %s" % (path, exc))
+            return 1
+        time.sleep(1.0)
+
+
+# --- entrypoint ---------------------------------------------------------------------
 
 _USAGE = ('Usage:\n'
-          '  codex-run @<agent> "<prompt>"        run codex as <agent>\n'
-          '  codex-run resume <session> "<msg>"   continue a prior run\n'
+          '  codex-run @<agent> "<prompt>"      run codex as <agent>\n'
+          '  codex-run resume <job> "<msg>"     continue a prior run\n'
+          '  codex-run status [--all]           list jobs (--all scans every session)\n'
+          '  codex-run result <job>             print a run\'s final answer\n'
+          '  codex-run log <job>                print a run\'s activity\n'
+          '  codex-run events <job> [--tail N]  print a run\'s raw event stream\n'
+          '  codex-run history <job>            print the codex rollout and Claude transcript\n'
+          '  codex-run cancel <job>             interrupt a running turn\n'
+          '  codex-run watch                    follow this session\'s lifecycle feed\n'
+          '  A job id may be shortened to any prefix that names one job.\n'
           '  Pass - as the prompt/message to read it from stdin — immune to shell quoting.')
 
 
@@ -561,37 +1305,58 @@ def _read_prompt(arg):
     return sys.stdin.read() if arg == "-" else arg
 
 
+_ONE_JOB = {"result": _cmd_result, "log": _cmd_log, "events": _cmd_events,
+            "history": _cmd_history, "cancel": _cmd_cancel}
+
+
 def main(argv):
     # Every message — errors included — goes to stdout so the result reads
     # cleanly with no downstream parsing.
-    if len(argv) >= 1 and argv[0] == "resume":
+    command = argv[0] if argv else ""
+
+    if command == "resume":
         if len(argv) != 3:
-            print("codex-run: resume needs a session id and a message\n" + _USAGE)
+            print("codex-run: resume needs a job id and a message\n" + _USAGE)
             return 2
-        session = argv[1]
-        agent = _founding_agent(session)
-        prompt_path = _resolve_agent("@" + agent) if agent else None
-        if prompt_path is None:
+        record, complaint = _find_job(argv[1])
+        if record is None:
+            print(complaint)
+            return 1
+        agent = record.get("agent") or ""
+        if agent not in _available_agents():
             # Loud stop, not a silent continuation: without the founding agent the
             # run would answer as codex's global default with the thread's history
             # intact, which reads as the same agent and is not.
-            print("codex-run: cannot resume %s — its founding agent is unidentifiable%s"
-                  % (session, "" if agent is None else " ('%s' is not a runnable agent)" % agent))
+            print("codex-run: cannot resume %s — its agent '%s' is not a runnable agent. "
+                  "Available: %s" % (record.get("job"), agent, ", ".join(_available_agents())))
             return 1
-        return _dispatch(prompt_path, _read_prompt(argv[2]), agent, resume_id=session,
-                         blank_memory=_declares_blank_memory(agent))
+        if not record.get("thread"):
+            print("codex-run: cannot resume %s — it never reached a codex thread."
+                  % record.get("job"))
+            return 1
+        return _dispatch(agent, _read_prompt(argv[2]), resume=record)
 
-    if len(argv) != 2 or not argv[0].startswith("@"):
+    if command == "status":
+        return _cmd_status(argv[1:])
+
+    if command == "watch":
+        return _cmd_watch(argv[1:])
+
+    if command in _ONE_JOB:
+        if len(argv) < 2:
+            print("codex-run: %s needs a job id\n%s" % (command, _USAGE))
+            return 2
+        return _ONE_JOB[command](argv[1:])
+
+    if len(argv) != 2 or not command.startswith("@"):
         print(_USAGE)
         return 2
 
-    prompt_path = _resolve_agent(argv[0])
-    if prompt_path is None:
+    if _resolve_agent(command) is None:
         print("codex-run: unknown agent '%s'. Available: %s"
-              % (argv[0], ", ".join(_available_agents())))
+              % (command, ", ".join(_available_agents())))
         return 1
-    return _dispatch(prompt_path, _read_prompt(argv[1]), argv[0][1:],
-                     blank_memory=_declares_blank_memory(argv[0][1:]))
+    return _dispatch(command[1:], _read_prompt(argv[1]))
 
 
 if __name__ == "__main__":

@@ -44,8 +44,6 @@ A specialist gives better domain framing, the right tool set, and Opus-level rea
   tester             — feature verification: API curls, UI walks, flow tracing (read-only)
   ux-tester          — pure user-perspective UX walkthroughs (no code reading)
   context-engineer   — Claude.md maintenance, hooks, skills, plugin work
-  codex              — faster but overengineers code; great for research and quick prototypes
-
 Set subagent_type to one of the above. Brief with Story / Business / Goal / DoD per /subagents."""
 
 PLAN_MSG = """BLOCKED: Built-in Plan is replaced by the architect agent.
@@ -85,12 +83,12 @@ def main():
         return feedback.block("block_builtin_subagents", NAME_MSG)
 
     model_override = field(event, "tool_input.model", "")
-    if model_override and model_override not in ("opus", "fable"):
+    if model_override and model_override != "opus":
         return feedback.block(
             "block_builtin_subagents",
             'BLOCKED: tool_input.model is set to "%s".\n\n'
-            "User-defined agents declare model: opus in their frontmatter. Overriding to a cheaper model defeats the agent's design and produces lazy output.\n"
-            'Remove tool_input.model from the dispatch, or set it to "opus" (or "fable" for the fast path).' % model_override
+            "Every agent declares its own model in frontmatter, and that declaration is the design. Fable is reserved for Jordan's own sessions: it bills twice Opus for the same tokens, and a dispatch pays that on the agent's whole context before it does any work.\n"
+            'Remove tool_input.model from the dispatch, or set it to "opus".' % model_override
         )
     return 0
 

@@ -1,0 +1,8 @@
+[
+  {
+    "name": "codex-run",
+    "command": "codex-run watch",
+    "description": "Codex job lifecycle events",
+    "when": "always"
+  }
+]

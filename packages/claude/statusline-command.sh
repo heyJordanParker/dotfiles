@@ -61,6 +61,7 @@ progress_bar=$(printf "\033[90m%s %d%%\033[0m" "$bar" "$percentage")
 # Intent classifier state
 session_id=$(echo "$input" | jq -r '.session_id // ""')
 classifier_status=""
+codex_status=""
 if [ -n "$session_id" ]; then
   state_file="${CLAUDE_DATA_ROOT:-$HOME/.claude}/sessions/${session_id}/state.json"
   if [ -f "$state_file" ]; then
@@ -92,6 +93,113 @@ if [ -n "$session_id" ]; then
     dim=$'\033[90m'
     classifier_status=$(printf "%b%s%s %b->%s %b%s%s " "$state_color" "$state_label" "$reset" "$dim" "$reset" "$approach_color" "$approach_label" "$reset")
   fi
+
+  columns=${COLUMNS:-}
+  [[ "$columns" =~ ^[1-9][0-9]*$ ]] || columns=""
+  session_dir="${CLAUDE_DATA_ROOT:-$HOME/.claude}/sessions/${session_id}"
+  now=$(date +%s)
+  shopt -s nullglob
+  records=("$session_dir"/codex-run-*.json)
+  if [ "${#records[@]}" -gt 0 ]; then
+      while IFS= read -r -d '' agent &&
+            IFS= read -r -d '' started_at &&
+            IFS= read -r -d '' updated_at &&
+            IFS= read -r -d '' activity &&
+            IFS= read -r -d '' phase &&
+            IFS= read -r -d '' fresh_input_tokens &&
+            IFS= read -r -d '' pid; do
+        is_dead=false
+        if ! [[ "$pid" =~ ^[1-9][0-9]*$ ]] || ! kill -0 "$pid" 2>/dev/null; then
+          is_dead=true
+        fi
+        if [ -n "$activity" ]; then
+          activity=$(printf '%s' "$activity" | tr '\n' ' ' | sed 's/[[:space:]]\+/ /g;s/^ //;s/ $//')
+          activity="${activity##*; }"
+          while [[ "$activity" =~ ^[A-Za-z_][A-Za-z0-9_]*=[^[:space:]]+[[:space:]]+ ]]; do
+            activity="${activity#"${BASH_REMATCH[0]}"}"
+          done
+          activity="${activity%% <<*}"
+          activity="${activity% -}"
+          activity="${activity%% | *}"
+          activity="${activity%% >*}"
+        fi
+        [ -n "$activity" ] || activity="$phase"
+        elapsed=$(( now - started_at ))
+        [ "$elapsed" -lt 0 ] && elapsed=0
+        if [ "$elapsed" -lt 60 ]; then
+          elapsed_label="${elapsed}s"
+        elif [ "$elapsed" -lt 3600 ]; then
+          elapsed_label="$((elapsed / 60))m $((elapsed % 60))s"
+        elif [ "$elapsed" -lt 86400 ]; then
+          elapsed_label="$((elapsed / 3600))h $(((elapsed % 3600) / 60))m $((elapsed % 60))s"
+        else
+          elapsed_label="$((elapsed / 86400))d $(((elapsed % 86400) / 3600))h $(((elapsed % 3600) / 60))m"
+        fi
+        idle_for=$(( now - updated_at ))
+        if [ "$idle_for" -ge 45 ]; then
+          if [ "$idle_for" -lt 60 ]; then
+            activity="idle ${idle_for}s"
+          elif [ "$idle_for" -lt 3600 ]; then
+            activity="idle $((idle_for / 60))m $((idle_for % 60))s"
+          elif [ "$idle_for" -lt 86400 ]; then
+            activity="idle $((idle_for / 3600))h $(((idle_for % 3600) / 60))m $((idle_for % 60))s"
+          else
+            activity="idle $((idle_for / 86400))d $(((idle_for % 86400) / 3600))h $(((idle_for % 3600) / 60))m"
+          fi
+        fi
+        [ "$is_dead" = true ] && activity="failed — runner dead"
+        trailer="$elapsed_label"
+        if [[ "$fresh_input_tokens" =~ ^[1-9][0-9]*$ ]]; then
+          if [ "$fresh_input_tokens" -ge 1000 ]; then token_label=$(awk -v tokens="$fresh_input_tokens" 'BEGIN {printf "%.1fk", tokens / 1000}'); else token_label="$fresh_input_tokens"; fi
+          trailer+=" · ↓ ${token_label} tokens"
+        fi
+        glyph="○"
+        row_color="37"
+        if [ "$is_dead" = true ]; then
+          glyph="✕"
+          row_color="31"
+        fi
+        printf -v row "%s %s (codex)" "$glyph" "$agent"
+        if [ -n "$columns" ]; then
+          # Claude Code renders the statusline into a viewport four cells
+          # narrower than the COLUMNS it exports, and ellipsizes the overflow.
+          row_width=$((columns - 4))
+          content_width=$row_width
+          [ "$content_width" -lt 1 ] && continue
+          row="${row:0:content_width}"
+          if [ $(( ${#row} + ${#trailer} + 2 )) -gt "$content_width" ]; then
+            trailer="$elapsed_label"
+          fi
+          if [ $(( ${#row} + ${#trailer} + 2 )) -gt "$content_width" ]; then
+            trailer=""
+          fi
+          activity_width=$((content_width * 45 / 100))
+          content_width=$((content_width - ${#row} - ${#trailer} - 2))
+          [ -n "$trailer" ] && content_width=$((content_width - 2))
+          [ "$activity_width" -gt "$content_width" ] && activity_width="$content_width"
+          if [ "$activity_width" -gt 0 ]; then
+            if [ "${#activity}" -gt "$activity_width" ]; then
+              activity="${activity:0:activity_width}"
+              activity="${activity% *}"
+              [ -n "$activity" ] && activity+="…"
+            fi
+            [ -n "$activity" ] && row+="  $activity"
+          fi
+          padding=$((row_width - ${#row} - ${#trailer}))
+          [ "$padding" -gt 0 ] && printf -v padding "%*s" "$padding" "" || padding=""
+          row+="${padding}${trailer}"
+          row=$'\033['"${row_color}"'m'"${row}"$'\033[0m'
+        else
+          [ -n "$activity" ] && row+="  $activity"
+          row=$'\033['"${row_color}"'m'"${row}  ${trailer}"$'\033[0m'
+        fi
+        codex_status+="$row"$'\n'
+      done < <(jq --raw-output0 --arg session_id "$session_id" '
+        select(.session == $session_id and .status == "running") |
+        (.agent // "unknown"), (.started_at // 0), (.updated_at // 0),
+        (.activity // ""), (.phase // ""), (.fresh_input_tokens // ""), (.pid // "")
+      ' "${records[@]}" 2>/dev/null)
+  fi
 fi
 
 # Line 1: directory + git branch + model
@@ -99,3 +207,11 @@ printf "\033[97m%s\033[0m\033[35m%s\033[0m\033[34m%s\033[0m\n" "$short_dir" "$gi
 
 # Line 2: classifier state + style + progress bar
 printf "%b\033[32m%s\033[0m %s\n" "$classifier_status" "$style_info" "$progress_bar"
+
+# Running codex jobs
+if [ -n "$codex_status" ]; then
+  printf "%s" "$codex_status"
+fi
+
+# Status segments are optional; their absence must not blank the whole line.
+exit 0

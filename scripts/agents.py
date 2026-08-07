@@ -1,20 +1,16 @@
 """Generate codex artifacts from the shared agent definitions.
 
-Reads packages/agents/agents/*.md and writes two siblings codex auto-discovers:
-<name>.toml (the subagent definition) and <name>.prompt.md (the frontmatter-
-stripped body, used as a base-instructions override via model_instructions_file).
+Reads packages/agents/agents/*.md and writes two siblings beside each definition:
+<name>.toml (the subagent definition codex auto-discovers) and <name>.prompt.md
+(the frontmatter-stripped body, sent inline as a run's baseInstructions by
+codex-run and pointed at by config.toml's model_instructions_file for the
+interactive session).
 Frontmatter name/description map across; named skills are inlined into the body,
 which becomes developer_instructions. model/tools/color are dropped — codex has no
-key for them, and `model` names a Claude model. memory, codex-model, and effort are
-dropped here too but are not lost: codex-run reads them straight off the definition
-file at run time, so they reach a resumed run as well as a founding one. Both artifacts are
-gitignored; this regenerates them.
-
-The .prompt.md opens with an HTML-comment marker naming the agent it belongs to.
-codex records the base instructions verbatim in the thread's rollout, so the
-marker rides into the record and `codex-run resume` reads the founding agent's
-name straight out of it instead of matching the prose back against the corpus.
-The comment renders as nothing and instructs nothing — it carries identity only.
+key for them, and `model` names a Claude model. memory, codex-model, effort, and
+codex-effort are dropped here too but are not lost: codex-run reads them straight
+off the definition file at run time, so they reach a resumed run as well as a
+founding one. Both artifacts are gitignored; this regenerates them.
 """
 
 import glob
@@ -40,7 +36,7 @@ def generate(agents_dir):
         _write(out, _render(name, fields.get("description", ""), body))
         written.append(out)
         prompt = os.path.splitext(md)[0] + ".prompt.md"
-        _write(prompt, _marker(name) + body.strip() + "\n")
+        _write(prompt, body.strip() + "\n")
         written.append(prompt)
     return written
 
@@ -61,12 +57,6 @@ def generate_profiles(profiles_dir):
         if os.path.isdir(agents_dir) and not os.path.islink(agents_dir):
             written.extend(generate(agents_dir))
     return written
-
-
-def _marker(name):
-    # Read back by lib/codex_run.py's _marked_agent on resume; the two spellings
-    # are pinned together by tests/hooks/test_codex_run.py.
-    return "<!-- codex-run agent: %s -->\n\n" % name
 
 
 def _load_skills(agent, value, skills_dir):

@@ -46,6 +46,8 @@ def governing_proposing(tmp_path, monkeypatch):
     block under either resolver."""
     monkeypatch.setenv("CLAUDE_DATA_ROOT", str(tmp_path))
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", GOVERNING_SID)
+    # The inherited codex-run marker would bypass the governing-session path.
+    monkeypatch.delenv("CODEX_RUN_AGENT_FILE", raising=False)
 
     governing_dir = tmp_path / "sessions" / GOVERNING_SID
     governing_dir.mkdir(parents=True)
