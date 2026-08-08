@@ -67,6 +67,40 @@ def canonical_tool(event):
     return _CANONICAL_TOOL.get(field(event, "tool_name", ""), "")
 
 
+def is_subagent(event):
+    """True when the payload belongs to a subagent turn.
+
+    A Claude subagent's payload carries the parent's UUID in session_id, so the id
+    can't tell them apart; the sidechain markers can. Both spellings are checked
+    because the harness snake-cases its own payload keys and passes the transcript
+    record's camelCase keys through unchanged.
+    """
+    for key in ("isSidechain", "is_sidechain", "agentId", "agent_id"):
+        if field(event, key, ""):
+            return True
+    return False
+
+
+def agent_name(event):
+    """Which agent this payload belongs to, or "" when none names one.
+
+    Memory is stored per agent, so every write and every read needs the running
+    agent's name. Claude puts it on the payload as `agent_type` — on a subagent
+    event, and on the main thread of a session started with `--agent`, correct
+    for both. Codex names it nowhere in the payload, so the run's own definition
+    path answers instead, the same variable the codex-side gates read.
+
+    The environment is not consulted on Claude: `CLAUDE_CODE_AGENT` inside a
+    subagent still holds the dispatching agent's name, verified live from a
+    `code-reviewer` dispatch that read back `cto`.
+    """
+    named = field(event, "agent_type", "")
+    if named:
+        return named
+    path = os.environ.get("CODEX_RUN_AGENT_FILE", "")
+    return os.path.basename(path)[:-3] if path.endswith(".md") else ""
+
+
 def owner_session(event):
     """The id of the session whose proposing/executing mode governs this run.
 

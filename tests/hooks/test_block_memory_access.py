@@ -12,7 +12,7 @@ from conftest import PY_HOOKS
 sys.path.insert(0, os.path.join(PY_HOOKS, "lib"))
 
 from lib import codex_run  # noqa: E402
-from test_codex_run import _pin_rollout  # noqa: E402
+from test_codex_run import _sent, _stub_codex  # noqa: E402
 
 BLANK = "---\nname: %s\nmodel: opus\nmemory: none\n---\n\nbody\n"
 DECLARED_ON = "---\nname: %s\nmodel: opus\nmemory: user\n---\n\nbody\n"
@@ -31,18 +31,46 @@ def config_root(tmp_path, monkeypatch):
     return write
 
 
-def _run(monkeypatch, agent_type, tool="mcp__plugin_honcho_honcho__search",
+def _run(monkeypatch, agent_type, command="honcho context jordan",
          agent_id="a1d6344fe2b8d8332"):
     """A subagent's PreToolUse payload by default: both fields present, which is
     the shape observed from a real Agent-tool dispatch. `agent_id=None` is the
     main thread, which carries `agent_type` alone when started with --agent."""
-    event = {"hook_event_name": "PreToolUse", "tool_name": tool, "tool_input": {}}
+    event = {"hook_event_name": "PreToolUse", "tool_name": "Bash",
+             "tool_input": {"command": command}}
     if agent_type is not None:
         event["agent_type"] = agent_type
     if agent_id is not None:
         event["agent_id"] = agent_id
     monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(event)))
     return block_memory_access.main()
+
+
+def test_only_the_honcho_command_is_gated(config_root, monkeypatch):
+    """The gate reads the command, so a blank-declared agent still runs every
+    other command — and a mention of the word in prose is not a memory call."""
+    config_root("researcher", BLANK)
+    assert _run(monkeypatch, "researcher", command="git status") == 0
+    assert _run(monkeypatch, "researcher", command="echo honcho-is-off") == 0
+    assert _run(monkeypatch, "researcher", command="honcho remember r 'x'") == 2
+
+
+def test_the_command_is_gated_through_a_path_or_a_chain(config_root, monkeypatch):
+    config_root("researcher", BLANK)
+    assert _run(monkeypatch, "researcher", command="~/bin/honcho list") == 2
+    assert _run(monkeypatch, "researcher", command="cd /tmp && honcho list") == 2
+
+
+def test_codex_run_is_gated_by_its_exported_definition(tmp_path, monkeypatch):
+    """codex names no agent in the payload, so the gate reads the definition path
+    its launcher exported — the same variable the codex runner sets."""
+    definition = tmp_path / "researcher.md"
+    definition.write_text(BLANK % "researcher")
+    monkeypatch.setenv("CODEX_RUN_AGENT_FILE", str(definition))
+    assert _run(monkeypatch, None, agent_id=None) == 2
+
+    definition.write_text(UNDECLARED % "researcher")
+    assert _run(monkeypatch, None, agent_id=None) == 0
 
 
 def test_declared_blank_agent_is_refused(config_root, monkeypatch, capsys):
@@ -124,77 +152,55 @@ def _pin(monkeypatch, tmp_path, name, template):
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "empty-root"))
 
 
-def test_codex_blank_agent_disables_the_memory_server(monkeypatch, tmp_path):
+def _memory_config(monkeypatch, tmp_path, argv):
+    """What the run's thread request asked codex for, under a stub app-server."""
+    log = _stub_codex(monkeypatch, tmp_path)
+    assert codex_run.main(argv) == 0
+    method = "thread/resume" if argv[0] == "resume" else "thread/start"
+    return _sent(log, method)["config"]
+
+
+def test_codex_blank_agent_loses_its_own_memories(monkeypatch, tmp_path):
+    """codex's own [memories] needs no tool call at all — it injects a Memory
+    section straight into the run — so the declaration has to switch it off in
+    the thread config. Honcho is the other provider and is gated at the command."""
     _pin(monkeypatch, tmp_path, "researcher", BLANK)
-    seen = {}
-    monkeypatch.setattr(codex_run, "_dispatch",
-                        lambda path, prompt, agent, resume_id=None, blank_memory=False:
-                        seen.update(blank=blank_memory) or 0)
-    assert codex_run.main(["@researcher", "task"]) == 0
-    assert seen["blank"] is True
+    config = _memory_config(monkeypatch, tmp_path, ["@researcher", "task"])
+    assert config["memories"] == {"use_memories": False, "generate_memories": False}
 
 
 def test_codex_undeclared_agent_keeps_memory(monkeypatch, tmp_path):
     _pin(monkeypatch, tmp_path, "architect", UNDECLARED)
-    seen = {}
-    monkeypatch.setattr(codex_run, "_dispatch",
-                        lambda path, prompt, agent, resume_id=None, blank_memory=False:
-                        seen.update(blank=blank_memory) or 0)
-    assert codex_run.main(["@architect", "task"]) == 0
-    assert seen["blank"] is False
+    config = _memory_config(monkeypatch, tmp_path, ["@architect", "task"])
+    assert "memories" not in config
 
 
-def test_codex_blank_agent_run_carries_the_disable_flag(monkeypatch, tmp_path):
-    """The flag reaches the actual codex argv, not just _dispatch's signature."""
-    cmds = []
-    monkeypatch.setattr(codex_run, "_run",
-                        lambda cmd, events, definition_path='': cmds.append(cmd) or (0, "answer", "th_1", False, ""))
-    monkeypatch.setattr(codex_run, "_output_paths",
-                        lambda: (str(tmp_path / "a.txt"), str(tmp_path / "e.jsonl")))
-    codex_run._dispatch(str(tmp_path / "p.md"), "task", "architect", blank_memory=True)
-    codex_run._dispatch(str(tmp_path / "p.md"), "task", "architect", blank_memory=False)
-    assert "mcp_servers.honcho.enabled=false" in cmds[0]
-    assert "mcp_servers.honcho.enabled=false" not in cmds[1]
-
-
-def test_codex_blank_agent_run_disables_both_providers(monkeypatch, tmp_path):
-    """codex has two memory providers and a blank-declared run must lose both:
-    the honcho MCP server, and codex's own [memories], which needs no tool call
-    because it injects a Memory section straight into the run."""
-    cmds = []
-    monkeypatch.setattr(codex_run, "_run",
-                        lambda cmd, events, definition_path='': cmds.append(cmd) or (0, "answer", "th_1", False, ""))
-    monkeypatch.setattr(codex_run, "_output_paths",
-                        lambda: (str(tmp_path / "a.txt"), str(tmp_path / "e.jsonl")))
-    codex_run._dispatch(str(tmp_path / "p.md"), "task", "architect", blank_memory=True)
-    codex_run._dispatch(str(tmp_path / "p.md"), "task", "architect", blank_memory=False)
-    for flag in ("mcp_servers.honcho.enabled=false",
-                 "memories.use_memories=false",
-                 "memories.generate_memories=false"):
-        assert flag in cmds[0]
-        assert flag not in cmds[1]
+def test_blank_memory_keeps_the_docs_server(monkeypatch, tmp_path):
+    """The memory config touches no server registry, so every agent declaring
+    `memory: none` keeps its other servers — the researcher among them, whose job
+    is library docs."""
+    _pin(monkeypatch, tmp_path, "researcher", BLANK)
+    config = _memory_config(monkeypatch, tmp_path, ["@researcher", "task"])
+    assert "context7" in config["mcp_servers"]
 
 
 def test_codex_resume_applies_the_founding_agents_declaration(monkeypatch, tmp_path):
     """The declaration follows the thread across a resume. The founding agent is
-    recovered from codex's own record, so a thread founded blank stays blank on
-    continuation and a thread founded by an agent that keeps memory keeps it."""
+    read off the job record, so a thread founded blank stays blank on continuation
+    and a thread founded by an agent that keeps memory keeps it."""
     _pin(monkeypatch, tmp_path, "researcher", BLANK)
     _pin(monkeypatch, tmp_path, "architect", UNDECLARED)
-    _pin_rollout(monkeypatch, tmp_path, "th_blank", "instructions for researcher")
-    _pin_rollout(monkeypatch, tmp_path, "th_keeps", "instructions for architect")
-    cmds = []
-    monkeypatch.setattr(codex_run, "_run",
-                        lambda cmd, events, definition_path='': cmds.append(cmd) or (0, "answer", cmd[3], False, ""))
-    monkeypatch.setattr(codex_run, "_output_paths",
-                        lambda: (str(tmp_path / "a.txt"), str(tmp_path / "e.jsonl")))
-    assert codex_run.main(["resume", "th_blank", "continue"]) == 0
-    assert codex_run.main(["resume", "th_keeps", "continue"]) == 0
-    for flag in ("mcp_servers.honcho.enabled=false",
-                 "memories.use_memories=false",
-                 "memories.generate_memories=false"):
-        assert flag in cmds[0]
-        assert flag not in cmds[1]
+    jobs = {}
+    for name in ("researcher", "architect"):
+        _stub_codex(monkeypatch, tmp_path, thread="th_" + name)
+        assert codex_run.main(["@" + name, "task"]) == 0
+        jobs[name] = next(json.loads(p.read_text()) for p in tmp_path.glob("codex-run-*.json")
+                          if json.loads(p.read_text())["agent"] == name)["job"]
+
+    blank = _memory_config(monkeypatch, tmp_path, ["resume", jobs["researcher"], "continue"])
+    keeps = _memory_config(monkeypatch, tmp_path, ["resume", jobs["architect"], "continue"])
+    assert blank["memories"]["use_memories"] is False
+    assert "memories" not in keeps
 
 
 # --- the declaration fails closed, never open --------------------------------------
@@ -232,9 +238,5 @@ def test_codex_reads_the_same_spellings(monkeypatch, tmp_path):
     denies on codex too."""
     _pin(monkeypatch, tmp_path, "researcher",
          "---\nname: %s\nmemory: 'none'  # one-shot\n---\n\nbody\n")
-    seen = {}
-    monkeypatch.setattr(codex_run, "_dispatch",
-                        lambda path, prompt, agent, resume_id=None, blank_memory=False:
-                        seen.update(blank=blank_memory) or 0)
-    assert codex_run.main(["@researcher", "task"]) == 0
-    assert seen["blank"] is True
+    config = _memory_config(monkeypatch, tmp_path, ["@researcher", "task"])
+    assert config["memories"]["use_memories"] is False

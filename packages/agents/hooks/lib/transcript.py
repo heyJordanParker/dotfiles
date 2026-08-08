@@ -12,6 +12,7 @@ Parsing is shared; the bound is not.
 
 import json
 import os
+import re
 
 # Generous default bound — a pathological multi-MB-turn guard, not a content cap.
 CEILING = 200000
@@ -70,6 +71,172 @@ def is_real_user(record):
     if isinstance(c, list):
         return not any(isinstance(b, dict) and b.get("type") == "tool_result" for b in c)
     return True
+
+
+def latest_user_record(recs):
+    """The most recent genuine user record, or None.
+
+    On a UserPromptSubmit the harness has already written the prompt, so this is
+    the record for the prompt the hook is firing on."""
+    for r in reversed(recs):
+        if is_real_user(r):
+            return r
+    return None
+
+
+def text_of(record):
+    """A record's text: scalar content, or its text blocks joined.
+
+    Handles both transcript shapes. Claude puts content on `message`; codex puts
+    it on `payload`, with `input_text`/`output_text` blocks instead of `text`."""
+    c = _content(record)
+    if c is None:
+        c = (record.get("payload") or {}).get("content")
+    if isinstance(c, str):
+        return c
+    if not isinstance(c, list):
+        return ""
+    parts = [b.get("text", "") for b in c
+             if isinstance(b, dict) and b.get("type") in ("text", "input_text", "output_text")]
+    return "\n\n".join(p for p in parts if p)
+
+
+# --- who spoke -----------------------------------------------------------------
+#
+# One vocabulary for the author of a message, in our words. Every record resolves
+# to exactly one of three, and this module is the single owner of the translation
+# — the way lib/event.py owns tool names. Nothing above it names a vendor field.
+#
+#   Architect — he typed it
+#   Agent     — the model wrote it
+#   Harness   — the tool put it on the wire: task notifications, injected context,
+#               environment and plugin blocks, skill loads, compaction notices
+#
+# Capitalized as Domain.md writes them, because they are those words, not new
+# ones. Screaming caps would read as configuration constants; these are the
+# project's nouns.
+#
+# The harnesses disagree about where authorship is recorded, never about what it
+# means. Claude Code multiplexes all three onto one user channel inside one
+# session, so it labels every record. Codex gives a thread one entry point for its
+# whole life, so it labels the thread once and leaves its own injected blocks
+# unlabelled — there, shape is the only evidence left.
+#
+# Unknown denies. A record that resolves to nothing is never the architect, so a
+# label either harness adds later stays out of his memory until it is admitted
+# here.
+
+Architect = "architect"
+Agent = "agent"
+Harness = "harness"
+
+# Claude's `promptSource`, keyed onto ours. `queued` is him typing while a turn
+# was still running.
+_CLAUDE_AUTHOR = {"typed": Architect, "queued": Architect, "system": Harness}
+
+# Codex names its thread's entry point instead. Only a person at the desktop app
+# is him: `codex-run` is this repo's own wrapper, `codex_exec` is a script, and a
+# `source` that is a dict carries a subagent spawn.
+_ARCHITECT_ORIGINATORS = ("codex_work_desktop",)
+
+# What a harness-authored block looks like when nothing labels it: a whole message
+# that is one closed XML tag, one bracketed line, or a known machine preamble.
+# Codex needs this for its `<recommended_plugins>` and `<environment_context>`
+# injections, which arrive on the user role carrying no metadata at all. On Claude
+# it is a backstop behind the label, and the same test the intent classifier runs
+# on a raw prompt.
+_MACHINE_PREAMBLES = (
+    "This session is being continued",
+    "Base directory for this skill:",
+    "Stop hook feedback:",
+    "Another Claude session sent a message:",
+)
+
+
+def harness_authored(text):
+    """Whether text looks machine-authored on its face, with no label to read."""
+    text = (text or "").strip()
+    if not text:
+        return False
+    if text.startswith("<"):
+        tag = re.split(r"[> \n]", text[1:], maxsplit=1)[0]
+        if tag and ("</%s>" % tag) in text:
+            return True
+    if text.startswith("["):
+        first = text.split("\n", 1)[0]
+        if first.endswith("]") and text == first:
+            return True
+    return text.startswith(_MACHINE_PREAMBLES)
+
+
+def session_meta(recs):
+    """A codex rollout's opening `session_meta` payload; {} for a Claude one."""
+    for r in recs:
+        if r.get("type") == "session_meta":
+            return r.get("payload") or {}
+    return {}
+
+
+def _role(record):
+    """The record's role in either shape."""
+    kind = record.get("type")
+    if kind in ("user", "assistant"):
+        return kind
+    return (record.get("payload") or {}).get("role", "")
+
+
+def speaker(record, meta=None):
+    """Who authored this record: Architect, Agent, Harness, or "" when unknown.
+
+    `meta` is the transcript's `session_meta`, which only codex writes; pass it so
+    a codex record can be resolved against its thread's entry point."""
+    role = _role(record)
+    if role == "assistant":
+        return Agent
+    if role != "user":
+        return ""
+    if record.get("isMeta"):
+        return Harness
+    if meta:
+        if not isinstance(meta.get("source"), str):
+            return Agent
+        if meta.get("originator") not in _ARCHITECT_ORIGINATORS:
+            return Agent
+        return Harness if harness_authored(text_of(record)) else Architect
+    author = _CLAUDE_AUTHOR.get(record.get("promptSource"), "")
+    if author == Architect and harness_authored(text_of(record)):
+        return Harness
+    return author
+
+
+def is_architect(record, meta=None):
+    return speaker(record, meta) == Architect
+
+
+def architect_message(recs):
+    """The architect's most recent message in this transcript, or ""."""
+    meta = session_meta(recs)
+    for r in reversed(recs):
+        if _role(r) != "user":
+            continue
+        if speaker(r, meta) == Architect:
+            return text_of(r)
+        if not meta:
+            # Claude labels every record, so the newest user record is the prompt
+            # this fired on; an older one is a different turn, not this one.
+            return ""
+    return ""
+
+
+def agent_replies(recs):
+    """The agent's replies in the current turn, joined, for either transcript.
+
+    Codex has no user/assistant turn boundary this can key on the way Claude's
+    `current_turn` does, so a codex thread contributes its whole reply stream; the
+    hook fires once per turn either way."""
+    scope = recs if session_meta(recs) else current_turn(recs)
+    return "\n\n".join(t for t in (text_of(r) for r in scope
+                                   if speaker(r) == Agent) if t.strip())
 
 
 def current_turn(recs):
@@ -267,24 +434,26 @@ def recent_user_texts(recs, n=4):
     return "\n".join(msgs[-n:])
 
 
-_NOISE_PREFIXES = ("<", "[", "Base directory", "This session is being continued")
-
-
 def conversation_stream(recs, user_cap=200, assistant_cap=300):
-    """Background `U|`/`A|` stream for intent classification: visible user messages
-    (scalar string content, system-noise prefixes skipped) and assistant text, each
-    bounded by the caller's per-line cap. Returns a list of lines.
+    """Background `U|`/`A|` stream for intent classification: what the architect
+    said and what the agent answered, each bounded by the caller's per-line cap.
+    Returns a list of lines.
+
+    User lines are selected by provenance, not by shape. Reading `promptSource`
+    keeps a pasted `<config>` block or an `[Image #1]` message — both the
+    architect's — in the stream, where a prefix test dropped them as noise.
 
     The classifier runs on every prompt, so it passes tight caps on purpose — raise
     them only if the per-turn latency is acceptable."""
+    meta = session_meta(recs)
     lines = []
     for r in recs:
         etype = r.get("type")
         c = _content(r)
-        if etype == "user" and isinstance(c, str):
-            if c.startswith(_NOISE_PREFIXES):
-                continue
-            lines.append("U|" + clamp(c.replace("\n", " "), user_cap))
+        if etype == "user" and is_architect(r, meta):
+            text = text_of(r)
+            if text:
+                lines.append("U|" + clamp(text.replace("\n", " "), user_cap))
         elif etype == "assistant" and isinstance(c, list):
             texts = [b.get("text", "") for b in blocks(r, "text")]
             if texts:

@@ -1,0 +1,11 @@
+#!/bin/bash
+# honcho — read and write Honcho memory. The mechanical wrapper; all logic lives
+# in the memory module beside the hooks, which the hooks load the same way.
+#
+#   honcho remember [--as <agent>] "<text>"   keep one thing in a collection
+#   honcho ask <peer> "<question>"            reason over what is known about a peer
+#   honcho search "<query>" [--peer <p>]      the messages behind the conclusions
+#   honcho context <peer> ["<query>"]         the conclusions the server holds now
+#   honcho list [<peer>] | forget <id>
+HOOKS="$HOME/.agents/hooks"
+exec python3 -c "import sys; sys.path.insert(0, '$HOOKS'); from lib import honcho; sys.exit(honcho.main(sys.argv[1:]))" "$@"

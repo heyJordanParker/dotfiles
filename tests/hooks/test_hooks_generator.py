@@ -16,8 +16,10 @@ import hashlib
 import json
 import re
 
+import conftest
 import hooks as generator
 import pytest
+from lib import feedback
 
 # --- fixtures ----------------------------------------------------------------
 
@@ -394,3 +396,56 @@ def test_an_event_codex_cannot_fire_stops_the_generator(hooks_dir, settings_path
     _write_hook(hooks_dir, "on_session_end", {"events": {"SessionEnd": []}, "harness": "all"})
     with pytest.raises(ValueError, match="codex has no SessionEnd event"):
         generator.generate(str(hooks_dir), str(settings_path), str(config_path), str(profiles_dir))
+
+
+# --- the real hooks against the harness's own contract -------------------------
+#
+# The generator tests above run on fixtures. These two run on every hook this
+# repository ships, because both failures they catch are silent at runtime: a
+# hook wired to an event the harness does not fire never runs, and a hook that
+# speaks on an event with no output variant has its whole output rejected — the
+# architect sees a validation banner and the injection is lost. `inject_honcho_
+# memory` was bound to PreCompact and failed that way on every compaction.
+
+def _real_bindings():
+    """(module name, BINDING, feedback channels called) for every shipped hook."""
+    import ast
+    import glob
+    import os
+
+    out = []
+    for path in sorted(glob.glob(os.path.join(conftest.PY_HOOKS, "*.py"))):
+        tree = ast.parse(open(path, encoding="utf-8").read())
+        binding = None
+        for node in tree.body:
+            if isinstance(node, ast.Assign) and any(
+                    getattr(t, "id", "") == "BINDING" for t in node.targets):
+                binding = ast.literal_eval(node.value)
+        if binding is None:
+            continue
+        channels = {c.func.attr for c in ast.walk(tree)
+                    if isinstance(c, ast.Call) and isinstance(c.func, ast.Attribute)
+                    and isinstance(c.func.value, ast.Name) and c.func.value.id == "feedback"}
+        out.append((os.path.basename(path)[:-3], binding, channels))
+    return out
+
+
+def test_every_shipped_hook_binds_events_its_harness_actually_fires():
+    for module, binding, _channels in _real_bindings():
+        harness = binding.get("harness", "all")
+        for event in binding.get("events", {}):
+            if harness in ("all", "claude"):
+                assert event in generator.CLAUDE_EVENT, "%s binds %s" % (module, event)
+            if harness in ("all", "codex"):
+                assert event in generator.CODEX_EVENT, "%s binds %s" % (module, event)
+
+
+def test_a_shipped_hook_that_speaks_is_bound_only_where_speech_travels():
+    """Claude validates hookSpecificOutput against a union keyed on the event and
+    rejects the whole output when the event has no variant, so a hook that can
+    speak must be bound only to events that can carry it."""
+    for module, binding, channels in _real_bindings():
+        if not channels & {"context", "raise_concern"}:
+            continue
+        for event in binding.get("events", {}):
+            assert event in feedback.CONTEXT_EVENTS, "%s speaks on %s" % (module, event)

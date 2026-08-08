@@ -100,6 +100,16 @@
         ]
       },
       {
+        "matcher": "Bash|Write|Edit|MultiEdit|Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ~/.agents/hooks/remember_tool_use.py",
+            "timeout": 10
+          }
+        ]
+      },
+      {
         "matcher": "Write|Edit",
         "hooks": [
           {
@@ -162,6 +172,11 @@
           },
           {
             "type": "command",
+            "command": "python3 ~/.agents/hooks/block_memory_access.py",
+            "timeout": 5
+          },
+          {
+            "type": "command",
             "command": "python3 ~/.agents/hooks/block_path_assignment.py",
             "timeout": 5
           },
@@ -177,6 +192,11 @@
           },
           {
             "type": "command",
+            "command": "python3 ~/.agents/hooks/enforce_background_codex_run.py",
+            "timeout": 5
+          },
+          {
+            "type": "command",
             "command": "python3 ~/.agents/hooks/guard_trace.py",
             "timeout": 5
           },
@@ -184,6 +204,11 @@
             "type": "command",
             "command": "python3 ~/.agents/hooks/inject_docs.py",
             "timeout": 15
+          },
+          {
+            "type": "command",
+            "command": "python3 ~/.agents/hooks/name_memory_caller.py",
+            "timeout": 5
           }
         ]
       },
@@ -199,6 +224,11 @@
             "type": "command",
             "command": "python3 ~/.agents/hooks/block_worktree_isolation.py",
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "python3 ~/.agents/hooks/inject_honcho_memory.py",
+            "timeout": 20
           }
         ]
       },
@@ -218,16 +248,6 @@
           {
             "type": "command",
             "command": "python3 ~/.agents/hooks/block_enter_worktree.py",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "mcp__plugin_honcho_honcho__.*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 ~/.agents/hooks/block_memory_access.py",
             "timeout": 5
           }
         ]
@@ -351,6 +371,15 @@
             "timeout": 10
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ~/.agents/hooks/end_codex_jobs.py",
+            "timeout": 1
+          }
+        ]
       }
     ],
     "SessionStart": [
@@ -389,6 +418,19 @@
         ]
       },
       {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ~/.agents/hooks/inject_honcho_memory.py",
+            "timeout": 20
+          },
+          {
+            "type": "command",
+            "command": "python3 ~/.agents/hooks/record_session_event.py"
+          }
+        ]
+      },
+      {
         "matcher": "startup|resume|clear|compact",
         "hooks": [
           {
@@ -400,14 +442,6 @@
             "type": "command",
             "command": "python3 ~/.agents/hooks/reload_harness_context.py",
             "timeout": 20
-          }
-        ]
-      },
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 ~/.agents/hooks/record_session_event.py"
           }
         ]
       }
@@ -453,6 +487,15 @@
           },
           {
             "type": "command",
+            "command": "python3 ~/.agents/hooks/remember_agent_message.py",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "python3 ~/.agents/hooks/rewake_codex_failure.py"
+          },
+          {
+            "type": "command",
             "command": "python3 ~/.agents/hooks/validate_completion.py",
             "timeout": 90
           }
@@ -495,7 +538,17 @@
           },
           {
             "type": "command",
+            "command": "python3 ~/.agents/hooks/inject_honcho_memory.py",
+            "timeout": 20
+          },
+          {
+            "type": "command",
             "command": "python3 ~/.agents/hooks/record_session_event.py"
+          },
+          {
+            "type": "command",
+            "command": "python3 ~/.agents/hooks/remember_architect_message.py",
+            "timeout": 10
           },
           {
             "type": "command",
@@ -512,6 +565,15 @@
             "type": "command",
             "command": "python3 ~/.agents/hooks/close_abandoned_browsers.py",
             "timeout": 60
+          },
+          {
+            "type": "command",
+            "command": "python3 ~/.agents/hooks/remember_agent_message.py",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "python3 ~/.agents/hooks/rewake_codex_failure.py"
           }
         ]
       }

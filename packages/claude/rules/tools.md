@@ -27,6 +27,14 @@ IF running Subagents:
 ### Run Subagents in the background
 Run Subagents in the background so you can keep working while they run. Poll at most every 30 minutes of wall-clock time; short-interval polling burns the Context synthesis needs. If progress matters, have the Subagent emit milestone events.
 
+IF the question is what was said, decided, or preferred before this session:
+### Ask Memory with `honcho`
+`honcho ask <peer> <question>` reasons over everything Memory holds about a peer, `honcho search <query>` returns the messages behind it, and `honcho context <peer> [query]` returns the stored conclusions. The injected block is a summary, not the record. Peers are `jordan` and one per Agent by its name.
+
+IF the Architect tells you something about yourself that this session's Memory did not carry:
+### Keep it with `honcho remember`
+`honcho remember <text>` keeps one line in your own collection. Never name the Agent; the running Agent is resolved for you.
+
 IF a Decision depends on repo or code state:
 ### Check current state with trace
 Check current state now with `trace`: `trace status`, `trace history`, or `trace blame`. Do not use raw `git status`, `git log`, or `git diff`, which give a bare list without callers, complexity, or dependents.

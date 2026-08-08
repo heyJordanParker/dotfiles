@@ -17,24 +17,39 @@ the name resolves to its definition under the *active* config root — profiles
 carry their own agents/ directory, and a name means whichever file that root
 holds. No declaration means Memory stays reachable.
 
-Honcho's plugin reaches a session two ways: the mcp__plugin_honcho_honcho__*
-tools, and its own SessionStart/UserPromptSubmit/Stop hooks. Only the tools are
-reachable from inside a subagent — the lifecycle events fire for the main session
-alone — so gating the tools closes the whole surface an agent has.
+Memory is reachable one way: the `honcho` command. The plugin's MCP tools were
+the old surface and are gone with it, so the gate reads the shell command, which
+makes it the gate on both harnesses — codex used to be covered by switching off
+an MCP server that no longer exists. The injection hook is the other way in, and
+it reads the same declaration before it puts anything in a turn or in a dispatch
+brief, so a blank agent stays blank whichever direction memory travels.
+
+codex names no agent in its payload, so a codex run's definition comes from the
+path its launcher exported, the same variable lib/codex_run.py sets.
+
+One gate covers both directions the command travels: `context`, `search` and
+`ask` read, and `remember` and `forget` write. The hooks that write a turn's
+messages carry the same declaration check of their own, because nothing routes
+them through here.
 """
 
 import os
+import re
 import sys
 
 from lib import agent_memory, feedback
-from lib.event import field, read_event
+from lib.event import agent_name, command_str, field, read_event
 
 BINDING = {
-    "events": {"PreToolUse": ["mcp__plugin_honcho_honcho__.*"]},
+    "events": {"PreToolUse": ["Bash"]},
     "timeout": 5,
-    "harness": "claude",
+    "harness": "all",
     "roots": "all",
 }
+
+# The command as a word, so `honcho context …` and an absolute path to it match
+# while `echo honcho` in prose does not.
+_HONCHO = re.compile(r"(^|[\s;&|(])(\S*/)?honcho(\s|$)")
 
 MSG = """BLOCKED: the %s agent declares `memory: none`.
 
@@ -46,19 +61,26 @@ Work from what this task's prompt and the repository tell you. Do not retry
 through another memory tool, and do not ask another agent to reach it for you."""
 
 
-def _agent_file(name):
-    root = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude")
-    return os.path.join(root, "agents", name + ".md")
+def gated(event):
+    """The agent whose declaration governs this call, or "".
+
+    A subagent dispatch and a codex run are the two one-shot executions the
+    declaration is for. The main thread of a session started with `--agent` is
+    not one, and keeps Memory whatever that agent declares.
+    """
+    if not field(event, "agent_id", "") and not os.environ.get(agent_memory.AGENT_FILE_VAR):
+        return ""
+    return agent_name(event)
 
 
 def main():
     event = read_event()
-    if not field(event, "agent_id", ""):
+    if not _HONCHO.search(command_str(event)):
         return 0
-    agent = field(event, "agent_type", "")
-    if not agent or not agent_memory.denies_memory(_agent_file(agent)):
+    name = gated(event)
+    if not name or not agent_memory.denies_memory(agent_memory.definition_path(name)):
         return 0
-    return feedback.block("block_memory_access", MSG % agent)
+    return feedback.block("block_memory_access", MSG % name)
 
 
 if __name__ == "__main__":

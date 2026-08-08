@@ -9,15 +9,20 @@
             "type": "command",
             "command": "python3 ~/.agents/hooks/block_invalid_browsers.py",
             "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "mcp__plugin_honcho_honcho__.*",
-        "hooks": [
+          },
           {
             "type": "command",
             "command": "python3 ~/.agents/hooks/block_memory_access.py",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "python3 ~/.agents/hooks/enforce_background_codex_run.py",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "python3 ~/.agents/hooks/name_memory_caller.py",
             "timeout": 5
           }
         ]
@@ -31,6 +36,16 @@
             "timeout": 5
           }
         ]
+      },
+      {
+        "matcher": "Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ~/.agents/hooks/inject_honcho_memory.py",
+            "timeout": 20
+          }
+        ]
       }
     ],
     "Stop": [
@@ -40,6 +55,11 @@
             "type": "command",
             "command": "python3 ~/.agents/hooks/close_abandoned_browsers.py",
             "timeout": 60
+          },
+          {
+            "type": "command",
+            "command": "python3 ~/.agents/hooks/remember_agent_message.py",
+            "timeout": 10
           }
         ]
       }
@@ -51,6 +71,50 @@
             "type": "command",
             "command": "python3 ~/.agents/hooks/close_abandoned_browsers.py",
             "timeout": 60
+          },
+          {
+            "type": "command",
+            "command": "python3 ~/.agents/hooks/remember_agent_message.py",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ~/.agents/hooks/inject_honcho_memory.py",
+            "timeout": 20
+          },
+          {
+            "type": "command",
+            "command": "python3 ~/.agents/hooks/remember_architect_message.py",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ~/.agents/hooks/inject_honcho_memory.py",
+            "timeout": 20
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash|Write|Edit|MultiEdit|Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ~/.agents/hooks/remember_tool_use.py",
+            "timeout": 10
           }
         ]
       }

@@ -33,6 +33,7 @@ itself: that module is a build-time dependency of sync.py and is never stowed to
 ~/.agents, where both gates run from.
 """
 
+import os
 import re
 
 # scripts/frontmatter.py's key pattern, so the two agree on what a key line is.
@@ -44,6 +45,23 @@ _KEY = re.compile(r"^([A-Za-z_][\w-]*):\s?(.*)$")
 # the file whose declarations they enforce. A codex session that is not a
 # codex-run agent does not set it, and an absent value means no agent to gate.
 AGENT_FILE_VAR = "CODEX_RUN_AGENT_FILE"
+
+
+def definition_path(name):
+    """The definition file governing the running agent, or "" when none does.
+
+    A codex run carries its own path, exported by its launcher, which is the
+    identity that run was founded on. On Claude the name resolves under the
+    *active* config root, because a profile carries its own agents/ directory and
+    a name means whichever file that root holds.
+    """
+    exported = os.environ.get(AGENT_FILE_VAR, "")
+    if exported:
+        return exported
+    if not name:
+        return ""
+    root = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude")
+    return os.path.join(root, "agents", name + ".md")
 
 
 def denies_memory(path):

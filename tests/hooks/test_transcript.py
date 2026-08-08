@@ -129,18 +129,33 @@ def test_recent_user_texts_last_n_messages_whole():
     assert out == "msg 4\nmsg 5"
 
 
-def test_conversation_stream_caps_and_skips_noise():
-    noise = "<task-notification>x</task-notification>"  # XML-noise user line is skipped
+def test_conversation_stream_caps_and_selects_by_provenance():
     recs = [
-        {"type": "user", "message": {"content": noise}},
-        {"type": "user", "message": {"content": "u" * 500}},
+        {"type": "user", "promptSource": "system",
+         "message": {"content": "<task-notification>x</task-notification>"}},
+        {"type": "user", "promptSource": "typed", "message": {"content": "u" * 500}},
         {"type": "assistant", "message": {"content": [
             {"type": "text", "text": "a" * 500}]}},
     ]
     lines = transcript.conversation_stream(recs, user_cap=200, assistant_cap=300)
     assert lines[0] == "U|" + "u" * 200
     assert lines[1] == "A|" + "a" * 300
-    assert len(lines) == 2  # the XML-noise user line is dropped
+    assert len(lines) == 2  # the harness-authored notification is not the architect
+
+
+def test_conversation_stream_keeps_a_typed_message_that_looks_like_markup():
+    """The prefix test this replaced dropped every message opening with '<' or '['
+    — including an image paste, which is the architect talking."""
+    recs = [
+        {"type": "user", "promptSource": "typed",
+         "message": {"content": "[Image #1] this steals focus"}},
+        {"type": "user", "promptSource": "queued",
+         "message": {"content": "<div> renders wrong too"}},
+    ]
+    assert transcript.conversation_stream(recs) == [
+        "U|[Image #1] this steals focus",
+        "U|<div> renders wrong too",
+    ]
 
 
 def test_clamp_bounds_only_when_over():
@@ -228,10 +243,11 @@ def test_recent_user_texts_joins_list_blocks_and_skips_tool_only():
     assert transcript.recent_user_texts(recs, 4) == "hello there\nplain string"
 
 
-def test_conversation_stream_skips_non_string_user_content():
+def test_conversation_stream_skips_tool_results_and_unattributed_records():
     recs = [
-        _tool_only_user(),   # list-content user record is skipped (only scalar streams)
-        {"type": "user", "message": {"content": "real question"}},
+        _tool_only_user(),   # a tool-result delivery carries no provenance
+        {"type": "user", "message": {"content": "no promptSource, not his"}},
+        {"type": "user", "promptSource": "typed", "message": {"content": "real question"}},
         {"type": "assistant", "message": {"content": [
             {"type": "text", "text": "answer"}]}},
     ]

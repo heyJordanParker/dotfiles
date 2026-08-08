@@ -47,6 +47,19 @@ CODEX_HOOK_DIR = "/Users/jordan/.agents/hooks"
 # entire codex wiring sat inert. An Event absent here is one codex cannot fire, so
 # emitting it would ship that same silence; `render_codex` raises instead.
 # `SessionEnd` was listed here and is not one of codex's.
+# Every event Claude Code fires, read from the harness binary at 2.1.226. Claude
+# ignores a hook wired to a name it does not know, in silence — the same failure
+# mode CODEX_EVENT exists to stop, so the Claude side is checked the same way.
+CLAUDE_EVENT = {
+    "PreToolUse", "PostToolUse", "PostToolUseFailure", "PostToolBatch", "Notification",
+    "UserPromptSubmit", "UserPromptExpansion", "SessionStart", "SessionEnd", "Stop",
+    "StopFailure", "SubagentStart", "SubagentStop", "PreCompact", "PostCompact",
+    "PermissionRequest", "PermissionDenied", "Setup", "TeammateIdle", "TaskCreated",
+    "TaskCompleted", "Elicitation", "ElicitationResult", "ConfigChange", "WorktreeCreate",
+    "WorktreeRemove", "InstructionsLoaded", "CwdChanged", "FileChanged", "DirectoryAdded",
+    "MessageDisplay",
+}
+
 CODEX_EVENT = {
     "PreToolUse": "pre_tool_use",
     "PostToolUse": "post_tool_use",
@@ -136,6 +149,11 @@ def render_claude(settings, bindings):
     BINDING; unmanaged entries and every non-hook section stay identical.
     """
     groups = _commands_by_group(bindings, CLAUDE_HOOK_DIR, {"all", "claude"})
+    for event, _matcher_key in groups:
+        if event not in CLAUDE_EVENT:
+            raise ValueError(
+                "Claude has no %s event; a hook wired to it never fires and "
+                "nothing says so. Fix the BINDING." % event)
     new = dict(settings)
     new["hooks"] = _merge_claude_hooks(settings.get("hooks", {}), groups)
     return new
