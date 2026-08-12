@@ -74,22 +74,441 @@ def segments(command):
     return [s for s in segs if s]
 
 
-def command_head(words):
-    """The executable a segment runs, past leading `VAR=val` assignments and an
-    `env` prefix.
+# Words whose own argument is another command. The real command follows, past
+# that word's flags. Arities differ (`sudo -u jordan ssh` takes a value, `nohup`
+# takes none), so a guard cannot know which token is the command — `invocations`
+# answers with every candidate instead of picking one.
+_PREFIX = frozenset((
+    "env", "sudo", "doas", "command", "exec", "nohup",
+    "time", "timeout", "nice", "ionice", "stdbuf", "xargs",
+))
 
-    `words` is one tokenized segment (command + args). Returns the basename of the
-    command token, so `FOO=1 codex-run …`, `env X=1 codex-run …`, and
-    `/path/to/codex-run …` all reduce to `codex-run`. Empty string for an empty
-    segment. This is the structural "what command is this segment running" check
-    the command guards share, so a guard decides from the real command token
-    rather than the raw command string.
-    """
-    i = 0
+# Shells whose `-c` argument is a whole command line of its own.
+_SHELL = frozenset(("bash", "sh", "zsh", "dash", "ksh"))
+
+# Commands whose trailing arguments are a command line run on another machine.
+# Most real work legitimately rides ssh, so a guard judges what the line actually
+# runs there rather than refusing the transport: `ssh host 'git status'` reads and
+# `ssh host 'rm -rf x'` writes, and only the second is a write.
+_REMOTE_SHELL = frozenset(("ssh", "mosh", "rsh"))
+
+# A bare count or duration sitting between a prefix word and its command
+# (`timeout 600 cmd`, `nice -n 10 cmd`).
+_NUMERIC = re.compile(r"^\d+(?:\.\d+)?[smhd]?$")
+
+# `bash -c` reaching `bash -c` reaching `bash -c`: real commands never nest this
+# far, and the bound is what stops a crafted string from recursing forever.
+_MAX_DEPTH = 4
+
+
+def _basename(word):
+    return os.path.basename(word.strip("\"'"))
+
+
+def _past_assignments(words, i):
     while i < len(words) and _ASSIGN.match(words[i]):
         i += 1
-    if i < len(words) and os.path.basename(words[i].strip("\"'")) == "env":
+    return i
+
+
+def _past_prefix_args(words, i):
+    """Past one prefix word's own arguments: assignments, flags, and bare numbers."""
+    while i < len(words) and (
+        _ASSIGN.match(words[i]) or words[i].startswith("-") or _NUMERIC.match(words[i])
+    ):
         i += 1
-        while i < len(words) and _ASSIGN.match(words[i]):
-            i += 1
-    return os.path.basename(words[i].strip("\"'")) if i < len(words) else ""
+    return i
+
+
+def command_head(words):
+    """The executable a segment runs, past leading `VAR=val` assignments and any
+    prefix word that runs another command.
+
+    `words` is one tokenized segment (command + args). Returns the basename of the
+    command token, so `FOO=1 codex-run …`, `env X=1 codex-run …`,
+    `/path/to/codex-run …`, and `timeout 600 codex-run …` all reduce to
+    `codex-run`. Empty string for an empty segment. This is the structural "what
+    command is this segment running" check the command guards share, so a guard
+    decides from the real command token rather than the raw command string.
+
+    A prefix word whose flag takes a value (`sudo -u jordan ssh`) resolves to the
+    value, not the command — `invocations` is the reader for a guard that must not
+    miss the command behind one.
+    """
+    i = _past_assignments(words, 0)
+    while i < len(words) and _basename(words[i]) in _PREFIX:
+        i = _past_prefix_args(words, i + 1)
+    return _basename(words[i]) if i < len(words) else ""
+
+
+def redirects_output(command):
+    """Whether the command line sends output into a file (`>`, `>>`, `2>`, `&>`).
+
+    Every read-only command writes the moment its output is redirected, so this is
+    the check that keeps `cat a > b` from passing as a read. It reads the shell
+    scripts inside the line too, because `bash -c "cat a > b"` writes the same
+    file. A redirect surfaces as a token of redirect characters alone; a quoted
+    argument that merely contains one (`rg "a > b"`) stays inside its own word and
+    is not one. None when the command cannot be parsed.
+    """
+    lines = _lines(command, 0)
+    if lines is None:
+        return None
+    return any(">" in t and all(c in ">&" for c in t)
+               for line in lines for t in tokenize(line))
+
+
+def all_segments(command):
+    """Every command segment of this line and of every script nested inside it.
+
+    `segments` reads the outer line alone, which is what a guard wants when it is
+    judging shell syntax. A guard judging what the line DOES wants this instead: a
+    shell's `-c` string and a command sent over ssh both run, so `bash -c 'rm x'` and
+    `ssh prod 'rm -rf /srv'` surface their `rm` here and stay invisible to `segments`.
+
+    None when the line cannot be parsed, which every guard here treats as a block
+    rather than a guess.
+    """
+    lines = _lines(command, 0)
+    if lines is None:
+        return None
+    found = []
+    for line in lines:
+        found.extend(segments(line))
+    return found
+
+
+def invocations(command):
+    """Every command the string runs, as `(head, arguments)` pairs.
+
+    One pair per segment, of the outer line and of every shell script inside it,
+    plus every candidate a prefix word's unknown flag arity leaves open. A guard
+    reading these sees `ssh` in `sudo -u jordan ssh prod`, in `bash -c "ssh prod"`,
+    and in `env X=1 /usr/bin/ssh prod` alike, which a match against the raw string
+    does not. Extra candidates cost a guard nothing; a missed command costs it
+    everything, so ambiguity resolves toward more.
+
+    None when the string cannot be parsed — an unbalanced quote leaves the real
+    command unknowable, and every guard here treats unknowable as a block rather
+    than a guess.
+    """
+    lines = _lines(command, 0)
+    if lines is None:
+        return None
+    found = []
+    for line in lines:
+        for words in segments(line):
+            found.extend(_expand(words, 0))
+    return found
+
+
+def _lines(command, depth):
+    """This command line and every shell script nested inside it.
+
+    A shell around a `-c` string is transport, not a command: codex hands every
+    shell call over as `["/bin/zsh", "-lc", "<command>"]`, so a guard that judged
+    the wrapper would refuse a read-only agent its whole shell on that harness
+    while allowing the same command on Claude. The script is what runs, so it
+    becomes a line of its own and the wrapper stops being a command.
+
+    A shell with no `-c` stays a command, because what it runs — a script file, an
+    interactive session — is not in the string to read.
+    """
+    segs = segments(command)
+    if segs is None:
+        return None
+    lines = [command]
+    if depth >= _MAX_DEPTH:
+        return lines
+    for words in segs:
+        script = _shell_script(words)
+        for inner in ([script] if script is not None else []) + _remote_scripts(words):
+            nested = _lines(inner, depth + 1)
+            if nested is None:
+                return None
+            lines.extend(nested)
+    return lines
+
+
+def _remote_scripts(words):
+    """Every command line this segment might run on another machine.
+
+    The host sits between the transport and its command, and ssh's flag arity is not
+    knowable here — `ssh -p 22 prod 'rm x'` puts two words before the command,
+    `ssh prod 'rm x'` puts one. Picking a boundary would let the shape it guessed
+    wrong through, so every trailing position comes back as a candidate instead, the
+    way `_prefix_candidates` resolves the same ambiguity. Extra candidates cost a
+    guard nothing; a missed command costs it everything.
+
+    `ssh host` alone opens a session with no command in the string to read, so it
+    yields nothing and the transport stays the only thing a guard sees.
+    """
+    if command_head(words) not in _REMOTE_SHELL:
+        return []
+    i = _past_assignments(words, 0)
+    while i < len(words) and _basename(words[i]) in _PREFIX:
+        i = _past_prefix_args(words, i + 1)
+    return [" ".join(words[j:]) for j in range(i + 2, len(words) + 1)
+            if not words[j - 1].startswith("-")]
+
+
+def _shell_script(words):
+    """The command line a shell's `-c` carries in this segment, or None.
+
+    Everything after the flag is the script, not the next word alone. Claude sends
+    the script as one quoted word and the join is lossless; codex sends the shell
+    call as a list that `lib/event.command_str` joins with spaces, which flattens
+    that quoting away. Taking the remainder reads both, and the Claude shape it
+    over-reads (`bash -c 'a b' trailing`) resolves toward more commands, never
+    fewer.
+    """
+    head = command_head(words)
+    if head not in _SHELL:
+        return None
+    for i, word in enumerate(words):
+        if word.startswith("-") and not word.startswith("--") and "c" in word:
+            rest = words[i + 1:]
+            # Only the shell's own remaining flags are skipped. Dropping every
+            # flag would drop the script's own (`zsh -lc sed -i '' s/a/b/ f`),
+            # and the flag is what makes that command a write.
+            while rest and rest[0].startswith("-"):
+                rest = rest[1:]
+            return " ".join(rest) if rest else None
+    return None
+
+
+def _expand(words, depth):
+    i = _past_assignments(words, 0)
+    if i >= len(words):
+        return []
+    head, rest = _basename(words[i]), words[i + 1:]
+    if head in _SHELL and _shell_script(words) is not None:
+        return []
+    found = [(head, rest)]
+    if head in _PREFIX and depth < _MAX_DEPTH:
+        return found + _prefix_candidates(rest, depth)
+    return found
+
+
+# --- read-only classification ------------------------------------------------
+#
+# One classifier answers "does this command change anything", for the `readonly:`
+# lever and for the orchestrator gate alike. It is an allowlist: a denylist of
+# writing commands fails open on the first shape nobody listed, and every bypass is
+# a one-liner. Anything not listed is refused, and that shows up as a block naming
+# the command rather than as silent damage.
+
+# Commands that inspect and leave the repository and the machine as they found them.
+READERS = frozenset((
+    # this roster's own readers
+    "trace", "honcho", "agent-browser",
+    # search and listing
+    "rg", "grep", "egrep", "fgrep", "ag", "ack", "find", "fd", "ls", "tree",
+    # file inspection
+    "cat", "bat", "head", "tail", "wc", "nl", "file", "stat", "du", "df",
+    "diff", "comm", "strings", "od", "xxd",
+    # text shaping into the answer
+    "sort", "uniq", "cut", "tr", "column", "jq", "yq", "sed", "awk",
+    "basename", "dirname", "realpath", "readlink", "pwd", "echo", "printf",
+    # the shell's own facts
+    "date", "which", "type", "uname", "whoami", "hostname", "id", "env",
+    "git", "curl",
+    # process and status polling
+    "ps", "lsof", "uptime", "sw_vers", "sysctl",
+))
+
+# Commands that check the tree without changing it: the suite, the linters, the
+# type checkers. An orchestrator has to be able to validate what its subagents
+# built, and a read-only agent has to be able to say whether the suite passes, so
+# both reach these through the same list. Each one is a checker, never a runtime:
+# `python3`, `node`, and `make` run whatever they are handed and stay out.
+VALIDATORS = frozenset((
+    "pytest", "phpunit", "pest", "playwright", "vitest", "jest", "mocha",
+    "ruff", "mypy", "eslint", "tsc", "shellcheck", "stylelint", "phpstan",
+))
+
+# Runners whose job is to run one of the above. The argument decides, so the runner
+# is resolved to the command it actually runs rather than granted outright.
+_RUNNERS = frozenset(("uv", "uvx", "npx", "bunx", "poetry", "pipenv", "pdm", "rye"))
+
+# Package managers that run a named script. Only the checking scripts are reachable.
+_SCRIPT_RUNNERS = frozenset(("npm", "pnpm", "yarn", "bun"))
+_CHECK_SCRIPTS = frozenset(("test", "tests", "lint", "typecheck", "check", "format:check"))
+
+# The readers with a writing mode, and what turns it on. `wget` and `tee` have no
+# read-only mode worth the flag table and are simply absent above.
+_WRITE_FLAGS = {
+    "sed": ("-i", "--in-place"),
+    "curl": ("-o", "-O", "--output", "--remote-name", "--create-dirs"),
+}
+
+# git subcommands that only report. Everything else — `add`, `commit`, `config`,
+# `branch`, `tag`, `remote`, `checkout` — changes the repository or its settings.
+_GIT_READERS = frozenset((
+    "status", "log", "diff", "show", "blame", "annotate", "shortlog", "reflog",
+    "rev-parse", "rev-list", "ls-files", "ls-tree", "cat-file", "describe",
+    "merge-base", "name-rev", "whatchanged", "grep", "count-objects", "version",
+))
+
+# Commands that reach another machine. The `ssh:` lever answers for these, never
+# the read-only one.
+REMOTE = frozenset(("ssh", "scp", "sftp", "rsync", "mosh", "telnet", "ssh-copy-id"))
+
+
+def writing_flag(head, args):
+    """The flag that turns this reader into a writer, or "" when none is present."""
+    for flag in _WRITE_FLAGS.get(head, ()):
+        if any(arg == flag or arg.startswith(flag + "=") for arg in args):
+            return flag
+    return ""
+
+
+def readonly_refusal(head, args):
+    """Why this command changes something, or "" when it only reads or checks.
+
+    The allowlist half of the question — whether the command is one a reader runs
+    at all. `mutation_targets` answers the other half, which paths it changes.
+    """
+    if head in REMOTE:
+        return ""          # the ssh declaration answers for these, not this one
+    if head in VALIDATORS:
+        return ""
+    if head in _RUNNERS:
+        inner = next((a for a in args if not a.startswith("-")), "")
+        if inner == "run":
+            rest = [a for a in args[args.index("run") + 1:] if not a.startswith("-")]
+            inner = rest[0] if rest else ""
+        if _basename(inner) in VALIDATORS:
+            return ""
+        return "`%s %s` runs whatever it is handed." % (head, inner) if inner \
+            else "`%s` needs a checking command here." % head
+    if head in _SCRIPT_RUNNERS:
+        positional = [a for a in args if not a.startswith("-")]
+        script = positional[1] if positional[:1] == ["run"] and len(positional) > 1 \
+            else (positional[0] if positional else "")
+        if script in _CHECK_SCRIPTS:
+            return ""
+        return "`%s %s` is not a checking script." % (head, script) if script \
+            else "`%s` needs a checking script here." % head
+    if head not in READERS:
+        return "`%s` is not one of the commands a read-only agent runs." % head
+    flag = writing_flag(head, args)
+    if flag:
+        return "`%s %s` writes." % (head, flag)
+    if head == "git":
+        subcommand = next((a for a in args if not a.startswith("-")), "")
+        if subcommand not in _GIT_READERS:
+            return "`git %s` changes the repository." % subcommand if subcommand \
+                else "`git` needs a reporting subcommand here."
+    return ""
+
+
+# --- mutation targets --------------------------------------------------------
+#
+# The other half of "does this command change anything": `readonly_refusal` answers
+# whether the command is one a reader runs at all, and this answers which paths a
+# command changes, which is what a guard needs to judge WHERE the change lands.
+
+# Commands whose every path argument is a file they create, delete, move, or
+# rewrite — so each one is a mutation target. `mv` is here, not in _DEST_MUTATORS,
+# because it also removes its source path.
+_ALL_ARG_MUTATORS = frozenset((
+    "rm", "rmdir", "unlink", "shred", "mkdir", "mkfifo", "mknod",
+    "touch", "truncate", "mv",
+))
+# Commands that read their sources and mutate only the last (destination) path.
+_DEST_MUTATORS = frozenset(("cp", "install", "ln"))
+# Commands whose first path argument is a mode/owner spec, not a file; the rest
+# are the files they mutate.
+_OWNER_MUTATORS = frozenset(("chmod", "chown", "chgrp"))
+
+
+def is_redirect(token):
+    """Whether the token is a shell redirect operator rather than a word."""
+    return ">" in token and token != "" and token.strip("0123456789&<>") == ""
+
+
+def _is_fd_reference(token):
+    """A redirect target that names a file descriptor, not a file: `2>&1`, `>&2`, `>&-`."""
+    return token == "-" or token.isdigit()
+
+
+def _positional_paths(words):
+    """Non-flag path arguments of a segment, past the command head, with shell
+    redirect operators and their targets excluded — redirects are gathered
+    separately. A flag's separate value (`-s 0`) is not distinguishable from a
+    path here, so a stray value can read as a target; over-detection only ever
+    blocks a mutation, never lets one through."""
+    out, skip = [], False
+    for t in words[1:]:
+        if skip:
+            skip = False
+            continue
+        if is_redirect(t):
+            skip = True
+            continue
+        if t.startswith("-"):
+            continue
+        out.append(t)
+    return out
+
+
+def mutation_targets(words):
+    """Paths a single command segment would create, write, move, or delete."""
+    i = _past_assignments(words, 0)
+    words = words[i:]
+    if not words:
+        return []
+    head = os.path.basename(words[0])
+    targets = []
+    for j, t in enumerate(words):
+        if is_redirect(t) and j + 1 < len(words) and not _is_fd_reference(words[j + 1]):
+            targets.append(words[j + 1])
+    if "tee" in words:
+        for t in words[words.index("tee") + 1:]:
+            if not t.startswith("-"):
+                targets.append(t)
+    for t in words:
+        if t.startswith("of="):
+            targets.append(t[3:])
+    positional = _positional_paths(words)
+    if head == "sed" and "-i" in words:
+        if positional:
+            targets.append(positional[-1])
+    elif head in _ALL_ARG_MUTATORS:
+        targets.extend(positional)
+    elif head in _DEST_MUTATORS:
+        if positional:
+            targets.append(positional[-1])
+    elif head in _OWNER_MUTATORS:
+        targets.extend(positional[1:])
+    return targets
+
+
+def _prefix_candidates(words, depth):
+    """Every command a prefix word might be running.
+
+    With no flag in front of it the command is unambiguous, so only it comes back.
+    A flag first (`sudo -u jordan ssh prod`) may or may not have eaten the next
+    word, so every later word comes back as a candidate as well.
+    """
+    ambiguous, start = False, None
+    for i, word in enumerate(words):
+        if _ASSIGN.match(word) or _NUMERIC.match(word) or _is_separator(word):
+            continue
+        if word.startswith("-"):
+            ambiguous = True
+            continue
+        start = i
+        break
+    if start is None:
+        return []
+    found = _expand(words[start:], depth + 1) or []
+    if not ambiguous:
+        return found
+    return found + [
+        (_basename(word), words[i + 1:])
+        for i, word in enumerate(words[start + 1:], start + 1)
+        if not (_ASSIGN.match(word) or _NUMERIC.match(word)
+                or _is_separator(word) or word.startswith("-"))
+    ]

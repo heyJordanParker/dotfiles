@@ -11,7 +11,9 @@ runs on both harnesses or Claude only:
     }
 
 `roots: "all"` puts a hook in every Claude config root — the default settings.json
-and each profile's — instead of the default root alone. A profile is a hand-kept
+and each profile's — instead of the default root alone. An optional
+`"except": ["<profile>"]` beside it keeps named profiles out — for a profile
+whose own machinery replaces the guard. A profile is a hand-kept
 copy, so a guard that must hold everywhere would otherwise depend on someone
 remembering to paste it into each one. Everything without the key stays in the
 default root only, which is where all the workflow hooks belong: a profile that
@@ -115,9 +117,9 @@ def _matcher_key(matchers):
 
 
 def _commands_by_group(bindings, hook_dir, harnesses):
-    """Map (Event, matcher_key) -> [(command, timeout), ...] for hooks whose
-    harness is in `harnesses`, in stable module order. matcher_key is None for
-    non-tool events; timeout is None when the BINDING omits it.
+    """Map (Event, matcher_key) -> [(command, timeout, async_rewake), ...] for
+    hooks whose harness is in `harnesses`, in stable module order. matcher_key is
+    None for non-tool events; timeout and async_rewake are None when omitted.
     """
     groups = {}
     for module in sorted(bindings):
@@ -126,9 +128,10 @@ def _commands_by_group(bindings, hook_dir, harnesses):
             continue
         command = f"python3 {hook_dir}/{module}.py"
         timeout = binding.get("timeout")
+        async_rewake = binding.get("asyncRewake")
         for event, matchers in binding.get("events", {}).items():
             key = (event, _matcher_key(matchers))
-            groups.setdefault(key, []).append((command, timeout))
+            groups.setdefault(key, []).append((command, timeout, async_rewake))
     return groups
 
 
@@ -195,16 +198,19 @@ def _generated_claude_groups(event, groups):
     for (ev, matcher_key), commands in groups.items():
         if ev != event:
             continue
-        hooks = [_claude_hook(command, timeout) for command, timeout in commands]
+        hooks = [_claude_hook(command, timeout, async_rewake)
+                 for command, timeout, async_rewake in commands]
         group = {"hooks": hooks} if matcher_key is None else {"matcher": matcher_key, "hooks": hooks}
         out.append(group)
     return out
 
 
-def _claude_hook(command, timeout):
+def _claude_hook(command, timeout, async_rewake):
     entry = {"type": "command", "command": command}
     if timeout is not None:
         entry["timeout"] = timeout
+    if async_rewake is not None:
+        entry["asyncRewake"] = async_rewake
     return entry
 
 
@@ -241,7 +247,7 @@ def _codex_hook_blocks(groups):
                 "codex has no %s event; a BINDING declaring it with harness "
                 "all/codex would be dropped silently. Bind it to claude." % event)
         hooks_by_event.setdefault(event, [])
-        for command, timeout in commands:
+        for command, timeout, _ in commands:
             if (command, timeout) not in hooks_by_event[event]:
                 hooks_by_event[event].append((command, timeout))
 
@@ -338,7 +344,10 @@ def generate(hooks_dir, claude_settings_path, codex_config_path, profiles_dir):
 
     _write_claude(claude_settings_path, bindings)
     for path in _profile_settings(profiles_dir):
-        _write_claude(path, {m: b for m, b in bindings.items() if b.get("roots") == "all"})
+        profile = os.path.basename(os.path.dirname(path))
+        _write_claude(path, {m: b for m, b in bindings.items()
+                             if b.get("roots") == "all"
+                             and profile not in b.get("except", [])})
 
     with open(codex_config_path, encoding="utf-8") as f:
         config_text = f.read()

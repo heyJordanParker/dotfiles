@@ -404,7 +404,8 @@ def test_a_wedged_codex_hits_the_idle_deadline(monkeypatch, tmp_path, capsys):
     never says anything used to hang until the harness ceiling."""
     _pin_agents(monkeypatch, tmp_path, ["architect"])
     _stub_codex(monkeypatch, tmp_path, hang=True)
-    monkeypatch.setattr(codex_run, "_IDLE_LIMIT", 2)
+    monkeypatch.setattr(codex_run, "_IDLE_LIMIT", 0.5)
+    monkeypatch.setattr(codex_run, "_POLL_INTERVAL", 0.01)
     started = time.time()
     rc = codex_run.main(["@architect", "do x"])
     out = capsys.readouterr().out
@@ -418,6 +419,7 @@ def test_an_app_server_that_exits_under_a_turn_fails_without_waiting_for_silence
     _pin_agents(monkeypatch, tmp_path, ["architect"])
     _stub_codex(monkeypatch, tmp_path, exit_after_start=True)
     monkeypatch.setattr(codex_run, "_IDLE_LIMIT", 60)
+    monkeypatch.setattr(codex_run, "_POLL_INTERVAL", 0.01)
     started = time.time()
     assert codex_run.main(["@architect", "do x"]) == 1
     assert time.time() - started < 5
@@ -428,8 +430,9 @@ def test_silence_after_a_tool_uses_the_separate_watchdog(monkeypatch, tmp_path, 
     _pin_agents(monkeypatch, tmp_path, ["architect"])
     log = _stub_codex(monkeypatch, tmp_path, hang_after_items=True,
                       items=[{"type": "commandExecution", "command": "long test"}])
-    monkeypatch.setattr(codex_run, "_POST_TOOL_IDLE_LIMIT", 2)
+    monkeypatch.setattr(codex_run, "_POST_TOOL_IDLE_LIMIT", 0.3)
     monkeypatch.setattr(codex_run, "_IDLE_LIMIT", 60)
+    monkeypatch.setattr(codex_run, "_POLL_INTERVAL", 0.01)
     assert codex_run.main(["@architect", "do x"]) == 1
     assert "after a tool result" in capsys.readouterr().out
     assert any(r.get("method") == "turn/interrupt" for r in _requests(log))
@@ -507,6 +510,35 @@ def test_every_level_claude_accepts_reaches_codex_unchanged(monkeypatch, tmp_pat
     log = _stub_codex(monkeypatch, tmp_path)
     assert codex_run.main(["@architect", "review"]) == 0
     assert _sent(log, "turn/start")["effort"] == declared
+
+
+def test_invocation_flags_override_the_agents_declarations(monkeypatch, tmp_path, capsys):
+    """`--model`/`--effort` serve one invocation, sitting above the whole
+    frontmatter chain — the codex counterpart of the Agent tool's opts."""
+    _pin_agents(monkeypatch, tmp_path, ["architect"],
+                frontmatter="codex-model: gpt-5.6-luna\ncodex-effort: low")
+    log = _stub_codex(monkeypatch, tmp_path)
+    assert codex_run.main(["@architect", "--model", "gpt-5.6-sol",
+                           "--effort", "max", "one deep run"]) == 0
+    assert _sent(log, "turn/start")["model"] == "gpt-5.6-sol"
+    assert _sent(log, "turn/start")["effort"] == "max"
+    assert "model:   gpt-5.6-sol  (effort max)" in capsys.readouterr().out
+
+
+def test_an_unknown_flag_effort_stops_before_any_run(monkeypatch, tmp_path, capsys):
+    _pin_agents(monkeypatch, tmp_path, ["architect"])
+    _stub_codex(monkeypatch, tmp_path)
+    assert codex_run.main(["@architect", "--effort", "highest", "do x"]) == 2
+    out = capsys.readouterr().out
+    assert "unknown effort" in out and "highest" in out
+    assert not list(tmp_path.glob("codex-run-*"))
+
+
+def test_a_flag_missing_its_value_is_a_usage_error(monkeypatch, tmp_path, capsys):
+    _pin_agents(monkeypatch, tmp_path, ["architect"])
+    _stub_codex(monkeypatch, tmp_path)
+    assert codex_run.main(["@architect", "do x", "--model"]) == 2
+    assert "--model needs a value" in capsys.readouterr().out
 
 
 def test_codex_effort_overrides_effort_for_the_codex_run(monkeypatch, tmp_path):
@@ -646,10 +678,10 @@ def test_the_record_tracks_live_command_activity_and_fresh_input_tokens(tmp_path
         "items": [
             {"type": "commandExecution", "id": "command-one",
              "command": "/bin/zsh -lc 'trace grep first'",
-             "token_usage": [{"inputTokens": 100, "cachedInputTokens": 20}], "delay": 2},
+             "token_usage": [{"inputTokens": 100, "cachedInputTokens": 20}], "delay": 0.3},
             {"type": "commandExecution", "id": "command-two",
              "command": "/bin/zsh -lc 'trace grep second'",
-             "token_usage": [{"inputTokens": 260, "cachedInputTokens": 80}], "delay": 2},
+             "token_usage": [{"inputTokens": 260, "cachedInputTokens": 80}], "delay": 0.3},
             _message("done"),
         ],
     }
@@ -713,6 +745,27 @@ def test_resume_runs_under_the_recovered_agents_instructions_and_settings(monkey
     assert resumed["baseInstructions"] == "instructions for researcher"
     assert resumed["model"] == "gpt-5.6-luna"
     assert resumed["config"]["memories"]["use_memories"] is False
+    assert _sent(log, "turn/start")["effort"] == "xhigh"
+
+
+def test_a_plain_resume_keeps_the_founding_runs_overrides(monkeypatch, tmp_path):
+    """The record outranks the frontmatter on a resume, so a run founded with
+    flags continues at the depth it was founded at."""
+    _pin_agents(monkeypatch, tmp_path, ["researcher"], frontmatter="effort: low")
+    _stub_codex(monkeypatch, tmp_path, thread="th_founded")
+    assert codex_run.main(["@researcher", "--model", "gpt-5.6-sol",
+                           "--effort", "max", "start"]) == 0
+    job = _record(tmp_path)["job"]
+    log = _stub_codex(monkeypatch, tmp_path, thread="th_founded")
+    assert codex_run.main(["resume", job, "continue"]) == 0
+    assert _sent(log, "turn/start")["model"] == "gpt-5.6-sol"
+    assert _sent(log, "turn/start")["effort"] == "max"
+
+
+def test_a_resume_flag_overrides_the_record_for_that_turn(monkeypatch, tmp_path):
+    job = _founding_run(monkeypatch, tmp_path)
+    log = _stub_codex(monkeypatch, tmp_path, thread="th_founded")
+    assert codex_run.main(["resume", job, "--effort", "xhigh", "go deeper"]) == 0
     assert _sent(log, "turn/start")["effort"] == "xhigh"
 
 
@@ -1006,7 +1059,8 @@ def test_a_command_needing_a_job_says_so(monkeypatch, tmp_path, capsys):
 
 # --- cancellation -------------------------------------------------------------------
 
-def _driver(tmp_path, argv, agents, log, script, idle_limit=None, feed_interval=None):
+def _driver(tmp_path, argv, agents, log, script, idle_limit=None, feed_interval=None,
+            poll_interval=None):
     """A `codex-run` process with the roster, the output dir and the stub pinned
     from outside, so the real main() runs against the real argv."""
     driver = tmp_path / ("driver-%d.py" % time.time_ns())
@@ -1017,11 +1071,12 @@ def _driver(tmp_path, argv, agents, log, script, idle_limit=None, feed_interval=
         "import codex_run\n"
         "codex_run.AGENTS_DIR = %r\n"
             "codex_run._resolve_output_dir = lambda: %r\n"
-            "%s%s"
+            "%s%s%s"
         "sys.exit(codex_run.main(%r))\n"
         % (os.path.join(PY_HOOKS, "lib"), PY_HOOKS, str(agents), str(tmp_path),
            "codex_run._IDLE_LIMIT = %r\n" % idle_limit if idle_limit is not None else "",
-           "codex_run._FEED_INTERVAL = %r\n" % feed_interval if feed_interval is not None else "", argv))
+           "codex_run._FEED_INTERVAL = %r\n" % feed_interval if feed_interval is not None else "",
+           "codex_run._POLL_INTERVAL = %r\n" % poll_interval if poll_interval is not None else "", argv))
     env = dict(os.environ,
                PATH="%s:%s" % (tmp_path / "bin", os.environ["PATH"]),
                CLAUDE_CONFIG_DIR=str(tmp_path / "empty-root"),
@@ -1058,7 +1113,7 @@ def test_a_real_silent_app_server_is_interrupted_and_leaves_no_process(tmp_path,
     agents = _pin_agents(monkeypatch, tmp_path, ["architect"])
     log = _stub_codex(monkeypatch, tmp_path, hang=True)
     proc = _driver(tmp_path, ["@architect", "long task"], agents, log,
-                   json.loads(os.environ["STUB_SCRIPT"]), idle_limit=2)
+                   json.loads(os.environ["STUB_SCRIPT"]), idle_limit=0.5, poll_interval=0.01)
     out, err = proc.communicate(timeout=45)
     assert proc.returncode == 1, out + err
     record = _record(tmp_path)
@@ -1073,7 +1128,7 @@ def test_a_failed_interrupt_is_reported_before_the_server_is_terminated(tmp_path
     log = _stub_codex(monkeypatch, tmp_path, hang=True,
                       interrupt_error="control channel stopped answering")
     proc = _driver(tmp_path, ["@architect", "long task"], agents, log,
-                   json.loads(os.environ["STUB_SCRIPT"]), idle_limit=2)
+                   json.loads(os.environ["STUB_SCRIPT"]), idle_limit=0.5, poll_interval=0.01)
     out, err = proc.communicate(timeout=45)
 
     assert proc.returncode == 1, out + err
@@ -1135,7 +1190,7 @@ def _wait_for_record(tmp_path, status, seconds):
                 continue
             if record.get("status") == status and record.get("turn"):
                 return record
-        time.sleep(0.2)
+        time.sleep(0.02)
     raise AssertionError("no %s job record appeared under %s" % (status, tmp_path))
 
 
@@ -1149,7 +1204,7 @@ def _wait_for_record_field(tmp_path, field, value, seconds):
                 continue
             if record.get(field) == value:
                 return record
-        time.sleep(0.2)
+        time.sleep(0.02)
     raise AssertionError("no record with %s=%r appeared under %s" % (field, value, tmp_path))
 
 

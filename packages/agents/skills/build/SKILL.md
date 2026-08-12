@@ -1,19 +1,19 @@
 ---
-name: solo
-description: Framework for working solo — no Subagents, deep full-file reads, thorough research before acting. TRIGGER when Context can absorb the full picture. For Orchestration, use /subagents.
+name: build
+description: The build mode's contract — the Agent does every edit and run itself, with no Subagents, deep full-file reads, and research before acting. TRIGGER when the session enters build mode, on the /build command, and when build mode is re-injected after compaction. DO NOT TRIGGER for orchestrate mode, where Subagents do the work (that is /orchestrate).
 ---
 
-# Solo
+# Build
 
-Solo means no Subagents and no delegation.
-The `enforce-solo-mode` Hook blocks Subagent dispatch.
+Build mode means no Subagents and no delegation.
+The `block_spawning` Hook refuses a dispatched build Agent's spawns.
 Read the full Architecture before touching it; fix or propose from root causes at the right layer.
 
-## 1. Confirm solo is the right operating mode
+## 1. Confirm build is the right operating mode
 
 IF the Task has parallel independent work:
-### Use /subagents instead
-Solo is for work where Context can absorb the full picture.
+### Use /orchestrate instead
+Build mode is for work where Context can absorb the full picture.
 
 ## 2. Locate the relevant files
 
@@ -22,11 +22,8 @@ Use /trace to locate files and symbols. Do not start with raw Read or grep.
 
 ## 3. Read every relevant file fully
 
-### Read whole files
-Never offset or limit files under 500 lines.
-
-### Follow every reference
-Follow imports, callers, siblings, tests, and configs.
+### Follow every reference that can affect the requested behavior
+Follow the imports, callers, siblings, tests, and configs the behavior runs through. Stop at a stable contract and at an external boundary.
 
 ### Read surrounding Architecture
 The file with the symptom is rarely the file with the problem.
@@ -53,4 +50,4 @@ Change or propose at the layer that owns the responsibility.
 Trace changes through the code paths you read.
 
 ### Run tests
-Run the relevant tests and report the observed output.
+Run the tests the change reaches.

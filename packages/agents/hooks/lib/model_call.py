@@ -34,10 +34,12 @@ import urllib.request
 
 DEFAULT_BACKEND = "openai"
 
-# One unified effort vocabulary, translated to each provider's own accepted value.
-# OpenAI reasoning.effort accepts none/minimal/low/medium/high/xhigh; Anthropic
-# (claude --effort) accepts low/medium/high/xhigh/max with no "none", so our
-# "none" floor clamps up to claude's "low".
+# One unified effort vocabulary, translated to each model's own accepted value.
+# Effort ceilings are per model, not per provider: gpt-5.5 caps at xhigh (its 400
+# names none/low/medium/high/xhigh) while the codex models take max, so our "max"
+# clamps down to gpt-5.5's xhigh. Anthropic (claude --effort) accepts
+# low/medium/high/xhigh/max with no "none", so our "none" floor clamps up to
+# claude's "low".
 EFFORT_LEVELS = ("none", "low", "medium", "high", "max")
 _OPENAI_EFFORT = {"none": "none", "low": "low", "medium": "medium", "high": "high", "max": "xhigh"}
 _CLAUDE_EFFORT = {"none": "low", "low": "low", "medium": "medium", "high": "high", "max": "max"}

@@ -1,13 +1,12 @@
 ---
-name: subagents
-description: Framework for dispatching one-shot Subagents that complete a Task and return. Covers Prompting (WHAT/WHY, never HOW), the Story/Business/Goal/Verification/Process Prompt Template, Verification, Evidence, and Orchestrator-side ranking.
+name: delegate
+description: Framework for dispatching one-shot Subagents that complete a Task and return. Covers Prompting (WHAT/WHY, never HOW), the Story/Business/Goal/Verification/Process Prompt Template, Verification, Evidence, and Orchestrator-side ranking. TRIGGER when dispatching, resuming, or judging Subagents, when Orchestration needs the dispatch Prompt Template, or when the Architect says "/delegate this to ...". DO NOT TRIGGER for work the Agent does itself with no Subagents; use /build.
 ---
 
-# Subagents
+# Delegate
 
 One-shot Subagents complete a Task and return; `SendMessage({to: agentId})` resumes one for iteration.
-Every line of code is written by a Subagent during Orchestration; the Orchestrator preserves Context for coordination.
-The Orchestrator holds the big picture; Subagents ask it at decisions and report to it when done.
+A Subagent's Context is a fixed budget spent once: the Prompt, every file it reads, and every tool result compete for the same room. Two Tasks in one dispatch halve the room each gets.
 
 ## 1. Prompt WHAT and WHY, never HOW
 
@@ -15,6 +14,11 @@ The Orchestrator holds the big picture; Subagents ask it at decisions and report
 A fresh-Context Subagent finds the right solution from the Goal. Implementation detail in the Prompt biases it toward the Orchestrator's assumptions, does the Subagent's research for it, and breaks when the code changes. State the User pain, the capability wanted, and observable success.
 
 Never: files, symbols, read order, library calls, "do not touch X", `src/foo.py`, `_extractMethod`, "read X first then Y", "use lizard.analyze", or "DO NOT modify __main__".
+
+### Give an Agent only what its Task consumes
+Context that exists to be forbidden is Context that should be absent. Never tell an Agent about sibling Agents, parallel explorations, or files it must not read — independence comes from omission, not prohibition. Your reasoning, your caveats, and what you already ruled out are the same waste: every line is room the Subagent no longer has for the code.
+
+Never: "a parallel exploration you must not converge with", "do not read X (another agent's output)", or "do not touch Agent B's plan file".
 
 IF the Task is mechanical:
 ### Give exact mechanical steps
@@ -25,12 +29,13 @@ A bulk rename or format conversion is not Architectural, so specific Task steps 
 ### Give the full module or feature
 An Architect given one method cannot judge encapsulation; a reviewer given one hunk cannot find caller regressions. The Subagent narrows itself after reading.
 
-Example: Architect gets the module; reviewer gets the full diff plus surrounding code; `backend-engineer` gets the service boundary.
+Example: Architect gets the module; reviewer gets the full diff plus surrounding code; @backend-engineer gets the service boundary.
 
-### Split disconnected Tasks into separate Subagents
-One Subagent, one Task. Quality falls as a Subagent's Task list grows.
+### Split by what a Task must hold in Context to decide
+Two Tasks share one dispatch only when finishing the second needs what reading for the first already put in Context. A shared topic is not a shared reasoning unit: count the files each Task must read, and no overlap means separate dispatches sent in one message. Order between them makes them an orchestrating Subagent's job, never a list one Subagent walks.
 
-Never: "do A, then also B, then also C" in one dispatch when the Tasks share no reasoning unit.
+Example: "add the endpoint" and "update its caller in the same service" is one dispatch — the same files. "Fix the card field" and "rewrite the confirmation email" is two, sent together, even though both are checkout.
+Never: a numbered Task list in one Prompt, or executing a Task list yourself instead of dispatching it.
 
 ### Dispatch one Owner per system, not one Subagent per symptom
 Symptoms cluster to the system that owns them. Two Subagents touching the same file collide; give the owning system's Subagent the symptom cluster instead.
@@ -56,6 +61,11 @@ Verification is input → output, or command + expected status and body.
 
 Example: "`npm test --grep payment` passes"; "timeout after 30s shows 'Payment timed out'".
 Never: "code works", "tests added", "no errors".
+Never: a whole-suite or whole-category command in the Verification block. The Subagent runs what you wrote, so write the narrowest command that covers the change. The suite is your end gate, after every Task lands.
+
+IF the Task fixes a bug:
+### Require a regression test that fails pre-fix
+The Verification block names a new test that fails on the pre-fix code and passes after, plus one line on why the existing suite missed the bug.
 
 Template:
   Story:
@@ -69,6 +79,7 @@ Template:
 
   Verification:
   <observable criteria>
+  <the consumers the change reaches and the expected effect on each>
 
   Architecture:
   <one-paragraph orientation>
@@ -76,12 +87,16 @@ Template:
 
   Process:
   1. Read every file marked * in the Architecture block
-  2. One file at a time — read it, then edit it. No bulk-rewrite scripts, no shortcuts
+  2. One file at a time — read it, then edit it. No bulk-rewrite scripts, no shortcuts,
+     and no git reset, git restore, or git checkout -- to undo your own work
   3. Implement against the Goal
   4. Use /prove for every Verification item, writing report.md to the Evidence directory
      the dispatch named. A failing item is fixed and re-proved, never reported as progress
 
 ## 4. Dispatch independent Subagents at once
+
+### Dispatch a roster Agent, never a Harness built-in
+`subagent_type` names an Agent from the roster. A Hook refuses `Explore`, `Plan`, and `general-purpose`, and the refusal kills the whole parallel batch: every dispatch in that message comes back as a failed row.
 
 ### Run independent Tasks in parallel
 One message, multiple Agent calls, each naming its Evidence directory
@@ -89,26 +104,12 @@ One message, multiple Agent calls, each naming its Evidence directory
 returns its agentId at once and you keep working. Sequence only when one Task's output
 feeds the next.
 
-Template:
-  Agent(subagent_type: "backend-engineer",
-        prompt: "<Story/Business/Goal/Verification + Architecture + Process>")
-
 ### Dispatch without a name
-A named dispatch is a teammate, and a teammate's report reaches you only if it calls
-SendMessage itself — reports get written in full and lost that way. Unnamed, the report
-comes back to you on its own.
+An unnamed dispatch returns its report and resumes by agentId; `block_builtin_subagents.py`
+refuses a named one.
 Never: `name`, or `run_in_background`, which the Agent tool has no parameter for.
 
-IF you are running AS a Subagent and dispatch child processes:
-### End your turn only after every child has returned and you read its output
-A Subagent's final message ends it and kills every child process still in flight — "waiting for completion" as a sign-off is quitting, not waiting. Inside a Subagent, waiting is polling in a live turn: check whether the work is done, repeatedly, never a background task plus a Monitor and never a guessed duration. An output you have not read is work that did not happen.
-Never: a final message saying "waiting", "monitors armed", or "will report when complete".
-
-IF a child command would outlive the Bash 600-second ceiling:
-### Split the child work into dispatches that finish inside the ceiling
-The ceiling silently converts a long foreground wait into a background task — the same fatal state. Chunk the work, or leave it to a persistent context instead of a Subagent.
-
-### Resume the agent you have
+### Resume the Agent you have
 `SendMessage({to: agentId})` resumes an agent from its transcript, even after it returned,
 using the agentId from its spawn result.
 
@@ -119,28 +120,42 @@ Never: a fresh dispatch for work an existing agent owns.
 session dispatched, with its agentType and model. Read it when the id has left your
 Context — the agent is still resumable.
 
-### Check on agents; never put them on a timer
+### Check on Agents; never put them on a timer
 On the coordination cadence, read a running agent's Evidence directory; when nothing moved,
 SendMessage it by agentId for status. Only when resume fails — including an agent whose Context is
 exhausted and resumes into silence — dispatch a replacement implementing Subagent with the original
 Prompt, the current diff, and the Evidence directory.
 
-Never: kill or time out a working agent — that leaves incomplete work and an unresumable agent.
+Never: kill or time out an agent still working the Task. Stop one only when you have abandoned
+its Task, and record the abandonment.
+
+IF one agent has failed three fix attempts on one bug:
+### Stop resuming and dispatch a debugger for the mechanism
+Further resumes buy guesses. Dispatch a debugger to capture the failing artifact — the compared pair, the stack, the revision pair — and route the diagnosed fix with its file:line Evidence.
 
 ## 5. Verify, hold the Goal, and orchestrate
 
 ### Preserve Context for coordination
-Do not use Edit, Write, or NotebookEdit while coordinating. Reading a wide diff yourself burns Context: you lose Orchestration Context and miss things.
+Context spent on the work is Context not held for the big picture. Doing a Task yourself, or reading a wide diff yourself, is why the Task goes to a Subagent.
+
+IF the Decision a dispatch rests on is still open with the Architect:
+### Hold the dispatch until the Decision closes
+Dispatching mid-interrogation executes an unapproved change. The Architect is still questioning the Decision, so no Subagent starts on it until he closes it.
 
 ### Judge the Evidence yourself
-Read the report.md against the dispatch's Verification criteria; open only the screenshot
-that settles a criterion the text cannot. Thin Evidence goes back to the same Subagent by
-agentId, naming the failed item. For a reported symptom, Evidence must show the symptom's own
-surface — the reporter's page, not a stand-in fixture.
+Read the report.md against the dispatch's Verification criteria and open its screenshots.
+Thin Evidence and a screenshot that does not show what the report claims go back to the same
+Subagent, naming the failed item. For a reported symptom, Evidence must show the symptom's
+own surface, the reporter's page and not a stand-in fixture. /orchestrate's "Measure again"
+owns the attack on the returned diff.
 
-Never: dispatch any Subagent to re-verify a completed work item — "the screenshots look
-thin, let me have the tester confirm it". Validation runs once, against the whole
-changeset, at the end.
+Never: dispatch any Subagent to re-verify a completed work item, as in "the screenshots look
+thin, let me have the tester confirm it".
+Never: a suite run, a browser walk, a reviewer dispatch, or polish before every Task has landed.
+
+IF a second Subagent is running on the surface you are about to correct:
+### Stop it before sending the correction
+Two live Subagents on one surface collide: each overwrites what the other wrote. Stopping the duplicate abandons its Task, so record the abandonment, then send the correction to the one Owner.
 
 IF the Architect gives feedback on a thing the Orchestrator owns:
 ### Translate owned feedback into the dispatch
@@ -158,24 +173,19 @@ what the Architect said.
 Never: turning "the spacing feels cramped" into "set the gap to 16px" for the designer;
 adding fixes, preferences, or decisions the Architect never gave.
 
-### Restore by hand
-Destructive-git restore is banned because Subagents nuke without checking and destroy real work. The Hooks enforce this.
-
-Never: `git reset`, `git restore`, `git checkout --`, or a script.
-
-### Take the long hard way
-Repetitive work is still read then edit, file by file. A bulk-rewrite script or clever one-liner that skirts the work and hides errors is AI Slop.
-
 ## 6. Treat Subagent output as a claim until proved
 
 ### Repo behavior outranks the summary
-The Subagent summary describes what it believes it did. The repo, common sense grounded in User, Architecture, and Business, and the Architect's reported outcome outrank the summary.
+The Subagent summary describes what it believes it did. The repo, common sense grounded in the User, the Architecture, and the business, and the Architect's reported outcome outrank the summary.
 
 ### Re-dispatch contradictions deeper
 When a finding contradicts what the Architect reported, the finding is incomplete. Re-dispatch deeper until a Subagent reproduces the reported outcome.
 
+### Establish what the system already owns before a suggestion touches the Architecture
+A Subagent scoped to the diff cannot say what the rest of the system already does. Before its suggestion adds a file, a surface, or a pattern, find what already owns that job and would be duplicated, then keep the suggestion only if nothing does.
+
 ### Reject effort arguments
-"Done", "tests pass", and "no change needed" earn belief only after a repo check. "Out of scope", "too many files", and "too slow" are effort arguments, not scope. "It was broken before" is false until a clean baseline run proves it. "I'm blocked" is usually a skipped simple step: retry, restart the server, clear the cache, re-run.
+"Done", "tests pass", and "no change needed" earn belief only after a repo check. "Out of scope", "too many files", and "too slow" are effort arguments, not scope. "It was broken before" is yours to settle, from the Task's own diff and whether the change can reach the failing code. Never send a Subagent to produce a before state. "I'm blocked" is usually a skipped simple step: retry, restart the server, clear the cache, re-run.
 
 ## 7. Hold the returned work to the Evidence bar
 
@@ -202,4 +212,7 @@ Rank survivors with /pcc, then recommend one in your own voice.
 Never: "the Agent recommends", "per the research", "based on the findings X is best", "Architect recommended Option N", "following the analysis Option N".
 
 Template:
-  Close every research gap. Dispatch as much in parallel as is independent. Do not stop to ask, do not deliver half-finished work, run the loop until nothing is left to investigate. Every code claim must come from a read, not a guess. Findings only — no scope changes, no ranking, no recommendation.
+  <the research Task>. Close every research gap. Dispatch as much in parallel as is
+  independent. Do not stop to ask, do not deliver half-finished work, run the loop until
+  nothing is left to investigate. Every code claim must come from a read, not a guess.
+  Findings only — no scope changes, no ranking, no recommendation.

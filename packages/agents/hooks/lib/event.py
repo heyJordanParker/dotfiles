@@ -41,9 +41,8 @@ def command_str(event):
 
 # Our canonical tool names, keyed on the tool_name each harness emits on a tool
 # event. This table is the single owner of the translation — we never route
-# through a harness's own Claude-compat aliasing, so a harness changing its
-# emitted name fails the test in test_event_canonical.py instead of silently
-# dropping a match. Claude emits the left names; codex emits its native names
+# through a harness's own Claude-compat aliasing, so a harness renaming a tool is
+# corrected here and nowhere else. Claude emits the left names; codex emits its native names
 # (shell_command/apply_patch/spawn_agent/request_user_input) plus, for the shell
 # tool, the compat-aliased "Bash" — all map here.
 _CANONICAL_TOOL = {
@@ -54,6 +53,7 @@ _CANONICAL_TOOL = {
     "Write": "write",
     "Edit": "write",
     "MultiEdit": "write",
+    "NotebookEdit": "write",
     "apply_patch": "write",
     "Agent": "agent",
     "spawn_agent": "agent",
@@ -99,6 +99,31 @@ def agent_name(event):
         return named
     path = os.environ.get("CODEX_RUN_AGENT_FILE", "")
     return os.path.basename(path)[:-3] if path.endswith(".md") else ""
+
+
+def _is_codex_rollout(path):
+    return os.path.basename(path).startswith("rollout-") or "/.codex/" in path
+
+
+def stopping_transcript(event):
+    """The stopping agent's own transcript, or "" when this stop is not an end.
+
+    Claude's main-session Stop fires after every assistant turn, so acting there
+    hits the architect's live session between his instructions. The two real
+    ends are a SubagentStop — a one-shot subagent finishing, whose payload
+    carries its own transcript — and a codex Stop, which ends the whole run and
+    is told apart by its `turn_id` and its `.codex` rollout transcript.
+
+    A SubagentStop never falls back to `transcript_path`: that is the parent's
+    transcript, and acting on it treats the parent's live work as the stopping
+    agent's.
+    """
+    path = field(event, "transcript_path", "")
+    if field(event, "hook_event_name", "") == "SubagentStop":
+        return field(event, "agent_transcript_path", "")
+    if field(event, "turn_id", "") or _is_codex_rollout(path):
+        return path
+    return ""
 
 
 def owner_session(event):

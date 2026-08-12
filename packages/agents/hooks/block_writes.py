@@ -12,10 +12,10 @@ import os
 import re
 import sys
 
-from lib import agent_memory, feedback
-from lib.command import command_head, git_normalize, segments
-from lib.event import canonical_tool, field, owner_session, read_event
-from lib.session_state import load_state
+from lib import feedback
+from lib.command import all_segments, command_head, git_normalize, mutation_targets
+from lib.event import canonical_tool, field, read_event
+from lib.session_mode import is_dispatched, permits, state
 
 BINDING = {
     "events": {
@@ -34,20 +34,15 @@ To write a plan, shaping doc, or Evidence, use docs/plans/, docs/shaping/,
 docs/agents/, or /tmp/ — this gate does not apply there. Never relocate a
 file elsewhere to dodge the gate."""
 
+MODE_MSG = """BLOCKED: this mode does not write files.
+
+Reading, searching, and read-only commands all still run. To change a file, dispatch
+a subagent to make the edit, or switch the session's mode."""
+
 _DEVICES = {"/dev/null", "/dev/stdout", "/dev/stderr", "/dev/tty"}
 _ASSIGN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 _OUR_TREE = ("/dotfiles/", "/.agents/", "/.claude/")
 
-# Commands whose every path argument is a file they create, delete, move, or
-# rewrite — so each one is a mutation target. `mv` is here, not in _DEST_MUTATORS,
-# because it also removes its source path.
-_ALL_ARG_MUTATORS = {"rm", "rmdir", "unlink", "shred", "mkdir", "mkfifo",
-                     "mknod", "touch", "truncate", "mv"}
-# Commands that read their sources and mutate only the last (destination) path.
-_DEST_MUTATORS = {"cp", "install", "ln"}
-# Commands whose first path argument is a mode/owner spec, not a file; the rest
-# are the files they mutate.
-_OWNER_MUTATORS = {"chmod", "chown", "chgrp"}
 # git subcommands that mutate the working tree and are not already blocked
 # unconditionally by block_git_revert (reset/checkout/restore/stash).
 _GIT_TREE_MUTATORS = re.compile(r"git\s+(rm|clean|mv)\b")
@@ -81,69 +76,6 @@ def _allowed_target(t, cwd):
     if t == cwd or t.startswith(cwd + "/") or _is_our_tree(t):
         return False
     return True
-
-
-def _is_redirect(tok):
-    return ">" in tok and tok != "" and tok.strip("0123456789&<>") == ""
-
-
-def _is_fd_reference(tok):
-    """A redirect target that names a file descriptor, not a file: `2>&1`, `>&2`, `>&-`."""
-    return tok == "-" or tok.isdigit()
-
-
-def _positional_paths(words):
-    """Non-flag path arguments of a segment, past the command head, with shell
-    redirect operators and their targets excluded — redirects are gathered
-    separately. A flag's separate value (`-s 0`) is not distinguishable from a
-    path here, so a stray value can read as a target; over-detection only ever
-    blocks a mutation, never lets one through."""
-    out, skip = [], False
-    for t in words[1:]:
-        if skip:
-            skip = False
-            continue
-        if _is_redirect(t):
-            skip = True
-            continue
-        if t.startswith("-"):
-            continue
-        out.append(t)
-    return out
-
-
-def _segment_targets(words):
-    """Paths a single command segment would create, write, move, or delete."""
-    i = 0
-    while i < len(words) and _ASSIGN.match(words[i]):
-        i += 1
-    words = words[i:]
-    if not words:
-        return []
-    head = os.path.basename(words[0])
-    targets = []
-    for j, t in enumerate(words):
-        if _is_redirect(t) and j + 1 < len(words) and not _is_fd_reference(words[j + 1]):
-            targets.append(words[j + 1])
-    if "tee" in words:
-        for t in words[words.index("tee") + 1:]:
-            if not t.startswith("-"):
-                targets.append(t)
-    for t in words:
-        if t.startswith("of="):
-            targets.append(t[3:])
-    positional = _positional_paths(words)
-    if head == "sed" and "-i" in words:
-        if positional:
-            targets.append(positional[-1])
-    elif head in _ALL_ARG_MUTATORS:
-        targets.extend(positional)
-    elif head in _DEST_MUTATORS:
-        if positional:
-            targets.append(positional[-1])
-    elif head in _OWNER_MUTATORS:
-        targets.extend(positional[1:])
-    return targets
 
 
 INTERP_MSG = """BLOCKED: running an interpreter is disabled while a proposal is expected.
@@ -189,44 +121,46 @@ def _allowed_interpreter(words, cwd):
 
 
 def warn(msg):
-    feedback.context("block_edits_during_proposal", "PreToolUse", msg)
+    feedback.context("block_writes", "PreToolUse", msg)
 
 
 def block(msg=BLOCK_MSG):
-    return feedback.block("block_edits_during_proposal", msg)
+    return feedback.block("block_writes", msg)
 
 
 def main():
     event = read_event()
-    # A codex-run agent is a dispatched executor, not a conversation with the
-    # architect: its task arrived already scoped, and there is no proposal pending
-    # for it to be holding up. The state it does carry is written by the intent
-    # classifier reading its dispatch prompt, which defaults to proposing and would
-    # otherwise refuse the agent every interpreter and every in-repo write for the
-    # whole run.
-    if os.environ.get(agent_memory.AGENT_FILE_VAR):
+    # A dispatched orchestrator is forbidden MUTATIONS, not Bash: the same target
+    # parser the proposing arm uses decides, so `pytest`, `ls`, `echo`, and
+    # `git status` all run — an orchestrator has to be able to validate what its
+    # subagents built — and only a command that changes the tree is refused.
+    banned = not permits(event, "write")
+    # The proposing arm governs every session the architect drives himself, his
+    # hand-managed teammates included. A dispatched agent's task arrived already
+    # scoped and there is no proposal pending for it to hold up, so it alone is
+    # exempt — and what counts as dispatched is session_mode's one definition.
+    proposing = not is_dispatched(event) and state(event) == "propose"
+    if not proposing and not banned:
         return 0
-    session_id = owner_session(event)
-    if not session_id:
-        return 0
-    state = load_state(session_id).get("state") or "proposing"
-    if state != "proposing":
-        return 0
-
-    # codex delivers an apply_patch as tool_input.command carrying the patch body,
-    # so the shell parse below would read the diff's own text as commands — a `+`
-    # line adding a redirect reads as a redirect. The write itself is what this
-    # gate cares about, and it has no file_path to check it against.
-    if canonical_tool(event) == "write" and not field(event, "tool_input.file_path", ""):
-        return block()
+    refusal = MODE_MSG if banned else BLOCK_MSG
 
     cwd = field(event, "cwd", "") or os.getcwd()
     file_path = field(event, "tool_input.file_path", "")
     command = field(event, "tool_input.command", "")
 
+    if canonical_tool(event) == "write":
+        if banned:
+            return block(MODE_MSG)
+        # codex delivers an apply_patch as tool_input.command carrying the patch body,
+        # so the shell parse below would read the diff's own text as commands — a `+`
+        # line adding a redirect reads as a redirect. The write itself is what this
+        # gate cares about, and it has no file_path to check it against.
+        if not file_path:
+            return block()
+
     if file_path:
         if not _allowed_target(file_path, cwd):
-            return block()
+            return block(refusal)
         if _is_script(file_path):
             warn(SCRIPT_WARNING)
         return 0
@@ -234,18 +168,18 @@ def main():
     if not command:
         return 0
 
-    segs = segments(command)
+    segs = all_segments(command)
     if segs is None:
         return 0  # unparseable — never choke, never false-block a read
     if _GIT_TREE_MUTATORS.search(git_normalize(command)):
-        return block()
+        return block(refusal)
     for seg in segs:
-        if command_head(seg) in _INTERPRETERS:
+        if proposing and command_head(seg) in _INTERPRETERS:
             if not _allowed_interpreter(seg, cwd):
                 return block(INTERP_MSG)
-        for target in _segment_targets(seg):
+        for target in mutation_targets(seg):
             if not _allowed_target(target, cwd):
-                return block()
+                return block(refusal)
     return 0
 
 

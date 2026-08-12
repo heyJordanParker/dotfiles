@@ -46,7 +46,7 @@
     ],
     "defaultMode": "bypassPermissions"
   },
-  "model": "claude-fable-5[1m]",
+  "model": "opus[1m]",
   "hooks": {
     "Notification": [
       {
@@ -227,6 +227,11 @@
           },
           {
             "type": "command",
+            "command": "python3 ~/.agents/hooks/block_wrong_harness.py",
+            "timeout": 5
+          },
+          {
+            "type": "command",
             "command": "python3 ~/.agents/hooks/inject_honcho_memory.py",
             "timeout": 20
           }
@@ -237,7 +242,12 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 ~/.agents/hooks/block_edits_during_proposal.py",
+            "command": "python3 ~/.agents/hooks/block_denied_access.py",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "python3 ~/.agents/hooks/block_writes.py",
             "timeout": 5
           }
         ]
@@ -267,7 +277,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 ~/.agents/hooks/enforce_solo_mode.py",
+            "command": "python3 ~/.agents/hooks/block_spawning.py",
             "timeout": 5
           }
         ]
@@ -289,15 +299,6 @@
             "type": "command",
             "command": "python3 ~/.agents/hooks/protect_session_state.py",
             "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "Skill",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 ~/.agents/hooks/record_session_event.py"
           }
         ]
       },
@@ -492,7 +493,8 @@
           },
           {
             "type": "command",
-            "command": "python3 ~/.agents/hooks/rewake_codex_failure.py"
+            "command": "python3 ~/.agents/hooks/rewake_codex_failure.py",
+            "asyncRewake": true
           },
           {
             "type": "command",
@@ -573,7 +575,8 @@
           },
           {
             "type": "command",
-            "command": "python3 ~/.agents/hooks/rewake_codex_failure.py"
+            "command": "python3 ~/.agents/hooks/rewake_codex_failure.py",
+            "asyncRewake": true
           }
         ]
       }
@@ -588,19 +591,10 @@
   },
   "enabledPlugins": {
     "dev-browser@dev-browser-marketplace": false,
-    "skill-creator@claude-plugins-official": true,
-    "honcho@honcho": true
-  },
-  "extraKnownMarketplaces": {
-    "honcho": {
-      "source": {
-        "source": "github",
-        "repo": "heyJordanParker/claude-honcho"
-      }
-    }
+    "skill-creator@claude-plugins-official": true
   },
   "alwaysThinkingEnabled": true,
-  "effortLevel": "low",
+  "effortLevel": "medium",
   "agent": "cto",
   "autoUpdatesChannel": "latest",
   "autoMemoryEnabled": false,

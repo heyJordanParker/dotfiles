@@ -6,7 +6,6 @@ import json
 import sys
 
 import pytest
-from lib.codex_run import _ONE_JOB
 
 
 def _run(monkeypatch, command, run_in_background=None, is_subagent=False):
@@ -41,8 +40,7 @@ def test_allows_a_harness_backgrounded_run(monkeypatch):
 
 @pytest.mark.parametrize(
     "command",
-    ["codex-run status", "codex-run watch"]
-    + ["codex-run %s job" % name for name in _ONE_JOB],
+    ["codex-run status", "codex-run watch", "codex-run result job"],
 )
 def test_allows_foreground_read_back_commands(monkeypatch, command):
     assert _run(monkeypatch, command) == 0

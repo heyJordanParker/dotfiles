@@ -14,7 +14,7 @@ BINDING = {
 def main():
     session_id = field(read_event(), "session_id", "")
     for record in codex_run.live_jobs(session_id):
-        codex_run.terminate_job(record)
+        codex_run.end_job(record)
     return 0
 
 

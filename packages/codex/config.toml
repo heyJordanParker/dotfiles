@@ -14,9 +14,19 @@ project_doc_fallback_filenames = ["Claude.md"]
 notify = ["/Users/jordan/.codex/computer-use/Codex Computer Use.app/Contents/SharedSupport/SkyComputerUseClient.app/Contents/MacOS/SkyComputerUseClient", "turn-ended"]
 service_tier = "default"
 
+[agents]
+max_threads = 100
+
 [mcp_servers.pencil]
 command = "/Applications/Pencil.app/Contents/Resources/app.asar.unpacked/out/mcp-server-darwin-arm64"
 args = [ "--app", "desktop" ]
+
+# Library docs for the researcher, which runs here now that it declares
+# `harness: codex`, over a bunx stdio bridge.
+[mcp_servers.context7]
+command = "/Users/jordan/.bun/bin/bunx"
+args = ["-y", "@upstash/context7-mcp"]
+startup_timeout_sec = 120
 
 [mcp_servers.node_repl]
 args = []
@@ -27,16 +37,16 @@ startup_timeout_sec = 120
 NODE_REPL_NATIVE_PIPE_CONNECT_TIMEOUT_MS = "1000"
 NODE_REPL_NODE_MODULE_DIRS = "/Applications/ChatGPT.app/Contents/Resources/cua_node/lib/node_modules"
 NODE_REPL_NODE_PATH = "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node"
-NODE_REPL_TRUSTED_CODE_PATHS = "/Users/jordan/.codex"
+NODE_REPL_TRUSTED_CODE_PATHS = "/Users/jordan/.codex:/Applications/ChatGPT.app/Contents/Resources/cua_node/lib/node_modules"
 CODEX_HOME = "/Users/jordan/.codex"
-NODE_REPL_TRUSTED_BROWSER_CLIENT_SHA256S = "2793c6809f8a4c90923435aa3a6d1e6f8cabb145212f06328b860b076b899525,6d25aa7656feac858f3a3bdaea5bcbab0dbfd426c9de8e6931ce90c399ee8e4f"
+NODE_REPL_TRUSTED_BROWSER_CLIENT_SHA256S = "323bc3e687e17d7e377238d9f4c69111c4d0e6219103b6316d8c52082489533b"
 BROWSER_USE_AVAILABLE_BACKENDS = "chrome,iab"
 NODE_REPL_INSTRUCTIONS_USE_CASE_BROWSER = "Control the in-app browser in conjunction with the Browser Plugin."
 NODE_REPL_INSTRUCTIONS_USE_CASE_CHROME = "Control the Chrome browser in conjunction with the Chrome Plugin. Prefer this method of controlling Chrome over alternatives (such as Computer Use) unless the user explicitly mentions an alternative."
 NODE_REPL_INSTRUCTIONS_USE_CASE_COMPUTER_USE = "Control desktop apps on macOS through Computer Use."
 BROWSER_USE_CODEX_APP_BUILD_FLAVOR = "prod"
-BROWSER_USE_CODEX_APP_VERSION = "26.715.71837"
-SKY_CUA_SERVICE_PATH = "/Users/jordan/.codex/plugins/cache/openai-bundled/computer-use/1.0.1000451/Codex Computer Use.app"
+BROWSER_USE_CODEX_APP_VERSION = "26.803.41515"
+SKY_CUA_SERVICE_PATH = "/Users/jordan/.codex/computer-use/Codex Computer Use.app"
 CODEX_CLI_PATH = "/Applications/ChatGPT.app/Contents/Resources/codex"
 
 [mcp_servers.computer-use]
@@ -44,16 +54,6 @@ command = "./Codex Computer Use.app/Contents/SharedSupport/SkyComputerUseClient.
 args = ["mcp"]
 cwd = "."
 enabled = false
-
-# Shared Honcho memory (self-hosted on the Nuremberg dev box, reachable over the
-# tailnet). Honcho's MCP is a stateless streamable-HTTP server that Codex's native
-# url transport hangs on, so we reach it through the mcp-remote stdio bridge (the
-# client Honcho documents). HONCHO_TOKEN (the admin JWT) is exported from the
-# machine-local untracked secrets — never committed here.
-[mcp_servers.honcho]
-command = "/Users/jordan/.bun/bin/bunx"
-args = ["-y", "mcp-remote", "https://devbox.tailac0786.ts.net:8443/", "--header", "Authorization:Bearer ${HONCHO_TOKEN}", "--header", "X-Honcho-User-Name:jordan", "--header", "X-Honcho-Workspace-ID:parkerlabs"]
-startup_timeout_sec = 120
 
 [features]
 multi_agent = true
@@ -154,11 +154,15 @@ command = "python3 /Users/jordan/.agents/hooks/inject_docs.py"
 timeout = 15
 [[hooks.PreToolUse.hooks]]
 type = "command"
-command = "python3 /Users/jordan/.agents/hooks/block_edits_during_proposal.py"
+command = "python3 /Users/jordan/.agents/hooks/block_denied_access.py"
 timeout = 5
 [[hooks.PreToolUse.hooks]]
 type = "command"
-command = "python3 /Users/jordan/.agents/hooks/block_undeclared_tools.py"
+command = "python3 /Users/jordan/.agents/hooks/block_writes.py"
+timeout = 5
+[[hooks.PreToolUse.hooks]]
+type = "command"
+command = "python3 /Users/jordan/.agents/hooks/block_spawning.py"
 timeout = 5
 [[hooks.PreToolUse.hooks]]
 type = "command"
@@ -176,9 +180,6 @@ timeout = 15
 type = "command"
 command = "python3 /Users/jordan/.agents/hooks/protect_session_state.py"
 timeout = 5
-[[hooks.PreToolUse.hooks]]
-type = "command"
-command = "python3 /Users/jordan/.agents/hooks/record_session_event.py"
 [[hooks.PreToolUse.hooks]]
 type = "command"
 command = "python3 /Users/jordan/.agents/hooks/review_doc_edit.py"
@@ -289,25 +290,25 @@ trusted_hash = "sha256:cb31995bb92d153c57bd181151e935bf55a61af094d88aadf779ec31f
 trusted_hash = "sha256:38c182971c3ef7e64952d3271816b21bc40bdca91988f2e1ed3e0568c265bf87"
 
 [hooks.state."/Users/jordan/.codex/config.toml:pre_tool_use:0:9"]
-trusted_hash = "sha256:32ccf85f9d56b086e825f40b1e03f42fffd6178e775be7c13b2fc7d6126ab1b2"
+trusted_hash = "sha256:150c2adf8c7659f725ab50461006a9bf4212783f1f3cde13e32bc10341ecb067"
 
 [hooks.state."/Users/jordan/.codex/config.toml:pre_tool_use:0:10"]
-trusted_hash = "sha256:db371a5044626e15b712fba2c65955c7936e162115124bbff1f13da02207c2a5"
+trusted_hash = "sha256:1ceab83868f6f4e88fa84f2f6f44aa8a8cb2d6bbcf8923e1d2cc7510ef6336ad"
 
 [hooks.state."/Users/jordan/.codex/config.toml:pre_tool_use:0:11"]
-trusted_hash = "sha256:679339bc14a7f4b3b8de447724a034cddf7429762cff6a423dd8e3e85ce287bf"
+trusted_hash = "sha256:86441176b05b6bd99d267142a8fce3a990fdc5c043e1f68335832d957a7a8e6e"
 
 [hooks.state."/Users/jordan/.codex/config.toml:pre_tool_use:0:12"]
-trusted_hash = "sha256:d8c9d7c13d58e193143c7ca25502d4bcb762d26dc5ff5f071114362741ec56ce"
+trusted_hash = "sha256:679339bc14a7f4b3b8de447724a034cddf7429762cff6a423dd8e3e85ce287bf"
 
 [hooks.state."/Users/jordan/.codex/config.toml:pre_tool_use:0:13"]
-trusted_hash = "sha256:496d7706de55634c32be6c91d650cc8343e5c51394b6f5452cf60a486ff9816d"
+trusted_hash = "sha256:d8c9d7c13d58e193143c7ca25502d4bcb762d26dc5ff5f071114362741ec56ce"
 
 [hooks.state."/Users/jordan/.codex/config.toml:pre_tool_use:0:14"]
-trusted_hash = "sha256:3400d61f1cf7b58a3d45b6e1a137939cf7ddcbb27e9755c1281610326d49dd88"
+trusted_hash = "sha256:496d7706de55634c32be6c91d650cc8343e5c51394b6f5452cf60a486ff9816d"
 
 [hooks.state."/Users/jordan/.codex/config.toml:pre_tool_use:0:15"]
-trusted_hash = "sha256:6feeef3049db386a4a79a55443b6c78d216f3a1e6be2741ae637d22d3c01b87a"
+trusted_hash = "sha256:3400d61f1cf7b58a3d45b6e1a137939cf7ddcbb27e9755c1281610326d49dd88"
 
 [hooks.state."/Users/jordan/.codex/config.toml:pre_tool_use:0:16"]
 trusted_hash = "sha256:a3f5f2ce169b170d3cc36d8b3c7129b83582c35978611954bd108a4db20bbdaa"
@@ -358,12 +359,12 @@ trusted_hash = "sha256:9fd861ab781a06111feec719b794dca410db13f94bed117b08cc9e338
 trusted_hash = "sha256:5b174570b5364bbe2e1aaf0ec4155796a5287011fee39ad25e50c4448bfd3ab9"
 
 [marketplaces.openai-bundled]
-last_updated = "2026-07-22T05:32:56Z"
+last_updated = "2026-08-10T11:09:22Z"
 source_type = "local"
 source = "/Users/jordan/.codex/.tmp/bundled-marketplaces/openai-bundled"
 
 [marketplaces.openai-primary-runtime]
-last_updated = "2026-07-27T22:55:02Z"
+last_updated = "2026-08-06T02:54:54Z"
 source_type = "local"
 source = "/Users/jordan/.cache/codex-runtimes/codex-primary-runtime/plugins/openai-primary-runtime"
 
@@ -445,6 +446,108 @@ trust_level = "trusted"
 [projects."/private/tmp/extract-test"]
 trust_level = "trusted"
 
+[projects."/private/tmp/extract-test-2"]
+trust_level = "trusted"
+
+[projects."/private/tmp/spill-test/c3-2"]
+trust_level = "trusted"
+
+[projects."/private/tmp/spill-test/c3-1"]
+trust_level = "trusted"
+
+[projects."/private/tmp/spill-test/c1-1"]
+trust_level = "trusted"
+
+[projects."/private/tmp/spill-test/c1-2"]
+trust_level = "trusted"
+
+[projects."/private/tmp/spill-test/c1-2/.agents/deep-funnel-building/extracts"]
+trust_level = "trusted"
+
+[projects."/private/tmp/spill-test/c1-2/.agents/deep-funnel-attribution/extracts"]
+trust_level = "trusted"
+
+[projects."/private/tmp/spill-test/c2-1"]
+trust_level = "trusted"
+
+[projects."/private/tmp/spill-test/c2-2"]
+trust_level = "trusted"
+
+[projects."/private/tmp/spill-test-2/c2-1"]
+trust_level = "trusted"
+
+[projects."/private/tmp/spill-test-2/c1-1"]
+trust_level = "trusted"
+
+[projects."/private/tmp/spill-test-2/c3-1"]
+trust_level = "trusted"
+
+[projects."/private/tmp/spill-test-2/c1-2"]
+trust_level = "trusted"
+
+[projects."/private/tmp/spill-test-2/c2-2"]
+trust_level = "trusted"
+
+[projects."/private/tmp/spill-test-2/c3-2"]
+trust_level = "trusted"
+
+[projects."/private/tmp/fanout-2/2"]
+trust_level = "trusted"
+
+[projects."/private/tmp/fanout-3/1"]
+trust_level = "trusted"
+
+[projects."/Users/jordan/Documents/Codex/2026-07-29/are-there-emotional-arguments-or-just"]
+trust_level = "trusted"
+
+[projects."/private/tmp/research-test-1"]
+trust_level = "trusted"
+
+[projects."/private/tmp/research-test-2"]
+trust_level = "trusted"
+
+[projects."/private/tmp/claude-501/-Users-jordan-Developer-design-systems/15e2d336-d03a-4ecf-97f3-8e36c460a7fc/scratchpad"]
+trust_level = "trusted"
+
+[projects."/private/tmp/syncinv"]
+trust_level = "trusted"
+
+[projects."/Users/jordan/Desktop/dent"]
+trust_level = "trusted"
+
+[projects."/Users/jordan/Documents/Codex/2026-08-01/my"]
+trust_level = "trusted"
+
+[projects."/private/tmp/claude-501/-Users-jordan-Developer-design-systems/15e2d336-d03a-4ecf-97f3-8e36c460a7fc/scratchpad/p"]
+trust_level = "trusted"
+
+[projects."/Users/jordan/Documents/Codex/2026-08-02/my"]
+trust_level = "trusted"
+
+[projects."/Users/jordan/Documents/Codex/2026-08-03/cpl-epl-what-do-those-two"]
+trust_level = "trusted"
+
+[projects."/Users/jordan/Documents/Codex/2026-08-05/new-chat"]
+trust_level = "trusted"
+
+[projects."/Users/jordan/Documents/Codex/2026-08-05/use-agent-browser-users-jordan-dotfiles"]
+trust_level = "trusted"
+
+[projects."/Users/jordan/Documents/Codex/2026-08-05/use-agent-browser-users-jordan-dotfiles-2"]
+trust_level = "trusted"
+
+[projects."/Users/jordan/Documents/Codex/2026-08-05/fn"]
+trust_level = "trusted"
+
+[projects."/Users/jordan/Documents/Codex/2026-08-05/okay-it-seems-that-when-we"]
+trust_level = "trusted"
+
+[projects."/private/tmp/hyros-feature-only"]
+trust_level = "trusted"
+
+[projects."/Users/jordan/Documents/Codex/2026-08-11/c"]
+trust_level = "trusted"
+
 [desktop]
 appearanceTheme = "dark"
 sansFontSize = 15
@@ -493,5 +596,5 @@ use_memories = true
 
 [shell_environment_policy.set]
 BROWSER_USE_AVAILABLE_BACKENDS = "chrome,iab"
-NODE_REPL_TRUSTED_BROWSER_CLIENT_SHA256S = "2793c6809f8a4c90923435aa3a6d1e6f8cabb145212f06328b860b076b899525,6d25aa7656feac858f3a3bdaea5bcbab0dbfd426c9de8e6931ce90c399ee8e4f"
-NODE_REPL_TRUSTED_CODE_PATHS = "/Users/jordan/.codex"
+NODE_REPL_TRUSTED_BROWSER_CLIENT_SHA256S = "323bc3e687e17d7e377238d9f4c69111c4d0e6219103b6316d8c52082489533b"
+NODE_REPL_TRUSTED_CODE_PATHS = "/Users/jordan/.codex:/Applications/ChatGPT.app/Contents/Resources/cua_node/lib/node_modules"

@@ -43,6 +43,7 @@ def hooks_dir(tmp_path):
     _write_hook(d, "classify_prompt", {
         "events": {"UserPromptSubmit": []},
         "harness": "claude",
+        "asyncRewake": True,
     })
     # An "all" hook carrying an explicit timeout, on its own event so the rendered
     # timeout is unambiguous to assert against in both wirings.
@@ -142,6 +143,7 @@ def test_claude_all_and_claude_hooks_present(hooks_dir, settings_path, config_pa
     commands = _claude_commands(settings)
     assert "python3 ~/.agents/hooks/guard_shell.py" in commands      # harness: all
     assert "python3 ~/.agents/hooks/classify_prompt.py" in commands  # harness: claude
+    assert _claude_entry(settings, "python3 ~/.agents/hooks/classify_prompt.py")["asyncRewake"] is True
 
 
 def test_claude_unmanaged_entries_survive_noop_byte_identical(hooks_dir, settings_path, config_path, profiles_dir):

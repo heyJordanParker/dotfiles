@@ -97,7 +97,9 @@ AGENTS_DIR = os.path.expanduser("~/.agents/agents")
 # changes. An agent overrides either for itself in its frontmatter: `codex-model`
 # for the model, the codex-side counterpart of `model`, which names a Claude model
 # and so cannot serve here; and `effort`, which is one field for both harnesses,
-# because the five words Claude's key takes are the five codex takes.
+# because the five words Claude's key takes are the five codex takes. A single
+# invocation overrides either with `--model`/`--effort`, the codex counterpart
+# of the Agent tool's per-dispatch model and effort opts.
 _MODEL = "gpt-5.6-terra"
 _EFFORT = "medium"
 
@@ -293,6 +295,11 @@ _REQUEST_LIMIT = 180
 # wholly silent run.
 _POST_TOOL_IDLE_LIMIT = 600
 _IDLE_LIMIT = 1200
+
+# How often the waiter wakes to re-check those deadlines. A second is far below
+# any of them in production; a test drives it down so a deadline it has shortened
+# is observed at that scale rather than a second later.
+_POLL_INTERVAL = 1.0
 
 # How long a cancelled turn is given to unwind after turn/interrupt before the
 # process tree goes. The point of the interrupt is that codex finishes the file
@@ -573,37 +580,31 @@ def live_jobs(session_id):
             if record.get("status") == "running" and _alive(record.get("pid"))]
 
 
-def terminate_job(record, grace=0.25):
-    """End a recorded run without ever signalling a Claude process group.
+def end_job(record):
+    """Signal a recorded run to stop, and return without waiting for it to die.
 
-    app-server owns its own process group; the runner does not, so only the
-    former is group-signalled.  The short grace fits Claude's SessionEnd budget
-    and the runner is then killed directly if its signal handler did not finish.
+    SessionEnd gives a hook one second and the architect's session closes behind it,
+    so this never sleeps: the signal goes out, the record is made terminal, and the
+    process unwinds on its own time. A pid that is already gone, a group that was
+    never one, and a record that no longer writes are all normal on the way out —
+    the session is ending either way, so each is tolerated rather than reported.
+
+    app-server owns its own process group; the runner does not, so only the former
+    is group-signalled. `codex-run cancel` is the caller that legitimately waits,
+    and it keeps its own grace loop.
     """
-    server_pid, pid = record.get("server_pid"), record.get("pid")
-    if _alive(server_pid):
+    for pid, send in ((record.get("server_pid"), os.killpg), (record.get("pid"), os.kill)):
+        if not pid:
+            continue
         try:
-            os.killpg(server_pid, signal.SIGTERM)
-        except OSError:
-            pass
-    if _alive(pid):
-        try:
-            os.kill(pid, signal.SIGTERM)
-        except OSError:
-            pass
-    time.sleep(grace)
-    if _alive(server_pid):
-        try:
-            os.killpg(server_pid, signal.SIGKILL)
-        except OSError:
-            pass
-    if _alive(pid):
-        try:
-            os.kill(pid, signal.SIGKILL)
+            send(pid, signal.SIGTERM)
         except OSError:
             pass
     record.update(status="cancelled", phase="session-ended", ended_at=int(time.time()))
-    _save_record(record)
+    try:
+        _save_record(record)
+    except OSError:
+        pass
 
 
 def _find_job(token):
@@ -824,7 +825,7 @@ class _Job:
     def wait(self, server):
         """Block until the turn ends, the architect cancels it, or codex goes quiet."""
         interrupted = None
-        while not self.done.wait(1.0):
+        while not self.done.wait(_POLL_INTERVAL):
             now = time.time()
             if server.proc.poll() is not None:
                 self.error = self.error or "codex app-server exited unexpectedly"
@@ -911,12 +912,17 @@ def _thread_params(instructions, config, model, cwd):
             "baseInstructions": instructions, "config": config}
 
 
-def _dispatch(agent, prompt, resume=None):
+def _dispatch(agent, prompt, resume=None, model=None, effort=None):
     """Run one turn as `agent` and print the whole result on stdout.
 
     Returns the exit code, non-zero on any failure: a codex that would not start,
     a protocol error, a turn that failed, a cancelled turn, or a run that produced
     no final answer — a turn yielding nothing usable is a failure too.
+
+    `model` and `effort` are the invocation's own `--model`/`--effort` overrides,
+    already validated. Each sits above the record on a resume and above the
+    agent's declarations on a founding run, so one run can move without a
+    frontmatter edit and a plain resume keeps the founding run's values.
 
     `resume` is the record of the job being continued. Its thread is asked for
     first; when codex no longer holds that thread the run starts a fresh one from
@@ -932,8 +938,8 @@ def _dispatch(agent, prompt, resume=None):
         if refusal:
             print(refusal)
             return 1
-        model = _codex_model(agent)
-        effort = _codex_effort(agent)
+        model = model or (resume or {}).get("model") or _codex_model(agent)
+        effort = effort or (resume or {}).get("effort") or _codex_effort(agent)
         with open(prompt_path, encoding="utf-8") as fh:
             instructions = fh.read()
         config = dict(_CONFIG)
@@ -1295,8 +1301,36 @@ _USAGE = ('Usage:\n'
           '  codex-run history <job>            print the codex rollout and Claude transcript\n'
           '  codex-run cancel <job>             interrupt a running turn\n'
           '  codex-run watch                    follow this session\'s lifecycle feed\n'
+          '  @<agent> and resume take --model <name> and --effort <%s>,\n'
+          '  overriding the agent\'s declarations for that one invocation.\n'
           '  A job id may be shortened to any prefix that names one job.\n'
-          '  Pass - as the prompt/message to read it from stdin — immune to shell quoting.')
+          '  Pass - as the prompt/message to read it from stdin — immune to shell quoting.'
+          % "|".join(_EFFORTS))
+
+
+def _pop_overrides(argv):
+    """Split `--model`/`--effort` out of `argv`, returning (rest, overrides).
+
+    Raises ValueError with the message to print on a flag missing its value or
+    an effort outside the shared vocabulary — the same closed set a frontmatter
+    declaration is held to, checked here so a typo fails before a run starts."""
+    rest, overrides = [], {}
+    index = 0
+    while index < len(argv):
+        argument = argv[index]
+        if argument in ("--model", "--effort"):
+            if index + 1 >= len(argv):
+                raise ValueError("codex-run: %s needs a value" % argument)
+            value = argv[index + 1]
+            if argument == "--effort" and value not in _EFFORTS:
+                raise ValueError("codex-run: unknown effort %r; valid: %s"
+                                 % (value, ", ".join(_EFFORTS)))
+            overrides[argument[2:]] = value
+            index += 2
+        else:
+            rest.append(argument)
+            index += 1
+    return rest, overrides
 
 
 def _read_prompt(arg):
@@ -1313,6 +1347,15 @@ def main(argv):
     # Every message — errors included — goes to stdout so the result reads
     # cleanly with no downstream parsing.
     command = argv[0] if argv else ""
+
+    overrides = {}
+    if command == "resume" or command.startswith("@"):
+        try:
+            tail, overrides = _pop_overrides(argv[1:])
+        except ValueError as exc:
+            print("%s\n%s" % (exc, _USAGE))
+            return 2
+        argv = [command] + tail
 
     if command == "resume":
         if len(argv) != 3:
@@ -1334,7 +1377,7 @@ def main(argv):
             print("codex-run: cannot resume %s — it never reached a codex thread."
                   % record.get("job"))
             return 1
-        return _dispatch(agent, _read_prompt(argv[2]), resume=record)
+        return _dispatch(agent, _read_prompt(argv[2]), resume=record, **overrides)
 
     if command == "status":
         return _cmd_status(argv[1:])
@@ -1356,7 +1399,7 @@ def main(argv):
         print("codex-run: unknown agent '%s'. Available: %s"
               % (command, ", ".join(_available_agents())))
         return 1
-    return _dispatch(command[1:], _read_prompt(argv[1]))
+    return _dispatch(command[1:], _read_prompt(argv[1]), **overrides)
 
 
 if __name__ == "__main__":

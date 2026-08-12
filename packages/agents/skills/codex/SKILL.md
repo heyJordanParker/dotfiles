@@ -1,6 +1,6 @@
 ---
 name: codex
-description: Drive codex CLI runs as your Agents — you own Orchestration, codex does the work. One wrapper, `codex-run`, owns the mechanics (flags, output storage, stream parsing, failure detection); you write the Task Prompt and do the judgment. Calls /subagents for Orchestration doctrine on a codex-run substrate. TRIGGER when the Architect says "codex", "/codex", "codex-run", "use codex", "dispatch to codex", "run this through codex", "codex agents", "review with codex", "codex review", or asks to fan out work across codex runs. DO NOT TRIGGER for native Claude Code Subagents (use /subagents) — those run inside this Harness; codex is a separate CLI process.
+description: Drive codex CLI runs as your Agents — you own Orchestration, codex does the work. One wrapper, `codex-run`, owns the mechanics (flags, output storage, stream parsing, failure detection); you write the Task Prompt and do the judgment. Calls /delegate for Orchestration doctrine on a codex-run substrate. TRIGGER when the Architect says "codex", "/codex", "codex-run", "use codex", "dispatch to codex", "run this through codex", "codex agents", "review with codex", "codex review", or asks to fan out work across codex runs. DO NOT TRIGGER for native Claude Code Subagents (use /delegate) — those run inside this Harness; codex is a separate CLI process.
 ---
 
 # codex
@@ -9,10 +9,10 @@ Codex runs are Agents in a separate Harness.
 The Orchestrator holds the Goal and Orchestration; each codex run does the work and returns.
 `codex-run` owns flags, output storage, stream parsing, and failure detection; the Orchestrator writes the Prompt and does the judgment.
 
-## 1. Compose through /subagents
+## 1. Compose through /delegate
 
 ### Follow the Subagent Process
-Use /subagents for the Prompt Template, WHAT/WHY not HOW, independent dispatch, claim handling, Verification, the long hard way, and the ranking Process. Codex only changes the Execution substrate.
+Use /delegate for the Prompt Template, WHAT/WHY not HOW, independent dispatch, claim handling, Verification, the long hard way, and the ranking Process. Codex only changes the Execution substrate.
 
 ### Let the Agent type carry the lens
 There is no review mode. The lens lives in the Agent type's Prompt; scope the Prompt to what to review.
@@ -59,14 +59,27 @@ Never: writing the Prompt to a file and redirecting it in.
 ### Use a named Agent type
 `@<agent>` resolves to that Agent type's own Prompt. An unknown Agent type exits non-zero and lists the available ones, so a typo is self-correcting.
 
+IF one run needs a different model or depth than its Agent declares:
+### Override with --model and --effort for that invocation
+`--model <name>` and `--effort <level>` sit above the Agent's own declarations for one run — the codex counterpart of the Agent tool's `model` and `effort` opts. Effort takes `low`, `medium`, `high`, `xhigh`, or `max`. A plain resume keeps the founding run's values off the job record; a resume carrying a flag changes just that turn. An effort outside the five refuses before any run starts.
+
+Example: `codex-run @architect --effort max - <<'EOF' … EOF` runs one review at full depth without touching `architect.md`.
+Never: editing an Agent's frontmatter to change a single run.
+
+IF you are the persistent Orchestrator:
 ### Run every codex-run in the background
 A foreground run blocks Orchestration on the codex turn. Use `run_in_background: true` and read the result when it lands.
 
 Never: a foreground codex-run.
 
 IF you are running AS a Subagent:
-### Run codex-run foreground, chunked, with your turn kept alive
-The opposite holds inside a Subagent: your final message kills in-flight children, so run each codex-run foreground, sized to finish inside the Bash ceiling, and end your turn only after reading every result (see /subagents).
+### Poll the run to done inside your live turn
+Your final message ends you, and a result landing after it reaches nobody — the Orchestrator gets your last words, not the run's answer. Background the run, keep the turn alive on `codex-run status`, and when the job leaves running, read `codex-run result <job>` and report what it said. Polling here replaces the watch feed: a Monitor you arm dies with your turn.
+
+Never: ending your turn on "waiting for completion", "monitors armed", or a job whose result you have not read.
+
+### Keep every foreground wait under the Bash ceiling
+A foreground Bash command is killed at ten minutes whatever timeout you pass — a 900,000 ms timeout on a 630-second command still returns exit 143 at 10m 0s, and the "moved to the background" notice can arrive after the process is already dead. A codex turn can run longer than that, so background the run and poll instead of waiting on it in the foreground.
 
 ### Run the same Agent on both Harnesses when two perspectives are worth more than one
 Every Agent you can dispatch as a Subagent runs on either Harness under one definition: by name, or through `codex-run @<name>`. Both in one message gives two independent workers on the same Task, and the trailer tells the results apart — the codex answer carries one, the Subagent's does not.
@@ -90,10 +103,10 @@ Never: abandoning an unwanted run — it keeps working and keeps editing.
 ### Let the feed report completion instead of polling
 `codex-run watch` follows this session's lifecycle feed, sized for a Monitor to read: one line when a job starts and one when it ends, carrying the status, the elapsed time, and the size of the answer on disk. `codex-run status [--all]` prints the whole board once, where a job whose runner died reads `failed` — reading a record reconciles it, so a dead run never sits at `running`.
 
-Never: repeated `status` calls to see whether a run has finished.
+Never: repeated `status` calls from the Orchestrator to see whether a run has finished — inside a Subagent, whose Monitor dies with its turn, `status` polling is the correct wait.
 
 ### Arm the feed once, from the Orchestrator
-At your first dispatch, arm `codex-run watch` as a persistent Monitor and never arm a second one. Every run in the session appends to the same feed, so that one Monitor carries the runs you dispatch later too, while a second doubles every line toward the rate limit that stops a Monitor silently — ten lines burst, then one every two seconds. A Monitor's events reach only the Agent that armed it, so a Subagent that arms one gets a feed that dies with its turn (see /subagents).
+At your first dispatch, arm `codex-run watch` as a persistent Monitor and never arm a second one. Every run in the session appends to the same feed, so that one Monitor carries the runs you dispatch later too, while a second doubles every line toward the rate limit that stops a Monitor silently — ten lines burst, then one every two seconds. A Monitor's events reach only the Agent that armed it, so a Subagent that arms one gets a feed that dies with its turn — a Subagent polls `codex-run status` instead.
 
 `codex-run watch` owns its own cadence: two lines per job, nothing in between, because every line it prints wakes you for a full turn. A run that dies without writing its terminal line reaches you at the end of the turn instead, when the failure rewake fires.
 
@@ -120,7 +133,7 @@ Template:
   --- codex-run ---
   status:  ok                        # ok, failed, or cancelled
   agent:   <name>                    # the Agent the run ran as
-  model:   <name>  (effort <level>)  # what it ran on, from the Agent's own declarations
+  model:   <name>  (effort <level>)  # what it ran on: your flags, else the Agent's declarations
   job:     <id>                      # the run's identity; pass to resume, result, log, cancel
   thread:  <id>                      # codex's own thread, continued by a resume
   output:  <path>                    # the final answer on disk, in this session's own directory
@@ -161,7 +174,7 @@ Never: Edit, Write, or NotebookEdit while orchestrating.
 
 ## 7. Synthesize yourself
 
-### Use the /subagents ranking Process
+### Use the /delegate ranking Process
 Strip codex-run recommendations, keep facts, rank with /pcc, and present your own judgment.
 
 Never: forwarding a run's ranking or recommendation.
