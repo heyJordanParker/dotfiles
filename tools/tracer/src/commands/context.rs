@@ -757,6 +757,11 @@ fn common_directories_section(repo_root: &Path) -> String {
             if n.starts_with('.') || skip.contains(n.as_str()) {
                 continue;
             }
+            // A nested repository is its own scope: a directory holding many
+            // checkouts must not report their contents as this root's layout.
+            if child.join(".git").exists() {
+                continue;
+            }
             candidate_dirs.push(child.clone());
             if let Ok(sub_rd) = std::fs::read_dir(&child) {
                 for sub in sub_rd.flatten().map(|e| e.path()) {

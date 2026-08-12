@@ -144,6 +144,12 @@ fn load_or_compute(repo_root: &Path) -> Value {
 }
 
 fn load_or_compute_uncached(repo_root: &Path) -> Value {
+    // Same worktree gate as the architecture graph: `cache::save` writes only
+    // where `repo_root/.git` is, so outside a worktree the scc pass and its
+    // per-file map are recomputed on every call and never persist.
+    if !repo_root.join(".git").exists() {
+        return empty_payload();
+    }
     match git_head(repo_root) {
         None => compute(repo_root),
         Some(head) => {

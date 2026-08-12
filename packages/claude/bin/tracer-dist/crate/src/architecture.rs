@@ -249,6 +249,12 @@ fn walk_files(repo_root: &Path) -> Vec<PathBuf> {
     let walker = walkdir::WalkDir::new(repo_root).into_iter().filter_entry(|e| {
         let n = e.file_name().to_string_lossy();
         if e.file_type().is_dir() {
+            // A nested repository is its own scope, never part of the parent's
+            // file set — `.git` is a directory for a normal checkout and a file
+            // for a linked worktree, so `exists` covers both.
+            if e.depth() > 0 && e.path().join(".git").exists() {
+                return false;
+            }
             !skip.contains(n.as_ref()) && !n.starts_with('.')
         } else {
             true
@@ -858,6 +864,14 @@ fn decode_graph(bytes: &[u8]) -> Option<Graph> {
 /// else build it from per-file facts plus the docs-graph build and persist
 /// it. Always returns a graph — the build path is the fallback.
 fn load_or_build(repo_root: &Path) -> Graph {
+    // The build exists to fill the `architecture/` entry, and `cache_root`
+    // writes that entry only where `repo_root/.git` is. Outside a worktree the
+    // graph is discarded at process exit and rebuilt from scratch on the next
+    // call, so a directory holding many repositories (`~/Developer/references`)
+    // parsed every file of every one of them into one graph, every run.
+    if !repo_root.join(".git").exists() {
+        return Graph::default();
+    }
     let files = discover_files(repo_root);
     let hashes = file_facts::file_hashes_for(&files, repo_root);
     let (docs, docs_inputs) = docs_graph::build(repo_root);

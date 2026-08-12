@@ -88,6 +88,12 @@ pub fn walk_files(base: &Path) -> Vec<PathBuf> {
     let walker = walkdir::WalkDir::new(base).into_iter().filter_entry(|e| {
         let name = e.file_name().to_string_lossy();
         if e.file_type().is_dir() {
+            // A nested repository is its own scope, never part of the parent's
+            // file set — `.git` is a directory for a normal checkout and a file
+            // for a linked worktree, so `exists` covers both.
+            if e.depth() > 0 && e.path().join(".git").exists() {
+                return false;
+            }
             !skip.contains(name.as_ref()) && !name.starts_with('.')
         } else {
             true
