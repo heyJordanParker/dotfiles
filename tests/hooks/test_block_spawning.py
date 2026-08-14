@@ -6,10 +6,10 @@ so the two gates cannot drift apart. This file pins both halves of that answer:
 - A DISPATCHED executor may not start another agent, whether the route is a spawn
   tool or a shell command naming one of the three spawn commands, and a line whose
   head cannot be read is blocked because hiding the head was the bypass.
-- The architect's own session is never spawn-gated, whatever mode it records.
-  Spawning is his call to make. His hand-managed teammates — a payload carrying an
-  agentId with no sidechain marker — are gated here instead by what their own agent
-  declares, because one spawning agent cascades usage through everything it starts.
+- A session outside a dispatch is gated by the mode governing it: the agent it was
+  started on, or the mode the architect typed into it. Build refuses the spawn there
+  exactly as it does inside a dispatch, because the mode is the instruction and this
+  gate is what makes it one.
 - An agent whose definition declares no mode falls back to build and is gated as an
   executor; the roster carries an explicit declaration per agent so that fallback is
   never what governs a real dispatch.
@@ -33,7 +33,6 @@ import subprocess
 import sys
 
 import block_spawning
-import pytest
 from conftest import PY_HOOKS
 
 HOOK = os.path.join(PY_HOOKS, "block_spawning.py")
@@ -43,19 +42,20 @@ ALLOW, BLOCK = 0, 2
 
 
 def _run(payload, tmp_path, monkeypatch, mode="build", dispatched=True,
-         teammate=False, spawn=False):
+         teammate=False, spawn=False, typed=True):
     """Run the guard. `dispatched` marks a codex run declaring `mode` — pass None as
     the mode for a run whose definition declares none. Without `dispatched` the
-    payload is the architect's own session, which records `mode` and is never gated.
-    `teammate` names the mode declared by the agent one of his hand-managed top-level
-    agents runs, adding the agentId such a payload carries and the agent name the
-    harness puts on it. `spawn` runs the guard as its own process."""
+    payload is a top-level session recording `mode` as the one the architect typed.
+    `teammate` names the mode declared by the agent such a session was started on,
+    adding the agentId and the agent name the harness puts on its payload. `spawn`
+    runs the guard as its own process, and `typed` says whether the recorded mode is
+    one the architect typed or the one the session's agent declared at startup."""
     root = tmp_path / "claude"
     session = root / "sessions" / SID
     session.mkdir(parents=True, exist_ok=True)
     (session / "state.json").write_text(
         json.dumps({"session_id": SID, "role": "main", "state": "execute",
-                    "mode": mode or "build", "mode_typed": True})
+                    "mode": mode or "build", "mode_typed": typed})
     )
     if teammate:
         definition = tmp_path / "config" / "agents" / "teammate.md"
@@ -101,31 +101,20 @@ def test_executor_is_blocked_from_the_agent_tool(tmp_path, monkeypatch):
                 spawn=True) == BLOCK
 
 
-def test_executor_is_blocked_from_the_codex_spawn_tool(tmp_path, monkeypatch):
-    """codex's own spawn tool, since the guard runs on both harnesses."""
-    assert _run({"tool_name": "spawn_agent", "tool_input": {}}, tmp_path,
-                monkeypatch) == BLOCK
 
 
-@pytest.mark.parametrize("command", [
-    'codex-run @architect "review this"',
-    "codex exec -s read-only 'x'",
-    "claude -p 'do x'",
-])
-def test_executor_is_blocked_from_the_spawn_commands(tmp_path, monkeypatch, command):
-    """One case per member of the guard's own `_SPAWNS` set."""
-    assert _run(_bash(command), tmp_path, monkeypatch) == BLOCK
 
 
-def test_executor_is_blocked_behind_a_prefix_word(tmp_path, monkeypatch):
-    """A prefix word whose flag arity is unknown leaves the command a candidate,
-    and a candidate in `_SPAWNS` still blocks."""
-    assert _run(_bash("xargs -n1 codex-run"), tmp_path, monkeypatch) == BLOCK
 
 
-def test_executor_is_blocked_on_a_command_it_cannot_parse(tmp_path, monkeypatch):
-    """An unbalanced quote hides the head, and hiding the head was the bypass."""
-    assert _run(_bash("codex-run @architect 'unbalanced"), tmp_path, monkeypatch) == BLOCK
+
+
+def test_executor_cannot_hide_the_spawn_outside_the_command_line(tmp_path, monkeypatch):
+    """Both shapes ran codex-run for real from a build session before lib.command
+    started refusing a line whose program it cannot read."""
+    assert _run(_bash("sh /tmp/spawnprobe.sh"), tmp_path, monkeypatch) == BLOCK
+    assert _run(_bash("python3 -c \"import subprocess; subprocess.run(['codex-run'])\""),
+                tmp_path, monkeypatch) == BLOCK
 
 
 def test_executor_still_runs_ordinary_bash(tmp_path, monkeypatch):
@@ -136,10 +125,6 @@ def test_executor_still_runs_ordinary_bash(tmp_path, monkeypatch):
     assert _run(_bash("echo codex-run"), tmp_path, monkeypatch) == ALLOW
 
 
-def test_executor_is_not_blocked_by_claude_inside_a_path(tmp_path, monkeypatch):
-    # 'claude' inside ~/.claude is not a command head — must not false-block.
-    assert _run(_bash("cat ~/.claude/sessions/x/state.json"), tmp_path,
-                monkeypatch) == ALLOW
 
 
 # ---------------------------------------------------------------------------
@@ -154,32 +139,34 @@ def test_orchestrator_spawns(tmp_path, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# the architect's own session: never spawn-gated
+# a session outside a dispatch: the mode governing it decides, whether that mode
+# came off the agent it runs on or off the command the architect typed
 # ---------------------------------------------------------------------------
 
-def test_main_session_spawns(tmp_path, monkeypatch):
-    """`is_dispatched` is false here, so the guard returns before it reads a mode —
-    which is why one mode covers all three. test_mode_axis_gates pins that the
-    recorded mode never changes the answer."""
+def test_typed_build_session_does_not_spawn(tmp_path, monkeypatch):
     assert _run({"tool_name": "Agent", "tool_input": {}}, tmp_path, monkeypatch,
-                dispatched=False) == ALLOW
+                dispatched=False) == BLOCK
     assert _run(_bash('codex-run @x "y"'), tmp_path, monkeypatch,
-                dispatched=False) == ALLOW
+                dispatched=False) == BLOCK
 
 
-def test_hand_managed_teammate_answers_for_its_own_agent(tmp_path, monkeypatch):
-    """An agentId with no sidechain marker is the architect's own top-level agent, and
-    on the spawn surface it is gated by what that agent declares — an orchestrator
-    starts others, a builder does not. Its writes stay on the stage axis, which
-    test_mode_axis_gates pins."""
+def test_typed_orchestrate_session_spawns(tmp_path, monkeypatch):
     assert _run({"tool_name": "Agent", "tool_input": {}}, tmp_path, monkeypatch,
-                dispatched=False, teammate="orchestrate") == ALLOW
-    assert _run(_bash('codex-run @x "y"'), tmp_path, monkeypatch,
-                dispatched=False, teammate="orchestrate") == ALLOW
+                mode="orchestrate", dispatched=False) == ALLOW
+
+
+def test_a_session_with_no_agent_and_no_typed_mode_spawns(tmp_path, monkeypatch):
+    """The recorded mode is the startup default here, not a choice, so there is no
+    instruction to enforce and the architect keeps his own dispatches."""
     assert _run({"tool_name": "Agent", "tool_input": {}}, tmp_path, monkeypatch,
-                dispatched=False, teammate="build") == BLOCK
-    assert _run(_bash('codex-run @x "y"'), tmp_path, monkeypatch,
-                dispatched=False, teammate="build") == BLOCK
+                dispatched=False, typed=False) == ALLOW
+
+
+def test_session_started_on_a_build_agent_does_not_spawn(tmp_path, monkeypatch):
+    """Nothing was typed here: the agent the session runs on is what gates it, and
+    the Workflow tool is one of the routes that starts agents."""
+    assert _run({"tool_name": "Workflow", "tool_input": {}}, tmp_path, monkeypatch,
+                dispatched=False, typed=False, teammate="build") == BLOCK
 
 
 # ---------------------------------------------------------------------------

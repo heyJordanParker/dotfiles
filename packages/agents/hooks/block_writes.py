@@ -4,8 +4,13 @@
 Mutation targets are found by quote-aware tokenizing (see command.segments), so a
 `>` only counts as a redirect when it's a real shell operator — never when it sits
 inside a quoted argument. A read-only command like `gh api -f q='a > b'` therefore
-isn't mistaken for a redirect into a repo file and false-blocked, and malformed
-input never chokes the parser.
+isn't mistaken for a redirect into a repo file and false-blocked.
+
+A line whose real command is not in the line — inline runtime code, a script file
+that is not our own tooling, an unbalanced quote — comes back from the shared reader
+as None and is refused. It used to run: the interpreter check this hook owned
+privately was spelled `if proposing and …`, so a mode-banned orchestrator walked
+straight past it and wrote through `python3 -c`.
 """
 
 import os
@@ -13,7 +18,7 @@ import re
 import sys
 
 from lib import feedback
-from lib.command import all_segments, command_head, git_normalize, mutation_targets
+from lib.command import all_segments, git_normalize, is_ours, mutation_targets
 from lib.event import canonical_tool, field, read_event
 from lib.session_mode import is_dispatched, permits, state
 
@@ -40,16 +45,10 @@ Reading, searching, and read-only commands all still run. To change a file, disp
 a subagent to make the edit, or switch the session's mode."""
 
 _DEVICES = {"/dev/null", "/dev/stdout", "/dev/stderr", "/dev/tty"}
-_ASSIGN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
-_OUR_TREE = ("/dotfiles/", "/.agents/", "/.claude/")
 
 # git subcommands that mutate the working tree and are not already blocked
 # unconditionally by block_git_revert (reset/checkout/restore/stash).
 _GIT_TREE_MUTATORS = re.compile(r"git\s+(rm|clean|mv)\b")
-
-
-def _is_our_tree(path):
-    return any(fragment in path + "/" for fragment in _OUR_TREE)
 
 
 def _allowed_target(t, cwd):
@@ -73,51 +72,26 @@ def _allowed_target(t, cwd):
         return True
     if t == "/private/tmp" or t.startswith("/private/tmp/"):
         return True
-    if t == cwd or t.startswith(cwd + "/") or _is_our_tree(t):
+    if t == cwd or t.startswith(cwd + "/") or is_ours(t):
         return False
     return True
 
 
-INTERP_MSG = """BLOCKED: running an interpreter is disabled while a proposal is expected.
+UNREADABLE_MSG = """BLOCKED: this command line cannot be read by the write gate.
 
-Writing files is fine (including under /tmp), and scripts already in the repo still
-run — but a script from outside it, or code passed inline, is blocked until the
-proposal is approved. Run it after approval, or ask the user to run it manually.
-Codex review still works via codex-run."""
+Inline code (`python3 -c`), a script that is not our own tooling, or an unbalanced
+quote hides what actually runs, so the whole line is refused rather than guessed at.
+
+Run the operation as a plain command."""
 
 SCRIPT_WARNING = ("Heads up — a proposal is expected: you can write this script, but "
                   "executing it (python/node/bash/…) is blocked until the proposal is approved.")
 
-_INTERPRETERS = {"python", "python3", "python2", "node", "deno",
-                 "perl", "ruby", "bash", "sh", "zsh"}
 _SCRIPT_EXTS = (".py", ".sh", ".bash", ".zsh", ".js", ".mjs", ".cjs", ".ts", ".rb", ".pl")
 
 
 def _is_script(path):
     return path.strip().strip("\"'").endswith(_SCRIPT_EXTS)
-
-
-def _allowed_interpreter(words, cwd):
-    i = 0
-    while i < len(words) and _ASSIGN.match(words[i]):
-        i += 1
-    if i < len(words) and os.path.basename(words[i].strip("\"'")) == "env":
-        i += 1
-        while i < len(words) and _ASSIGN.match(words[i]):
-            i += 1
-    i += 1
-    if any(t == "-c" or t == "-e" or t == "--command" or t == "--eval" for t in words[i:]):
-        return False
-    for t in words[i:]:
-        if t.startswith("-"):
-            continue
-        if t.startswith("~"):
-            t = os.path.expanduser("~") + t[1:]
-        if not t.startswith("/"):
-            t = os.path.join(cwd, t)
-        t = os.path.realpath(t)
-        return os.path.isfile(t) and _is_our_tree(t)
-    return False
 
 
 def warn(msg):
@@ -170,13 +144,10 @@ def main():
 
     segs = all_segments(command)
     if segs is None:
-        return 0  # unparseable — never choke, never false-block a read
+        return block(UNREADABLE_MSG)
     if _GIT_TREE_MUTATORS.search(git_normalize(command)):
         return block(refusal)
     for seg in segs:
-        if proposing and command_head(seg) in _INTERPRETERS:
-            if not _allowed_interpreter(seg, cwd):
-                return block(INTERP_MSG)
         for target in mutation_targets(seg):
             if not _allowed_target(target, cwd):
                 return block(refusal)

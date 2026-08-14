@@ -51,8 +51,31 @@ def tokenize(command):
 _SEPARATOR_CHARS = set(";|&()\n")
 
 
-def _is_separator(token):
+def is_separator(token):
     return bool(token) and all(c in _SEPARATOR_CHARS for c in token)
+
+
+def _split(command):
+    """Command segments, each with whether its input comes from the one before it.
+
+    A guard reading what a segment runs needs the pipe: `python3 --version` prints a
+    version and `curl x | python3` runs whatever arrived, and the two segments are
+    otherwise identical.
+    """
+    toks = tokenize(command)
+    if toks is None:
+        return None
+    out, cur, piped = [], [], False
+    for t in toks:
+        if is_separator(t):
+            if cur:
+                out.append((cur, piped))
+            cur, piped = [], "|" in t
+        else:
+            cur.append(t)
+    if cur:
+        out.append((cur, piped))
+    return out
 
 
 def segments(command):
@@ -60,18 +83,8 @@ def segments(command):
 
     Returns a list of non-empty token-lists, or None when the command can't be parsed.
     """
-    toks = tokenize(command)
-    if toks is None:
-        return None
-    segs, cur = [], []
-    for t in toks:
-        if _is_separator(t):
-            segs.append(cur)
-            cur = []
-        else:
-            cur.append(t)
-    segs.append(cur)
-    return [s for s in segs if s]
+    split = _split(command)
+    return None if split is None else [words for words, _ in split]
 
 
 # Words whose own argument is another command. The real command follows, past
@@ -81,10 +94,31 @@ def segments(command):
 _PREFIX = frozenset((
     "env", "sudo", "doas", "command", "exec", "nohup",
     "time", "timeout", "nice", "ionice", "stdbuf", "xargs",
+    # Shell keywords sit in the same position and hide the command exactly as a
+    # prefix word does: `for f in *; do codex-run @x y; done` tokenizes to a
+    # segment whose first word is `do`, and every guard read `do` as the command.
+    "do", "then", "else", "elif", "if", "while", "until",
 ))
 
 # Shells whose `-c` argument is a whole command line of its own.
 _SHELL = frozenset(("bash", "sh", "zsh", "dash", "ksh"))
+
+# Words that run a program named in their own argument, without being a shell:
+# `source`/`.` run a file in the current shell and `eval` runs a string.
+_CODE_RUNNERS = frozenset(("source", ".", "eval"))
+
+# Words that give a command a new name. What that name runs is decided in the line
+# and used after it, so following it would mean interpreting the shell.
+_NAME_DEFINERS = frozenset(("alias", "function"))
+
+# awk runs a program of its own, and two of its forms reach the shell from inside
+# it. Ordinary text shaping — `awk '{print $1}' file` — reaches nothing.
+_AWK = frozenset(("awk", "gawk", "mawk"))
+_AWK_SHELL = ("system(", '| "', "|\"")
+
+# The predicates whose argument is a command `find` runs per match.
+_FIND_EXEC = ("-exec", "-execdir", "-ok", "-okdir")
+_FIND_EXEC_PUNCTUATION = ("{}", ";", "\\;", "+")
 
 # Commands whose trailing arguments are a command line run on another machine.
 # Most real work legitimately rides ssh, so a guard judges what the line actually
@@ -99,6 +133,126 @@ _NUMERIC = re.compile(r"^\d+(?:\.\d+)?[smhd]?$")
 # `bash -c` reaching `bash -c` reaching `bash -c`: real commands never nest this
 # far, and the bound is what stops a crafted string from recursing forever.
 _MAX_DEPTH = 4
+
+# Interpreters that run code the command line does not contain: inline through
+# `-c`/`-e`, from a script file named as an argument, or off stdin. `python3 -c "…"`
+# and `sh /tmp/x.sh` are one bypass each for every guard that reads the line, and
+# both were demonstrated against the spawn gate. The list is the one block_writes
+# enforced privately. `bun`, `npm` and the other script runners stay out: `bun run
+# build` names a script in a manifest, and `readonly_refusal` already resolves those.
+RUNTIMES = frozenset((
+    "python", "python3", "python2", "node", "deno", "perl", "ruby",
+))
+
+# The long flags that carry a program as their own argument. The short ones are
+# read letter by letter below, because `python3 -c'code'` glues the program to the
+# flag and an equality test never sees it.
+_INLINE_LONG = frozenset(("--command", "--eval"))
+_INLINE_LETTERS = "cem"
+
+# The trees we wrote ourselves. A script here is our own tooling — `sync.py` is the
+# repository's maintenance entry point — so running it is running us. Anywhere else
+# the file is someone else's program and the line stops being readable.
+OUR_TREE = ("/dotfiles/", "/.agents/", "/.claude/")
+
+
+def is_ours(path):
+    return any(fragment in path + "/" for fragment in OUR_TREE)
+
+
+def _resolved(path, base):
+    path = path.strip().strip("\"'")
+    if path.startswith("~"):
+        path = os.path.expanduser("~") + path[1:]
+    if not path.startswith("/"):
+        path = os.path.join(base, path)
+    return os.path.realpath(path)
+
+
+def _runner_target(words):
+    """The command a runner word runs, as one `(head, args)` pair, or None.
+
+    `uv run python -c '…'` and `npx tsx x.ts` put the real interpreter behind a
+    runner. The runners are the same set `readonly_refusal` resolves through, so
+    one list answers both questions.
+    """
+    i = _past_assignments(words, 0)
+    while i < len(words) and _basename(words[i]) in _PREFIX:
+        i = _past_prefix_args(words, i + 1)
+    if i >= len(words) or _basename(words[i]) not in _RUNNERS:
+        return None
+    rest = [w for w in words[i + 1:] if not _ASSIGN.match(w)]
+    if rest and rest[0] == "run":
+        rest = rest[1:]
+    while rest and rest[0].startswith("-"):
+        rest = rest[1:]
+    return (_basename(rest[0]), rest[1:]) if rest else None
+
+
+def _inline_flag(args):
+    """The flag carrying a program inside this argument list, or "".
+
+    A single-dash argument is read letter by letter: `-c'print(1)'` arrives as one
+    token with the program glued on, and `zsh -lc …` bundles the flag with others.
+    A `--` argument is matched whole, so `--check` is not read as `-c`.
+    """
+    for arg in args:
+        if arg in _INLINE_LONG:
+            return arg
+        if arg.startswith("-") and not arg.startswith("--") \
+                and any(c in arg[1:] for c in _INLINE_LETTERS):
+            return arg
+    return ""
+
+
+def hides_execution(words, piped=False):
+    """What this segment runs that the line itself does not carry, or "".
+
+    A shell's `-c` string is carried, and `_shell_script` reads it, so that shell is
+    not hiding anything. What is hidden is inline code behind a flag, a script file,
+    or a program piped in. A script file is the one readable case, and only when it
+    is our own tooling — the trust boundary the write gate already used for the same
+    question.
+
+    A runtime that names no program at all is running its own flags: `python3
+    --version` prints a version and hides nothing. It only hides a program when one
+    is piped into it, which is what `piped` carries.
+    """
+    candidates = _expand(words, 0)
+    runner = _runner_target(words)
+    if runner:
+        candidates = candidates + [runner]
+    base = os.getcwd()
+    for head, args in candidates:
+        # A head the shell expands — `$SHELL -c …`, `` `codex-run …` `` — names a
+        # command that is not in the line. A bare `$` is the artifact `$(…)` leaves
+        # behind, and the command inside those parentheses is a segment of its own,
+        # so it stays readable and is not refused here.
+        if "`" in head or (head.startswith("$") and len(head) > 1):
+            return "`%s` names a command this guard cannot resolve." % head
+        if head in _NAME_DEFINERS:
+            return "`%s` gives a command a name this guard cannot follow." % head
+        if head in _AWK:
+            program = next((a for a in args if not a.startswith("-")), "")
+            if any(shape in program for shape in _AWK_SHELL):
+                return "`%s` reaches the shell from inside its own program." % head
+            continue
+        if head not in _SHELL and head not in RUNTIMES and head not in _CODE_RUNNERS:
+            continue
+        if head in _SHELL and _shell_script(words) is not None:
+            continue
+        flag = _inline_flag(args)
+        if flag:
+            return "`%s %s` runs code that is not in this command line." % (head, flag)
+        script = next((a for a in args if not a.startswith("-")), "")
+        if not script:
+            if piped:
+                return "`%s` runs whatever is piped into it." % head
+            continue
+        path = _resolved(script, base)
+        if not (os.path.isfile(path) and is_ours(path)):
+            return "`%s %s` runs a program this guard cannot read." % (head, script)
+    return ""
 
 
 def _basename(word):
@@ -120,16 +274,13 @@ def _past_prefix_args(words, i):
     return i
 
 
-def command_head(words):
-    """The executable a segment runs, past leading `VAR=val` assignments and any
-    prefix word that runs another command.
+def head_and_args(words):
+    """The executable a segment runs and the arguments it hands that executable.
 
-    `words` is one tokenized segment (command + args). Returns the basename of the
-    command token, so `FOO=1 codex-run …`, `env X=1 codex-run …`,
+    `words` is one tokenized segment (command + args). The head is the basename of
+    the command token, so `FOO=1 codex-run …`, `env X=1 codex-run …`,
     `/path/to/codex-run …`, and `timeout 600 codex-run …` all reduce to
-    `codex-run`. Empty string for an empty segment. This is the structural "what
-    command is this segment running" check the command guards share, so a guard
-    decides from the real command token rather than the raw command string.
+    `codex-run`. `("", [])` for an empty segment.
 
     A prefix word whose flag takes a value (`sudo -u jordan ssh`) resolves to the
     value, not the command — `invocations` is the reader for a guard that must not
@@ -138,7 +289,14 @@ def command_head(words):
     i = _past_assignments(words, 0)
     while i < len(words) and _basename(words[i]) in _PREFIX:
         i = _past_prefix_args(words, i + 1)
-    return _basename(words[i]) if i < len(words) else ""
+    return (_basename(words[i]), words[i + 1:]) if i < len(words) else ("", [])
+
+
+def command_head(words):
+    """The executable a segment runs. This is the structural "what command is this
+    segment running" check the command guards share, so a guard decides from the
+    real command token rather than the raw command string."""
+    return head_and_args(words)[0]
 
 
 def redirects_output(command):
@@ -211,23 +369,45 @@ def _lines(command, depth):
     while allowing the same command on Claude. The script is what runs, so it
     becomes a line of its own and the wrapper stops being a command.
 
-    A shell with no `-c` stays a command, because what it runs — a script file, an
-    interactive session — is not in the string to read.
+    A segment that hands its work to something outside the string — inline runtime
+    code, or a script file that is not our own tooling — leaves the real command
+    unknowable, so it answers None exactly as an unbalanced quote does. Every guard
+    reading through here already treats None as a refusal.
     """
-    segs = segments(command)
+    segs = _split(command)
     if segs is None:
         return None
     lines = [command]
     if depth >= _MAX_DEPTH:
         return lines
-    for words in segs:
+    for words, piped in segs:
+        if hides_execution(words, piped):
+            return None
         script = _shell_script(words)
-        for inner in ([script] if script is not None else []) + _remote_scripts(words):
+        nested_lines = ([script] if script is not None else []) \
+            + _remote_scripts(words) + _exec_scripts(words)
+        for inner in nested_lines:
             nested = _lines(inner, depth + 1)
             if nested is None:
                 return None
             lines.extend(nested)
     return lines
+
+
+def _exec_scripts(words):
+    """The command line `find` runs per match, or nothing.
+
+    `-exec` puts a whole command after it, which is a line of its own exactly as a
+    shell's `-c` string is. Without this, `find . -exec codex-run @x y \\;` reads as
+    a `find`, and the spawn it carries is invisible to every guard.
+    """
+    if command_head(words) not in ("find", "fd"):
+        return []
+    for i, word in enumerate(words):
+        if word in _FIND_EXEC:
+            rest = [w for w in words[i + 1:] if w not in _FIND_EXEC_PUNCTUATION]
+            return [" ".join(rest)] if rest else []
+    return []
 
 
 def _remote_scripts(words):
@@ -494,7 +674,7 @@ def _prefix_candidates(words, depth):
     """
     ambiguous, start = False, None
     for i, word in enumerate(words):
-        if _ASSIGN.match(word) or _NUMERIC.match(word) or _is_separator(word):
+        if _ASSIGN.match(word) or _NUMERIC.match(word) or is_separator(word):
             continue
         if word.startswith("-"):
             ambiguous = True
@@ -510,5 +690,5 @@ def _prefix_candidates(words, depth):
         (_basename(word), words[i + 1:])
         for i, word in enumerate(words[start + 1:], start + 1)
         if not (_ASSIGN.match(word) or _NUMERIC.match(word)
-                or _is_separator(word) or word.startswith("-"))
+                or is_separator(word) or word.startswith("-"))
     ]

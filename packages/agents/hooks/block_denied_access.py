@@ -38,7 +38,7 @@ declares.
 import os
 import sys
 
-from lib import agent_memory, command, feedback
+from lib import agent_memory, command, feedback, session_mode
 from lib.event import agent_name, canonical_tool, command_str, field, read_event
 
 BINDING = {
@@ -67,9 +67,12 @@ You read, you trace, and you report what you found. Changing the repository is
 the caller's move to make from your report, on both harnesses — this is not a
 codex-only restriction you can retry through the other one.
 
-Do not route the change through the shell, and do not ask another agent to make
-it for you. If reading genuinely needs a command this guard refuses, say so in
-your report and name it."""
+Do not route the change through the shell. If reading genuinely needs a command
+this guard refuses, say so in your report and name it.%s"""
+
+# An orchestrating agent dispatches the implementer by design, so the sentence
+# that forbids it would refuse the agent its own job.
+_NO_PROXY = "\nDo not ask another agent to make it for you."
 
 SSH_MSG = """BLOCKED: the %s agent does not declare `ssh: enabled`.
 
@@ -120,6 +123,16 @@ def declares_no_write_tool(path):
     return bool(tools) and not any(t in _WRITE_TOOLS for t in tools)
 
 
+def refuse_readonly(event, name, why):
+    """Block the call, dropping the no-proxy sentence for an orchestrating agent."""
+    try:
+        mode = session_mode.declared_mode(event)
+    except UnicodeDecodeError:
+        mode = "build"
+    proxy = "" if mode == "orchestrate" else _NO_PROXY
+    return feedback.block("block_denied_access", READONLY_MSG % (name, why, proxy))
+
+
 def main():
     event = read_event()
     path, name = governing_definition(event)
@@ -131,12 +144,10 @@ def main():
 
     if tool == "write":
         if readonly:
-            return feedback.block("block_denied_access", READONLY_MSG % (
-                name, "Editing files is not yours to do."))
+            return refuse_readonly(event, name, "Editing files is not yours to do.")
         if declares_no_write_tool(path):
-            return feedback.block("block_denied_access", READONLY_MSG % (
-                name, "Its `tools:` grants nothing that writes, so editing files "
-                      "is not yours to do."))
+            return refuse_readonly(event, name, "Its `tools:` grants nothing that "
+                                                "writes, so editing files is not yours to do.")
         return 0
 
     if tool != "shell":
@@ -160,12 +171,11 @@ def main():
 
     if readonly:
         if command.redirects_output(line):
-            return feedback.block("block_denied_access", READONLY_MSG % (
-                name, "Redirecting output into a file writes it."))
+            return refuse_readonly(event, name, "Redirecting output into a file writes it.")
         for head, args in found:
             why = command.readonly_refusal(head, args)
             if why:
-                return feedback.block("block_denied_access", READONLY_MSG % (name, why))
+                return refuse_readonly(event, name, why)
 
     return 0
 

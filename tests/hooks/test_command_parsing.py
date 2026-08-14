@@ -8,7 +8,13 @@ a shell inside a shell, and a flag whose value hides the command behind it.
 """
 
 import pytest
-from lib.command import command_head, invocations, redirects_output, segments
+from lib.command import (
+    command_head,
+    composition_refusal,
+    invocations,
+    redirects_output,
+    segments,
+)
 
 
 def heads(line):
@@ -79,9 +85,62 @@ def test_the_codex_shell_wrapper_is_transport_not_a_command():
     assert (head, "-i" in args) == ("sed", True)
 
 
-def test_a_shell_with_no_script_stays_a_command():
-    """`bash run.sh` runs something the string does not contain."""
-    assert heads("bash run.sh") == ["bash"]
+def test_a_program_the_line_does_not_carry_is_unreadable():
+    """`bash run.sh` and `python3 -c` run something the string does not contain, so
+    the line resolves to nothing readable and every guard refuses it. Our own
+    tooling is the exception: `sync.py` is the repository's own entry point."""
+    assert invocations("sh /tmp/x.sh") is None
+    assert invocations("python3 -c 'import os'") is None
+    assert invocations("uv run python -c 'import os'") is None
+    # The program glued to its flag, and a program arriving on stdin.
+    assert invocations("python3 -c'import os'") is None
+    assert invocations("sh -c'codex-run @x y'") is None
+    assert invocations("echo 'import os' | python3") is None
+    # Our own tooling is the readable case, a runtime running its own flags names no
+    # program to hide, and a shell's own -c string still reads.
+    assert heads("python3 scripts/sync.py") == ["python3"]
+    assert heads("python3 --version") == ["python3"]
+    assert heads("node -v") == ["node"]
+    assert heads("sh -c 'codex-run @x y'") == ["codex-run"]
+
+
+@pytest.mark.parametrize("line", [
+    "source /tmp/x.sh",
+    ". /tmp/x.sh",
+    "eval 'codex-run @x y'",
+    "$SHELL -c 'codex-run @x y'",
+    "`codex-run @x y`",
+    "alias c=codex-run && c @x y",
+    "awk 'BEGIN{system(\"codex-run @x y\")}'",
+])
+def test_a_command_the_shell_itself_hides_is_unreadable(line):
+    """Each shape ran a command no guard could see, and none of them can be resolved
+    without interpreting the shell, so the line reads as nothing."""
+    assert invocations(line) is None
+
+
+@pytest.mark.parametrize("line", [
+    "for f in *; do codex-run @x y; done",
+    "if true; then codex-run @x y; fi",
+    "find . -name x -exec codex-run @x y ;",
+])
+def test_a_command_behind_a_keyword_or_a_find_is_read_by_name(line):
+    """These shapes hid the command too, but the command is right there in the line,
+    so it is resolved rather than refused."""
+    assert "codex-run" in heads(line)
+
+
+@pytest.mark.parametrize("line", [
+    "awk '{print $1}' README.md",
+    "for f in *.md; do wc -l $f; done",
+    "if true; then git status; fi",
+    "grep then README.md",
+    "echo $HOME",
+    "make test",
+    "npm run lint",
+])
+def test_the_same_shapes_carrying_ordinary_commands_still_read(line):
+    assert invocations(line) is not None
 
 
 def test_a_write_inside_a_shell_script_is_read():
@@ -104,3 +163,58 @@ def test_output_redirection_is_read_from_the_token_not_the_text(line, expected):
 def test_command_head_agrees_with_the_first_invocation():
     for line in ("env X=1 /usr/bin/sed -i '' s/a/b/ f", "timeout 5 trace grep x"):
         assert command_head(segments(line)[0]) == heads(line)[1]
+
+
+@pytest.mark.parametrize("line", [
+    "cd /Users/jordan/dotfiles && uv run pytest -q",
+    "echo one; echo two",
+    "uv run pytest -q || echo failed",
+    "codex-run @explorer 'x' &",
+    "ls -1 packages/agents/hooks\nls -1 packages/claude/hooks",
+    # The two shapes the transcripts show most: an investigation packed into one
+    # call, and a loop wrapped around a single command.
+    "echo '=== hooks ==='; ls -1 packages/agents/hooks; echo; ls -1 packages/bin",
+    "for f in packages/agents/hooks/*.py; do python3 -m py_compile \"$f\"; done",
+    "for f in 1; do codex-run --help; done",
+    "while read -r f; do wc -l $f; done",
+    "find . -name '*.py' -exec rm {} ;",
+    # A pipe whose consumer changes something is a program, not a read.
+    "ls | xargs -n1 basename",
+    "cat notes.md | tee /tmp/copy.md",
+    "grep -rl foo . | xargs sed -i '' s/foo/bar/",
+    # The longest recorded commands: a file authored through a heredoc.
+    "cat > /tmp/orchestrate.py << 'PYEOF'\nimport json\nPYEOF",
+    "gh issue create --title x --body \"$(cat <<'EOF'\n## Why\nEOF\n)\"",
+    # codex hands every shell call over wrapped, so the composition sits one
+    # level in and the outer line looks like a single command.
+    "/bin/zsh -lc 'cd /tmp && ls'",
+])
+def test_a_line_carrying_more_than_one_step_is_refused(line):
+    assert composition_refusal(line) != ""
+
+
+@pytest.mark.parametrize("line", [
+    "uv run pytest -q",
+    "trace grep composition_refusal",
+    "git status",
+    "python3 scripts/sync.py",
+    "cat a.py > b.py",
+    # The read-side pipe: the consumer only shapes what it is given.
+    "uv run pytest -q 2>&1 | tail -40",
+    "git status --porcelain | wc -l",
+    "rg import packages/agents/hooks | sort | uniq -c",
+    # A separator inside a quoted argument is part of that argument.
+    "rg 'a && b' README.md",
+    "git commit -m 'add x; drop y'",
+    "echo 'one | two'",
+])
+def test_a_single_step_line_is_allowed(line):
+    assert composition_refusal(line) == ""
+
+
+def test_a_line_hiding_its_own_program_is_refused():
+    """`hides_execution` already answers this for the declaration gates. The atomic
+    gate reaches every session, so the same shapes answer here too."""
+    assert composition_refusal("python3 -c 'import os'") != ""
+    assert composition_refusal("bash /tmp/scratch.sh") != ""
+    assert composition_refusal("cat 'unbalanced") != ""
