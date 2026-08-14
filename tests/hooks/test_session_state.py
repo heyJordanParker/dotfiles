@@ -68,7 +68,7 @@ def _stage_transcript(root_projects, agent_id, parent_id, project="proj"):
     """Mirror the harness's stage_subagent_transcript: write the empty subagent
     transcript that _resolve_parent_id globs for."""
     path = os.path.join(str(root_projects), project, parent_id,
-                        "subagents", agent_id + ".jsonl")
+                         "subagents", agent_id + ".jsonl")
     os.makedirs(os.path.dirname(path), exist_ok=True)
     open(path, "w").close()
     return path
@@ -84,8 +84,8 @@ def test_start_creates_main_state_with_defaults(root, clock):
     assert st["role"] == "main"
     assert st["session_id"] == "main-1"
     assert st["parent_session_id"] is None
-    assert st["approach"] == "subagents"
-    assert st["state"] == "proposing"
+    assert st["mode"] == "build"
+    assert st["state"] == "propose"
     assert st["commit_requested"] is False
     assert st["goal"] is None
     assert st["notes"] == []
@@ -96,11 +96,11 @@ def test_start_creates_main_state_with_defaults(root, clock):
 
 def test_start_is_idempotent(root, clock):
     _run(["start", "m", "--transcript-path", "/foo/m.jsonl"])
-    _run(["set", "m", "approach", "team"])
+    _run(["set", "m", "mode", "team"])
     _run(["start", "m", "--transcript-path", "/foo/m.jsonl"])
-    assert session_state.cmd_get(["m", "approach"]) == 0  # exit only; value below
+    assert session_state.cmd_get(["m", "mode"]) == 0  # exit only; value below
     st = _read(_state(root, "m"))
-    assert st["approach"] == "team"  # re-start did not clobber the mutation
+    assert st["mode"] == "team"  # re-start did not clobber the mutation
 
 
 def test_start_without_transcript_is_main(root, clock):
@@ -123,7 +123,7 @@ def test_subagent_nests_under_parent(root, clock):
     assert st["session_id"] == "agent-xyz"
     assert st["parent_session_id"] == "parent"
     # subagent state omits the main-only control + goal fields
-    for omitted in ("approach", "state", "goal", "notes", "gate_blocks",
+    for omitted in ("mode", "state", "goal", "notes", "gate_blocks",
                     "commit_requested"):
         assert omitted not in st
 
@@ -139,17 +139,17 @@ def test_subagent_resolves_parent_via_staged_transcript(root, clock):
     parent by globbing the staged transcript under CLAUDE_PROJECTS_ROOT."""
     _run(["start", "lc-parent", "--transcript-path", "/p/lc-parent/lc-parent.jsonl"])
     _stage_transcript(root.parent / "projects", "agent-lcsub", "lc-parent")
-    assert _run(["set", "agent-lcsub", "approach", "team"]) == 0
+    assert _run(["set", "agent-lcsub", "mode", "team"]) == 0
     nested = _state(root, "lc-parent", "subagents", "agent-lcsub")
     assert os.path.isfile(nested)
     st = _read(nested)
     assert st["role"] == "subagent"
     assert st["parent_session_id"] == "lc-parent"
-    assert st["approach"] == "team"
+    assert st["mode"] == "team"
 
 
 def test_orphan_agent_without_parent_fails_loud(root, clock, capsys):
-    rc = _run(["set", "agent-orphan", "approach", "team"])
+    rc = _run(["set", "agent-orphan", "mode", "team"])
     assert rc == 1
     assert "no resolvable parent" in capsys.readouterr().err
     assert not os.path.isdir(os.path.join(str(root), "sessions", "agent-orphan"))
@@ -192,29 +192,29 @@ def test_set_heals_corrupt_state(root, clock):
     path = _seed_session_dir(root, "rc")
     with open(path, "w") as fh:
         fh.write("this is not json")
-    assert _run(["set", "rc", "approach", "team"]) == 0
+    assert _run(["set", "rc", "mode", "team"]) == 0
     st = _read(path)
     assert st["role"] == "main"
     assert st["session_id"] == "rc"
-    assert st["approach"] == "team"
+    assert st["mode"] == "team"
 
 
 def test_merge_heals_corrupt_state(root, clock):
     path = _seed_session_dir(root, "rc2")
     with open(path, "w") as fh:
         fh.write("garbage")
-    assert _run(["merge", "rc2", '{"approach":"team","intent":"approval"}']) == 0
+    assert _run(["merge", "rc2", '{"mode":"team","intent":"approval"}']) == 0
     st = _read(path)
-    assert st["approach"] == "team"
+    assert st["mode"] == "team"
     assert st["intent"] == "approval"
 
 
 def test_set_heals_empty_state(root, clock):
     path = _seed_session_dir(root, "empty")
     open(path, "w").close()
-    assert _run(["set", "empty", "approach", "team"]) == 0
+    assert _run(["set", "empty", "mode", "team"]) == 0
     st = _read(path)
-    assert st["approach"] == "team"
+    assert st["mode"] == "team"
     assert st["role"] == "main"
 
 
@@ -222,17 +222,17 @@ def test_set_heals_array_shaped_state(root, clock):
     path = _seed_session_dir(root, "arr")
     with open(path, "w") as fh:
         fh.write("[1,2,3]")
-    assert _run(["set", "arr", "approach", "team"]) == 0
+    assert _run(["set", "arr", "mode", "team"]) == 0
     st = _read(path)
     assert isinstance(st, dict)
-    assert st["approach"] == "team"
+    assert st["mode"] == "team"
 
 
 def test_set_on_missing_state_lazy_creates(root, clock):
-    assert _run(["set", "fresh", "approach", "team"]) == 0
+    assert _run(["set", "fresh", "mode", "team"]) == 0
     st = _read(_state(root, "fresh"))
     assert st["role"] == "main"
-    assert st["approach"] == "team"
+    assert st["mode"] == "team"
 
 
 def test_start_heals_corrupt_state(root, clock):
@@ -250,10 +250,10 @@ def test_heal_preserves_the_prior_mode(root, clock):
     # architect's typed /execute back to proposing and block their edits.
     path = _seed_session_dir(root, "mode")
     with open(path, "w") as fh:
-        fh.write('{"session_id":"mode","role":"main","state":"executing","appro')
-    assert _run(["set", "mode", "approach", "solo"]) == 0
+        fh.write('{"session_id":"mode","role":"main","state":"execute","appro')
+    assert _run(["set", "mode", "mode", "solo"]) == 0
     st = _read(path)
-    assert st["state"] == "executing"
+    assert st["state"] == "execute"
     assert "prior_state_lost" not in st
 
 
@@ -261,9 +261,9 @@ def test_heal_flags_an_unrecoverable_mode(root, clock):
     path = _seed_session_dir(root, "lost")
     with open(path, "w") as fh:
         fh.write("garbage not json")
-    assert _run(["set", "lost", "approach", "solo"]) == 0
+    assert _run(["set", "lost", "mode", "solo"]) == 0
     st = _read(path)
-    assert st["state"] == "proposing"
+    assert st["state"] == "propose"
     assert st["prior_state_lost"] is True
 
 
@@ -271,7 +271,7 @@ def test_get_on_corrupt_state_is_soft(root, clock, capsys):
     path = _seed_session_dir(root, "soft")
     with open(path, "w") as fh:
         fh.write("not json")
-    rc = _run(["get", "soft", "approach"])
+    rc = _run(["get", "soft", "mode"])
     assert rc == 0
     assert capsys.readouterr().out == ""  # no value, no heal on a read
 
@@ -291,14 +291,14 @@ def test_set_parses_json_scalars(root, clock):
 
 def test_set_falls_back_to_string(root, clock):
     _run(["start", "s", "--transcript-path", "/foo/s.jsonl"])
-    _run(["set", "s", "approach", "with multiple words"])
-    assert _read(_state(root, "s"))["approach"] == "with multiple words"
+    _run(["set", "s", "mode", "with multiple words"])
+    assert _read(_state(root, "s"))["mode"] == "with multiple words"
 
 
 def test_set_preserves_other_fields(root, clock):
     _run(["start", "s", "--transcript-path", "/foo/s.jsonl"])
-    _run(["set", "s", "approach", "team"])
-    assert _read(_state(root, "s"))["state"] == "proposing"
+    _run(["set", "s", "mode", "team"])
+    assert _read(_state(root, "s"))["state"] == "propose"
 
 
 def test_merge_rejects_non_object(root, clock):
@@ -306,7 +306,7 @@ def test_merge_rejects_non_object(root, clock):
     for frag in ('"a-string"', "[1,2,3]", "42", "null", "true"):
         assert _run(["merge", "m", frag]) == 1
     st = _read(_state(root, "m"))
-    assert st["approach"] == "subagents"  # untouched by the rejected merges
+    assert st["mode"] == "build"  # untouched by the rejected merges
 
 
 def test_merge_empty_object_succeeds(root, clock):
@@ -324,9 +324,9 @@ def test_merge_empty_object_succeeds(root, clock):
 ])
 def test_invalid_session_ids_rejected(root, clock, bad):
     assert _run(["start", bad, "--transcript-path", "/foo/x.jsonl"]) == 1
-    assert _run(["set", bad, "approach", "team"]) == 1
-    assert _run(["get", bad, "approach"]) == 1
-    assert _run(["merge", bad, '{"approach":"team"}']) == 1
+    assert _run(["set", bad, "mode", "team"]) == 1
+    assert _run(["get", bad, "mode"]) == 1
+    assert _run(["merge", bad, '{"mode":"team"}']) == 1
 
 
 @pytest.mark.parametrize("good", [
@@ -342,7 +342,7 @@ def test_valid_session_ids_accepted(root, clock, good):
 # ---------------------------------------------------------------------------
 
 def test_get_missing_session_is_soft(root, clock):
-    assert _run(["get", "nope", "approach"]) == 0
+    assert _run(["get", "nope", "mode"]) == 0
 
 
 def test_get_null_field_emits_nothing(root, clock, capsys):
@@ -381,16 +381,16 @@ def test_concurrent_set_keeps_state_valid(root, clock):
                 _run(["set", "c", field, "%s-%d" % (prefix, i)])
         return run
 
-    t1 = threading.Thread(target=writer("approach", "team"))
+    t1 = threading.Thread(target=writer("mode", "team"))
     t2 = threading.Thread(target=writer("intent", "appr"))
     t1.start()
     t2.start()
     t1.join()
     t2.join()
     st = _read(_state(root, "c"))
-    assert st["approach"].startswith("team-")
+    assert st["mode"].startswith("team-")
     assert st["intent"].startswith("appr-")
-    assert st["state"] == "proposing"  # untouched field preserved
+    assert st["state"] == "propose"  # untouched field preserved
 
 
 # ---------------------------------------------------------------------------
@@ -476,10 +476,10 @@ def test_no_command_exits_1(root, clock):
 
 def test_load_state_returns_stored_fields(root, clock):
     _run(["start", "ls1", "--transcript-path", "/foo/ls1.jsonl"])
-    _run(["set", "ls1", "approach", "team"])
+    _run(["set", "ls1", "mode", "team"])
     st = session_state.load_state("ls1")
-    assert st["approach"] == "team"
-    assert st["state"] == "proposing"
+    assert st["mode"] == "team"
+    assert st["state"] == "propose"
     assert st["session_id"] == "ls1"
 
 
@@ -493,23 +493,23 @@ def test_load_state_invalid_id_is_empty(root, clock):
 
 def test_merge_state_applies_and_preserves(root, clock):
     _run(["start", "ms1", "--transcript-path", "/foo/ms1.jsonl"])
-    assert session_state.merge_state("ms1", {"approach": "team", "intent": "approval"}) is True
+    assert session_state.merge_state("ms1", {"mode": "team", "intent": "approval"}) is True
     st = _read(_state(root, "ms1"))
-    assert st["approach"] == "team"
+    assert st["mode"] == "team"
     assert st["intent"] == "approval"
-    assert st["state"] == "proposing"   # untouched control field preserved
+    assert st["state"] == "propose"   # untouched control field preserved
     assert st["session_id"] == "ms1"    # identity/telemetry preserved
 
 
 def test_merge_state_lazy_creates_session(root, clock):
-    assert session_state.merge_state("ms2", {"state": "executing"}) is True
+    assert session_state.merge_state("ms2", {"state": "execute"}) is True
     st = _read(_state(root, "ms2"))
-    assert st["state"] == "executing"
+    assert st["state"] == "execute"
     assert st["role"] == "main"
 
 
 def test_merge_state_invalid_id_returns_false_no_write(root, clock):
-    assert session_state.merge_state("../bad", {"state": "executing"}) is False
+    assert session_state.merge_state("../bad", {"state": "execute"}) is False
     sessions = os.path.join(str(root), "sessions")
     assert not os.path.isdir(sessions) or os.listdir(sessions) == []
 
@@ -524,31 +524,26 @@ def test_merge_state_non_dict_fragment_returns_false(root, clock):
 # Stop-gate block counter — per-turn, per-gate; resets when the turn advances
 # ---------------------------------------------------------------------------
 
-def test_gate_block_count_zero_before_any_block(root, clock):
-    _run(["start", "g", "--transcript-path", "/foo/g.jsonl"])
-    assert session_state.gate_block_count("g", "validate_completion") == 0
-
-
 def test_bump_gate_block_counts_within_a_turn(root, clock):
     _run(["start", "g", "--transcript-path", "/foo/g.jsonl"])
     session_state.merge_state("g", {"current_turn_start": 100})
-    assert session_state.bump_gate_block("g", "validate_completion") == 1
-    assert session_state.bump_gate_block("g", "validate_completion") == 2
-    assert session_state.gate_block_count("g", "validate_completion") == 2
+    assert session_state.bump_gate_block("g", "babysitter") == 1
+    assert session_state.bump_gate_block("g", "babysitter") == 2
+    assert session_state.gate_block_count("g", "babysitter") == 2
 
 
 def test_gate_block_count_resets_when_turn_advances(root, clock):
     _run(["start", "g", "--transcript-path", "/foo/g.jsonl"])
     session_state.merge_state("g", {"current_turn_start": 100})
-    session_state.bump_gate_block("g", "validate_completion")
-    assert session_state.gate_block_count("g", "validate_completion") == 1
+    session_state.bump_gate_block("g", "babysitter")
+    assert session_state.gate_block_count("g", "babysitter") == 1
     session_state.merge_state("g", {"current_turn_start": 200})  # next human turn
-    assert session_state.gate_block_count("g", "validate_completion") == 0
+    assert session_state.gate_block_count("g", "babysitter") == 0
 
 
 def test_gate_blocks_are_isolated_per_gate(root, clock):
     _run(["start", "g", "--transcript-path", "/foo/g.jsonl"])
     session_state.merge_state("g", {"current_turn_start": 100})
-    session_state.bump_gate_block("g", "validate_completion")
-    assert session_state.gate_block_count("g", "babysitter") == 0
-    assert session_state.gate_block_count("g", "validate_completion") == 1
+    session_state.bump_gate_block("g", "babysitter")
+    assert session_state.gate_block_count("g", "validate_plan_quality") == 0
+    assert session_state.gate_block_count("g", "babysitter") == 1

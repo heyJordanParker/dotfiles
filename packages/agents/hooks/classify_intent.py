@@ -4,17 +4,18 @@
 On every UserPromptSubmit this does two jobs:
 
 - Deterministic, no LLM: typed mode-commands map straight to control state
-  (/propose /execute force STATE; /solo /subagents force APPROACH; /commit
-  forces a commit), persisted to the session spine and echoed as the matching
-  skill-load directive. Every other typed /skill is matched against the skills
-  and commands on disk and echoed as a head-anchored reload directive.
+  (/propose /execute force STATE; /orchestrate /build /interview force MODE, with
+  /orchestrate and /build also entering the executing state; /commit forces a
+  commit), persisted to the session spine and echoed as the matching skill-load
+  directive. Every other typed /skill is matched against the skills and commands
+  on disk and echoed as a head-anchored reload directive.
 
 - One LLM call: classify the message intent (question | correction | action),
   whether a question also carries action items, whether its steps are ordered,
   and maintain the session's behavioral-correction notes. The contract for that
   intent is injected as additionalContext.
 
-State and approach stay manual — the LLM never moves them, only the typed
+State and mode stay manual — the LLM never moves them, only the typed
 commands do. The goal/requirements/boundaries are maintained separately by
 update_goal.py, the other UserPromptSubmit model call.
 
@@ -30,6 +31,7 @@ import sys
 from lib import feedback, transcript
 from lib.event import field, read_event
 from lib.model_call import run_model
+from lib.session_mode import is_dispatched, resolve
 from lib.session_state import load_state, merge_state
 
 BINDING = {
@@ -45,50 +47,19 @@ def emit_context(text):
     feedback.context("classify_intent", "UserPromptSubmit", text)
 
 
-def is_system_prompt(prompt):
-    # XML-tagged: starts with <tag>, contains matching </tag>
-    if prompt.startswith("<"):
-        tag_rest = prompt[1:]
-        tag_name = re.split(r"[> ]", tag_rest, maxsplit=1)[0]
-        if tag_name and ("</%s>" % tag_name) in prompt:
-            return True
-    # Bracket-enclosed: entire message is a single [...] line
-    if prompt.startswith("["):
-        first_line = prompt.split("\n", 1)[0]
-        if first_line.endswith("]") and prompt == first_line:
-            return True
-    if prompt.startswith("This session is being continued"):
-        return True
-    if prompt.startswith("Base directory for this skill:"):
-        return True
-    # Machine-authored replays: a stop-gate's own feedback and a relayed message
-    # from another session both come back through UserPromptSubmit carrying
-    # whatever text they quote, so a /propose inside them must never write state.
-    if prompt.startswith("Stop hook feedback:"):
-        return True
-    if prompt.startswith("Another Claude session sent a message:"):
-        return True
-    return False
-
-
-def is_subagent_prompt(event):
-    """True when the payload belongs to a subagent turn.
-
-    A Claude subagent's payload carries the parent's UUID in session_id, so the id
-    can't tell them apart; the sidechain markers can. Both spellings are checked
-    because the harness snake-cases its own payload keys and passes the transcript
-    record's camelCase keys through unchanged.
-    """
-    for key in ("isSidechain", "is_sidechain", "agentId", "agent_id"):
-        if field(event, key, ""):
-            return True
-    return False
+# Machine-authored text reaching UserPromptSubmit — a task notification, an
+# injected block, a stop-gate's own feedback replayed back, a relayed message from
+# another session. Each carries whatever text it quotes, so a /propose inside one
+# must never write state. `transcript.harness_authored` owns the test; the
+# uploader gates on the same call, so one definition governs what counts as the
+# architect speaking.
+is_system_prompt = transcript.harness_authored
 
 
 # --- typed mode-commands (deterministic) ---------------------------------------
 
-_FORCED_STATE = {"/propose": "proposing", "/execute": "executing", "/interview": "interview"}
-_FORCED_APPROACH = {"/solo": "solo", "/subagents": "subagents"}
+_FORCED_STATE = {"/propose": "propose", "/execute": "execute"}
+_FORCED_MODE = {"/orchestrate": "orchestrate", "/build": "build", "/interview": "interview"}
 
 # The architect types his commands anywhere, phrased naturally: "sure, /execute &
 # /commit after", or mid-sentence on a later line. So every slash token counts, on
@@ -120,37 +91,49 @@ def leading_commands(prompt):
 
 def forced_commands(prompt):
     forced_state = ""
-    forced_approach = ""
+    forced_mode = ""
     forced_commit = False
     # Last typed command wins, so a corrected mode later in the message holds.
     for token in leading_commands(prompt):
         if token in _FORCED_STATE:
             forced_state = _FORCED_STATE[token]
-        elif token in _FORCED_APPROACH:
-            forced_approach = _FORCED_APPROACH[token]
+        elif token in _FORCED_MODE:
+            forced_mode = _FORCED_MODE[token]
         elif token == "/commit":
             forced_commit = True
-    return forced_state, forced_approach, forced_commit
+    return forced_state, forced_mode, forced_commit
 
 
-def directive(forced_state, forced_approach):
+def directive(forced_state, forced_mode, governing_mode=None):
+    """The skill-load directives for one turn's control axes.
+
+    Called on a typed command, and by inject_mode_skills after a compaction drops
+    the skills a live session is still gated by.
+
+    The mode line names `governing_mode` — what lib.session_mode.resolve answers
+    for this event after the write landed — so the skill the agent loads and the
+    mode the gates enforce are read off one policy. Announcing the typed word
+    instead let a turn that typed only /execute reload the previous mode's skill.
+    """
+    if governing_mode is None:
+        governing_mode = forced_mode
     out = ""
-    if forced_state == "executing":
+    if forced_state == "execute":
         out = ("This is an executing-state turn. Load the /execute skill now and "
                "work under its contract: implement the approved work, and the moment "
                "it needs an architectural change, stop and escalate with /pcc.")
-    elif forced_state == "proposing":
+    elif forced_state == "propose":
         out = ("This is a proposing-state turn. Load the /propose skill now and "
                "produce the proposal under its contract.")
-    elif forced_state == "interview":
+    if forced_mode == "interview":
         out = ("This is an interview turn. Load the interview skill now and interview "
                "the architect one question at a time.")
-    approach_line = {
-        "solo": "Load the /solo skill now.",
-        "subagents": "Load the /subagents skill now.",
-    }.get(forced_approach, "")
-    if approach_line:
-        out = (out + "\n\n" + approach_line) if out else approach_line
+    mode_line = {
+        "orchestrate": "Load the /orchestrate skill now.",
+        "build": "Load the /build skill now.",
+    }.get(governing_mode, "")
+    if mode_line:
+        out = (out + "\n\n" + mode_line) if out else mode_line
     return out
 
 
@@ -166,9 +149,9 @@ WRITE_FAILED_NOTICE = ("The typed command could not be applied: the session stat
 _SKILLS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "skills")
 _COMMANDS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "commands")
 
-# The mode/commit commands above carry richer state/approach directives; the
+# The mode/commit commands above carry richer state/mode directives; the
 # general scan skips them so it never double-handles one.
-_SPECIAL_SKILLS = {"/propose", "/execute", "/interview", "/solo", "/subagents", "/commit"}
+_SPECIAL_SKILLS = {"/propose", "/execute", "/interview", "/orchestrate", "/build", "/commit"}
 
 # A skill token counts only when its slash follows start-or-whitespace, so a name
 # embedded in a path (.../skills/architecture) never matches.
@@ -357,7 +340,12 @@ def main():
     event = read_event()
 
     session_id = field(event, "session_id", "")
-    if not session_id or is_subagent_prompt(event):
+    # A dispatched agent gets its task from its dispatcher, not from a typed
+    # command, so it is skipped. The architect's hand-managed teammates are not
+    # dispatched — they carry an agentId and nothing else — and skipping those
+    # dropped every mode command they typed, leaving the spine on the mode the
+    # roster declared while the statusline showed what he asked for.
+    if not session_id or is_dispatched(event):
         return 0
 
     prompt = field(event, "prompt", "")
@@ -370,27 +358,38 @@ def main():
     # One blanking feeds both deterministic scans, so a quoted sentence can never
     # count as a mode command for one scan and a typed skill for the other.
     scanned = blank_spans(prompt)
-    forced_state, forced_approach, forced_commit = forced_commands(scanned)
+    forced_state, forced_mode, forced_commit = forced_commands(scanned)
 
-    # Ensure the session exists and apply any typed mode-commands.
-    update = {}
+    # Ensure the session exists and apply any typed mode-commands. The commit
+    # authorization is written on every human turn, not only when granted, so it
+    # expires with the turn that typed /commit instead of latching for the session.
+    # A <task-notification> wake-up is a system prompt and returns above, so async
+    # work inside the granting turn keeps it; the next human turn revokes it.
+    update = {"commit_requested": forced_commit}
+    if forced_mode:
+        update["mode"] = forced_mode
+        update["mode_typed"] = True
+    # /orchestrate and /build name how the architect wants the work done, which is
+    # already the approval to do it — "orchestrate agents to do this /execute" was
+    # him typing the second half every time. A /propose typed in the same message
+    # is him asking for the proposal instead, and it wins. /interview is left out:
+    # it is the mode that produces no work.
+    if forced_mode in ("orchestrate", "build") and not forced_state:
+        forced_state = "execute"
     if forced_state:
         update["state"] = forced_state
-    if forced_approach:
-        update["approach"] = forced_approach
-    if forced_commit:
-        update["commit_requested"] = True
     stored = merge_state(session_id, update)
 
     # Deterministic context: the typed-command skill-load directives. Announcing a
     # mode the write never stored leaves the agent working under one mode while the
     # gates enforce the other, so the directive rides only on a confirmed write.
     if stored:
-        context = directive(forced_state, forced_approach)
+        governing = resolve(event, session_id) if (forced_state or forced_mode) else forced_mode
+        context = directive(forced_state, forced_mode, governing)
         if forced_commit:
             context = (context + "\n\n" + COMMIT_DIRECTIVE) if context else COMMIT_DIRECTIVE
     else:
-        context = WRITE_FAILED_NOTICE if update else ""
+        context = WRITE_FAILED_NOTICE if (forced_state or forced_mode or forced_commit) else ""
 
     # Every other typed /skill: a head-anchored reload directive, leading the block.
     typed = typed_skills(scanned)
@@ -400,7 +399,7 @@ def main():
 
     # Interview state turns the LLM hooks off for speed: emit only the deterministic
     # directives built above and skip the model call.
-    if load_state(session_id).get("state") == "interview":
+    if resolve(event) == "interview":
         if context:
             emit_context(context)
         return 0
@@ -422,6 +421,12 @@ def main():
             merge_state(session_id, {"notes": notes})
 
         intent = result.get("intent") or "action"
+        # The stop gates judge the reply against what the architect asked for, and
+        # this is the one place the turn's intent is worked out. Persisting it there
+        # spends no second model call on the same question. A turn that skips this
+        # hook — a task notification, a system prompt — is not him speaking, so the
+        # stored intent stays the one from his last real turn.
+        merge_state(session_id, {"intent": intent})
         contract = intent_contract(intent, bool(result.get("has_action_items")))
         if contract:
             context = (context + "\n\n" + contract) if context else contract
@@ -430,8 +435,8 @@ def main():
             context = (context + "\n\n" + SEQUENTIAL_DIRECTIVE) if context else SEQUENTIAL_DIRECTIVE
 
         # On proposing turns, re-surface the session's standing corrections.
-        current_state = load_state(session_id).get("state") or "proposing"
-        if current_state == "proposing" and notes:
+        current_state = load_state(session_id).get("state") or "propose"
+        if current_state == "propose" and notes:
             block = NOTES_HEADER + "\n" + "\n".join("- %s" % n for n in notes)
             context = (context + "\n\n" + block) if context else block
 

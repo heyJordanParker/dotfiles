@@ -34,3 +34,7 @@ Approval covers the behavior, not the shape. A file, public method, schema colum
 ## 2. Implement fully when Architecture stays unchanged
 
 Build the approved work completely and prove it ran.
+
+IF the session is in orchestrate mode:
+### Dispatch the implementation per /delegate
+Judge the returned Evidence instead of editing yourself.

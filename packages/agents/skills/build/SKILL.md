@@ -6,7 +6,7 @@ description: The build mode's contract — the Agent does every edit and run its
 # Build
 
 Build mode means no Subagents and no delegation.
-The `block_spawning` Hook refuses a dispatched build Agent's spawns.
+The `block_spawning` Hook refuses every spawn build mode governs, dispatched or not.
 Read the full Architecture before touching it; fix or propose from root causes at the right layer.
 
 ## 1. Confirm build is the right operating mode

@@ -65,33 +65,38 @@ codex_status=""
 if [ -n "$session_id" ]; then
   state_file="${CLAUDE_DATA_ROOT:-$HOME/.claude}/sessions/${session_id}/state.json"
   if [ -f "$state_file" ]; then
-    raw_state=$(jq -r '.state // "proposing"' "$state_file" 2>/dev/null) || raw_state="proposing"
-    raw_approach=$(jq -r '.approach // "solo"' "$state_file" 2>/dev/null) || raw_approach="solo"
+    raw_state=$(jq -r '.state // "propose"' "$state_file" 2>/dev/null) || raw_state="propose"
+    raw_mode=$(jq -r '.mode // "build"' "$state_file" 2>/dev/null) || raw_mode="build"
+
+    # A value off the axis reads as the default rather than as the other label: the
+    # label below is a two-way pick, so an unrecognized state would print "Executing"
+    # over a session that is proposing. Reachable only from a state.json written
+    # before the mode axis, which sync.py migrates.
+    case "$raw_state" in propose|execute) ;; *) raw_state=propose ;; esac
+    case "$raw_mode" in orchestrate|build|interview) ;; *) raw_mode=build ;; esac
 
     # Capitalize first letter
-    state_label="$(tr '[:lower:]' '[:upper:]' <<< "${raw_state:0:1}")${raw_state:1}"
-    approach_label="$(tr '[:lower:]' '[:upper:]' <<< "${raw_approach:0:1}")${raw_approach:1}"
+    state_label=$([ "$raw_state" = propose ] && echo Proposing || echo Executing)
+    mode_label=$([ "$raw_mode" = orchestrate ] && echo Orchestrating || ([ "$raw_mode" = build ] && echo Building || echo Interviewing))
 
     # State colors: proposing=yellow, executing=green, auto=cyan
     case "$raw_state" in
-      proposing) state_color="\033[33m" ;;
-      executing) state_color="\033[32m" ;;
-      auto)      state_color="\033[36m" ;;
-      interview) state_color="\033[97m" ;;
+      propose) state_color="\033[33m" ;;
+      execute) state_color="\033[32m" ;;
       *)         state_color="\033[90m" ;;
     esac
 
     # Approach colors: solo=magenta, subagents=blue, team=bright cyan
-    case "$raw_approach" in
-      solo)      approach_color="\033[35m" ;;
-      subagents) approach_color="\033[34m" ;;
-      team)      approach_color="\033[96m" ;;
-      *)         approach_color="\033[90m" ;;
+    case "$raw_mode" in
+      orchestrate) mode_color="\033[34m" ;;
+      build)       mode_color="\033[35m" ;;
+      interview)   mode_color="\033[96m" ;;
+      *)           mode_color="\033[90m" ;;
     esac
 
     reset=$'\033[0m'
     dim=$'\033[90m'
-    classifier_status=$(printf "%b%s%s %b->%s %b%s%s " "$state_color" "$state_label" "$reset" "$dim" "$reset" "$approach_color" "$approach_label" "$reset")
+    classifier_status=$(printf "%b%s%s %b->%s %b%s%s " "$state_color" "$state_label" "$reset" "$dim" "$reset" "$mode_color" "$mode_label" "$reset")
   fi
 
   columns=${COLUMNS:-}

@@ -12,7 +12,6 @@ Recording contract (one per event, mirroring the retired jq wiring):
   UserPromptSubmit-> prompt   (plain session id, prompt TEXT on the spine's stdin)
                      and, when the prompt is a completed <task-notification>,
                      archive that subagent's tracer log
-  PreToolUse Skill-> the interview-state write when the skill is /interview
 
 The spine is driven in-process (its cmd_* functions imported directly). The one
 subprocess is the tracer-log archive, reused from archive_subagent_log.py, only on
@@ -26,13 +25,13 @@ import sys
 
 import archive_subagent_log
 from lib.event import field, read_event
-from lib.session_state import cmd_prompt, cmd_start, merge_state
+from lib.session_mode import declared_mode
+from lib.session_state import cmd_prompt, cmd_start, load_state, merge_state
 
 BINDING = {
     "events": {
         "SessionStart": [],
         "UserPromptSubmit": [],
-        "PreToolUse": ["Skill"],
     },
     "harness": "all",
 }
@@ -81,6 +80,8 @@ def main():
         session_id = field(event, "session_id", "")
         if session_id:
             cmd_start([session_id, "--transcript-path", field(event, "transcript_path", "")])
+            if load_state(session_id).get("mode_typed") is not True:
+                merge_state(session_id, {"mode": declared_mode(event), "mode_typed": False})
         return 0
 
     if hook_event == "UserPromptSubmit":
@@ -89,16 +90,6 @@ def main():
         if session_id:
             _record_prompt(session_id, prompt)
         _handle_task_notification(event, prompt)
-        return 0
-
-    if hook_event == "PreToolUse":
-        skill = (
-            field(event, "tool_input.skill", "")
-            or field(event, "tool_input.skill_name", "")
-            or field(event, "tool_input.name", "")
-        )
-        if skill == "interview":
-            merge_state(field(event, "session_id", ""), {"state": "interview"})
         return 0
 
     return 0

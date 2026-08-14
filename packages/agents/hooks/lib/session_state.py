@@ -86,6 +86,13 @@ def _atomic_write(path, content):
         return False
 
 
+# A contended write waits this long in total before giving up: 500 attempts a
+# hundredth of a second apart, five seconds. A test that means to exercise the
+# give-up branch drives these down rather than waiting the real budget out.
+_LOCK_TRIES = 500
+_LOCK_WAIT = 0.01
+
+
 def _with_lock(path):
     lock_dir = path + ".lock"
     tries = 0
@@ -95,14 +102,14 @@ def _with_lock(path):
             return True
         except FileExistsError:
             tries += 1
-            if tries > 500:
+            if tries > _LOCK_TRIES:
                 return False
-            time.sleep(0.01)
+            time.sleep(_LOCK_WAIT)
         except Exception:
             tries += 1
-            if tries > 500:
+            if tries > _LOCK_TRIES:
                 return False
-            time.sleep(0.01)
+            time.sleep(_LOCK_WAIT)
 
 
 def _release_lock(path):
@@ -144,8 +151,9 @@ def _default_main_state(session_id):
         "session_id": session_id,
         "role": "main",
         "parent_session_id": None,
-        "approach": "subagents",
-        "state": "proposing",
+        "mode": "build",
+        "mode_typed": False,
+        "state": "propose",
         "commit_requested": False,
         "goal": None,
         "notes": [],
@@ -165,27 +173,93 @@ def _default_subagent_state(session_id, parent_id=""):
     }
 
 
-_MODES = ("proposing", "executing", "interview")
-_STATE_FIELD = re.compile(r'"state"\s*:\s*"(%s)"' % "|".join(_MODES))
+_STATES = ("propose", "execute")
+_MODES = ("orchestrate", "build", "interview")
+_STATE_FIELD = re.compile(r'"state"\s*:\s*"([^"]+)"')
+_MODE_FIELD = re.compile(r'"mode"\s*:\s*"([^"]+)"')
 
 
-def _prior_mode(path):
-    """The mode recorded in a state.json that is about to be healed, or "".
+def _prior_axes(path):
+    """The valid axes recorded in a state.json that is about to be healed.
 
     Healing rewrites the file from defaults, which would silently drop the
-    architect's typed mode back to proposing and block their edits. A truncated or
+    architect's typed state or mode back to defaults and block their work. A truncated or
     half-written file no longer parses, so the raw text is searched too.
     """
     obj = _read_json(path)
-    if isinstance(obj, dict) and obj.get("state") in _MODES:
-        return obj["state"]
+    if isinstance(obj, dict):
+        state = obj.get("state")
+        mode = obj.get("mode")
+        return (state if state in _STATES else "",
+                mode if mode in _MODES else "")
     try:
         with open(path, "r", encoding="utf-8") as fh:
             raw = fh.read()
     except Exception:
-        return ""
-    match = _STATE_FIELD.search(raw)
-    return match.group(1) if match else ""
+        return "", ""
+    state_match = _STATE_FIELD.search(raw)
+    mode_match = _MODE_FIELD.search(raw)
+    state = state_match.group(1) if state_match else ""
+    mode = mode_match.group(1) if mode_match else ""
+    return (state if state in _STATES else "",
+            mode if mode in _MODES else "")
+
+
+_RETIRED_STATES = {"proposing": "propose", "executing": "execute"}
+_RETIRED_APPROACHES = {"solo": "build", "subagents": "orchestrate"}
+
+
+def _migrate_axes(state):
+    """Rewrite one state.json object onto the state/mode axes, or None when it already is.
+
+    The pre-mode-axis spine spelled the stage `proposing`/`executing` and carried a
+    separate `approach` of `solo`/`subagents`, and spelled interview as a stage. Readers
+    know the new values only, so the files are rewritten once rather than mapped on every
+    read. Returns None for an already-migrated object, which is what makes it idempotent.
+    """
+    changed = False
+    stage = state.get("state")
+    if stage in _RETIRED_STATES:
+        state["state"] = _RETIRED_STATES[stage]
+        changed = True
+    elif stage == "interview":
+        state["state"] = "propose"
+        state["mode"] = "interview"
+        state["mode_typed"] = True
+        changed = True
+    elif stage is not None and stage not in _STATES:
+        # A stage nobody recognizes (the retired `auto`) heals to the default rather
+        # than staying on disk for every reader to fall back from.
+        state["state"] = "propose"
+        changed = True
+    if "approach" in state:
+        approach = state.pop("approach")
+        if state.get("mode") not in _MODES:
+            state["mode"] = _RETIRED_APPROACHES.get(approach, "build")
+            state["mode_typed"] = True
+        changed = True
+    return state if changed else None
+
+
+def migrate_sessions():
+    """Migrate every recorded session, main and subagent-nested, onto the two axes.
+
+    Returns how many files were rewritten; a second run over the same tree returns 0.
+    """
+    sessions_root = _sessions_root()
+    if not os.path.isdir(sessions_root):
+        return 0
+    migrated = 0
+    for pattern in (os.path.join(sessions_root, "*", "state.json"),
+                    os.path.join(sessions_root, "*", "subagents", "*", "state.json")):
+        for path in sorted(glob(pattern)):
+            state = _read_json(path)
+            if not isinstance(state, dict):
+                continue
+            updated = _migrate_axes(state)
+            if updated is not None and _atomic_write(path, _dump(updated)):
+                migrated += 1
+    return migrated
 
 
 def _is_valid_session_id(sid):
@@ -288,10 +362,13 @@ def _ensure_session(session_id, parent_override=""):
                 default_state = _default_subagent_state(session_id, existing_parent)
             else:
                 default_state = _default_main_state(session_id)
-                prior_mode = _prior_mode(state_file)
+                prior_state, prior_mode = _prior_axes(state_file)
+                if prior_state:
+                    default_state["state"] = prior_state
                 if prior_mode:
-                    default_state["state"] = prior_mode
-                else:
+                    default_state["mode"] = prior_mode
+                    default_state["mode_typed"] = True
+                if not prior_state and not prior_mode:
                     default_state["prior_state_lost"] = True
             _atomic_write(state_file, _dump(default_state))
         return session_dir

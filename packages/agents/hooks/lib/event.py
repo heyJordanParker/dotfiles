@@ -57,6 +57,11 @@ _CANONICAL_TOOL = {
     "apply_patch": "write",
     "Agent": "agent",
     "spawn_agent": "agent",
+    # Claude's other routes to a running agent: now, on a schedule, or on another
+    # machine. Each starts one, so each answers to whatever gates a spawn.
+    "Workflow": "agent",
+    "CronCreate": "agent",
+    "RemoteTrigger": "agent",
     "AskUserQuestion": "ask",
     "request_user_input": "ask",
 }

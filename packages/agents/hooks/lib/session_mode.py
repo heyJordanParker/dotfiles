@@ -51,18 +51,6 @@ def is_dispatched(event):
     return bool(os.environ.get(agent_memory.AGENT_FILE_VAR))
 
 
-def is_teammate(event):
-    """Whether one of the architect's hand-managed agents owns this event.
-
-    A teammate is a top-level session he started on an agent: it carries an
-    `agentId` but no dispatch evidence. That is exactly the payload `is_dispatched`
-    refuses, so the two predicates never both answer True.
-    """
-    if is_dispatched(event):
-        return False
-    return bool(field(event, "agentId", "") or field(event, "agent_id", ""))
-
-
 def resolve(event, session_id=None):
     """The event's mode, with a typed main-session override when it applies.
 
@@ -82,18 +70,27 @@ def resolve(event, session_id=None):
 
 
 def permits(event, surface):
-    """Whether the running agent's declared mode permits one guarded surface.
+    """Whether the mode governing this event permits one guarded surface.
 
-    A dispatched agent is gated on both surfaces. A teammate is gated on the spawn
-    surface alone, by the mode its own definition declares: spawning cascades usage
-    through every agent it starts, so a teammate running a build agent is refused it
-    exactly as a dispatched build agent is. Its writes stay on the state axis, where
-    the architect's own sessions sit — proposing holds them back, executing lets them
-    through — and a true main session, which names no agent at all, stays there on
-    both surfaces.
+    A dispatched agent is gated on both surfaces by its own declaration, never by
+    the mode its dispatcher happens to be in.
+
+    Every other session is gated on the spawn surface alone, by the mode `resolve`
+    answers — the same mode the statusline shows and the same skill the agent was
+    told to work under. A session that names an agent is gated by that agent's
+    declaration, and a session the architect typed a mode into is gated by what he
+    typed, because the mode is his instruction and the gate is what makes it one.
+    A session that names no agent and typed no mode has no chosen mode to enforce,
+    so it spawns.
+
+    Writes outside a dispatch stay on the state axis, where the architect's own
+    sessions sit: proposing holds them back, executing lets them through.
     """
-    if is_dispatched(event) or (surface == "spawn" and is_teammate(event)):
+    if is_dispatched(event):
         return POLICY[declared_mode(event)][surface]
+    if surface == "spawn" and (agent_name(event)
+                               or load_state(owner_session(event)).get("mode_typed")):
+        return POLICY[resolve(event)][surface]
     return True
 
 
