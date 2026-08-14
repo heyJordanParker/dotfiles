@@ -46,7 +46,7 @@
     ],
     "defaultMode": "bypassPermissions"
   },
-  "model": "opus[1m]",
+  "model": "opus",
   "hooks": {
     "Notification": [
       {
@@ -162,6 +162,11 @@
           },
           {
             "type": "command",
+            "command": "python3 ~/.agents/hooks/block_composed_commands.py",
+            "timeout": 5
+          },
+          {
+            "type": "command",
             "command": "python3 ~/.agents/hooks/block_git_revert.py",
             "timeout": 5
           },
@@ -222,11 +227,6 @@
           },
           {
             "type": "command",
-            "command": "python3 ~/.agents/hooks/block_worktree_isolation.py",
-            "timeout": 5
-          },
-          {
-            "type": "command",
             "command": "python3 ~/.agents/hooks/block_wrong_harness.py",
             "timeout": 5
           },
@@ -253,16 +253,6 @@
         ]
       },
       {
-        "matcher": "EnterWorktree",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 ~/.agents/hooks/block_enter_worktree.py",
-            "timeout": 5
-          }
-        ]
-      },
-      {
         "matcher": "WebFetch|WebSearch",
         "hooks": [
           {
@@ -273,11 +263,21 @@
         ]
       },
       {
-        "matcher": "Bash|Agent",
+        "matcher": "Bash|Agent|Workflow|CronCreate|RemoteTrigger",
         "hooks": [
           {
             "type": "command",
             "command": "python3 ~/.agents/hooks/block_spawning.py",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "EnterWorktree|Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ~/.agents/hooks/block_worktree_isolation.py",
             "timeout": 5
           }
         ]
@@ -432,6 +432,15 @@
         ]
       },
       {
+        "matcher": "compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ~/.agents/hooks/inject_mode_skills.py"
+          }
+        ]
+      },
+      {
         "matcher": "startup|resume|clear|compact",
         "hooks": [
           {
@@ -495,11 +504,6 @@
             "type": "command",
             "command": "python3 ~/.agents/hooks/rewake_codex_failure.py",
             "asyncRewake": true
-          },
-          {
-            "type": "command",
-            "command": "python3 ~/.agents/hooks/validate_completion.py",
-            "timeout": 90
           }
         ]
       }
