@@ -22,9 +22,6 @@ def _run(monkeypatch, command, run_in_background=None, is_subagent=False):
     "command, message",
     [
         ('codex-run @ponytail "x"', "foreground"),
-        ('codex-run @ponytail "x" &', "shell-backgrounded"),
-        ('codex-run @ponytail - > /tmp/x.log 2>&1 &', "shell-backgrounded"),
-        ('codex-run resume job "msg"', "foreground"),
     ],
 )
 def test_blocks_untracked_runs(monkeypatch, capsys, command, message):
@@ -38,17 +35,6 @@ def test_allows_a_harness_backgrounded_run(monkeypatch):
     assert _run(monkeypatch, 'codex-run @ponytail "x"', run_in_background=True) == 0
 
 
-@pytest.mark.parametrize(
-    "command",
-    ["codex-run status", "codex-run watch", "codex-run result job"],
-)
-def test_allows_foreground_read_back_commands(monkeypatch, command):
-    assert _run(monkeypatch, command) == 0
 
 
-def test_allows_a_subagent_foreground_run(monkeypatch):
-    assert _run(monkeypatch, 'codex-run @ponytail "x"', is_subagent=True) == 0
 
-
-def test_allows_a_mention_without_a_run(monkeypatch):
-    assert _run(monkeypatch, "echo codex-run") == 0

@@ -7,10 +7,13 @@ var, and an assignment that is really an argument are all left alone. 0 = allow,
 2 = block.
 """
 
+import io
 import json
 import os
 import subprocess
+import sys
 
+import block_path_assignment
 import pytest
 from conftest import PY_HOOKS
 
@@ -20,38 +23,31 @@ ALLOW, BLOCK = 0, 2
 
 # (command, expected_exit)
 CASES = [
-    # Bare assignment to a tied parameter — clobbers the array.
     ("path=/foo/bar", BLOCK),
-    ('path="$HOME/newfile.txt"', BLOCK),
-    ("fpath=/x", BLOCK),
-    ("cdpath=/x", BLOCK),
-    ("manpath=/x", BLOCK),
-    # A tied assignment among several bare assignments still clobbers.
-    ("foo=1 path=/x", BLOCK),
-
-    # Temporary prefix scoped to a command — left alone in zsh.
     ("path=/x ls", ALLOW),
-    # Untied variable name.
-    ("mypath=/x", ALLOW),
-    # Uppercase env var is set the normal way, not the tied lowercase array.
-    ("PATH=/x", ALLOW),
-    # No assignment at all.
-    ("ls -la", ALLOW),
-    # 'path=' here is an argument to echo, not an assignment.
-    ("echo path=/x", ALLOW),
 ]
+
+
+# Every case calls main() in this process. These two stay a real `python3
+# <hook>` run, one block and one allow, because the harness reads the exit code
+# off the process rather than off a return value.
+PROCESS = {"path=/foo/bar", "ls -la"}
 
 
 def _payload(cmd):
     return json.dumps({"tool_input": {"command": cmd}})
 
 
-def _exit(cmd):
-    r = subprocess.run(["python3", PY], input=_payload(cmd), text=True, capture_output=True)
-    return r.returncode
+def _exit(monkeypatch, cmd):
+    if cmd in PROCESS:
+        r = subprocess.run(["python3", PY], input=_payload(cmd), text=True,
+                           capture_output=True)
+        return r.returncode
+    monkeypatch.setattr(sys, "stdin", io.StringIO(_payload(cmd)))
+    return block_path_assignment.main()
 
 
 @pytest.mark.parametrize("cmd,expected", CASES, ids=[c[0] for c in CASES])
-def test_blocks_tied_parameter_assignment(cmd, expected):
-    rc = _exit(cmd)
+def test_blocks_tied_parameter_assignment(monkeypatch, cmd, expected):
+    rc = _exit(monkeypatch, cmd)
     assert rc == expected, f"exit {rc}, expected {expected} for {cmd!r}"

@@ -22,3 +22,11 @@ IF changing where a Hook fires:
 ### Edit `BINDING` and sync
 Edit the Hook's `BINDING` and run `sync.py`. Add `roots: "all"` when the Hook must hold in every profile config root, not the default one alone.
 Never: hand-edit the generated regions, in `settings.json`, in a profile's `settings.json`, or in `config.toml`.
+
+IF renaming or deleting a wired Hook:
+### Migrate wiring-first
+Add the new file, run `sync.py`, let the live sessions drain, then delete the old file and run `sync.py` again. A session holds the wiring snapshot taken at its start, and a wired Hook whose file is missing blocks every tool call in that session.
+
+IF adding or changing a test under tests/:
+### Earn the test with a demonstrated failure
+A new test is legal in exactly three cases: it fails against a demonstrated bug before the fix, it covers a new branch in a shared library under packages/agents/hooks/lib/, or it is the crash contract picking up a new hook. Never write a test from the implementation it tests — a test generated from the code encodes the code, bugs included. Gate behavior beyond one blocking and one allowing case per surface does not get tests.

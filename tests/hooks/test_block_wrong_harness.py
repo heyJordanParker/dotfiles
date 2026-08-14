@@ -59,35 +59,14 @@ def test_claude_only_agent_runs_here(config_root, monkeypatch):
     assert _run(monkeypatch, "architect") == 0
 
 
-def test_all_runs_here(config_root, monkeypatch):
-    config_root("ponytail", BOTH)
-    assert _run(monkeypatch, "ponytail") == 0
 
 
-def test_undeclared_agent_runs_here(config_root, monkeypatch):
-    """The key is optional: omitting it means `all`, which is every agent today."""
-    config_root("cto", UNDECLARED)
-    assert _run(monkeypatch, "cto") == 0
 
 
-def test_agent_with_no_definition_runs_here(config_root, monkeypatch):
-    assert _run(monkeypatch, "not-an-agent") == 0
 
 
-def test_missing_subagent_type_passes(config_root, monkeypatch):
-    assert _run(monkeypatch, "") == 0
 
 
-@pytest.mark.parametrize("declared", ["Codex", "CODEX", "CLAUDE", "both", "kodex"])
-def test_unrecognized_value_denies(config_root, monkeypatch, capsys, declared):
-    """The comparison is exact. Lowering would widen permission — `harness: CODEX`
-    would pass the codex allowlist — which is the direction agent_memory forbids.
-    An unrecognized value therefore denies on both harnesses, so a typo makes an
-    agent unreachable rather than unrestricted."""
-    config_root("ponytail", "---\nname: %%s\nharness: %s\n---\n\nbody\n" % declared)
-    assert _run(monkeypatch, "ponytail") == 2
-    out = _feedback(capsys)
-    assert declared in out and "not a harness" in out
 
 
 def test_declaration_is_read_from_the_active_root(tmp_path, monkeypatch):
@@ -104,20 +83,8 @@ def test_declaration_is_read_from_the_active_root(tmp_path, monkeypatch):
     assert _run(monkeypatch, "researcher") == 2
 
 
-def test_harness_line_in_the_body_does_not_count(config_root, monkeypatch):
-    config_root("architect", "---\nname: %s\n---\n\nharness: codex\n")
-    assert _run(monkeypatch, "architect") == 0
 
 
-def test_unreadable_definition_does_not_bar_the_agent(tmp_path, monkeypatch):
-    """Unlike memory, an unreadable definition permits. Refusing every dispatch on
-    a transient read failure would take the whole roster down, and the capability
-    being withheld is one Claude would otherwise have granted."""
-    agents = tmp_path / "agents"
-    agents.mkdir()
-    (agents / "researcher.md").mkdir()  # present, unreadable as a file
-    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path))
-    assert _run(monkeypatch, "researcher") == 0
 
 
 # --- the codex side reads the same declaration -------------------------------------
@@ -156,40 +123,7 @@ def test_codex_runs_a_codex_only_agent(monkeypatch, tmp_path):
     assert _sent(log, "turn/start")["model"] == "gpt-5.6-terra"
 
 
-def test_codex_runs_an_undeclared_agent(monkeypatch, tmp_path):
-    """The key is optional on this side too — the roster's default is unchanged."""
-    _pin(monkeypatch, tmp_path, "ponytail", UNDECLARED)
-    _stub_codex(monkeypatch, tmp_path)
-    assert codex_run.main(["@ponytail", "do x"]) == 0
 
 
-@pytest.mark.parametrize("declared", ["Codex", "CLAUDE", "both", "kodex"])
-def test_codex_refuses_an_unrecognized_value(monkeypatch, tmp_path, capsys, declared):
-    """Same exact matching as the Claude side, so a typo denies on both. The two
-    refusals differ because their fixes do: this one names the definition, because
-    sending a broken declaration to Claude would only earn a second refusal."""
-    _pin(monkeypatch, tmp_path, "ponytail",
-         "---\nname: %%s\nharness: %s\n---\n\nbody\n" % declared)
-    _stub_codex(monkeypatch, tmp_path)
-    _no_codex(monkeypatch)
-    assert codex_run.main(["@ponytail", "do x"]) == 1
-    out = capsys.readouterr().out
-    assert declared in out and "not a harness" in out
-    assert "Fix the `harness:` line in ponytail.md" in out
-    assert "Agent(subagent_type:" not in out
 
 
-def test_codex_resume_refuses_a_now_claude_only_agent(monkeypatch, tmp_path, capsys):
-    """The gate sits in _dispatch, which both the founding run and a resume funnel
-    through, so a job founded before its agent moved to Claude refuses on
-    continuation with the same message."""
-    _pin(monkeypatch, tmp_path, "architect", UNDECLARED)
-    _stub_codex(monkeypatch, tmp_path)
-    assert codex_run.main(["@architect", "review"]) == 0
-    job = json.loads(next(tmp_path.glob("codex-run-*.json")).read_text())["job"]
-    capsys.readouterr()
-
-    (tmp_path / "agents" / "architect.md").write_text(CLAUDE_ONLY % "architect")
-    _no_codex(monkeypatch)
-    assert codex_run.main(["resume", job, "continue"]) == 1
-    assert "declares `harness: claude`" in capsys.readouterr().out

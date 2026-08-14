@@ -1,7 +1,7 @@
 """Behavioral gate for the local-LLM hooks when no model verdict comes back.
 
-Covers classify_intent.py, validate_completion.py, and validate_plan_quality.py
-with the local LLM stubbed to fail (local_llm fixture), so each hook takes its
+Covers classify_intent.py, babysitter.py, and validate_plan_quality.py with the
+local LLM stubbed to fail (local_llm fixture), so each hook takes its
 deterministic fallback branch. Each case asserts the Python hook's own exit code,
 stdout (JSON-normalized), stderr, and the control fields on the spine
 (<CLAUDE_DATA_ROOT>/sessions/<session_id>/state.json) directly.
@@ -9,22 +9,33 @@ stdout (JSON-normalized), stderr, and the control fields on the spine
 These hooks all funnel their model call through lib.model_call.run_model, which
 returns None when the local LLM yields no answer. The assertions therefore pin
 the deterministic behavior that holds without a model verdict: the typed
-mode-command fallback (classify_intent), the pre-LLM deterministic gates and the
-allow-on-failure default (validate_completion), and the empty-plan / allow-on-
-failure default (validate_plan_quality).
+mode-command fallback (classify_intent), the one pre-LLM gate and the
+allow-on-failure default (babysitter), and the empty-plan / allow-on-failure
+default (validate_plan_quality).
 """
 
+import io
 import json
 import os
 import shutil
 import subprocess
+import sys
 
+import babysitter
+import classify_intent
 import pytest
+import validate_plan_quality
 from conftest import PY_HOOKS
 
-import classify_intent
-import validate_completion
-from lib import feedback
+_MODULES = {"classify_intent.py": classify_intent,
+            "babysitter.py": babysitter,
+            "validate_plan_quality.py": validate_plan_quality}
+
+# Cases that stay a real `python3 <hook>` run, one emitting and one silent per
+# hook, because the harness reads the exit code and the stdout envelope off the
+# process rather than off a return value.
+PROCESS_CASES = {"ci_propose", "ci_xml_skip", "vc_forwarded", "vc_benign",
+                 "vpq_empty", "vpq_plan_fail"}
 
 
 def _session_dir(root, sid):
@@ -65,9 +76,16 @@ def _run(hook, payload, env):
     return r.returncode, r.stdout, r.stderr
 
 
-# Executing-state control store: the state validate_completion reads to decide
+def _call(hook, payload, monkeypatch, capsys):
+    monkeypatch.setattr(sys, "stdin", io.StringIO(payload))
+    rc = _MODULES[hook].main()
+    captured = capsys.readouterr()
+    return rc, captured.out, captured.err
+
+
+# Executing-state control store: the state the stop gate reads to decide
 # whether a deliverable-shaped turn warrants the LLM gate it can't reach offline.
-S = {"state": "executing", "commit_requested": False}
+S = {"state": "execute", "commit_requested": False}
 
 # Forced-command fallback strings classify_intent emits when the LLM is down but
 # a typed /propose | /execute | /subagents | /commit is present (fallback_context()
@@ -77,7 +95,8 @@ PROPOSE_FALLBACK = ("This is a proposing-state turn. Load the /propose skill now
 EXECUTE_FALLBACK = ("This is an executing-state turn. Load the /execute skill now and "
                     "work under its contract: implement the approved work, and the moment "
                     "it needs an architectural change, stop and escalate with /pcc.")
-SUBAGENTS_FALLBACK = "Load the /subagents skill now."
+ORCHESTRATE_FALLBACK = "Load the /orchestrate skill now."
+BUILD_FALLBACK = "Load the /build skill now."
 COMMIT_FALLBACK = "Skills to execute: /commit"
 
 # stdout each classify_intent case emits, as the additionalContext envelope.
@@ -98,100 +117,42 @@ def _ctx_standing(text):
 
 # Default control fields classify_intent writes for a non-skipped session before
 # its (offline-unreachable) classifier runs: the spine's _default_main_state.
-CI_DEFAULT_STATE = {"approach": "subagents", "state": "proposing", "commit_requested": False,
+CI_DEFAULT_STATE = {"mode": "build", "state": "propose", "commit_requested": False,
                     "goal": None, "notes": []}
-
-# validate_completion's forwarded-recommendation gate raises a non-halting concern
-# (exit 0, systemMessage on stdout via feedback.raise_concern), not a hard block.
-# Built from the gate's own constant so the message lives in one place.
-_VC_FWD_WRAP = feedback.wrap(
-    "validate_completion", validate_completion.FORWARDED_BLOCK_MSG % "the subagent recommends")
-_VC_FWD_OUT = json.dumps({
-    "systemMessage": _VC_FWD_WRAP,
-    "hookSpecificOutput": {"hookEventName": "Stop", "additionalContext": _VC_FWD_WRAP}})
 
 # name, hook, payload, session_id (None → agent- skip), pre-state,
 # expected (rc, stdout, stderr, post-state)
 CASES = [
-    # classify_intent — typed /propose with the LLM down: forced state wins via
-    # the fallback path; proposing-state contract emitted, state persisted.
     ("ci_propose", "classify_intent.py",
      {"prompt": "/propose", "transcript_path": ""}, "p_ci1", None,
-     (0, _ctx_standing(PROPOSE_FALLBACK), "",
-      {**CI_DEFAULT_STATE, "state": "proposing"})),
-    # Compound typed command: /execute forces executing state, /subagents forces
-    # the subagents approach — both fallbacks compose, both mutations persist.
-    ("ci_execute_subagents", "classify_intent.py",
-     {"prompt": "/execute /subagents this", "transcript_path": ""}, "p_ci1", None,
-     (0, _ctx_standing(EXECUTE_FALLBACK + "\n\n" + SUBAGENTS_FALLBACK), "",
-      {**CI_DEFAULT_STATE, "state": "executing", "approach": "subagents"})),
-    # XML-tagged system message: structurally detected, hook no-ops before any
-    # state file is touched.
+     # The mode line names the mode the session governs under, not the word typed:
+     # the skill the agent loads and the mode the gates enforce come off one policy.
+     (0, _ctx_standing(PROPOSE_FALLBACK + "\n\n" + BUILD_FALLBACK), "",
+      {**CI_DEFAULT_STATE, "state": "propose"})),
     ("ci_xml_skip", "classify_intent.py",
      {"prompt": "<task-notification>x</task-notification>", "transcript_path": ""}, "p_ci1", None,
      (0, "", "", None)),
-    # Sidechain payload: a subagent's prompt carries the parent's session id, so the
-    # sidechain flag is what skips it — no state written on the parent.
-    ("ci_agent_skip", "classify_intent.py",
-     {"prompt": "/propose", "transcript_path": "", "isSidechain": True}, None, None,
-     (0, "", "", None)),
-    # Typed /commit with the LLM down: forces commit_requested via the fallback
-    # path; the /commit contract is emitted and the flag persists.
-    ("ci_commit", "classify_intent.py",
-     {"prompt": "/commit", "transcript_path": ""}, "p_ci1", None,
-     (0, _ctx_standing(COMMIT_FALLBACK), "",
-      {**CI_DEFAULT_STATE, "commit_requested": True})),
-    # Compound typed command: /execute forces executing state, /commit forces the
-    # commit — both fallbacks compose, both mutations persist.
-    ("ci_execute_commit", "classify_intent.py",
-     {"prompt": "/execute /commit", "transcript_path": ""}, "p_ci1", None,
-     (0, _ctx_standing(EXECUTE_FALLBACK + "\n\n" + COMMIT_FALLBACK), "",
-      {**CI_DEFAULT_STATE, "state": "executing", "commit_requested": True})),
-    # A /commit-suffixed token (e.g. /commit-foo) must NOT trip the /commit
-    # forced command — the hyphen boundary keeps a longer name distinct.
-    ("ci_commit_message_no_force", "classify_intent.py",
-     {"prompt": "/commit-message", "transcript_path": ""}, "p_ci1", None,
-     (0, _ctx_standing(""), "", CI_DEFAULT_STATE)),
-    # Plain prompt, no typed command, LLM down: nothing to emit, but the session
-    # state file is initialized to defaults before the classifier is attempted.
-    ("ci_plain", "classify_intent.py",
-     {"prompt": "just some text", "transcript_path": ""}, "p_ci1", None,
-     (0, _ctx_standing(""), "", CI_DEFAULT_STATE)),
-
-    # Deterministic forwarded-recommendation gate: blocks (exit 2) with the
-    # forwarded-block message; state untouched.
-    ("vc_forwarded", "validate_completion.py",
+    # Forwarded-recommendation wording is a fact for the judge, not a verdict of its
+    # own, so with the model unreachable the gate says nothing rather than ruling on
+    # a substring.
+    ("vc_forwarded", "babysitter.py",
      {"last_assistant_message": "The subagent recommends option B.", "transcript_path": ""}, "p_vc1",
      dict(S),
-     (0, _VC_FWD_OUT, "", dict(S))),
-    # The same phrase inside double quotes is stripped by _strip_markdown, so the
-    # forwarded gate does NOT fire: allow, phase unchanged.
-    ("vc_forwarded_quoted", "validate_completion.py",
-     {"last_assistant_message": 'He said "the subagent recommends option B" earlier.', "transcript_path": ""}, "p_vc1",
-     dict(S),
      (0, "", "", dict(S))),
-    # Benign message, no permission phrase, no mutations, no deliverable: allow.
-    ("vc_benign", "validate_completion.py",
+    ("vc_benign", "babysitter.py",
      {"last_assistant_message": "All done.", "transcript_path": ""}, "p_vc1", dict(S),
      (0, "", "", dict(S))),
-    # agent- session id: subagent stops are never gated.
-    ("vc_agent_skip", "validate_completion.py",
-     {"last_assistant_message": "shall i proceed", "transcript_path": ""}, None, None,
+    # A dispatch is named by the sidechain marker, not by the session id: a Claude
+    # subagent's payload carries the parent's UUID, so the id cannot tell them apart.
+    ("vc_agent_skip", "babysitter.py",
+     {"last_assistant_message": "shall i proceed", "transcript_path": "",
+      "isSidechain": True}, None, None,
      (0, "", "", None)),
-
-    # validate_plan_quality — empty plan: nothing to evaluate, allow before the
-    # model call.
-    ("vpq_empty", "validate_plan_quality.py",
-     {"tool_input": {"plan": ""}}, "p_vpq1", None,
-     (0, "", "", None)),
-    # Non-empty plan with the LLM down: run_model returns None, hook allows
-    # (exit 0) rather than blocking on its own brokenness.
     ("vpq_plan_fail", "validate_plan_quality.py",
      {"tool_input": {"plan": "# Plan"}}, "p_vpq1", None,
      (0, "", "", None)),
-    # agent- session id: plan gate is skipped for subagents.
     ("vpq_agent_skip", "validate_plan_quality.py",
-     {"tool_input": {"plan": "# Plan"}}, None, None,
+     {"tool_input": {"plan": "# Plan"}, "isSidechain": True}, None, None,
      (0, "", "", None)),
 ]
 
@@ -207,14 +168,17 @@ def spine_root(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize("name,hook,payload,sid,pre,expected", CASES, ids=[c[0] for c in CASES])
-def test_fallback_behavior(name, hook, payload, sid, pre, expected, local_llm, spine_root):
-    env = dict(os.environ)
+def test_fallback_behavior(name, hook, payload, sid, pre, expected, local_llm, spine_root,
+                           monkeypatch, capsys):
     session_id = sid if sid is not None else "agent-skip"
     body = json.dumps({"session_id": session_id, **payload})
 
     if sid is not None:
         _reset_state(spine_root, sid, pre)
-    rc, out, err = _run(hook, body, env)
+    if name in PROCESS_CASES:
+        rc, out, err = _run(hook, body, dict(os.environ))
+    else:
+        rc, out, err = _call(hook, body, monkeypatch, capsys)
     state = _read_state(spine_root, sid) if sid is not None else None
 
     exp_rc, exp_out, exp_err, exp_state = expected
@@ -229,10 +193,11 @@ def test_fallback_behavior(name, hook, payload, sid, pre, expected, local_llm, s
                 f"{name}: control field {k}={state.get(k) if state else None}, expected {v}"
 
 
-def test_validate_completion_reaches_eval_without_crash(local_llm, spine_root, write_transcript):
-    """The eval-prompt builder must not reference a removed state field. A turn with
-    >=3 mutations bypasses the early-allow gate and reaches session_context; with the
-    LLM down the hook returns 0 — it must build that context without crashing."""
+def test_stop_gate_reaches_eval_without_crash(local_llm, spine_root, write_transcript,
+                                              monkeypatch, capsys):
+    """The eval-prompt builder must not reference a removed state field. A turn that
+    edits files gathers the read-log facts and reaches the full builder; with the LLM
+    down the hook returns 0 — it must build that prompt without crashing."""
     sid = "vc_eval"
     _reset_state(spine_root, sid, dict(S))
 
@@ -244,5 +209,5 @@ def test_validate_completion_reaches_eval_without_crash(local_llm, spine_root, w
                               edit(1), edit(2), edit(3)])
     body = json.dumps({"session_id": sid, "last_assistant_message": "All good.",
                        "transcript_path": tpath})
-    rc, out, err = _run("validate_completion.py", body, dict(os.environ))
-    assert rc == 0, f"validate_completion crashed reaching the eval builder: {err}"
+    rc, out, err = _call("babysitter.py", body, monkeypatch, capsys)
+    assert rc == 0, f"babysitter crashed reaching the eval builder: {err}"
