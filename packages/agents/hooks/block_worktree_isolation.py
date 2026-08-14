@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Block Agent dispatches with isolation: "worktree"."""
+"""Hold every session and subagent in the one shared worktree.
+
+Two surfaces reach a separate worktree: the EnterWorktree tool, and an Agent
+dispatch carrying isolation: "worktree". One policy, so one gate.
+"""
 
 import sys
 
@@ -7,31 +11,30 @@ from lib import feedback
 from lib.event import field, read_event
 
 BINDING = {
-    "events": {"PreToolUse": ["Agent"]},
+    "events": {"PreToolUse": ["EnterWorktree", "Agent"]},
     "timeout": 5,
     "harness": "claude",
 }
 
-MSG = """BLOCKED: subagent isolation: "worktree" is BANNED.
+MSG = """BLOCKED: %s is BANNED.
 
-The main session and every subagent in this project share a single worktree.
-Spawning a subagent into its own worktree fragments the Subagents — siblings stop
-seeing each other's files, branch state diverges, and coordination breaks.
-The recent failure mode: an agent dispatched with isolation: "worktree" ran
-in a parallel tree and the parent never saw its work.
+### Work in the one shared worktree
+The main session and every subagent share a single worktree. A parallel worktree
+fragments them: siblings stop seeing each other's files, branch state diverges,
+and coordination breaks. Read "in a worktree" in the architect's prose as "on one
+of the project's named branches", never as this harness primitive.
 
-Do NOT pass isolation: "worktree". Omit the field, or use a non-worktree
-value supported by the harness. "In a worktree" in user prose means "on one
-of the project's named branches", not this harness primitive.
-
-If a separate worktree is genuinely required, return to the user and say so.
-The user controls worktree lifecycle."""
+IF a separate worktree is genuinely required:
+### Return to the architect and say so
+The architect controls worktree lifecycle."""
 
 
 def main():
     event = read_event()
+    if field(event, "tool_name", "") == "EnterWorktree":
+        return feedback.block("block_worktree_isolation", MSG % "EnterWorktree")
     if field(event, "tool_input.isolation", "") == "worktree":
-        return feedback.block("block_worktree_isolation", MSG)
+        return feedback.block("block_worktree_isolation", MSG % 'isolation: "worktree"')
     return 0
 
 
