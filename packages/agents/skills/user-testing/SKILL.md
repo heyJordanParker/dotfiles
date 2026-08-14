@@ -24,7 +24,7 @@ Tell the Architect there are no uncommitted changes to test.
 
 ### Prepare Subagent Context
 
-Write the Intent as one or two sentences on WHY these changes were made, focused on business motivation rather than code. Write the Summary as one paragraph covering what changed: files, Precedents, and scope. Use /show-architecture for an annotated file tree of the changed files and their immediate Context.
+Write the Intent as one or two sentences on WHY these changes were made, focused on business motivation rather than code. Write the Summary as one paragraph covering what changed: files, Precedents, and scope. Use /show-me for an annotated file tree of the changed files and their immediate Context.
 
 ## 2. Enumerate Critical Paths
 
@@ -46,9 +46,9 @@ Show the Critical Paths and wait before dispatching Subagents.
 
 ## 3. Dispatch Subagents
 
-Spawn one Subagent per approved Critical Path through /subagents, all in parallel. Each Subagent works independently with no shared state.
+Spawn one Subagent per approved Critical Path through /delegate, all in parallel. Each Subagent works independently with no shared state.
 
-Write each dispatch with /subagents, carrying the Intent and the Summary from step 1. What this Skill adds to that Template:
+Write each dispatch with /delegate, carrying the Intent and the Summary from step 1. What this Skill adds to that Template:
 
   ```markdown
   Goal: Trace [Critical Path name] step by step through the code. For each step, read the
@@ -67,60 +67,36 @@ Write each dispatch with /subagents, carrying the Intent and the Summary from st
   - Step 1: [file:line] — [what happens, any gaps]
 
   ### Gaps
-  - Critical: [Critical Path-breaking issues]
+  Each gap is one line naming what breaks for the User — graded:
+  - Blocking: [Critical Path-breaking issues]
   - Important: [functional gaps]
-  - Minor: [rough edges]
+  - Polish: [rough edges]
   ```
 
 ### Never guess at code behavior
 
 Subagents read the actual code instead of inferring from names.
 
-IF the Architect explicitly asks for browser testing:
+IF the Architect asks for browser testing:
 ### Append browser testing to each Subagent Prompt
 
 Add that after tracing the code, the Subagent loads the /agent-browser Skill and walks this Critical Path in the actual User Interface. Add that it loads the /design Skill and evaluates the User experience at each step.
 
 Template:
   ```markdown
-  Process addition: For each step, perform the action in the browser, screenshot the result to /tmp/[feature-name]/[critical-path]-step-[N].png, evaluate whether the User Interface reflects the expected state, evaluate whether the step is clear and consistent, and report visual bugs, confusing interactions, and /design findings.
+  Process addition: For each step, perform the action in the browser, screenshot the result to the Evidence directory (docs/agents/<YYYYMMDD>-<task-slug>/[critical-path]-step-[N].png), evaluate whether the User Interface reflects the expected state, evaluate whether the step is clear and consistent, and report visual bugs, confusing interactions, and /design findings.
 
   Verification addition: Each step screenshotted and visually verified; User experience evaluated per /design Skill Principles; visual bugs and interaction issues listed separately.
   ```
 
-### Never save browser Evidence inside the repository
-
-Browser screenshots go in `/tmp/`.
-
 ## 4. Evaluate returned gaps
 
-After all Subagents return, evaluate the overall implementation with /pcc, then list every gap grouped by severity.
-
-### Severity follows User capability loss
-
-Critical means the Critical Path is broken and the User cannot complete the action. Important means the Critical Path works but has gaps such as missing Verification, poor error handling, or state leaks. Minor means the Critical Path works but has rough edges such as User experience issues, edge cases, or inconsistencies.
-
-Template:
-  ```markdown
-  ## [Feature Name] — User Testing
-
-  ### /pcc evaluation
-  [pros, cons, confidence of the overall implementation]
-
-  ### Critical
-  - [Critical Path name]: [issue] ([file:line])
-
-  ### Important
-  - [Critical Path name]: [issue] ([file:line])
-
-  ### Minor
-  - [Critical Path name]: [issue] ([file:line])
-  ```
+After all Subagents return, evaluate the overall implementation with /pcc, then triage the returned findings with /triage: the one-line finding shape, duplicate merge, the severity grades, the gate, and the report shape all live there.
 
 ## 5. Report without modifying code
 
 This Skill evaluates only. Report findings; do not fix them.
 
-### Browser testing requires an explicit Architect ask
+### Browser testing requires the Architect's ask
 
 Default to code tracing only.

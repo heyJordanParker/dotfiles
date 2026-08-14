@@ -47,24 +47,14 @@ This Skill reports regressions. It does not change files.
 An internal refactor is not a regression when the capability is preserved.
 
 Template:
-    Critical: capability lost
+    Blocking: capability lost
     - "The User can no longer [X]" — broken at file:line
     - "Our system can no longer [Y]" — broken at file:line
 
     Important: capability degraded
     - "[Z] now [degraded outcome]" — degraded at file:line
 
-    Minor: main path retained, edge case lost
+    Polish: main path retained, edge case lost
     - "[edge case description]" — at file:line
 
-If clean: "No capability regressions found."
-
-## 5. Verify the audit
-
-Every changed area is mapped to Critical Path and system capabilities.
-
-Each affected capability is traced end-to-end through the code.
-
-Each finding names the capability and the diff location.
-
-No internal refactor is flagged as a regression when capability is preserved.
+    If clean: "No capability regressions found."

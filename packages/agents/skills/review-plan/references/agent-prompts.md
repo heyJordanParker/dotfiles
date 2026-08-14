@@ -5,7 +5,7 @@
 
 ## 1. Build the Completeness Prompt
 
-Dispatch this Prompt with `subagent_type: "code-reviewer"`.
+Dispatch this Prompt with @code-reviewer.
 
 Template:
     You are reviewing Shaping, Modeling, Slicing, and Plan artifacts for completeness and accuracy.
@@ -37,7 +37,7 @@ Template:
 
 ## 2. Build the Critical Path Prompt
 
-Dispatch this Prompt with `subagent_type: "ux-tester"`.
+Dispatch this Prompt with @ux-tester.
 
 Template:
     You are reviewing Shaping, Modeling, Slicing, and Plan artifacts for User experience completeness. Can a real User actually use everything being built?
@@ -62,7 +62,7 @@ Template:
 
 ## 3. Build the Regressions Prompt
 
-Dispatch this Prompt with `subagent_type: "code-reviewer"`.
+Dispatch this Prompt with @code-reviewer.
 
 Template:
     You are reviewing Shaping, Modeling, Slicing, and Plan artifacts for regression risk. For every file the Plan modifies, determine what could break.
@@ -86,7 +86,7 @@ Template:
 
 ## 4. Build the Architect Prompt
 
-Dispatch this Prompt with `subagent_type: "architect"`.
+Dispatch this Prompt with @architect.
 
 Template:
     You are reviewing Shaping, Modeling, Slicing, and Plan artifacts for Architectural quality.
@@ -114,7 +114,7 @@ Template:
 
 ## 5. Build the Frontend Prompt
 
-Dispatch this Prompt with `subagent_type: "frontend-engineer"`.
+Dispatch this Prompt with @frontend-engineer.
 
 Template:
     You are reviewing Shaping, Modeling, Slicing, and Plan artifacts for frontend Architecture and implementation quality.
