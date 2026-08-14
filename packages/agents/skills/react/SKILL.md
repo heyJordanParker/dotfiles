@@ -70,18 +70,18 @@ Exercise the affected User behavior or run the project test that covers it.
 
 ## References (each solves one problem)
 
-- Building components → composition.md
-- Managing state or writing hooks → state-management.md
-- Deciding whether to use an effect → effects.md
-- Optimizing performance → performance.md
-- Fetching data → data-fetching.md
-- Building forms → forms.md
-- Server-side React → server-rendering.md
-- Writing tests → testing.md
-- Setting up routes → routing.md
-- Styling → styling.md
-- Handling errors → error-handling.md
-- Reviewing security → security.md
-- Accessibility → accessibility.md
-- Project Architecture → project-structure.md
-- TypeScript types → typescript.md
+- Building components → building-components.md
+- Managing state or writing hooks → managing-state.md
+- Deciding whether to use an effect → choosing-an-effect.md
+- Optimizing performance → optimizing-performance.md
+- Fetching data → fetching-data.md
+- Building forms → building-forms.md
+- Server-side React → rendering-on-the-server.md
+- Writing tests → writing-tests.md
+- Setting up routes → setting-up-routes.md
+- Styling → styling-components.md
+- Handling errors → handling-errors.md
+- Reviewing security → reviewing-security.md
+- Accessibility → making-accessible.md
+- Project Architecture → structuring-the-project.md
+- TypeScript types → typing-components.md
