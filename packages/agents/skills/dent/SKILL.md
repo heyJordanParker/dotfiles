@@ -1,6 +1,6 @@
 ---
 name: dent
-version: 0.1.4
+version: 0.1.5
 description: Operate Dent via first-party API. Trigger: Dent API, Funnels, Offers, Pages, Articles, Courses, Spaces, Analytics. Do not trigger for WordPress-only work.
 ---
 
@@ -88,18 +88,7 @@ Dent spins up marketing Sites that sell and deliver digital Products. Operate it
      - Upsell Funnel Step → `references/writing/upsell-page.md` and `references/design/upsell-page.md`.
      - Thank-you Page or Funnel Step → `references/writing/thank-you-page.md` and `references/design/thank-you-page.md`.
      - Article or content Page → `references/writing/article.md` and `references/design/article.md`.
-    - Do not duplicate the reference content inline. Use the references to produce the brief, copy, and Designer JSON, then send the resulting Design through the API owner.
-
-    Designer write contracts:
-
-    - Read a Design before replacing it. Design reads return `{owner, design, revision}`; send `{revision, design}` to `replace-design`. A stale revision returns `409`; read again and deliberately reapply the change rather than retrying the stale document.
-    - A form submit names the form by its authored form id: the `form` value is the id the author gave the form, not a label or the Designer element key. Send the rendered owner, holder when present, and `link_id` hidden values unchanged.
-    - Checkout submits by Cart, not by Funnel Step or checkout element: `POST /api/v1/checkout/{cartId}/submit`. Establish the Cart by visiting the public Checkout URL first and keep that cookie jar.
-    - Media creation is `POST /api/v1/media/upload-url` with `filename` → `PUT` bytes to the returned URL → `POST /api/v1/media/process` with the returned `key`. Never `POST /api/v1/media` directly.
-    - Script elements are the only JavaScript path and are first-class Designer elements. A script element sets `position: "head"` or `position: "body"` and exactly one of a reusable `script` key or inline `code`. The renderer emits `position: "body"` scripts at the end of the document body (external ones with `defer`) and `position: "head"` scripts in the head. So DOM-touching code in a head script needs a `DOMContentLoaded` guard; a body script already runs after the page markup.
-    - `raw-html` is for inert markup only. It rejects `<script>` tags and event-handler attributes such as `onclick`. URL-bearing attributes allow only `http`, `https`, `mailto`, `tel`, relative, and anchor URLs; other schemes such as `javascript`, `data`, and `vbscript` return `422`. Rejection happens at the write boundary, not by silent stripping. Use a script element for JavaScript.
-    - Dynamic `{{ ... }}` tags interpolate only in an element's first-class fields — text, classes, style, and attributes. A `raw-html` element's markup and a script element's `code` are emitted verbatim and are never interpolated; put dynamic values in real fields, or read them in the script itself. In a field, an unknown `{{ var }}` resolves to the empty string and an unbound `@root` chain stays verbatim. Publish validation still scans `{{ }}` everywhere, raw-html and script code included, so write `\{{` for a literal `{{` — it passes strict validation in any carrier, and in a field it also renders as `{{`.
-    - `GET /api/v1/settings/theme` returns the writable theme block under `theme`. Send that same public shape to `POST /api/v1/settings/save-theme`: `colors`, `colorsDark`, `radius`, `fontSize`, `tracking`, `shadow`, `fontSans`, `fontMono`, `fontSerif`, `presetStyle`, `presetBaseColor`, `presetThemeColor`, `locks`, and the returned `artifact` when round-tripping the whole block. Unknown keys return `422`.
+   - Do not duplicate the reference content inline. Use the references to produce the brief, copy, and Designer JSON, then send the resulting Design through the API owner.
 
 4. Build an opt-in Funnel with a thank-you Funnel Step.
 
@@ -110,9 +99,9 @@ Dent spins up marketing Sites that sell and deliver digital Products. Operate it
    - Use `homeStepId` from the response as the opt-in Funnel Step.
    - Create the thank-you Funnel Step: `POST /api/v1/funnels/{funnelId}/steps` with `{ "title": "Thank You" }`.
    - Author the opt-in Design through the Funnel Step, not WordPress. Every `{{ fields.* }}` value used by a behavior must have a matching input whose `config.name` is that field.
-    - Read the current Funnel Step Design, then send `{ "revision": revision, "design": design }` to `POST /api/v1/funnels/{funnelId}/steps/{stepId}/replace-design`.
+   - Send the opt-in Design to `POST /api/v1/funnels/{funnelId}/steps/{stepId}/replace-design`.
    - Put a polished thank-you Design on the thank-you Funnel Step so the public URL is not empty.
-    - Read the current Thank-you Step Design, then send its revision with the finished Design to `POST /api/v1/funnels/{funnelId}/steps/{thankYouStepId}/replace-design`.
+   - Send the thank-you Design to `POST /api/v1/funnels/{funnelId}/steps/{thankYouStepId}/replace-design`.
    - Publish every public Funnel Step before opening `viewUrl` or submitting the form:
 
      ```json
@@ -123,10 +112,9 @@ Dent spins up marketing Sites that sell and deliver digital Products. Operate it
    - Read the Funnel Step with `GET /api/v1/funnels/{funnelId}/steps/{stepId}` after `replace-design` and publishing. Confirm `status: "published"`, `viewUrl`, `hasOptinAction: true` for an opt-in step, and `hasBuilder` before opening the public URL. `replace-design` returns the saved Design, not the Step metadata.
    - Verify the public opt-in path with a real pageview and form submit:
      1. `GET` the opt-in Step `viewUrl` with a cookie jar to render the form and establish the Visitor Session.
-     2. `POST /api/v1/forms/submit` with the same cookies and body `{ "owner": {"type": "step", "id": stepId}, "form": "<authored form id>", "fields": {"email": "visitor@example.com", "name": "Visitor Name"} }`. `form` is the authored form id per the write contract above.
+     2. `POST /api/v1/forms/submit` with the same cookies and body `{ "owner": {"type": "step", "id": stepId}, "form": "optin-form", "fields": {"email": "visitor@example.com", "name": "Visitor Name"} }`.
      3. Treat `success: true` and the returned `redirectUrl` as the submit proof; follow `redirectUrl` when the form redirects.
      4. Find the captured Contact with `GET /api/v1/contacts?search=visitor@example.com`.
-   - Every Site render sets the `_vid` visitor cookie server-side, so a cookie-jar `curl` is tracked as a Visitor — but only if its `User-Agent` is not bot-flagged. The crawler filter rejects `curl`'s default `curl/*` agent, so send a real browser `User-Agent` header or the request identifies no Visitor. A tracked Visitor is still anonymous: a `{{ contact.* }}` personalized render needs that Visitor linked to a Contact, which happens when the same cookie jar submits an opt-in or Checkout (email capture). Submit first, keep the cookies, then the personalized render resolves.
 
 5. Build a sales Funnel with Order bump, upsell, and thank-you Funnel Step.
 
@@ -149,7 +137,7 @@ Dent spins up marketing Sites that sell and deliver digital Products. Operate it
 
      Send it to `POST /api/v1/funnels/{funnelId}/steps/{checkoutStepId}`.
    - Attach the upsell Offer to the Upsell Funnel Step with `POST /api/v1/funnels/{funnelId}/steps/{upsellStepId}` and `{ "offers": [{"offerId": upsellOfferId}] }`.
-    - Read each Step Design first, then send each finished Design with that read's `revision` to its owner:
+   - Send each finished Design to its owner:
      - Checkout Design → `POST /api/v1/funnels/{funnelId}/steps/{checkoutStepId}/replace-design`.
      - Upsell Design → `POST /api/v1/funnels/{funnelId}/steps/{upsellStepId}/replace-design`.
      - Thank-you Design → `POST /api/v1/funnels/{funnelId}/steps/{thankYouStepId}/replace-design`.
@@ -166,19 +154,18 @@ Dent spins up marketing Sites that sell and deliver digital Products. Operate it
 
    - Start with the page creation sequence for the Dent-selling Checkout, Upsell, and Thank You Funnel Steps so the Funnel presents the Offer like a polished sales surface, not a wireframe.
    - Provisioning is Product delivery. Configure the Product included in the sold Offer with the access grants and provisioning webhook it must deliver after purchase; do not add a separate operator API step.
-   - Create or choose the Webhook Endpoint for the provisioning webhook target. `customHeaders` is write-only; use it only for the secret that target expects:
+   - Create or choose the Webhook Endpoint for the provisioning webhook target. Dent signs every delivery with an HMAC secret it generates on create and returns once in the create response; capture that `secret` and verify the signature on the target. `customHeaders` is not a create field — it is not mass-assignable, so sending it in the body is silently dropped:
 
      ```json
      {
        "name": "Dent Provisioning",
        "url": "https://provisioning.example.com/dent/product-delivery",
        "events": [],
-       "customHeaders": {"Authorization": "Bearer <provisioning-secret>"},
        "enabled": true
      }
      ```
 
-     Send it to `POST /api/v1/webhook-endpoints`.
+     Send it to `POST /api/v1/webhook-endpoints` and read `secret` from the response.
    - Create the Dent Product with Product delivery configuration. Use `courseIds` or `spaceIds` for Dent access grants the buyer receives, and `webhooks` for the provisioning webhook payload:
 
      ```json
@@ -218,7 +205,7 @@ Dent spins up marketing Sites that sell and deliver digital Products. Operate it
      - Sales Page → interview brief, sales copy, sales Design.
      - Thank-you Page → interview brief, thank-you copy, thank-you Design.
    - Article: `POST /api/v1/articles` with top-level `{ "title", "status", "excerpt", "slug", "design" }`. Dent renders the Article content from the Design.
-    - Page: `POST /api/v1/pages` with `{ "title", "status", "slug" }`, read `GET /api/v1/pages/{pageId}/design`, then `POST /api/v1/pages/{pageId}/replace-design` with `{ "revision": revision, "design": {"version": 1, "elements": [...] } }`.
+   - Page: `POST /api/v1/pages` with `{ "title", "status", "slug" }`, then `POST /api/v1/pages/{pageId}/replace-design` with `{ "design": {"version": 1, "elements": [...] } }`.
    - Read the saved Design with `GET /api/v1/pages/{pageId}/design` or `GET /api/v1/articles/{articleId}`.
    - A Funnel Step is not a Page. Never call a Funnel Step a Page.
 
@@ -228,7 +215,7 @@ Dent spins up marketing Sites that sell and deliver digital Products. Operate it
    - Re-establish or update the brief by interviewing the operator in plain language about what the current Step must do differently.
    - Rewrite or confirm the finished copy through `references/writing/copywriting.md` and the matching writing leaf before changing layout.
    - Redesign from the updated brief and finished copy through `references/design/designing.md` and the matching design leaf.
-    - Replace it: `POST /api/v1/funnels/{funnelId}/steps/{stepId}/replace-design` with `{ "revision": "<revision from the read>", "design": ... }`.
+   - Replace it: `POST /api/v1/funnels/{funnelId}/steps/{stepId}/replace-design` with `{ "design": ... }`.
    - If the operator will inspect the public `viewUrl`, publish the Funnel Step first with `POST /api/v1/funnels/{funnelId}/steps/{stepId}` and `{ "status": "published" }`.
    - Read the Funnel Step: `GET /api/v1/funnels/{funnelId}/steps/{stepId}`.
    - Open or refresh `viewUrl`, inspect the rendered Site result, then repeat. If a render needs WordPress-only admin routes, stop and report the gap instead of using them.
@@ -257,7 +244,7 @@ Dent spins up marketing Sites that sell and deliver digital Products. Operate it
      ```
 
    - Read Component Design with `GET /api/v1/components/{componentId}/design`.
-    - Replace Component Design with `POST /api/v1/components/{componentId}/replace-design`, sending the revision from the preceding Design read.
+   - Replace Component Design with `POST /api/v1/components/{componentId}/replace-design`.
 
 10. Query Analytics and break down revenue.
 
@@ -280,7 +267,7 @@ Dent spins up marketing Sites that sell and deliver digital Products. Operate it
 
 12. Add Course content and manage Spaces.
 
-   - Section: `POST /api/v1/courses/{courseId}/sections` with `{ "title", "position", "status": "published" }`.
+   - Section: `POST /api/v1/courses/{courseId}/sections` with `{ "title", "position" }`. Sections publish by default; `status` is not a create field, so do not send it.
    - Read ordered Course Sections with `GET /api/v1/courses/{courseId}/sections`.
    - Lesson: `POST /api/v1/sections/{sectionId}/lessons` with `{ "title", "body", "position", "status": "published", "contentType": "text" }`.
    - Read ordered Section Lessons with `GET /api/v1/sections/{sectionId}/lessons`.
@@ -293,6 +280,7 @@ Dent spins up marketing Sites that sell and deliver digital Products. Operate it
 
    - Use Dent's words exactly; never write Product when the object is an Offer, never write Page when the object is a Funnel Step.
    - Prefer small read-after-write checks and include exact ids changed in your answer.
+   - Publishing a Funnel Step or Page (`{"status": "published"}`), or `replace-design` on one already published, validates the Design at the persistence chokepoint. If publish validation fails — invalid expression syntax, incomplete forms, or unresolved script or branch references — Dent returns `422` with element-keyed messages and does not persist. Fix the Design, not the status call. A draft save keeps its warnings and always persists.
    - Show Dent's error status and body. Do not invent fallbacks.
    - Do not use `/wp/wp-login.php`, WordPress admin-ajax, Bricks save routes, or WordPress REST routes for these workflows. A need for those routes is a first-party API gap to report.
    - Never place a bearer token in argv, a project file, a report, or a commit.

@@ -39,6 +39,10 @@ Use this after `writing/copywriting.md` has produced finished copy. The failure 
    Forms use `form`, matching field `config.name` values, and behaviors such as `optin`, `validate-email`, `bento-optin`, `form-answer`, `send-login-code`, or `verify-login-code`. Checkout uses `checkout`, `checkout-payment`, `checkout-summary`, `checkout-submit`, `checkout-offer`, `checkout-bump`, `checkout-timer`, and `checkout-terms` as required.
    Never: invent a generic redirect behavior or a new element type because a layout would be easier with it.
 
+   ### Bound values are values, never markup or code
+   A `{{ ... }}` binding resolves to a value. In text, headings, classes, and ordinary attributes it renders as escaped display text; in URL slots it must resolve to a real navigable URL or the render fails. In raw-html, script, and style positions it renders as an inert literal — a quoted value the surrounding parser reads as data — so it cannot drive display or styling there. Put human-readable dynamic text in text or heading elements, and drive dynamic styling with a class binding, never a bound raw CSS value.
+   Never: rely on a `{{ }}` binding inside a raw CSS `style` value or a raw-html body to show readable text.
+
 3. Lay out the argument.
 
    - Mobile comes first. Stack by default and add `md:` columns only when the content benefits.
