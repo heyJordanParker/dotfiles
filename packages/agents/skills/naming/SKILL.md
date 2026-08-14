@@ -7,49 +7,67 @@ description: MANDATORY for naming any code identifier — variable, function, fi
 
 This Skill is mandatory whenever naming anything in code.
 
-## 1. Read before naming
+## 1. Find the Precedent
 
-Read the surrounding code, find sibling concepts already named, and identify the Precedent shape before generating candidates.
+### Copy the shape of the names around it
+Read the folder, file, class, or table the name lands in. The names already there set the shape: singular or plural, noun or verb, one word or two, prefixed or bare. Every candidate uses that shape.
 
-## 2. Generate a slate
+### Follow the project's domain language
+Use the words this project already speaks. A word it spends on something else is taken. A word it retired stays retired. Read the project's `Domain.md` if it exists.
+
+## 2. Pick the angles
+
+### Give every candidate its own angle
+An angle is a different idea of what the thing is, not a different wording of one idea. Frame the thing several ways first: what the caller gets, the Domain event, the object that changes, the state after, the trigger before, the real-world act. Each candidate comes off a different framing and names it on its slate line. Two candidates share an angle when one sentence describes both, so replace one. The reply opens on the first candidate, never on a list of angles. The candidates below name a method that charges a failed payment on the backup card.
+
+Never:
+    chargeFallbackInstrument / billAlternateSource / captureDuesElsewhere
+    collectViaSpareWallet / reattemptOnSecondaryCard
+
+Example:
+    retryCharge — the same operation runs again
+    recoverSubscription — the subscription returns to active
+    useBackupCard — the stored second card is what changes
+    settleBalance — the debt reaches zero
+    rescueAccount — the customer keeps their access
+
+## 3. Generate a slate
 
 ### Every reply is a slate
 Return 5-10 candidates, then one recommendation and one runner-up. Never answer with a single name before the slate.
 
 Template:
-    - `candidate` — what it says; project Precedent it matches; named failure mode if any concern remains
-    - `candidate` — what it says; project Precedent it matches; named failure mode if any concern remains
+    - `candidate` — the angle in one clause; project Precedent it matches; the cost it carries if it has one
+    - `candidate` — the angle in one clause; project Precedent it matches; the cost it carries if it has one
 
     Recommended: `name` — one-sentence reason.
     Runner-up: `name` — one-sentence reason.
 
 Never: "Let's call it X", "I'd name it X", "The right name is X", "Recommended: X" without a slate above it, any single candidate before the slate.
 
-### Every candidate contributes fresh words
-No word appears twice across candidates. The slate's usefulness is the count of distinct fragments it puts in front of the caller. A candidate that reuses a word already on the slate gives nothing new. The only shared fragments allowed are the ones a Rule fixes: boolean `is`/`has`, Hook `use`, handler `handle`. The caller often recombines the fresh words into a final name that was not on the slate.
-
-Example: naming a method that charges a failed payment on the backup card.
+### Change every fragment in every candidate
+A word that appears in one candidate appears in no other. The caller mixes words across candidates into a final name that was not on the slate, so a repeated word costs a slot and returns nothing.
 
 Never:
-    retryWithBackupPaymentMethod / retryOnBackup / retryFailedCharge
-    chargeBackupPaymentMethod / chargeFallbackMethod / chargeSecondaryMethod
+    deleteFiles / deleteManyFiles / deleteData
 
-Example:
-    retryWithBackupPaymentMethod / chargeFallbackInstrument / recoverDeclinedSubscription
-    reattemptOnSecondaryCard / billAlternateSource / captureDuesElsewhere
-    salvageOverdueInvoice / collectViaSpareWallet
+IF no alternative to a word survives the scrub:
+### Fix that word and spend the slate on the rest
+Say in one clause that the word is settled, then change every other word across the slate. Settling is rare. A word stays open unless you can name why each alternative fails. The `use` that opens a Hook name is one of the few words already settled elsewhere in this Skill.
 
 IF the caller co-tags `/pcc`:
 ### Keep the slate and change each candidate's shape
 Each candidate becomes a `### name` section with a diff block for pros and cons and a `Confidence: N%.` line. The recommendation and runner-up still follow.
 
-## 3. Vary the candidate angles
-
-Generate candidates across action verb, thing noun, Domain word, short form, and descriptive form.
-
 ## 4. Scrub each candidate
 
 Replace dead candidates before they reach the slate.
+
+### Cut a candidate that fails a test, keep one that only costs something
+A word the project already uses for something else, or a word outside the project's language, fails. Cut it whatever its angle is worth. Length, a heavy compound, and a near miss with a sibling are costs. Those candidates stay, with the cost named.
+
+### Redraw a dead candidate on its own angle
+A candidate that fails a test leaves its angle open. Find another word for that angle. Drop the angle only when no word survives on it.
 
 ### Pass the three candidate tests
 Every candidate says what the caller gets, not how it works inside; every word is in the project's vocabulary or in plain English a developer says out loud; the name does not already mean something else in this codebase.
