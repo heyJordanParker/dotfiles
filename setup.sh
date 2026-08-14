@@ -87,9 +87,12 @@ if [ ! -d /Applications/Docker.app ]; then
 </dict>
 </plist>
 PLIST
-  printf '#!/bin/sh\nopen -a OrbStack\n' > /Applications/Docker.app/Contents/MacOS/Docker
-  chmod +x /Applications/Docker.app/Contents/MacOS/Docker
 fi
+# Rewritten every run, outside the guard, because the bundle outlives the script.
+# orbctl starts the engine directly; `open -a` hands OrbStack to LaunchServices,
+# which cold-launches it in the foreground and takes focus from the frontmost app.
+printf '#!/bin/sh\nexec /Applications/OrbStack.app/Contents/MacOS/bin/orbctl start\n' > /Applications/Docker.app/Contents/MacOS/Docker
+chmod +x /Applications/Docker.app/Contents/MacOS/Docker
 
 echo "==> Linking dotfiles & syncing generated files..."
 # All repo maintenance — the stow package->target mapping, restow, and the
