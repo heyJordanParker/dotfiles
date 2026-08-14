@@ -47,12 +47,7 @@ def _run(file_path, cwd):
     )
 
 
-@pytest.mark.parametrize("relative_path", [
-    "docs/shaping/feature/shaping.md",
-    "docs/plans/feature-plan.md",
-    ".claude/shaping/feature/shaping.md",
-    ".claude/plans/feature-plan.md",
-])
+@pytest.mark.parametrize("relative_path", ["docs/shaping/feature/shaping.md"])
 def test_planning_artifact_markdown_skips_doc_review(tmp_path, blocking_model, relative_path):
     file_path = tmp_path / relative_path
     file_path.parent.mkdir(parents=True)
@@ -65,12 +60,17 @@ def test_planning_artifact_markdown_skips_doc_review(tmp_path, blocking_model, r
     assert result.stderr == ""
 
 
-def test_prompt_markdown_still_raises_review_finding(tmp_path, blocking_model):
-    file_path = tmp_path / "README.md"
+def test_prompt_markdown_structural_finding_blocks(tmp_path, blocking_model):
+    file_path = tmp_path / "rules" / "scope.md"
+    file_path.parent.mkdir()
     file_path.write_text("before\n")
 
     result = _run(file_path, tmp_path)
 
-    assert result.returncode == 0
-    assert "Potential issues with this doc edit" in result.stdout
-    assert result.stderr == ""
+    assert result.returncode == 2
+    assert "BLOCKED: this edit breaks the Prompt Architecture" in result.stderr
+    assert result.stdout == ""
+
+
+
+

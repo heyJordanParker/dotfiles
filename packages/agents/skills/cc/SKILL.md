@@ -9,21 +9,27 @@ description: Write and fix Claude Code Prompts — skills, agents, commands, hoo
 - Every file under `packages/agents/` is a Prompt: instructions that correct the Agent's Disposition toward what the Architect intends.
 - One Process: write or fix a Prompt so every line earns its place.
 
-## 1. Name the Prompt type and fill only what it owns
+## 1. Understand the problem the Prompt solves
 
-Template:
-  Claude.md                     <- WHY, folder-wide Facts
-  <folder>/
-  └── Claude.md                 <- nests: this folder's WHY and Facts, inheriting every Claude.md above it
-  agents/<agent>.md             <- frontmatter with the description, one Frame, its Principles
-  skills/<skill>/
-  ├── SKILL.md                  <- frontmatter description as the trigger; one Process of ordered steps, each step carrying Rules, Facts, Examples, Templates, Conditions, Verification
-  └── references/<process>.md   <- a Process split out for Progressive Disclosure
-  commands/<command>.md         <- a Skill the Architect fires; side effects are the dividing line
-  rules/<topic>.md              <- Rules with their Examples; the paths glob is the Condition
-  hooks/<hook>.py               <- Rules enforced in code
-  docs/architecture/decisions/  <- Decisions
-  Domain.md                     <- the domain's words, nothing else
+A Prompt exists to solve one problem. Understand that problem before you touch the Prompt. Find out what the Agent does by default and what the Architect wants instead.
+
+IF fixing an existing Prompt:
+### Understand what the Prompt already solves before you change it
+Every line in it was written to correct something. Work out what that is first. A change made blind to it brings the old failure back.
+
+### Name a Disposition, never an incident
+A correction you just received is one incident; a Rule corrects what the Agent does by default. Write it only when the Agent would fail the same way again without it.
+Never: a Rule whose real subject is the mistake you just made.
+
+IF unsure whether the Harness base prompt already covers the gap:
+### Let the control run in step 7 decide
+Never guess.
+
+## 2. Read the Architecture and the Domain
+
+Read `Architecture.md` beside this file. It tells you which Prompt file your change belongs in. Then read `Domain.md` beside this file for the domain language you write in.
+
+## 3. Name the Prompt type and fill only what it owns
 
 ### Move a misplaced block to its home first
 A block in the wrong file type invalidates every later step.
@@ -50,15 +56,7 @@ Duplicate prose is cut. A model-backed Hook batches its event's Rules into one c
 ### A new file type is the Architect's Decision
 The Agent proposes Decisions; only the Architect makes them, typically through /interview.
 
-## 2. Name the gap per line
-
-State the Agent's default and the behavior wanted instead.
-
-IF unsure whether the Harness base prompt already covers the gap:
-### Let the control run in step 6 decide
-Never guess.
-
-## 3. Correct with the lightest delivery that holds
+## 4. Correct with the lightest delivery that holds
 
 Three axes pick the delivery: load guarantee (always-loaded, Condition-loaded, Skill the Agent invokes), recency (session start, per turn, at the moment of the action), strength (prose, Example, checked, blocked).
 
@@ -74,7 +72,7 @@ The failure picks the form:
 
 Never: a nuance clause appended to a winning correction. Measured: one banned phrase plus one positive recipe moved codex communication 0.73 to 0.87, past the 11,000-word baseline; the 20-item banned-vocabulary list it replaced made replies worse.
 
-## 4. Write every block in its shape
+## 5. Write every block in its shape
 
 The shape identifies the block without its heading. Every Prompt file is flat: heading, then content; an unnumbered listicle by default, numbered when order matters, one item for the WHY. A list that has grown hard to read is broken apart into Skills, more rules files, or more folders, never subheaded.
 
@@ -100,7 +98,7 @@ An Example or a Never is a labeled line directly under its Rule:
 
 A Template is a label with the block indented on new lines beneath it.
 
-## 5. Audit every line
+## 6. Audit every line
 
 - Corrects nothing: cut.
 - Corrects too hard: smaller and positive ("Use X", never "consider using X"; the Agent mirrors the voice of the rules it reads).
@@ -108,7 +106,7 @@ A Template is a label with the block indented on new lines beneath it.
 - Correcting more than the failure costs is Overprompting: the volume buries the signal and the Agent starts ignoring instructions wholesale.
 - Every Domain.md word keeps its capitalization; a term that traces to neither Domain.md nor the code is coined. Consult the Architect, never write it.
 
-## 6. Verify against real behavior, never intent
+## 7. Verify against real behavior, never intent
 
 Control run first: if the failure doesn't show without the line, there is no gap and the line is not written. Then pressure-test (testing-skills.md). Done when the correction held under pressure and the control showed the gap.
 

@@ -39,7 +39,11 @@ Use an agent when the Task recurs across sessions and the separate Frame or runt
 - `mcpServers` scopes Model Context Protocol servers to the agent.
 - `hooks` scopes Hook wiring to the agent.
 - `memory: none` is ours, not the Harness's: it denies the Agent Memory. The key is optional and has no other value — the Harness's `user`, `project`, and `local` are off in every root (step 6).
+- `readonly: true` is ours, not the Harness's: it takes writing away from the Agent on both Harnesses — the write tools, the shell commands that change the tree, and output redirection. The key is optional, has no other value, and omitting it leaves the Agent writing (step 7).
+- `mode: orchestrate|build|interview` is ours, not the Harness's: `orchestrate` spawns Subagents and mutates nothing, while read-only commands still run; `build` writes and spawns nothing; `interview` neither writes nor spawns. Every roster Agent declares it, so the `build` fallback an unreadable declaration falls to never decides a real dispatch. It gates a dispatched Agent alone; on a main session the mode only picks which Skill loads (step 8).
+- `ssh: enabled` is ours, not the Harness's: it lets the Agent reach another machine. It is the one opt-in declaration, so omitting it denies (step 7).
 - `codex-model` is ours, not the Harness's: the model the Agent runs on under codex, where `model` names a Claude model and reaches nothing.
+- `harness` is ours, not the Harness's: `all`, `claude`, or `codex`, naming where the Agent may run. It is optional and means `all` when absent. A `harness: codex` Agent declares `codex-model` and no `model`.
 - `background: true` always runs the agent in the background.
 - `isolation: worktree` runs the agent in a temporary git worktree.
 - `isolation: remote` runs the agent in a remote Claude Code remote environment and always backgrounds it.
@@ -50,6 +54,10 @@ IF an Agent should run on a different codex model:
 ### Declare `codex-model` only on Evidence covering the Agent's whole job
 The key is per Agent, so every Skill it runs moves with it. Evidence from one Skill is not Evidence for the Agent.
 Never: moving an Agent to a cheaper model because one of its Skills scored well on it.
+
+### Name the model category, never a version or a variant
+Every place a Claude model is named — agent frontmatter `model`, settings JSON `"model"`, a `--model` flag — takes the category: `opus`, `sonnet`, `haiku`, `fable`. A pinned version or a variant suffix goes stale on the next release and has to be hunted down everywhere it was written. The category already resolves to the long-context variant: a bare `opus` session reports a 1,000,000-token context window, while a pinned `claude-opus-4-5` reports 200,000.
+Never: `opus[1m]`, `claude-fable-5[1m]`, `claude-opus-4-5`.
 
 ### Keep `fallbackModel` out of agent frontmatter
 The agent `.md` parser ignores `fallbackModel` in frontmatter (v2.1.195). Set fallback models in settings JSON or with `--fallback-model`.
@@ -151,8 +159,8 @@ The Agent tool no longer accepts a `resume` parameter. Use `SendMessage({to: age
 `TaskOutput` is deprecated. Use `Read` on the background task's output file path.
 
 ### Never pass the Agent tool's `name` parameter
-`name` makes the dispatch an `in_process_teammate`, whose final text is never returned to the dispatcher — its only channel back is `SendMessage`, which the Subagent must look up before it can call. An unnamed dispatch returns the report on its own and resumes by agentId just the same. `block_builtin_subagents.py` enforces this.
-Never: `name`, or `run_in_background`, which is not a parameter of this tool.
+`name` makes the dispatch an `in_process_teammate`, whose final text is never returned to the dispatcher — its only channel back is `SendMessage`, which the Subagent must look up before it can call.
+/delegate owns the dispatch mechanics.
 
 ## 5. Preload Skills only when they are visible
 
@@ -198,3 +206,32 @@ Example:
 IF the agent is a one-shot execution agent:
 ### Declare `memory: none`
 A conclusion drawn weeks ago sidetracks a one-shot Task, and a write from one pollutes Memory for every Agent after it. Declare it and give the run everything it needs in the Prompt.
+
+## 7. Decide what the Agent may reach
+
+- Writes code: write no `readonly` key.
+- Reads and reports: write `readonly: true`.
+- Reaches another machine: write `ssh: enabled`. Absent, it reaches none.
+
+IF the Agent's Frame says it reports findings and never writes:
+### Declare `readonly: true`
+The Prompt claims it; the declaration keeps it. `block_denied_access.py` then refuses the write tools, the shell commands that change the tree, and output redirection, on both Harnesses.
+Never: relying on `tools:` alone, which Claude honours and codex drops, and which leaves the shell open on both.
+
+IF the Agent must run the suite, a build, or any package manager:
+### Leave `readonly` off
+A read-only Agent runs no runtime and no package manager, because each one runs whatever it is handed. An Agent that must execute code is not read-only, and forcing the key on it costs the capability instead of protecting anything.
+
+IF a read-only Agent needs a command the guard refuses:
+### Add the command to `_READERS`, never a second declaration
+The allowlist in `block_denied_access.py` is the one place that decides. A refusal names the command it blocked, so the Agent's report says which word to add.
+
+## 8. Decide how the Agent works
+
+- Does the work itself: write `mode: build`, and name `build` in `skills:`.
+- Hands every Task to Subagents: write `mode: orchestrate`, and name `delegate` and `orchestrate` in `skills:`.
+- Interviews the Architect, neither writes nor spawns: write `mode: interview`.
+
+### Declare `mode` on every Agent
+The key is written on every roster Agent, `orchestrate`, `build`, or `interview`, so the gate reads the author's intent rather than a fallback. `build` is what `session_mode.py` falls to when it cannot read a declaration at all, not an authoring shortcut.
+Never: leaving `mode` off and relying on the fallback.

@@ -67,7 +67,7 @@ Never: `**Rule:** bump version` or a Condition that owns multiple Rules.
 
 ### Preserve measured findings exactly where they already earn their line
 A measured finding is Evidence behind a Prompt correction; moving it or paraphrasing it can weaken the correction.
-Example: keep the codex communication score finding in SKILL.md step 3 while changing surrounding prose.
+Example: keep the codex communication score finding in SKILL.md step 4 while changing surrounding prose.
 Never: cut a measured score because it is old.
 
 ## 5. Run the gap pass
