@@ -10,4 +10,10 @@ root = subprocess.run(
     ["git", "rev-parse", "--show-toplevel"],
     capture_output=True, text=True,
 ).stdout.strip()
-subprocess.run([sys.executable, os.path.join(root, "scripts", "sync.py")])
+result = subprocess.run(
+    [sys.executable, os.path.join(root, "scripts", "sync.py")],
+    capture_output=True, text=True,
+)
+if result.returncode:
+    sys.stderr.write("sync.py failed — stow links and generated files are stale:\n")
+    sys.stderr.write(result.stdout + result.stderr)

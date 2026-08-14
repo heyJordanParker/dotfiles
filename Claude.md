@@ -9,6 +9,8 @@ Reproducible macOS environment setup and Claude Code plugin distribution from a 
 - Decisions live in `docs/architecture/decisions/`.
 - This repository's Rules live in `.claude/rules/`.
 - `packages/agents` is the source of truth for shared Skills, Agents, Commands, and Hooks.
+- The `claude` package stows to `~/.claude/`, where its `Claude.md` becomes the user-global Claude.md.
+- `packages/claude`'s `agents`, `commands`, and `skills` are symlinks into `packages/agents`.
 - `scripts/sync.py` restows packages, generates Codex Agent artifacts, and generates Hook wiring.
 - Plugin packaging dereferences `packages/claude` symlinks into real files in the plugin cache.
 - Plugin consumers get Skills, Commands, and the five shell Hooks, not Rules, settings, or Agents.
