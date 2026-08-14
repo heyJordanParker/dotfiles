@@ -49,6 +49,10 @@ You MUST complete each phase before proceeding to the next.
 
 ### Phase 1: Root Cause Investigation
 
+IF the cause is Architectural — a missing public API, a wrong Owner, or a Decision nobody made:
+### Run /5-whys for the chain
+/5-whys owns the Process that finds and tests each answer, and it stops at the Architecture where the fix lands.
+
 **BEFORE attempting ANY fix:**
 
 1. **Read Error Messages Carefully**

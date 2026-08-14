@@ -15,6 +15,7 @@ Requires [Claude Code](https://docs.anthropic.com/en/docs/claude-code).
 
 Invoked as `/talents:<name>`:
 
+- **5-whys** — Find the architectural root cause and render the chain
 - **agent-browser** — Automate browser interactions, web testing, screenshots, data extraction (requires [agent-browser](https://www.npmjs.com/package/agent-browser))
 - **architecture** — Present architectural options with tradeoffs
 - **cc** — Work with Claude Code skills, hooks, settings
@@ -26,7 +27,7 @@ Invoked as `/talents:<name>`:
 - **design** — UI components, styling, and interaction decisions
 - **diagram** — Generate Excalidraw diagrams on a live canvas (requires [drawbridge](https://github.com/alexknowshtml/drawbridge))
 - **execute** — Contract for executing-state turns: implement approved work, escalate on architectural change
-- **execute-plan** — Orchestrate implementation plans with persistent team, validation gates per slice
+- **execute-plan** — Orchestrate implementation plans with validation gates per slice
 - **gh-issue** — Create self-contained GitHub issues an agent can implement without conversation history
 - **impeccable** — Design, audit, and polish frontend interfaces
 - **independent-review** — N identical parallel agents for consensus through redundancy
@@ -42,10 +43,11 @@ Invoked as `/talents:<name>`:
 - **review** — Parallel code reviewers on uncommitted changes
 - **review-plan** — Review planning artifacts with 5 parallel specialized agents
 - **shaping** — Collaborate on problem definition and solution options
-- **show-architecture** — Annotated file trees inline
+- **show-me** — Show the work inline: annotated file trees, diagrams, call flows, signatures, diffs
 - **slicing** — Break modeled features into vertical implementation slices with acceptance criteria
-- **solo** — Single-agent deep-research mode, no subagents
-- **subagents** — Framework for dispatching one-shot subagents
+- **build** — Build-mode contract: the agent does every edit itself, no subagents
+- **delegate** — Framework for dispatching one-shot subagents
+- **orchestrate** — Orchestrate-mode contract: subagents make every change
 - **trace** — Code intelligence CLI: search, callers, definitions, complexity, file/method reads with rich architectural context (requires the bundled `trace` binary; see Tracer Setup below)
 - **user-testing** — Trace real user flows through code changes, find gaps
 

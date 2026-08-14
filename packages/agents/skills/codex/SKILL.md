@@ -143,7 +143,9 @@ Template:
 
 IF the codex run needs iteration:
 ### Resume the same job
-Use `codex-run resume <job> "<msg>"` with feedback so the run keeps full Context. It reruns under the founding Agent, on the same thread, off the job's own record. Do not re-explain to a fresh run.
+Use `codex-run resume <job> "<msg>"` to finish or correct that run's own founding Task. It reruns under the founding Agent, on the same thread, off the job's own record. A new finding, failure, or scope item — even on the same surface — is a fresh `codex-run` dispatch: one run, one task, and a clean Context beats a warm one.
+
+Never: a resume carrying work the founding Prompt did not name, or "it already has context" as the reason to route new work to an old run.
 
 IF a resume refuses to start:
 ### Start a fresh run instead of retrying
