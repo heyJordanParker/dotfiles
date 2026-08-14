@@ -665,6 +665,84 @@ def mutation_targets(words):
     return targets
 
 
+# --- atomic execution --------------------------------------------------------
+#
+# One Bash call, one step. Composition is how several steps ride in as one, and it
+# costs on every axis a guard cares about: the reader has to resolve deeper, a
+# failure anywhere re-sends the whole payload, and the model writing it has to hold
+# the whole sequence at once. Each shape refused here has a plainer replacement —
+# a second call, or the tool that already owns the job — so nothing becomes
+# unreachable.
+
+# The keywords that wrap a command in a repetition. Their bodies are separated
+# anyway, so this is what names the shape in the refusal rather than what finds it.
+_LOOP_WORDS = frozenset(("for", "while", "until", "select", "do", "done"))
+
+# A heredoc and the terminator that closes it. Matching the terminator is what
+# separates the operator from prose about it: `git commit -m "use << here"` has no
+# closing line, so it is text. A heredoc inside `"$(…)"` is still one, which is why
+# this reads the raw line rather than the token list.
+_HEREDOC = re.compile(r"<<-?\s*(['\"]?)(\w+)\1[^\n]*\n(?:.*\n)?\s*\2\s*$", re.S | re.M)
+
+# The one prefix word whose whole purpose is applying a command to a batch. Every
+# other prefix resolves to the command behind it; this one is the shape itself.
+_BATCHER = "xargs"
+
+
+def _composition_operator(token):
+    """The operator that ends one command and starts another, or "".
+
+    A lone `|` is not one: its consumer reads what the producer wrote, so the pair
+    is a single step. A token of parentheses alone is what `$(…)` leaves behind,
+    and the command inside is a segment the reader already resolves on its own.
+    """
+    if not is_separator(token) or token == "|" or all(c in "()" for c in token):
+        return ""
+    return token.replace("\n", "a newline")
+
+
+def composition_refusal(command):
+    """Why this command line is more than one step, or "" when it is one.
+
+    Reads the line and every shell script nested inside it, so a chain inside
+    `zsh -lc` answers exactly as a chain typed directly — which is the shape codex
+    sends every command in.
+    """
+    lines = _lines(command, 0)
+    if lines is None:
+        return ("this line hides what it runs, or cannot be parsed. Inline code, a "
+                "script that is not our own tooling, and an unbalanced quote each "
+                "leave the real command unknowable")
+    for line in lines:
+        if _HEREDOC.search(line):
+            return ("a heredoc carries a whole file inside a command. Write the file "
+                    "with the Write tool, and pass its path")
+        tokens = tokenize(line)
+        if tokens is None:
+            return "this line cannot be parsed, so what it runs is unknowable"
+        for words, piped in _split(line):
+            if _basename(words[0]) in _LOOP_WORDS:
+                return ("a loop repeats a command inside one call. Run the command "
+                        "once per item, one call each")
+            if _exec_scripts(words):
+                return ("`find -exec` runs a command per match inside one call. Find "
+                        "the matches, then act on them one at a time")
+            if not piped:
+                continue
+            if _basename(words[0]) == _BATCHER:
+                return ("`xargs` applies a command to a batch. Act on one target per "
+                        "call instead")
+            reason = readonly_refusal(*head_and_args(words))
+            if reason:
+                return ("a pipeline that ends in a change is a program, not a read: "
+                        "%s" % reason)
+        for token in tokens:
+            operator = _composition_operator(token)
+            if operator:
+                return "`%s` joins two commands. Send them as two calls" % operator
+    return ""
+
+
 def _prefix_candidates(words, depth):
     """Every command a prefix word might be running.
 
