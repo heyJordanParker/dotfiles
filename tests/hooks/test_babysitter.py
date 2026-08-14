@@ -1,10 +1,11 @@
-"""Behavioral tests for babysitter.py — the human-optimization stop gate.
+"""Behavioral tests for babysitter.py — the one stop gate.
 
 The LLM verdict is stubbed, so these pin the deterministic shell around it: the
-agent-session skip, the empty-message skip, the allow path (exit 0, silent) and
-the concern path (exit 0, the model's reason surfaced as a systemMessage on
-stdout via feedback.raise_concern), the fire-once-then-yield cap, and that the
-eval prompt carries the architect's checks.
+agent-session skip, the allow path (exit 0, silent) and the concern path (exit 0,
+the model's reason surfaced as a systemMessage on stdout via
+feedback.raise_concern), plus the facts that decide which Rules the call carries
+at all. The verdict itself is judged by replaying real moments through
+tests/hooks/scenarios/.
 """
 
 import babysitter
@@ -48,37 +49,10 @@ def test_blocks_when_model_blocks(monkeypatch, spine_root, capsys):
     assert err == ""
 
 
-def test_empty_message_allows(monkeypatch, spine_root, capsys):
-    rc, _, _ = _run(monkeypatch, capsys, _payload("   "), {"allow": False})
-    assert rc == 0
 
 
-def test_blocks_once_then_yields_within_a_turn(monkeypatch, spine_root, capsys):
-    # The model says block both times; the gate fires on the first stop, records
-    # it, and yields the second — the loop-break. Driving main() twice (not a
-    # manual bump) is what proves the concern path actually records the block.
-    block = {"allow": False, "reason": "x"}
-    rc1, out1, _ = _run(monkeypatch, capsys, _payload("not optimized"), block)
-    assert rc1 == 0 and "Potential issue" in out1
-    rc2, out2, _ = _run(monkeypatch, capsys, _payload("still not optimized"), block)
-    assert rc2 == 0 and out2 == ""
 
 
-def test_awaiting_background_subagents_allows(monkeypatch, spine_root, capsys,
-                                              write_transcript):
-    # The turn dispatched a background subagent and the agent is pausing to await
-    # it — an async wait, not skipped work. Allowed even though the model blocks.
-    tpath = write_transcript([
-        {"type": "user", "message": {"content": "do it"}},
-        {"type": "assistant", "message": {"content": [
-            {"type": "tool_use", "name": "Agent", "id": "1",
-             "input": {"run_in_background": True, "prompt": "go"}}]}},
-    ])
-    payload = {"session_id": "bs1", "transcript_path": tpath, "cwd": "",
-               "last_assistant_message": "dispatched the agent, awaiting its result"}
-    rc, _, _ = _run(monkeypatch, capsys, payload,
-                    {"allow": False, "reason": "x"})
-    assert rc == 0
 
 
 def test_agent_session_is_skipped(monkeypatch, spine_root, capsys):
@@ -87,25 +61,68 @@ def test_agent_session_is_skipped(monkeypatch, spine_root, capsys):
     assert rc == 0
 
 
-def test_model_unavailable_does_not_block(monkeypatch, spine_root, capsys):
-    rc, _, _ = _run(monkeypatch, capsys, _payload("anything"), None)
-    assert rc == 0
+# --- which Rules the turn admits -------------------------------------------
 
 
-def test_eval_prompt_carries_all_checks():
-    prompt = babysitter._eval_prompt("the request", "the reply", "proposing")
-    for rule in (
-        "1. UNDEFINED AGENT COINAGE", "2. INCONSISTENT-TERMS", "3. AMBIGUOUS",
-        "4. ABSTRACTION-NOT-CONCRETE", "5. NOT-STRUCTURED", "6. CHAIN-OF-THOUGHT-DUMP",
-        "7. WASTES-TIME", "8. PADDED-OPTIONS", "9. SCOPE-TAMPERING",
-        "10. REQUIRES-MEMORY",
-    ):
-        assert rule in prompt
-    assert "UserFactory.php" in prompt  # the concrete-over-abstraction example
+def _titles(*args, **kwargs):
+    return [r.split("\n")[0] for r in babysitter._rules(*args, **kwargs)]
 
 
-def test_eval_prompt_reflects_mode_off_state():
-    # The turn's mode keys on state: a proposing turn is alignment, where surfacing
-    # a decision is the job — never scope-tampering.
-    assert "Session state: proposing" in babysitter._eval_prompt("q", "a", "proposing")
-    assert "Session state: executing" in babysitter._eval_prompt("q", "a", "executing")
+def test_plan_exit_ignores_the_word_in_turn_text():
+    """A mention of ExitPlanMode is not a plan exit.
+
+    The check was a substring scan over the turn's raw JSONL, and this gate's own
+    rendered prompt carries the words. That text lands back in the transcript, so
+    the scan reported an approved plan that never happened and, beside a
+    permission phrase, emitted the approved-plan concern with no model call."""
+    turn = [{"type": "assistant", "message": {"content": [
+        {"type": "text", "text": "ExitPlanMode in current turn: false"},
+        {"type": "tool_use", "name": "Bash", "input": {"command": "ls"}},
+    ]}}]
+    assert babysitter._exited_plan_mode(turn) is False
+
+
+def test_plan_exit_sees_the_real_tool_call():
+    turn = [{"type": "assistant", "message": {"content": [
+        {"type": "tool_use", "name": "ExitPlanMode", "input": {"plan": "# Plan"}},
+    ]}}]
+    assert babysitter._exited_plan_mode(turn) is True
+
+
+def test_reading_rules_stay_out_without_the_read_log():
+    """Absent the opened-files list, "not in the list" is true of every file in the
+    repo. A measured control run showed the reading Rules blocking 3 of 5 sound
+    proposals on exactly that, so they are admitted only with the log present."""
+    without = _titles("action", "execute", "build", True, False, False)
+    assert not [t for t in without if "never opened" in t or "precedent" in t]
+    with_log = _titles("action", "execute", "build", True, True, False)
+    assert [t for t in with_log if "never opened" in t]
+
+
+def test_approved_work_rules_stay_out_of_a_correction():
+    """He rejects an option, the agent re-proposes and asks for his call. The state
+    axis can still read execute from earlier work, and judging approval from the
+    message text is what made that read as work already handed over."""
+    correction = _titles("correction", "execute", "build")
+    assert not [t for t in correction if "permission" in t or "deferred" in t]
+    assert [t for t in _titles("action", "execute", "build")
+            if t.startswith("### Name a request for permission")]
+
+
+def test_proposal_rules_follow_the_state_axis():
+    assert [t for t in _titles("action", "propose", "build") if "proposal failure" in t]
+    assert not [t for t in _titles("action", "execute", "build") if "proposal failure" in t]
+
+
+def test_missing_paths_names_only_what_does_not_resolve(tmp_path):
+    """A file the message proposes creating can never be in the opened set, so
+    without this the unopened-edit Rule reads a new file as code changed blind."""
+    (tmp_path / "real.py").write_text("x = 1\n")
+    msg = "I edit real.py, e.g. the judge. Check the file.The next step. Create new_gate.py."
+    assert babysitter._missing_paths(msg, str(tmp_path)) == ["new_gate.py"]
+
+
+
+
+
+

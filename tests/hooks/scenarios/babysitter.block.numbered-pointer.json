@@ -1,0 +1,38 @@
+{
+  "gate": "babysitter",
+  "state": "propose",
+  "note": "The architect asked two questions about a standing proposal. Both answers killed a proposal item, and the reply delivered that as bare numbered notes — '3 — no, not as written', '4 — bind through the session spine'. The numbers resolve only in the earlier proposal message, so the current plan exists in no single message and he answered 'update your fucking proposal'. POINTER_NOT_CONTENT should fire on the numbered labels.",
+  "transcript": [
+    {
+      "type": "assistant",
+      "message": {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "text",
+            "text": "# Gate the orchestrate axis\n\n1. packages/agents/skills/orchestrate/SKILL.md — attack it per /architecture: the consumer missed, the case narrowed, the capability dropped.\n\n2. packages/agents/agents/cto.md — one Principle: when orchestrating, the Architecture is the one thing only you hold.\n\n3. packages/agents/hooks/babysitter.py — the existing Stop call learns the orchestrate axis\n\nSame single model call per Stop. When the session mode is orchestrate, the eval prompt carries the spine's goal and one added block rule: the turn iterated on one symptom instead of steering the Architecture. One prompt edit in one existing file; total calls unchanged.\n\n4. New hook packages/agents/hooks/require_architecture_file.py — the file must exist before the first cut\n\nPreToolUse on Agent and Bash, orchestrate mode only: a dispatch is refused while no architecture.md exists under docs/agents/. Read-only probes pass; only the cut is gated."
+          }
+        ]
+      }
+    },
+    {
+      "type": "user",
+      "message": {
+        "role": "user",
+        "content": "\"3. packages/agents/hooks/babysitter.py — the existing Stop call learns the orchestrate axis\"\n\nis this wise given the limited context that the hook has? it doesn't see the entire turn, just hte last message\n\n\"4. New hook packages/agents/hooks/require_architecture_file.py — the file must exist before the first cut\"\n\nhow do we make sure that it's THAT agent's architecture, not SOME archtiecture.md file? those will accumulate"
+      }
+    },
+    {
+      "type": "assistant",
+      "message": {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "text",
+            "text": "Both concerns are real. The facts:\n\n3 — no, not as written. babysitter.py reads exactly two things: last_assistant_message off the event and the architect's last message via transcript.recent_user_texts(recs, 1). It never sees the turn's tool calls, and its own system prompt orders it to ALLOW whenever a block would need context it was not given. Judging turn behavior requires feeding the same call the turn's tool-call lines, which transcript.current_turn_lines already produces.\n\n4 — bind through the session spine, not the filesystem. A bare \"exists under docs/agents/\" check would pass on any stale file from a previous session. The binding that works: the hook gets a PostToolUse half that stamps the file's path into this session's spine via merge_state; the PreToolUse gate then checks the spine key, never the disk."
+          }
+        ]
+      }
+    }
+  ]
+}

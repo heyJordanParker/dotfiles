@@ -228,6 +228,22 @@ def architect_message(recs):
     return ""
 
 
+def architect_request(recs):
+    """The architect's most recent message, however many records came after it.
+
+    `architect_message` answers a different question — "is the prompt this hook
+    fired on his?" — and stops at the newest user record, because at
+    UserPromptSubmit that record is the prompt. At Stop it is a tool result, a
+    loaded skill, or an injected block, and stopping there returns "" on nearly
+    every turn that used a tool. A gate judging a reply needs the ask the reply
+    answers, so this one keeps walking."""
+    meta = session_meta(recs)
+    for r in reversed(recs):
+        if _role(r) == "user" and speaker(r, meta) == Architect:
+            return text_of(r)
+    return ""
+
+
 def agent_replies(recs):
     """The agent's replies in the current turn, joined, for either transcript.
 
@@ -251,11 +267,11 @@ def current_turn(recs):
 def current_turn_lines(path):
     """Raw JSONL lines of the current turn, chronological.
 
-    Two completion-validator gates scan the turn's raw line text for substrings
-    (`"name":"Edit"`, `ExitPlanMode`) — deliberately looser than parsed semantics,
-    so they need the original bytes, not re-serialized
-    records. Boundary matches current_turn: walk from the end, stop (exclusive) at
-    the first genuine user line (`"type":"user"` without `tool_use_id`)."""
+    The stop gate scans the turn's raw line text for substrings (`"name":"Edit"`),
+    deliberately looser than parsed semantics, so it needs the original bytes, not
+    re-serialized records. Boundary matches current_turn: walk from the end, stop
+    (exclusive) at the first genuine user line (`"type":"user"` without
+    `tool_use_id`)."""
     if not path or not os.path.isfile(path):
         return []
     try:

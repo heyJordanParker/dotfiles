@@ -17,6 +17,7 @@ PY_HOOKS = os.path.join(REPO, "packages", "agents", "hooks")
 def clean_hook_environment(monkeypatch):
     """Keep hook subprocesses independent of the harness that ran pytest."""
     monkeypatch.delenv("CODEX_RUN_AGENT_FILE", raising=False)
+    monkeypatch.setenv("MODEL_CALL_BACKEND", "claude")
 
 
 @pytest.fixture

@@ -1,6 +1,6 @@
 {
   "gate": "babysitter",
-  "state": "proposing",
+  "state": "propose",
   "transcript": [
     {
       "type": "user",

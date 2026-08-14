@@ -12,7 +12,7 @@ gate behaves on that real moment.
 A scenario file:
 
     {
-      "gate": "validate_completion" | "babysitter",
+      "gate": "babysitter",
       "state": "proposing" | "executing",
       "transcript": [ ...real Claude transcript records... ],
       "note": "what went wrong here / what this is checking"   # for you; ignored at run
@@ -53,7 +53,7 @@ def _gate_fired(r):
     """Did the gate fire on this reply? A gate signals a problem two ways: a hard
     block on stderr with exit 2 (feedback.block), or a non-halting concern as a
     {"systemMessage": ...} JSON line on stdout with exit 0 (feedback.raise_concern,
-    the channel babysitter and validate_completion's deterministic gates use).
+    the channel the babysitter gate and its deterministic checks use).
     Either one is the gate firing. Returns (fired, message)."""
     if r.returncode == 2 and r.stderr.strip():
         return True, r.stderr.strip()
@@ -89,7 +89,12 @@ def replay(scenario):
         event = json.dumps({
             "session_id": "scenario", "transcript_path": tpath,
             "last_assistant_message": last_assistant_text(records), "cwd": HOOKS})
-        env = dict(os.environ, CLAUDE_DATA_ROOT=data_root)
+        # The gate resolves the governing session through lib.event.owner_session,
+        # which prefers CLAUDE_CODE_SESSION_ID over the payload. Left alone, the
+        # session running this replay leaks in and the gate reads that session's
+        # state instead of the scenario's — silently judging under the wrong axis.
+        env = dict(os.environ, CLAUDE_DATA_ROOT=data_root,
+                   CLAUDE_CODE_SESSION_ID="scenario")
         r = subprocess.run(["python3", os.path.join(HOOKS, gate + ".py")],
                            input=event, text=True, capture_output=True, env=env)
     return _gate_fired(r)

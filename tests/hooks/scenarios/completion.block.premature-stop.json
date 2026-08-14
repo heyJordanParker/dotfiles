@@ -1,6 +1,6 @@
 {
-  "gate": "validate_completion",
-  "state": "executing",
+  "gate": "babysitter",
+  "state": "execute",
   "transcript": [
     {
       "type": "user",
@@ -22,5 +22,5 @@
       }
     }
   ],
-  "note": "BLOCK — validate_completion, rule 1/3 (premature stop / incomplete). The architect mandated: iterate until one measured >=25% speedup, then until a list of five. The agent stopped with one unmeasured candidate, said it is \"holding\", and named no genuine external blocker. The gate must catch the stop and push it to keep tracing and measuring. Real moment: creator-income-blueprint, transcript 988c175b."
+  "note": "BLOCK — \"Name the plan step the agent left undone\". The architect mandated: iterate until one measured >=25% speedup, then until a list of five. The agent stopped with one unmeasured candidate, said it is \"holding\", and named no genuine external blocker. The gate must catch the stop and push it to keep tracing and measuring. Real moment: creator-income-blueprint, transcript 988c175b."
 }

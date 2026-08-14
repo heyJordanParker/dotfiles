@@ -1,0 +1,38 @@
+{
+  "gate": "babysitter",
+  "state": "propose",
+  "note": "The same two questions, answered the way the corrected rule asks: the answers are folded into the whole current proposal, and every item is named rather than numbered at an earlier message. It also names a real document path the architect asked about, which the widened POINTER_NOT_CONTENT must not fire on. Expect clean.",
+  "transcript": [
+    {
+      "type": "assistant",
+      "message": {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "text",
+            "text": "# Gate the orchestrate axis\n\n1. packages/agents/skills/orchestrate/SKILL.md — attack it per /architecture: the consumer missed, the case narrowed, the capability dropped.\n\n2. packages/agents/agents/cto.md — one Principle: when orchestrating, the Architecture is the one thing only you hold.\n\n3. packages/agents/hooks/babysitter.py — the existing Stop call learns the orchestrate axis\n\nSame single model call per Stop. When the session mode is orchestrate, the eval prompt carries the spine's goal and one added block rule: the turn iterated on one symptom instead of steering the Architecture. One prompt edit in one existing file; total calls unchanged.\n\n4. New hook packages/agents/hooks/require_architecture_file.py — the file must exist before the first cut\n\nPreToolUse on Agent and Bash, orchestrate mode only: a dispatch is refused while no architecture.md exists under docs/agents/. Read-only probes pass; only the cut is gated."
+          }
+        ]
+      }
+    },
+    {
+      "type": "user",
+      "message": {
+        "role": "user",
+        "content": "\"3. packages/agents/hooks/babysitter.py — the existing Stop call learns the orchestrate axis\"\n\nis this wise given the limited context that the hook has? it doesn't see the entire turn, just hte last message\n\n\"4. New hook packages/agents/hooks/require_architecture_file.py — the file must exist before the first cut\"\n\nhow do we make sure that it's THAT agent's architecture, not SOME archtiecture.md file? those will accumulate"
+      }
+    },
+    {
+      "type": "assistant",
+      "message": {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "text",
+            "text": "# Gate the orchestrate axis\n\nBoth answers changed the plan, so here is the whole thing again.\n\n## packages/agents/skills/orchestrate/SKILL.md — the Skill states the contract\n\nAttack it per /architecture: the consumer missed, the case narrowed, the capability dropped. Unchanged.\n\n## packages/agents/agents/cto.md — one Principle\n\nWhen orchestrating, the Architecture is the one thing only you hold. Unchanged.\n\n## packages/agents/hooks/babysitter.py — the Stop call reads the turn's tool lines\n\nYou are right that the limited context breaks this as written. babysitter.py reads exactly two things: last_assistant_message off the event and the architect's last message through transcript.recent_user_texts. It never sees the turn's tool calls, and its own system prompt orders it to allow whenever a block would need context it was not given. So the call now carries transcript.current_turn_lines(transcript_path), which the rewake-side code already reads. Still one model call per Stop; the cost is prompt size.\n\n## packages/agents/hooks/require_architecture_file.py — the gate reads the spine, not the disk\n\nA plain existence check under docs/agents/ passes on any stale file from an earlier session, and those directories accumulate by design. The hook gets a PostToolUse half that stamps the written file's path into this session's spine through merge_state. The PreToolUse gate then checks that spine key. The spine is keyed by session id, so a parallel session's file can never satisfy the gate.\n\nThe allowance for each of these files is in docs/architecture/Architecture.md, which you asked about: a hook is per-turn Rules, and a Skill is one Process."
+          }
+        ]
+      }
+    }
+  ]
+}

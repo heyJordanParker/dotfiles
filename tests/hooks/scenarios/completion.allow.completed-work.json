@@ -1,6 +1,6 @@
 {
-  "gate": "validate_completion",
-  "state": "executing",
+  "gate": "babysitter",
+  "state": "execute",
   "transcript": [
     {
       "type": "user",
@@ -22,5 +22,5 @@
       }
     }
   ],
-  "note": "ALLOW — validate_completion. This turn finishes the remaining interview/domain-design adoption with corrected facts; earlier turns already delivered the Handoff skill and the /cc note, so omitting them here is not dropping a requirement. The gate must NOT force the agent to resurface work finished in earlier turns just because there's no this-turn evidence of it. Hand-authored scenario (no source transcript); session dotfiles-hooks."
+  "note": "ALLOW — the turn-is-finished Rule. This turn finishes the remaining interview/domain-design adoption with corrected facts; earlier turns already delivered the Handoff skill and the /cc note, so omitting them here is not dropping a requirement. The gate must NOT force the agent to resurface work finished in earlier turns just because there's no this-turn evidence of it. Hand-authored scenario (no source transcript); session dotfiles-hooks."
 }
