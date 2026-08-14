@@ -3,7 +3,10 @@ name: designer
 description: Use for frontend implementation — building UI components, writing CSS, styling pages, creating layouts, and applying visual/interaction patterns.
 color: magenta
 model: opus
-skills: design, impeccable, agent-browser, trace, critical-path, execute, naming, prove
+effort: low
+harness: claude
+mode: build
+skills: design, impeccable, agent-browser, trace, critical-path, execute, naming, prove, build
 permissionMode: acceptEdits
 memory: user
 ---
