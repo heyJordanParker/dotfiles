@@ -1,13 +1,13 @@
 ---
 name: execute-plan
-description: Orchestration Process for executing Plans. Assigns Slices to Subagents and runs Verification after each Slice. The Orchestrator coordinates — it does not implement.
+description: Orchestration Process for executing Plans. Assigns Slices to Subagents. The Orchestrator coordinates, it does not implement.
 ---
 
 # Execute Plan
 
 - The Orchestrator implements the Plan's Slices through Subagents.
 - Every line of code is written by a Subagent.
-- The Orchestrator judges every Slice's Evidence per /subagents.
+- The Orchestrator judges every Slice's Evidence per /delegate.
 - Slices with no dependency between them execute in parallel; dependent Slices wait for what they depend on.
 - Subagents stay resumable after all Slices for fixes, iteration, and follow-ups.
 
@@ -23,9 +23,9 @@ The Plan's Architecture is immutable. Stop for Architect approval before changin
 
 The Agent owns private variable/function names within conventions, error wording, internal implementation, test organization, and comments.
 
-## 2. Dispatch through /subagents
+## 2. Dispatch through /delegate
 
-Dispatch every Slice per /subagents.
+Dispatch every Slice per /delegate.
 
 ### Use existing specialized agents only
 Do not create custom agents for Plan Execution.
@@ -33,19 +33,11 @@ Do not create custom agents for Plan Execution.
 ### Keep implementation inside Subagents
 The Orchestrator does not use Edit, Write, or NotebookEdit, and does not read full implementation files.
 
-## 3. Establish the baseline
+## 3. Refresh Claude.md Context
 
-Run the test suite and record pre-existing failures so Slice Verification distinguishes new regressions from known failures.
+Dispatch @context-engineer before implementation, then spot-check the Claude.md changes. Subagents make wrong assumptions when Claude.md does not capture the Plan's WHY and Rules.
 
-IF the test command is unknown:
-### Ask once for the test command
-After the Architect answers, use that command for the baseline and every Slice comparison.
-
-## 4. Refresh Claude.md Context
-
-Dispatch `context-engineer` before implementation, then spot-check the Claude.md changes. Subagents make wrong assumptions when Claude.md does not capture the Plan's WHY and Rules; the retro found this in 31 of 182 failures.
-
-Write the dispatch with /subagents. Its Goal is to read the Plan and the Shaping Prompt and update the relevant Claude.md files so a Subagent reading them understands the WHY, Rules, boundaries, and Architecture.
+Write the dispatch with /delegate. Its Goal is to read the Plan and the Shaping Prompt and update the relevant Claude.md files so a Subagent reading them understands the WHY, Rules, boundaries, and Architecture.
 
 Verification for this dispatch:
   - Relevant Claude.md files carry WHY from the Plan
@@ -54,7 +46,7 @@ Verification for this dispatch:
   - No fabricated WHY; only what the Plan and Shaping Prompts establish
   - No pre-researched content; read the files directly
 
-## 5. Verify readiness
+## 4. Verify readiness
 
 Start the development server, confirm database access, and confirm required services. If the Plan adds infrastructure, verify that infrastructure before the Slice that needs it.
 
@@ -62,9 +54,9 @@ IF readiness fails:
 ### Halt and report before executing Slices
 Do not proceed with broken infrastructure.
 
-## 6. Execute the Slices
+## 5. Execute the Slices
 
-For each Slice: `TaskCreate`, report `Starting Slice N/M: [name]`, dispatch the implementing Subagent, run the test suite against the baseline, judge the Slice's Evidence per /subagents, fix and re-verify failures up to three times, stage the Slice, report, and `TaskUpdate` to completed.
+For each Slice: `TaskCreate`, report `Starting Slice N/M: [name]`, dispatch the implementing Subagent, judge the Slice's Evidence per /delegate, fix and re-verify failures up to three times, stage the Slice, report, and `TaskUpdate` to completed.
 
 ### Create and close one Task per Slice
 Use `TaskCreate` with present-continuous `activeForm`; use `TaskUpdate` to completed or failed. Never leave Tasks hanging.
@@ -76,7 +68,7 @@ Independent Slices run in parallel. A Slice waits only for the Slices it depends
 Must-have blocks the Slice, so report immediately and wait for Architect approval. Nice-to-have is logged, reported in the Slice summary, and not implemented. Out-of-scope is noted in completion and not implemented.
 
 ### Use the implementing Subagent Template
-Write the dispatch with /subagents; resume the same Subagents across Slices so learnings carry. Weave prior Slice learnings into Story or Business — a library limitation goes in Business, a broken test goes in Story.
+Write the dispatch with /delegate; resume the same Subagents across Slices so learnings carry. Weave prior Slice learnings into Story or Business — a library limitation goes in Business, a broken test goes in Story.
 
 What this Plan adds to that Template:
 
@@ -95,9 +87,9 @@ What this Plan adds to that Template:
 
   Architecture: the annotated file tree from the Plan's Changes section, `*` marking files to read.
 
-## 7. Verify the Slice from its Evidence
+## 6. Verify the Slice from its Evidence
 
-After the implementing Subagent returns, run the test suite and compare to the baseline. Then judge the Slice's Evidence per /subagents against its acceptance criteria, its stated WHY, regressions, and cross-module interactions.
+Judge the Slice's Evidence per /delegate against its acceptance criteria, its stated WHY, regressions, and cross-module interactions.
 
 ### Do not trust Subagent success reports
 Every Slice verifies before staging, from the Evidence on disk, never from the summary.
@@ -106,24 +98,24 @@ Every Slice verifies before staging, from the Evidence on disk, never from the s
 The Slice's report.md covers each acceptance criterion with input and observed output, the WHY ("does this Slice achieve it, not just the listed criteria"), cross-module interaction points touched, and browser screenshots for User Interface changes.
 
 ### Fix and re-verify failures three times
-On Verification failure, send the specific failures back to the implementing teammate by name and re-verify. After three failed fix attempts, halt with what each attempt tried, why each failed, root-cause theory, and alternatives.
+On Verification failure, resume the implementing Subagent with the specific failures and re-verify. After three failed fix attempts, follow /delegate: stop resuming and dispatch a debugger for the mechanism.
 
 IF a failure reveals an Architectural issue:
 ### Follow the Plan Architecture change Rule
 Stop and report to the Architect what the Plan prescribed, what the Subagent found, why it does not work, and the Subagent's Proposal. Wait for approval or alternative direction. If approved, update the Plan file so future Slices see the change.
 
-## 8. Stage and report the Slice
+## 7. Stage and report the Slice
 
 Stage the Slice with `git add`; report what was done, verified, tactical deviations, behavioral changes, scope additions, and Slice learnings; then `TaskUpdate` to completed.
 
 ### Never commit during Plan Execution
 The Architect initiates commits.
 
-## 9. Run final Verification
+## 8. Verify and document
 
-After all Slices are staged, run full /review against `git diff HEAD`, run full /user-testing for affected User-facing behavior, and dispatch `context-engineer` to update Claude.md with what was built and any Architectural Decisions that emerged.
+After all Slices are staged, run /verify-changes, then dispatch @context-engineer to update Claude.md with what was built and the Architectural Decisions that emerged.
 
 Report all Slices, Verification results, scope additions, behavioral changes, and overall status.
 
 ### Keep the Subagents resumable
-After final Verification, follow-ups and fixes resume the owning Subagents by name.
+After /verify-changes, follow-ups and fixes resume the owning Subagents.

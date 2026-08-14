@@ -73,7 +73,7 @@ Name the out-of-scope area, pattern, dependency, or public contract the Slice mu
 Name the Agent, test command, browser check, API call, or observable result for each acceptance criterion.
 
 ### Implementation does not self-validate
-Dispatch independent testing Subagents through `/subagents`. Trace every code path touched, exercise real User scenarios end to end, browser-test through tester Agent plus `/agent-browser` when User Interface is involved, and run every test category fitting scope.
+Dispatch independent testing Subagents through `/delegate`. Trace every code path touched, exercise real User scenarios end to end, and browser-test through tester Agent plus `/agent-browser` when User Interface is involved. Full suites and test categories run once, as the Orchestrator's end gate after every Slice lands — never per Slice or per Subagent.
 
 ### Fix tactical failures autonomously
 Fix issues that do not change the Architecture. Present Architectural issues to the Architect with options.

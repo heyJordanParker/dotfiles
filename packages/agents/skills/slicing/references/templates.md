@@ -70,7 +70,7 @@ Template:
 
   > Plan contract: This is an immutable contract. Architectural deviations require explicit approval. Tactical code-level adjustments are fine.
 
-  > For Claude: Use the /subagents Skill to dispatch implementation.
+  > For Claude: Use the /delegate Skill to dispatch implementation.
 
   WHY: [What User problem this Slice solves]
 
@@ -112,11 +112,11 @@ Template:
 
   ## Task N: Verification (fulfills all Rs)
 
-  Dispatch independent testing Subagents via /subagents.
+  Dispatch independent testing Subagents via /delegate.
   - Trace every code path touched.
   - Validate real User scenarios end to end.
   - Browser-test via tester Agent and /agent-browser when User Interface is involved.
-  - Run every test category fitting scope.
+  - Run the full suite and expensive test categories once, as this final Task — never per Slice.
   - Fix all issues that do not change the Plan's Architecture.
   - Present results to the Architect for manual Verification and feedback; do not commit without approval.
 

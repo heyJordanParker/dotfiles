@@ -15,26 +15,49 @@ the Evidence, never the other way around.
 1. List every claim the report will make: each Verification item, each "fixed", each
    "passes", each "pre-existing".
 
-2. Exercise each claim: run the concrete input, record the observed output. Behavior
-   visible in a browser gets a screenshot.
+2. Exercise each claim with the narrowest run that reaches your own diff — one spec
+   file, one test, one browser session at most, closed on exit. Full suites, test
+   categories, and cross-cutting checks are the Orchestrator's single end gate; cite its
+   artifacts instead of re-running them. Run the concrete input, record the observed
+   output. A flow through a browser gets an ordered screenshot trail, one frame per step
+   the User takes, numbered in order. A single end-state frame proves the end state only.
    Example: "POSTed `{email: a@b.co}` to `/api/v1/form-submit`; got 200; redirect to `/thanks`."
    Never: "build succeeds", "types check", "logic is sound", or a confidence percentage in place of an observed run.
+
+   ### Iterate on one test, prove on the file
+   A whole test file repeats the migration, the fixtures, and the app boot for
+   every test in it, so it costs minutes where one test by name costs seconds.
+   While the code is red, run one test by name. Run the whole file, the browser
+   walk, or the same test twice to prove a race after that one test passes.
+
+   IF a check already passed:
+   ### Re-run it only after you changed code it covers
+   A check that passed stays passed.
+
+   IF you have no Orchestrator:
+   ### Run the end gate yourself
+   There are no artifacts to cite, so the full suite is yours to run.
 
 3. Look at every screenshot and check it against the claim it backs. A screenshot
    showing the failure kills the claim — fix the work, never ship the image.
    Never: attaching a screenshot unviewed; a blank, sliver, or cropped image as proof.
 
-4. IF calling any failure pre-existing:
-   Prove it with the same gate on the pre-change baseline: the exact failing command,
-   green before your diff, red after. Without that run the failure is yours — fix it.
-   Never: "unrelated", "existing failure", "was broken before" without the baseline run.
-
-5. IF a gate you own is still red:
+4. IF a gate you own is still red:
    The Task is not done. Fix it, or report unfinished with the red output shown.
-   Never: reporting movement as progress ("advanced past line 1836, now fails at 1875").
+   Never: reporting movement as progress ("advanced past line 1836, now fails at 1875");
+   "unrelated", "existing failure", or "was broken before" offered as a pass.
 
-6. Write report.md in the named Evidence directory. Every claim carries its input,
-   observed output, and screenshot beside it. A claim without proof stays out.
+   IF a failure looks pre-existing:
+   ### Report the exact command and its red output to the Orchestrator and stop
+   Attribution is the Orchestrator's, not yours: it holds the diff, the other Tasks in
+   flight, and the before state. With no Orchestrator, fix the red gate or surface it in
+   your own report. You never produce a before state yourself, because the
+   tree carries other Agents' uncommitted work and any command that clears it destroys
+   their work.
 
-7. Post the completion summary: what was exercised start to finish, what was not
+5. Write report.md in the named Evidence directory. Every claim carries its input,
+   observed output, and screenshot beside it, each screenshot named by its filename so
+   the reader opens the trail instead of trusting the claim. A claim without proof stays out.
+
+6. Post the completion summary: what was exercised start to finish, what was not
    exercised, and what breaks if production hits the unexercised part.

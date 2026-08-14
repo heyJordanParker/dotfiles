@@ -14,7 +14,10 @@ if [[ "$normalized" =~ git[[:space:]]+reset ]]; then
 BLOCKED: git reset is a destructive operation.
 
 If you want to revert changes to specific lines, use the Edit tool to manually undo those changes.
-If you truly need git reset, ask the user to run it manually.
+If you are here to prove a failure is pre-existing: stop. That is the
+orchestrator's call, not yours. Report the exact command and its red output and
+let it attribute the failure. Do not look for another route to a before state.
+If a human truly needs this, the human runs it manually.
 EOF
   exit 2
 fi
@@ -30,7 +33,10 @@ if echo "$normalized" | grep -qE 'git[[:space:]]+checkout[[:space:]]+[^[:space:]
 BLOCKED: git checkout <ref> -- <path> is a destructive operation.
 
 If you want to revert changes to specific lines, use the Edit tool to manually undo those changes.
-If you truly need to checkout from a commit, ask the user to run the git command manually.
+If you are here to prove a failure is pre-existing: stop. That is the
+orchestrator's call, not yours. Report the exact command and its red output and
+let it attribute the failure. Do not look for another route to a before state.
+If a human truly needs this, the human runs it manually.
 EOF
   exit 2
 fi
@@ -40,7 +46,10 @@ if echo "$normalized" | grep -qE 'git[[:space:]]+checkout[[:space:]]+(--[[:space
 BLOCKED: git checkout of files is a destructive operation.
 
 If you want to revert changes to specific lines, use the Edit tool to manually undo those changes.
-If you truly need to discard file changes, ask the user to run the git command manually.
+If you are here to prove a failure is pre-existing: stop. That is the
+orchestrator's call, not yours. Report the exact command and its red output and
+let it attribute the failure. Do not look for another route to a before state.
+If a human truly needs this, the human runs it manually.
 EOF
   exit 2
 fi
@@ -51,7 +60,10 @@ if [[ "$normalized" =~ git[[:space:]]+restore ]]; then
 BLOCKED: git restore is a destructive operation.
 
 If you want to revert changes to specific lines, use the Edit tool to manually undo those changes.
-If you truly need to restore files, ask the user to run the git command manually.
+If you are here to prove a failure is pre-existing: stop. That is the
+orchestrator's call, not yours. Report the exact command and its red output and
+let it attribute the failure. Do not look for another route to a before state.
+If a human truly needs this, the human runs it manually.
 EOF
   exit 2
 fi
@@ -75,7 +87,10 @@ or git -c alias.*=stash. Adding a read-only stash command does not make this
 allowed.
 
 To run something against a clean tree: commit your work first, then run it.
-If a human truly needs a stash, the human runs it manually.
+If you are here to prove a failure is pre-existing: stop. That is the
+orchestrator's call, not yours. Report the exact command and its red output and
+let it attribute the failure. Do not look for another route to a before state.
+If a human truly needs this, the human runs it manually.
 EOF
   exit 2
 fi
