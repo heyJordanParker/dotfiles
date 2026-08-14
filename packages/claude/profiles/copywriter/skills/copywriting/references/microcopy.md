@@ -1,6 +1,6 @@
 # In-Product Microcopy
 
-The reader is already inside the product, mid-task. Microcopy converts at the moment of value or friction — be brief, specific, and never trap, then run the draft back through the writing principles and the editing skill.
+The reader is already inside the product, mid-task. Microcopy converts at the moment of value or friction — be brief, specific, and never trap, then run the draft back through the writing principles and the editor's checks (edit-sentences and check-ai-writing).
 
 - **Signup** — fewest fields that let them start (email + password, or social auth). Show value before the form ("free, no credit card"). Labels stay visible, not just placeholders; errors are specific and keep the entered data. Mistake: asking for company, role, and phone before the reader has seen anything.
 - **Paywall / upgrade** — fire after the aha moment, never before. Headline on the benefit behind the wall ("Get {benefit} — {feature} is on {plan}"), preview the value, mark the current plan, value-oriented CTA ("Start getting {benefit}"), and always a clear escape ("Not now"). Mistake: asking before value is felt, or hiding the close.

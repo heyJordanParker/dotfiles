@@ -1,6 +1,6 @@
 ---
 name: gif
-description: Pick the reaction GIF that lands an emotion by taking one of the most popular matches on Giphy — the one the reader has already seen, so the association is built. TRIGGER when a piece calls for a reaction or emotion GIF (a win-back or onboarding email, an X or LinkedIn post, a blog post) and you need to choose the actual GIF. DO NOT TRIGGER for a product-demonstration clip or screen recording that shows the product working (that's a demo, not a reaction GIF), or for writing the surrounding copy (copywriting) or its line-level checks (editing).
+description: Pick the reaction GIF that lands an emotion by taking one of the most popular matches on Giphy — the one the reader has already seen, so the association is built. TRIGGER when a piece calls for a reaction or emotion GIF (a win-back or onboarding email, an X or LinkedIn post, a blog post) and you need to choose the actual GIF. DO NOT TRIGGER for a product-demonstration clip or screen recording that shows the product working (that's a demo, not a reaction GIF), or for writing the surrounding copy (copywriting) or its line-level checks (edit-sentences).
 ---
 
 # GIF

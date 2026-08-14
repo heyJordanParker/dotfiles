@@ -9,7 +9,7 @@ Name the pain → make its cost felt → present the solution and the next step.
 - **Fits:** problem-aware readers. The workhorse for SaaS, where most traffic feels a pain it hasn't solved.
 - **Why it works:** recognition first. The reader who sees their problem stated precisely trusts that you understand the rest.
 
-> You ship features nobody uses. Each one took weeks, and the adoption email went out once, to everyone, and converted no one. Trigger emails on what each user actually does, and the next feature gets found the day it ships.
+> Your projects slip and you find out at the retro. The status update goes out Friday, after the deadline already moved and the client already noticed. Flag a task the day it stalls, and the deadline gets saved while there's still room to move it.
 
 ## BAB — Before, After, Bridge
 
@@ -18,7 +18,7 @@ Current painful state → the desired future → your product as the bridge betw
 - **Fits:** problem-aware to solution-aware readers, transformation offers with a clear before and after.
 - **Why it works:** it sells the gap. The vivid after-state creates the want; the bridge makes it reachable.
 
-> Today, your onboarding is one welcome email and hope. Imagine every trial getting the exact nudge that moves them to their first win. That's what behavioral triggers do — they watch, then write.
+> Today, closing the month means a week of chasing receipts by hand. Imagine every expense already categorized and reconciled the moment it clears. That's what a bank-feed sync does — it reads each transaction, then files it.
 
 ## AIDA — Attention, Interest, Desire, Action
 
@@ -34,7 +34,7 @@ Promise the outcome → picture the reader living it → prove it's real → pus
 - **Fits:** solution-aware and product-aware readers, especially landing pages and long-form sales copy.
 - **Why it works:** it pairs desire and belief in sequence — the picture builds the want, the proof immediately pays for it before doubt sets in, and the push arrives while belief is high.
 
-> **Promise:** Trials that convert without you touching them. **Picture:** You wake up to three upgrade notifications from users you never emailed by hand. **Proof:** "We went from 4% to 11% trial-to-paid in six weeks." — named founder, with the chart. **Push:** Start free, see your first triggered email today.
+> **Promise:** Roles that fill themselves while you sleep. **Picture:** You open your laptop to three qualified candidates already scheduled, none of whom you chased down. **Proof:** "We cut time-to-hire from six weeks to nine days." — named recruiter, with the dashboard. **Push:** Post your first role, see the first match today.
 
 ## PASTOR — Problem, Amplify, Story, Testimony, Offer, Response
 
@@ -57,7 +57,7 @@ Feature → "so that…" → "which means…". Walk each feature across to the o
 - **Fits:** product-aware readers, feature pages, comparison sections where the reader wants specifics.
 - **Why it works:** it refuses to leave a feature stranded. Every capability arrives already translated into what it does for the reader.
 
-> Behavioral triggers (feature) → so emails send on what users do, not on a schedule (so that) → which means the right nudge reaches the right user at the moment it matters (which means).
+> Auto-categorization (feature) → so each record files itself by rule instead of by hand (so that) → which means the right entry lands in the right place the moment it arrives (which means).
 
 ## Choosing among them
 

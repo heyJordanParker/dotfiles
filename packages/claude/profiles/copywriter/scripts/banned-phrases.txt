@@ -1,0 +1,78 @@
+# Banned phrases — the mechanically sweepable subset of check-ai-writing's ai-tells.md.
+# One phrase per line. Case-insensitive, matched on whole-word boundaries.
+# JUDGMENT TELLS ARE NOT HERE: structural patterns ("it's not just X, it's Y"),
+# fake-familiarity ("questions I get asked"), the aphorism close, and the em-dash
+# rule all need a reader's judgment and stay with the LLM checks. This file holds
+# only fixed strings that a human would agree are slop on sight.
+
+# --- Openers (ai-tells S1) ---
+in today's fast-paced world
+in today's digital age
+in the digital age
+in an era of
+in the realm of
+in the landscape of
+imagine a world where
+it's important to note that
+it's worth noting that
+it is worth noting that
+let's delve into
+
+# --- Transitions (ai-tells S1) ---
+that being said
+with that in mind
+at its core
+in essence
+to put it simply
+simply put
+this begs the question
+it's worth mentioning that
+
+# --- Closers (ai-tells S1) ---
+in conclusion
+to sum up
+all things considered
+at the end of the day
+in the final analysis
+
+# --- Overused verbs (ai-tells S1) ---
+delve
+unveil
+underscore
+bolster
+foster
+empower
+
+# --- Overused adjectives (ai-tells S1) ---
+robust
+comprehensive
+seamless
+seamlessly
+innovative
+cutting-edge
+transformative
+holistic
+crucial
+pivotal
+
+# --- Academic tells (ai-tells S1) ---
+shed light on
+pave the way for
+a myriad of
+a plethora of
+paramount
+
+# --- SaaS slop & empty superlatives (ai-tells S3) ---
+revolutionize
+supercharge
+unlock
+elevate
+game-changing
+game changer
+next-level
+world-class
+best-in-class
+state-of-the-art
+disruptive
+paradigm shift
+secret sauce

@@ -1,76 +1,67 @@
 ---
 name: research
-description: Reader evidence for the strategy call — what customers actually say, the jobs they hire the product for, the claims competitors make, and how much to trust each. TRIGGER when the brief needs voice-of-customer language, jobs-to-be-done, pain/trigger/objection mining, a competitor claim landscape, review or forum mining, or a confidence read on an assumption. DO NOT TRIGGER to turn that evidence into positioning or channel choice (marketing), to shape paid ad angles (advertising), or to size search demand (seo) — research supplies the evidence those advisors and the chief reason over.
+description: The deep pass of a research thread — take one subject, mine it deep, and write verbatim records into research/<subject>/<topic>.md with full citations. Records only, never judgment. TRIGGER when one discovered entry needs its records extracted, or when a research specialization names this as its Process. DO NOT TRIGGER to enumerate a field broad (discover) or to rate the records (judge-research).
 ---
 
 # Research
 
-What this advisor supplies: the reader evidence everything downstream is built on — the exact language customers use, the jobs they hire the product for, the claims competitors stake, the proof available, and a confidence level on each. Strategy and copy that aren't grounded here are guesses dressed as decisions.
+One Process — the deep pass: take the one subject the dispatch names, mine it deep, and write the records into `research/<subject>/<topic>.md`. Records only — no rating of what the records show; that judgment is the judged-files step's, from these records.
 
-## Start by establishing what you have
+Inputs: the one subject, and whatever the dispatch's specialization names as its capture target — nothing else. If the thread folder `research/<subject>/` is missing, escalate it to the dispatcher as a blocking gap and stop — never complete the task with the records unwritten.
 
-Three situations, and the method differs by which one you're in:
+## 1. Read the thread first
 
-- **Existing evidence** — transcripts, sales calls, surveys, support tickets, reviews, churn notes. Extract the signal.
-- **Go and find it** — no first-party material, but real customers talk in public (Reddit, review sites, forums, communities). Mine it.
-- **No customers yet** — pre-launch, or no reachable users. Degraded mode, below. The rule there is absolute: never invent a customer.
+Read the dispatched thread folder `research/<subject>/` for what this subject has already yielded. Extract only the delta.
 
-Most real briefs combine the first two. Name which you're in before extracting.
+## 2. Read the subject through /browse
 
-## What to extract
+/browse owns the trust check, the fetch, the cleaning, the caching, and the registry logging. Deprioritize a low-trust domain by reading it more skeptically, never by auto-skipping it. A nonzero exit means the page could not be read and the registry already records it — move on; the unreadable page is recorded, never guessed. Reserve agent-browser for genuinely interactive work and close the session before the step ends.
 
-For every source, pull the six things copy is built from:
+## 3. Capture verbatim records
 
-- **Jobs to be done** — the outcome they hired the product for. Functional (the task), emotional (how they want to feel), social (how they want to be seen).
-- **Pains** — what's broken in their current situation. Weight pains mentioned unprompted and with emotional heat.
-- **Trigger events** — what changed that made them start looking. A new hire, a missed target, an embarrassing incident, a competitor's move.
-- **Desired outcomes** — what success looks like, in their words.
-- **Language** — the verbatim phrases. "We were drowning in spreadsheets" beats "manual-process inefficiency." This is the raw material for copy; capture it exactly, never paraphrase.
-- **Alternatives considered** — what else they tried, including doing nothing, hiring someone, or building it in-house.
+Every record comes from a page you fetched through /browse — nothing else is a record. A record is verbatim when you copied the words from that fetched page. PARAPHRASE is the narrow case where you fetched the page but the exact quote could not be cleanly extracted (a scanned image, a mangled render): you still read the page, so you write your closest rendering and label it PARAPHRASE. Search-summary and snippet text is never a record and never a PARAPHRASE — it is discovery material for finding the page, and if you cannot fetch the page, there is no record. Every record carries the full URL, the speaker's identity as shown on the page, the source's Published and/or Updated date, and the date you captured it, inline. Numbers about the source itself — review counts, ratings, member counts — are read from the fetched page, never from a search summary.
 
-Then two the strategy call needs on top:
+### Ban listicle and SEO-blog domains as record sources
+A listicle, round-up, or SEO-blog page is discovery material for finding primary surfaces, never a record source. Records come from primary surfaces — review platforms, forums, communities, and the vendor's own pages for the vendor's own claims. Reading a round-up to find where the buyers talk is fine; quoting the round-up as a record is not.
 
-- **Competitor claim landscape** — what each rival promises in its own copy: the headline, the wedge, the proof it leans on. This is the positioning the copy has to wedge against, not blend into.
-- **Proof and objections** — the results, numbers, names, and testimonials available; and the reasons people hesitate or walk.
+Capture the exact words. "We were drowning in spreadsheets" is the record; "manual-process inefficiency" destroys it. Never invent a record to fill a category — an empty category is an honest record. The dispatch's specialization names what to capture and how to sort it.
 
-## Where to mine when you have no transcripts
+## 4. Leave the subject unjudged
 
-The highest-yield public sources for a solo software founder:
+You do not score the subject. Reading it through browse already logged its URL to the registry as unjudged; source quality is the source reviewer's, dispatched by the chief after the thread.
 
-- **Reddit** — role and problem subreddits. `site:reddit.com "[problem]" recommend OR alternative`. The posts that pay off: "what do you use for X," "frustrated with [competitor], looking for alternatives," "how do you handle X." Raw language and switching triggers live here. Skews technical and skeptical — factor that in.
-- **Review sites (G2, Capterra, app stores)** — read 3-star first (most honest — liked it enough to stay, felt something missing), then 1-star (failure modes), then 5-star (the love language, your proof). On competitors, the 4-star reviews are gold: customers who like the product and still list exactly what frustrates them — that gap is your opening. Pull the job they hired it for, what they compare it to, and the "I wish it could…" line.
-- **Hacker News, Indie Hackers, Product Hunt** — for founder, builder, and developer buyers. HN critiques business model and pricing from first principles; Product Hunt discussion tabs surface the objections a buyer raises before purchase.
-- **Job postings** — a posting is a company admitting a pain. The tools listed and the outcomes named reveal the stack and the job to be done.
+## 5. Write the records into the thread
 
-Sort by most recent for fresh signal, then by most critical for pain themes.
+Write the records into the dispatched thread's topic files — one file per topic, records only, readable, each record carrying its verbatim words or PARAPHRASE label, speaker, full URL, the source's Published and/or Updated date, and the date you captured it, inline. No index file, no judgments — the topic file holds the raw records and nothing else. Never name, quote, or link another thread's files — this thread's records stand alone.
 
-## Score every insight
+### Write to the contract path and nowhere else
+Each topic's records live at exactly one path. Write them there, then read that path back to confirm they landed — a record that is not at its contract path does not exist, and a copy anywhere else is not a second record, it is a filing violation. The topic file is the record's only home; never also emit the extracted quotes and facts at the run root or under a working name of your own.
+Never: `extract-<subject>-<source>.md`, `<topic>-output.md`, or any working copy of a record at the run root — the extract is filed into `research/<subject>/<topic>.md` and left nowhere else.
 
-Tag each finding before it reaches the strategy call:
+Template:
+    research/<subject>/<topic>.md
 
-- **High** — appears in 3+ independent sources, mentioned unprompted, consistent across segments.
-- **Medium** — two sources, or only when prompted, or limited to one segment.
-- **Low** — single source; could be an outlier; flag it for validation.
+### File records under research, never under working state
+`.agents/` holds working state — codex-run output, wrapper trailers, scratch. A record is filed only when it lives under `research/<subject>/<topic>.md`; nothing is done while a record sits under `.agents/`.
 
-Weight the last 12 months heavily — a two-year-old transcript may describe a different product and a different buyer. A theme that holds across old and new data is durable; lead with it.
+### File only on-subject extracts
+Before filing an extract, confirm its quotes are about this subject. Return an extract whose quotes are about a different topic to the assistant with the subject restated, unfiled. When a page is genuinely about the other topic, note its URL off-subject in the source registry (`sources.py log <url> --note`) and file no record from that page. Page outcomes — unreadable, off-subject, render caveats — live in the registry only, never as a file in the thread: the records are the deliverable, the registry is the implementation ledger.
+Never: a `discovery/` folder or a page-outcomes file inside a deep thread — `discovery/` is the discover pass's output alone.
 
-Account for source bias when you generalize: reviewers and Reddit skew to strong opinions and power users; support tickets skew to problems, not value; surveys are primed by their own questions. Say so when you draw a conclusion about "all customers."
+### State in the file why a record is thin
+A record below 3 entries states in the file itself why it is thin — the page was thin, off-subject, or paywalled. The record body is the extract's Quotes and Facts content alone; codex-run trailers, session or model lines, and other tool output never enter a record.
 
-Don't build a persona or a messaging conclusion from fewer than five independent data points in a segment. A persona that represents everyone represents no one.
+## 6. Review the thread against this contract before it closes
 
-## Degraded mode — no customers yet
+The thread orchestrator runs this closing review before the thread closes — reviewing the extracts its assistants returned, and holding any record it filed itself to the same checks. Re-read the written records and check them against this contract: every record's URL resolves through a /browse registry lookup proving the page was fetched through the gate; no record traces to a search summary, a listicle, or an SEO-blog domain; nothing references another thread's files; and a discovery thread's output is enumeration only. Return any failing record to the researcher for redo — a breached record is rejected, never folded in.
 
-When no customers are reachable, you still produce useful input, under one rule that overrides everything: **never invent a customer or a quote.** No fabricated testimonial, no imagined verbatim, no "a customer might say." A made-up quote poisons every decision built on it and is worse than no quote at all.
-
-What you do instead:
-
-- **Mine competitors and the category** — their reviews, their churned users, their community threads are real voices about the same problem. Attribute every quote to its real source (a competitor's G2 page, a named subreddit thread).
-- **Synthesize from the founder** — the founder's own knowledge of the buyer is a legitimate input at lower confidence. Capture it as hypothesis, labeled as such.
-- **Tag every assumption `unproven`** — the whole output is provisional until real customers confirm it. Make that visible, claim by claim.
-- **Name the cheapest validation** — for each load-bearing assumption, the fastest way to test it: five customer calls, a landing-page smoke test, a read through competitor reviews.
-
-The deliverable here is honest by construction: grounded hypotheses with their confidence and how to confirm them — not a research report wearing the costume of fact.
-
-## What good research hands over
-
-The evidence the strategy and copy stand on: a voice-of-customer language bank (verbatim, grouped by theme), the jobs to be done, the competitor claim landscape, the proof inventory and the objections — each carrying its confidence level. Lead with the highest-confidence themes. Where confidence is low, say what would raise it.
+Verification:
+- Every record is fetched-verbatim or labeled PARAPHRASE, each with its full URL, speaker, source date, and capture date.
+- No record traces to a search summary, listicle, or SEO-blog domain; unreadable pages are recorded, never guessed.
+- The subject is left unjudged; no record references another thread's files.
+- The records live at `research/<subject>/<topic>.md`, no index, no judgments, read back from that path after writing.
+- No record sits under `.agents/`; no working copy sits at the run root or under a name of your own.
+- Every filed extract is on-subject; an off-subject page is noted in the registry with no record filed, and the thread holds no `discovery/` folder and no page-outcomes file.
+- Every record below 3 entries states in the file why it is thin and carries no codex-run trailer or tool output.
+- The closing review ran against this contract and failing work was returned.
+- You read nothing the Inputs section excludes.

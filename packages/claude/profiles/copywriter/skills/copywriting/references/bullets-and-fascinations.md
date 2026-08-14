@@ -1,6 +1,6 @@
 # Bullets and Fascinations
 
-The bullet is the smallest complete unit of desire — one line that makes the reader want one thing and read on to get it. A great direct-response bullet is a *fascination*: it names a payoff and withholds the one piece needed to claim it, so curiosity does the pulling. Bullets carry more of a page than their size suggests — the benefit section, the optin list, the feature rundown are all built from them, and a scanner reads the bullets before anything else. Write them flat and the highest-traffic lines on the page say nothing; write them as fascinations and each one earns the next read or the click. This is the body unit, distinct from the headline and CTA (see headline-and-hook.md), and the body's curiosity-charged form of "benefits carry features."
+The bullet is the smallest complete unit of desire — one line that makes the reader want one thing and read on to get it. A great direct-response bullet is a *fascination*: it names a payoff and withholds the one piece needed to claim it, so curiosity does the pulling. Bullets carry more of a page than their size suggests — the benefit section, the optin list, the feature rundown are all built from them, and a scanner reads the bullets before anything else. Write them flat and the highest-traffic lines on the page say nothing; write them as fascinations and each one earns the next read or the click. This is the body unit, distinct from the headline and CTA (the write-headlines skill), and the body's curiosity-charged form of "benefits carry features."
 
 ## The open loop
 
@@ -15,9 +15,9 @@ Two depths of withholding, chosen by the asset:
 
 The failure is the bullet that closes the loop — or never opens one. A feature stated as a feature gives the reader homework; a benefit stated flatly gives them the answer and a reason to leave. Neither pulls.
 
-> Flat feature-bullet: "Behavioral email triggers."
-> Flat benefit-bullet (states it, closes the loop): "Send automated emails based on user actions to lift conversion."
-> Fascination (opens a loop): "The one in-app action that, emailed the moment it happens, converts better than any welcome sequence, and most [category] tools never track it."
+> Flat feature-bullet: "Saved search filters."
+> Flat benefit-bullet (states it, closes the loop): "Save your filters to find the records you need faster."
+> Fascination (opens a loop): "The one filter almost nobody saves — and the overlooked records it surfaces before they cost you a deal."
 
 The fascination keeps the benefit visible but withholds the action and the reason, so the reader has to read on to find both.
 

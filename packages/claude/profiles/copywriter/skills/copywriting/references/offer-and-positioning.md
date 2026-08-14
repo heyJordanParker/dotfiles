@@ -17,8 +17,8 @@ The reader is never choosing in a vacuum. They are choosing between you and some
 - **Point of difference** — the one axis where you beat the named alternative. One, not five. The wedge is sharper when it's single.
 - **Reason to believe** — why the difference is real and not a claim. This is where proof attaches (see proof-and-credibility.md).
 
-> Weak: "The best email tool for SaaS." (No alternative named, no axis.)
-> Strong: "Mailchimp sends what you schedule. We send what each user actually does — so trials convert without you writing a sequence." (Names the alternative, picks one axis, implies the mechanism.)
+> Weak: "The best scheduling tool for teams." (No alternative named, no axis.)
+> Strong: "Calendly books whoever grabs the slot first. We route each meeting to the rep who can actually close it — so a hot lead never lands on the wrong desk." (Names the alternative, picks one axis, implies the mechanism.)
 
 The most common SaaS alternative is not a competitor — it's the status quo (doing it by hand, or not doing it). Position against the status quo by making its cost vivid, then showing the wedge.
 
@@ -46,9 +46,9 @@ The offer is the value the reader weighs against the price. They buy when percei
             Time to result   ×   Effort and sacrifice
 ```
 
-- **Dream outcome (raise).** Name the specific result, not the generic one. "Trials that convert themselves" beats "better email." The bigger the reader's pain, the more this matters — they're buying a future, not a feature.
+- **Dream outcome (raise).** Name the specific result, not the generic one. "Invoices that chase themselves" beats "better billing." The bigger the reader's pain, the more this matters — they're buying a future, not a feature.
 - **Perceived likelihood (raise).** Do they believe it'll work *for them*? This is the most underweighted lever. Most stuck offers are fine on the dream and starved on belief. Raise it with proof, a named mechanism, a guarantee, and people like them who got the result — not with more features. **When copy isn't converting, this is usually the gap.**
-- **Time to result (shrink).** How long from buying to the first win. Engineer a fast first win and say when it lands. "See your first triggered email go out in 10 minutes" beats "powerful automation." Slow results don't just feel slow — they erode belief that it works at all.
+- **Time to result (shrink).** How long from buying to the first win. Engineer a fast first win and say when it lands. "See your first invoice reconciled in 10 minutes" beats "powerful automation." Slow results don't just feel slow — they erode belief that it works at all.
 - **Effort and sacrifice (shrink).** What the reader pays besides money — setup, learning curve, decisions, risk. Done-for-you beats do-it-yourself. Fewer decisions, smart defaults, "import in one click." Founders especially pay in time and attention; remove those costs and the offer jumps.
 
 ### For self-serve SaaS, pricing does the offer work

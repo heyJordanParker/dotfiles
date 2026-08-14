@@ -60,7 +60,3 @@ What each awareness stage demands, end to end. Use it to sanity-check that the w
 - **Solution-aware** — Lead: promise + mechanism. Headline: result plus the path. Proof: the mechanism works, and works for people like them. CTA: see it, try it.
 - **Product-aware** — Lead: offer + differentiation. Headline: product plus its edge. Proof: comparisons, named results, risk reversal. CTA: start trial, buy.
 - **Most aware** — Lead: the deal. Headline: the terms. Proof: a reason to act now (real scarcity or urgency). CTA: hard, buy now.
-
-## Reading the SaaS founder's situation fast
-
-Most solo SaaS traffic is **problem-aware or solution-aware**, and most categories are **sophistication level 2-3**. That points to one default: lead with the problem in the reader's words, then reveal a specific named mechanism as the path to the result. Reserve offer-led, most-aware copy for the audiences that are already warm — pricing-page visitors, trial users, your own list. When in doubt, ask where the traffic comes from; the source tells you the stage.

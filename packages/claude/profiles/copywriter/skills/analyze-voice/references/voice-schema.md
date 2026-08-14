@@ -1,6 +1,6 @@
 # Voice.md schema
 
-The structure of every `Voice.md`. Build each section in order. A section the tier can't fill yet gets a one-line note saying so, never a generic placeholder. Normal case throughout — this is a data file, not a skill.
+The structure of every `Voice.md`. Build each section in order. A section the tier can't fill yet gets a one-line note saying so, never a generic placeholder. Normal case throughout — this is a data file, not a skill. Preferences and examples only: copywriting instructions and process context never enter this file.
 
 ## 1. Metadata & confidence
 
@@ -54,7 +54,7 @@ Trim or extend rows to the surfaces this product actually ships.
 
 ## 6. Terms: use / avoid
 
-This writer's specific vocabulary — not the generic banned-word list (that lives in the editing skill):
+This writer's specific vocabulary — not the generic banned-word list (that lives in check-ai-writing):
 
 - **Use** — domain words, product names, framings the writer reaches for and the team should keep consistent.
 - **Avoid** — words this writer specifically rejects, on top of the team's defaults. Capture the writer's own forbidden list, drawn from the samples or the questionnaire.
