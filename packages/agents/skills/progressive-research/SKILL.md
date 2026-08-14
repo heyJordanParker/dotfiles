@@ -1,6 +1,6 @@
 ---
 name: progressive-research
-description: Broad-to-narrow research Orchestration - start with a wide census, harden the scope from returned Evidence, and specialize Subagents only once the exact situation is proven. TRIGGER when the Architect says "progressive research", "start broad", or when dispatching research or debugging Subagents into a situation whose cause or shape is unknown. DO NOT TRIGGER when the exact scope is already proven - dispatch the specialized Subagent per /subagents directly.
+description: Broad-to-narrow research Orchestration - start with a wide census, harden the scope from returned Evidence, and specialize Subagents only once the exact situation is proven. TRIGGER when the Architect says "progressive research", "start broad", or when dispatching research or debugging Subagents into a situation whose cause or shape is unknown. DO NOT TRIGGER when the exact scope is already proven - dispatch the specialized Subagent per /delegate directly.
 ---
 
 # Progressive Research
@@ -30,4 +30,4 @@ The scope was wrong, not the Subagent. Return to the census Evidence with the co
 
 ## 3. Specialize only at proven scope
 
-Dispatch the implementing Subagent per /subagents with one singular, unchanging Task.
+Dispatch the implementing Subagent per /delegate with one singular, unchanging Task.

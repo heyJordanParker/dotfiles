@@ -43,7 +43,7 @@ Other Agents work the same branch, so the staged diff is larger than your Contex
 Never: a subject or body scoped to the changes you made this session while the diff carries more.
 
 ### Use the repository commit-message shape
-The type prefix is one of `feat`, `fix`, `chore`, `refactor`, `docs`, or `test`. The subject is lowercase after the colon, under 72 characters, and summarizes every committed change. The body weaves WHAT changed and WHY together instead of splitting them into separate sections. The file tree comes last, per /show-architecture.
+The type prefix is one of `feat`, `fix`, `chore`, `refactor`, `docs`, or `test`. The subject is lowercase after the colon, under 72 characters, and summarizes every committed change. The body weaves WHAT changed and WHY together instead of splitting them into separate sections. The file tree comes last, per /show-me.
 
 Template:
   ```
@@ -55,8 +55,11 @@ Template:
   - <change 1>
   - <change 2>
 
-  <annotated file tree, per /show-architecture>
+  <annotated file tree, per /show-me>
   ```
+
+### Order the changes in the prose by overall User impact
+When the body carries more than one change, the change with the largest effect on the User comes first, and the rest follow in decreasing impact.
 
 ### Write the commit message without self-reference
 The message names the change, not the Agent that made it.

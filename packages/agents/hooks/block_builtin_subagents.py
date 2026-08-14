@@ -24,7 +24,7 @@ BINDING = {
 EXPLORE_MSG = """BLOCKED: Built-in Explore is replaced by the explorer agent.
 
 Explore runs on Haiku 4.5 and returns excerpts that miss content past its read window — unreliable for review, audits, or any open-ended analysis.
-explorer runs on Opus 4.8 with the trace skill (a code-intelligence CLI that surfaces complexity, callers, dependencies, git lifecycle, deploy-branch presence, and nested Claude.md context per file). It reads whole files, categorizes findings by impact (load-bearing / moderate / minor), and returns a structured five-section trace report with verified file:line citations.
+explorer runs with the trace skill (a code-intelligence CLI that surfaces complexity, callers, dependencies, git lifecycle, deploy-branch presence, and nested Claude.md context per file). It reads whole files, categorizes findings by impact (load-bearing / moderate / minor), and returns a structured five-section trace report with verified file:line citations.
 
 Use it for "where is X used", "how does Y work end-to-end", "what depends on Z", or any question that needs the agent to map connections between files, modules, or layers. For external research (library docs, API references), use the researcher agent instead.
 
@@ -44,7 +44,7 @@ A specialist gives better domain framing, the right tool set, and Opus-level rea
   tester             — feature verification: API curls, UI walks, flow tracing (read-only)
   ux-tester          — pure user-perspective UX walkthroughs (no code reading)
   context-engineer   — Claude.md maintenance, hooks, skills, plugin work
-Set subagent_type to one of the above. Brief with Story / Business / Goal / DoD per /subagents."""
+Set subagent_type to one of the above. Brief with the Story / Business / Goal / Verification / Architecture / Process Template per /delegate."""
 
 PLAN_MSG = """BLOCKED: Built-in Plan is replaced by the architect agent.
 

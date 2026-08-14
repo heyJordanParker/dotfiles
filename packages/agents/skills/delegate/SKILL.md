@@ -1,6 +1,6 @@
 ---
 name: delegate
-description: Framework for dispatching one-shot Subagents that complete a Task and return. Covers Prompting (WHAT/WHY, never HOW), the Story/Business/Goal/Verification/Process Prompt Template, Verification, Evidence, and Orchestrator-side ranking. TRIGGER when dispatching, resuming, or judging Subagents, when Orchestration needs the dispatch Prompt Template, or when the Architect says "/delegate this to ...". DO NOT TRIGGER for work the Agent does itself with no Subagents; use /build.
+description: Framework for dispatching one-shot Subagents that complete a Task and return. Covers Prompting (WHY -> WHAT -> HOW), the Story/Business/Goal/Verification/Process Prompt Template, Verification, Evidence, and Orchestrator-side ranking. TRIGGER when dispatching, resuming, or judging Subagents, when Orchestration needs the dispatch Prompt Template, or when the Architect says "/delegate this to ...". DO NOT TRIGGER for work the Agent does itself with no Subagents; use /build.
 ---
 
 # Delegate
@@ -8,12 +8,10 @@ description: Framework for dispatching one-shot Subagents that complete a Task a
 One-shot Subagents complete a Task and return; `SendMessage({to: agentId})` resumes one for iteration.
 A Subagent's Context is a fixed budget spent once: the Prompt, every file it reads, and every tool result compete for the same room. Two Tasks in one dispatch halve the room each gets.
 
-## 1. Prompt WHAT and WHY, never HOW
+## 1. Prompt WHY, then WHAT, then the HOW you decided
 
-### Strip implementation detail from the Prompt
-A fresh-Context Subagent finds the right solution from the Goal. Implementation detail in the Prompt biases it toward the Orchestrator's assumptions, does the Subagent's research for it, and breaks when the code changes. State the User pain, the capability wanted, and observable success.
-
-Never: files, symbols, read order, library calls, "do not touch X", `src/foo.py`, `_extractMethod`, "read X first then Y", "use lizard.analyze", or "DO NOT modify __main__".
+### Write WHY, then WHAT, then the HOW you have decided
+The WHY primes the Agent: the User pain and the Business behind it. The WHAT names the deliverable and observable success. The HOW is what you have already decided — a call you made rides in the dispatch, a file you need read is named by path, and what you left open the Agent settles itself, finding related files on its own. A contract left implicit is a decision the Agent will invent.
 
 ### Give an Agent only what its Task consumes
 Context that exists to be forbidden is Context that should be absent. Never tell an Agent about sibling Agents, parallel explorations, or files it must not read — independence comes from omission, not prohibition. Your reasoning, your caveats, and what you already ruled out are the same waste: every line is room the Subagent no longer has for the code.
@@ -26,22 +24,21 @@ A bulk rename or format conversion is not Architectural, so specific Task steps 
 
 ## 2. Scope the Subagent to its reasoning unit
 
-### Give the full module or feature
-An Architect given one method cannot judge encapsulation; a reviewer given one hunk cannot find caller regressions. The Subagent narrows itself after reading.
-
-Example: Architect gets the module; reviewer gets the full diff plus surrounding code; @backend-engineer gets the service boundary.
-
 ### Split by what a Task must hold in Context to decide
-Two Tasks share one dispatch only when finishing the second needs what reading for the first already put in Context. A shared topic is not a shared reasoning unit: count the files each Task must read, and no overlap means separate dispatches sent in one message. Order between them makes them an orchestrating Subagent's job, never a list one Subagent walks.
+Two Tasks share one dispatch only when finishing the second needs what reading for the first already put in Context. A shared topic is not a shared reasoning unit: count the files each Task must read, and no overlap means separate dispatches sent in one message. Order between them means you sequence the dispatches, never a list one Subagent walks.
 
 Example: "add the endpoint" and "update its caller in the same service" is one dispatch — the same files. "Fix the card field" and "rewrite the confirmation email" is two, sent together, even though both are checkout.
 Never: a numbered Task list in one Prompt, or executing a Task list yourself instead of dispatching it.
 
+### Size a building Task to one verifiable change
+The Verification block is the ruler: criteria on more than one surface mean more than one dispatch. Many surgical dispatches in one message beat one broad one — each builder stays fast, exact, and cheap to re-dispatch when wrong.
+Never: "implement the feature", "migrate the module", or a dispatch whose Verification cannot run until a later dispatch lands.
+
 ### Dispatch one Owner per system, not one Subagent per symptom
-Symptoms cluster to the system that owns them. Two Subagents touching the same file collide; give the owning system's Subagent the symptom cluster instead.
+Symptoms cluster to the system that owns them. Two live Subagents touching the same file collide; give the owning system's Subagent the whole cluster in its founding dispatch. Ownership ends when the agent returns — the next cluster founds a fresh Owner.
 
 ### Keep a dispatched Task singular and unchanging
-The Orchestrator re-scopes by resuming the agent or dispatching anew; the Subagent never widens its own Task.
+The Orchestrator corrects by resuming and re-scopes by dispatching anew; the Subagent never widens its own Task.
 
 ## 3. Write the Prompt Template
 
@@ -61,7 +58,9 @@ Verification is input → output, or command + expected status and body.
 
 Example: "`npm test --grep payment` passes"; "timeout after 30s shows 'Payment timed out'".
 Never: "code works", "tests added", "no errors".
-Never: a whole-suite or whole-category command in the Verification block. The Subagent runs what you wrote, so write the narrowest command that covers the change. The suite is your end gate, after every Task lands.
+### Name one test, not a test file
+Write the name of the test that reproduces the change. When that test does not exist yet, write the behavior it must show and let the Subagent name it. The whole file and the suite are your end gate, after every Task lands.
+Never: a test file path, a suite name, or a directory as a Verification command.
 
 IF the Task fixes a bug:
 ### Require a regression test that fails pre-fix
@@ -79,6 +78,7 @@ Template:
 
   Verification:
   <observable criteria>
+  <the name of the test that reproduces this change, or the behavior it must show>
   <the consumers the change reaches and the expected effect on each>
 
   Architecture:
@@ -109,11 +109,14 @@ An unnamed dispatch returns its report and resumes by agentId; `block_builtin_su
 refuses a named one.
 Never: `name`, or `run_in_background`, which the Agent tool has no parameter for.
 
-### Resume the Agent you have
+### Resume only to finish or correct the dispatched Task
 `SendMessage({to: agentId})` resumes an agent from its transcript, even after it returned,
-using the agentId from its spawn result.
+using the agentId from its spawn result. A resume finishes or corrects that agent's own
+founding Task, nothing else. A new finding, failure, or scope item — even on the same
+surface — is a fresh dispatch: one agent, one task, and a clean Context beats a warm one.
 
-Never: a fresh dispatch for work an existing agent owns.
+Never: a resume carrying work the founding Prompt did not name, or "it already has
+context" as the reason to route new work to an old agent.
 
 ### Recover a lost agentId from disk
 `~/.claude/projects/<project>/<session>/subagents/*.meta.json` names every Subagent the
@@ -160,8 +163,8 @@ Two live Subagents on one surface collide: each overwrites what the other wrote.
 IF the Architect gives feedback on a thing the Orchestrator owns:
 ### Translate owned feedback into the dispatch
 The Goal, the Architecture, and coordination are the Orchestrator's. Fold the feedback
-into the Goal and Architecture blocks, then dispatch or resume with the updated
-instructions.
+into the Goal and Architecture blocks. A correction to work in flight rides a resume; a
+changed Goal founds a fresh dispatch.
 
 IF the Architect gives feedback on a thing a Subagent owns:
 ### Relay the Architect's words to the Owner

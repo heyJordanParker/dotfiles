@@ -1,7 +1,7 @@
 ---
 name: propose
 description: |
-  Mandatory contract for every proposing-state turn — the classifier injects it on each one. Builds the Proposal as a Decision Hierarchy: dominant call on top, gated children nested beneath it, genuine peers side by side, the work breakdown tagged onto Decisions rather than used as the skeleton. Opens with a whole-change annotated map, shows code instead of prose about code, and carries the /pcc shape (pros, cons, confidence) on every Decision node, guarded by the seven named Proposal failures. TRIGGER on every proposing-state turn — the classifier mandates this. DO NOT TRIGGER for executing turns (that loads /execute) or auto turns (mixed intents resolve action first). For the pros/cons/confidence ranking, /pcc is canonical; for the opening maps, /show-architecture is canonical.
+  Mandatory contract for every proposing-state turn — the classifier injects it on each one. Builds the Proposal as a Decision Hierarchy: dominant call on top, gated children nested beneath it, genuine peers side by side, the work breakdown tagged onto Decisions rather than used as the skeleton. Opens with a whole-change annotated map, shows code instead of prose about code, and carries the /pcc shape (pros, cons, confidence) on every Decision node, guarded by the seven named Proposal failures. TRIGGER on every proposing-state turn — the classifier mandates this. DO NOT TRIGGER for executing turns (that loads /execute) or auto turns (mixed intents resolve action first). For the pros/cons/confidence ranking, /pcc is canonical; for the opening maps, /show-me is canonical.
 ---
 
 # Proposal
@@ -69,14 +69,14 @@ Each row is one Decision: the question, then options separated by `vs`. Options 
 ## 3. Draw the maps
 
 ### Open with the whole-change map
-Every Proposal opens with one whole-change annotated file tree in `/show-architecture` style: every file the change creates or touches, `<- (NEW)` on new files, and a three-to-five-word job note on each file.
+Every Proposal opens with one whole-change annotated file tree in `/show-me` style: every file the change creates or touches, `<- (NEW)` on new files, and a three-to-five-word job note on each file.
 
 ### Open the Decisions section with the hierarchy map
 The Decision Hierarchy map shows every Decision as one row, options separated by `vs`, options ordered highest-confidence first, and gated Decisions nested beneath their parent. The map carries candidates and rank only. The Decision node heading carries settled or open state.
 
 IF a Decision changes file ownership, data movement, or dependencies:
 ### Add a scoped Decision map
-Use a scoped file tree or a `/show-architecture` boxes-and-arrows map before that Decision's artifacts.
+Use a scoped file tree or a `/show-me` boxes-and-arrows map before that Decision's artifacts.
 
 IF the Decision shape is obvious from its code block:
 ### Skip the decorative map
@@ -161,7 +161,7 @@ Emit a question only for a real external Context gap: environment, prerequisite,
 4. `requirement-drop` — a stated requirement is relaxed, narrowed, or deferred. Every requirement appears, met. A conflict is a Decision, never something you resolve by dropping a requirement.
 5. `contradiction-elision` — a conflict between requirements, or between a requirement and the code, is hidden. Surface it as the Architect's Decision.
 6. `mixed-layer-pcc` — parent and child Decisions are flattened as peers. Gated Decisions nest, so a parent answer visibly deletes its children.
-7. `hedged-proposal` — the Proposal says `likely`, `may`, `should` in the expected-behavior sense, `probably`, `might`, `could`, `perhaps`, `I would expect`, `in theory`, `it appears that`, or `it seems`. Open the file, read the function, and write what is. The one exception is a genuine stated unknown: `I have not checked X`.
+7. `hedged-proposal` — the Proposal says `likely`, `may`, `should` in the expected-behavior sense, `probably`, `might`, `could`, `perhaps`, `I would expect`, `in theory`, `it appears that`, or `it seems`. Open the file, read the function, and write what is. A stated unknown is the same failure in a franker voice: run the check instead of reporting it unrun.
 
 ## 7. Run the self-check
 

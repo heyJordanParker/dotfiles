@@ -7,7 +7,7 @@ disable-model-invocation: true
 # Debate
 
 N independent Architect Subagents propose solutions, then debate through rounds until convergence.
-Dispatch and resume per /subagents; `SendMessage({to: agentId})` carries the rounds.
+Dispatch and resume per /delegate; `SendMessage({to: agentId})` carries the rounds.
 
 ## 1. Parse input
 
@@ -66,7 +66,7 @@ Each Agent reads code itself. No pre-digested findings from you.
 
 ## 5. Dispatch the Architects
 
-Spawn N `architect` Subagents in one message, per /subagents.
+Spawn N @architect Subagents in one message, per /delegate.
 
 ### Keep each Architect's agentId with its Frame
 Every round is addressed by agentId, so record which Frame each returned id belongs to as the dispatches come back. A lost id costs that Architect's whole position; recover it from the session's `subagents/*.meta.json` rather than dispatching a fresh Architect into a debate it did not start.

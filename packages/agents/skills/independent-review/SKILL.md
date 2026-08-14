@@ -31,7 +31,7 @@ Example: `/independent-review 5 "review for security vulnerabilities"` runs five
 
 Every Subagent receives the exact same Prompt with no variation.
 
-Write the Prompt with /subagents. What this Skill adds to that Template:
+Write the Prompt with /delegate. What this Skill adds to that Template:
 
     Goal: perform this analysis independently. Document every finding with Evidence —
     file paths, line numbers, concrete examples. State conclusions directly.
@@ -46,13 +46,13 @@ Write the Prompt with /subagents. What this Skill adds to that Template:
 
 ### Keep Subagent inputs identical
 
-Use the same `subagent_type`, Prompt, and tools for every Subagent. Reasoning variation provides the natural diversity.
+Use the same Agent, Prompt, and tools for every Subagent. Reasoning variation provides the natural diversity.
 
 Never: assigning different lenses, files, or specialties to each Subagent.
 
 ## 4. Dispatch N Subagents in parallel
 
-Dispatch every reviewer in one message, per /subagents. Each returns its report on its own; collect all of them before synthesizing.
+Dispatch every reviewer in one message, per /delegate. Each returns its report on its own; collect all of them before synthesizing.
 
 ### Keep the Skill Task neutral
 

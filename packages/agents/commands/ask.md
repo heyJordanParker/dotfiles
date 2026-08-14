@@ -21,7 +21,7 @@ Ask the Architect one self-contained Architecture Decision question at a time.
 Template:
   ## Architecture
 
-  [annotated file tree, per /show-architecture]
+  [annotated file tree, per /show-me]
 
   src/
   ├── auth/

@@ -30,7 +30,7 @@ Use one Subagent per Frame.
 
 ## 3. Write one Prompt per Frame
 
-Write each Prompt with /subagents. What this Skill adds to that Template:
+Write each Prompt with /delegate. What this Skill adds to that Template:
 
     You are {name} — {Frame}.
     Principles: {Principles}.

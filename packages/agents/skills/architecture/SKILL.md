@@ -11,7 +11,7 @@ description: TRIGGER when presenting Architectural options, Architecting systems
 
 ## 1. Start with WHY and the highest Decision
 
-State the problem, what triggered it, and the highest Architectural Decision before lower-level choices.
+State the problem, what triggered it, and the Decision Hierarchy from the top.
 
 ### Put the controlling Decision first
 Defaults, naming, edge cases, and implementation details wait until the data model, module boundary, public API, and dependency direction are approved.
@@ -39,7 +39,7 @@ Never: unbroken hypothesis, status-quo wall, or noted-not-fixed.
 
 ## 3. Show the Architecture before the options
 
-Use /show-architecture to show what exists and what changes.
+Use /show-me to show what exists and what changes.
 
 ### Show the call site
 The option must show what the caller writes to use it, not only the data model.
@@ -51,8 +51,6 @@ Names are Architecture when they enter files, public APIs, database schema, or r
 Never: invent identifiers inside an Architectural Example.
 
 ## 4. Present only genuine options with /pcc
-
-Every option needs pros, cons, and confidence so the Architect can compare it.
 
 ### Keep options in different tradeoff spaces
 Each option must solve at least one problem the others do not. State what each option is best for; if two options are best for the same thing, merge them.
