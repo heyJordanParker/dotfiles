@@ -18,12 +18,12 @@ unavailable) returns 0 and never blocks the user's prompt.
 """
 
 import os
-import re
 import sys
 
 from lib import feedback, transcript
 from lib.event import field, read_event
 from lib.model_call import run_model
+from lib.session_mode import is_dispatched, resolve
 from lib.session_state import load_state, merge_state
 
 BINDING = {
@@ -36,23 +36,10 @@ def emit_context(text):
     feedback.context("update_goal", "UserPromptSubmit", text)
 
 
-# --- structural system-message detection --------------------------------------
-
-def is_system_prompt(prompt):
-    if prompt.startswith("<"):
-        tag_rest = prompt[1:]
-        tag_name = re.split(r"[> ]", tag_rest, maxsplit=1)[0]
-        if tag_name and ("</%s>" % tag_name) in prompt:
-            return True
-    if prompt.startswith("["):
-        first_line = prompt.split("\n", 1)[0]
-        if first_line.endswith("]") and prompt == first_line:
-            return True
-    if prompt.startswith("This session is being continued"):
-        return True
-    if prompt.startswith("Base directory for this skill:"):
-        return True
-    return False
+# Machine-authored text reaching UserPromptSubmit — a task notification, an
+# injected block, a stop-gate's own feedback replayed back. `transcript.harness_authored`
+# owns the test, so this hook and the intent classifier skip the same turns.
+is_system_prompt = transcript.harness_authored
 
 
 # --- LLM ------------------------------------------------------------------------
@@ -116,8 +103,11 @@ def main():
 
     event = read_event()
 
+    # A dispatched agent gets its task from its dispatcher and never owns the
+    # session goal, so it is skipped — on both harnesses, by session_mode's one
+    # definition of a dispatch rather than by the shape of a Claude session id.
     session_id = field(event, "session_id", "")
-    if not session_id or session_id.startswith("agent-"):
+    if not session_id or is_dispatched(event):
         return 0
 
     prompt = field(event, "prompt", "")
@@ -128,9 +118,13 @@ def main():
         return 0
 
     transcript_path = field(event, "transcript_path", "")
-    state = load_state(session_id)
-    if state.get("state") == "interview":
+    # Interview turns the LLM hooks off for speed. Interview is a mode, not a
+    # state, so it is read off session_mode — the same call the intent classifier
+    # makes. Reading it off the state axis matched nothing and ran the model call
+    # on every interview turn.
+    if resolve(event, session_id) == "interview":
         return 0
+    state = load_state(session_id)
     goal = state.get("goal")
 
     conversation = transcript.conversation_context(transcript_path)

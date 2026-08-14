@@ -14,6 +14,7 @@ import sys
 from lib import feedback
 from lib.event import field, read_event
 from lib.model_call import run_model
+from lib.session_mode import is_dispatched
 
 BINDING = {
     "events": {"PreToolUse": ["Write", "Edit", "MultiEdit"]},
@@ -49,7 +50,7 @@ def _eval_prompt(file_path, content):
 def main():
     event = read_event()
     session_id = field(event, "session_id", "")
-    if not session_id or session_id.startswith("agent-"):
+    if not session_id or is_dispatched(event):
         return 0
     tool_name = field(event, "tool_name", "")
     if tool_name == "Write":

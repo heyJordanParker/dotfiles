@@ -14,6 +14,7 @@ import sys
 from lib import feedback
 from lib.event import field, read_event
 from lib.model_call import run_model
+from lib.session_mode import is_dispatched
 
 BINDING = {
     "events": {"PreToolUse": ["AskUserQuestion"]},
@@ -47,7 +48,7 @@ def _eval_prompt(tool_input):
 def main():
     event = read_event()
     session_id = field(event, "session_id", "")
-    if not session_id or session_id.startswith("agent-"):
+    if not session_id or is_dispatched(event):
         return 0
     tool_input = field(event, "tool_input", None)
     if not tool_input:

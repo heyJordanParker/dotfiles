@@ -16,6 +16,8 @@ PreToolUse group, but Codex still delivers this additionalContext to the model
 (the two compose: guard steers to `trace read`, enrich supplies the shoulder).
 
 Silent fallback: any error path exits 0 with no output. The native tool runs.
+The one exception is a per-file timeout, which says so in that file's place —
+dropping it would leave a multi-file shoulder that reads as complete.
 """
 
 import json
@@ -121,10 +123,27 @@ def resolve_trace_bin():
     return ""
 
 
-def run_trace(trace_bin, args, env):
-    """stdout of `trace <args>`, fluff stripped, or "" on any failure/timeout."""
+TRACE_TIMEOUT = 5
+
+# What a file's shoulder says when trace ran out of time on it. A per-file call
+# that overruns used to return "" like any other failure, and the file was then
+# dropped from a multi-file shoulder — leaving a block that reads as the complete
+# set for the match while silently missing entries, with nothing to tell the
+# agent (or a test) which files never got looked at.
+UNAVAILABLE = "[trace context unavailable: enrichment timed out]"
+
+
+def run_trace(trace_bin, args, env, on_timeout=""):
+    """stdout of `trace <args>`, fluff stripped, or "" on failure.
+
+    A timeout answers `on_timeout`, so a caller that must account for every file
+    can say so instead of losing it among the empty results.
+    """
     try:
-        out = subprocess.run([trace_bin, *args], capture_output=True, text=True, timeout=5, env=env)
+        out = subprocess.run([trace_bin, *args], capture_output=True, text=True,
+                             timeout=TRACE_TIMEOUT, env=env)
+    except subprocess.TimeoutExpired:
+        return on_timeout
     except Exception:
         return ""
     if out.returncode != 0:
@@ -150,7 +169,7 @@ def shoulder(trace_bin, path, env, offset=None, limit=None, record=True):
         args += ["--limit", str(limit)]
     if not record:
         args.append("--no-record")
-    return run_trace(trace_bin, args, env)
+    return run_trace(trace_bin, args, env, on_timeout=UNAVAILABLE)
 
 
 def glob_matches(trace_bin, pattern, base, env):
@@ -245,7 +264,8 @@ def main():
         if not segs:
             return 0
         target, offset, limit = next(
-            ((t, o, l) for (t, o, l) in (read_target(s) for s in segs) if t), ("", None, None)
+            (found for found in (read_target(s) for s in segs) if found[0]),
+            ("", None, None),
         )
         if not target:
             return 0

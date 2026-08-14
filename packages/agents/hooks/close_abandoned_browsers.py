@@ -36,7 +36,8 @@ Ownership is by browser reach, not by `open`. Verified against agent-browser
 report `browserLaunched` true, so they start the browser just as `open` does,
 while `open` against an already-live session is reuse. So every subcommand
 except the ones that never touch a browser (`skills`, `session`, `profiles`,
-`install`, `help`, `version`, `read`) claims the named session it targets.
+`install`, `help`, `version`, `read`, `dashboard`) claims the named session it
+targets.
 
 Codex records its shell calls as JavaScript. This hook does not evaluate
 JavaScript: only a `tools.exec_command({cmd:"<double-quoted literal>"})` call in
@@ -58,7 +59,7 @@ import sys
 import time
 
 from lib.command import segments
-from lib.event import field, read_event
+from lib.event import read_event, stopping_transcript
 from lib.transcript import blocks, records
 
 BINDING = {
@@ -113,6 +114,24 @@ _VALUE_FLAGS = (
 _OPTIONAL_BOOL_FLAGS = ("--headed", "--hide-scrollbars")
 
 _CLOSE = "close"
+
+# agent-browser's whole top-level command set, which is how 0.33.1 itself decides
+# whether `--restore`'s optional name is present: the token after `--restore` is
+# the name unless it is a command. Verified live — `--restore session` prints the
+# session and `--restore saved profiles` restores `saved` and lists profiles, so
+# a shape test on the token cannot tell `saved` from `snapshot`. A command
+# missing here is read as a restore name, which leaks rather than closes.
+_SUBCOMMANDS = (
+    "skills", "open", "read", "click", "dblclick", "type", "fill", "press", "keyboard",
+    "hover", "focus", "check", "uncheck", "select", "drag", "upload", "download",
+    "scroll", "scrollintoview", "wait", "screenshot", "pdf", "snapshot", "eval",
+    "connect", "close", "back", "forward", "reload", "get", "is", "find", "mouse",
+    "set", "network", "cookies", "storage", "tab", "diff", "trace", "profiler",
+    "record", "console", "errors", "highlight", "inspect", "clipboard", "stream",
+    "react", "vitals", "a11y", "pushstate", "removeinitscript", "batch", "auth",
+    "plugin", "confirm", "deny", "session", "mcp", "chat", "dashboard", "install",
+    "upgrade", "doctor", "profiles", "state",
+)
 
 # The subcommands that never reach a browser, so they claim nothing. Everything
 # else launches or drives one on the session it targets.
@@ -298,7 +317,7 @@ def _read_invocation(words, session, namespace):
                 namespace = following
             skip = True
         elif word == "--restore":
-            skip = bool(following) and not following.startswith("-") and following != _CLOSE
+            skip = bool(following) and not following.startswith("-") and following not in _SUBCOMMANDS
         elif word in _OPTIONAL_BOOL_FLAGS:
             skip = following.lower() in ("true", "false")
         elif not word.startswith("-") and not subcommand:
@@ -413,30 +432,6 @@ def _argv(key, tail):
 
 def close_session(key):
     _run(_argv(key, ["close"]))
-
-
-def _is_codex_rollout(path):
-    return os.path.basename(path).startswith("rollout-") or "/.codex/" in path
-
-
-def stopping_transcript(event):
-    """The stopping agent's own transcript, or "" when this stop is not an end.
-
-    Claude's main-session Stop fires after every assistant turn, so cleaning up
-    there closes the browser between the architect's instructions. The two real
-    ends are a SubagentStop — a one-shot subagent finishing, whose payload
-    carries its own transcript — and a codex Stop, which ends the whole run and
-    is told apart by its `turn_id` and its `.codex` rollout transcript.
-
-    A SubagentStop never falls back to `transcript_path`: that is the parent's
-    transcript, and cleaning up from it closes the parent's live sessions.
-    """
-    path = field(event, "transcript_path", "")
-    if field(event, "hook_event_name", "") == "SubagentStop":
-        return field(event, "agent_transcript_path", "")
-    if field(event, "turn_id", "") or _is_codex_rollout(path):
-        return path
-    return ""
 
 
 def main():

@@ -12,6 +12,7 @@ import sys
 from lib import feedback
 from lib.event import field, read_event
 from lib.model_call import run_model
+from lib.session_mode import is_dispatched
 
 BINDING = {
     "events": {"PreToolUse": ["ExitPlanMode"]},
@@ -34,7 +35,7 @@ def _eval_prompt(plan):
         '5. Offers instead of acting: "Would you like me to...", "Shall I...".\n\n'
         '6. Raises blockers without solutions: architecture blockers must include multiple researched options with pros/cons/confidence. Convention blockers: name the repo precedent that applies. Implementation blockers: state the fix the agent is taking.\n\n'
         '7. Missing annotated file tree: Must end with a file tree showing all files to be created/modified with annotations.\n\n'
-        '8. Missing or weak validation step: Plan must include a final validation step before user review that: (a) uses /subagents skill to dispatch independent testing subagents for each validation task — never self-validate (the implementing agent is biased), (b) subagent prompts must include the WHY (what user problem this solves), may include the WHAT (what changed) if critical for testing, and never include the HOW (implementation details) to avoid bias, (c) traces every code path touched by the plan to verify correctness, (d) validates code serves real user scenarios end-to-end, (e) uses browser testing via tester agent and /agent-browser skill when UI is involved, (f) exhausts every test category fitting the scope of the change (unit, integration, user flows, edge cases), (g) autonomously fixes all issues that don\'t significantly change the plan\'s architecture, (h) final step: stop and present results to user for manual verification and feedback (no commits).\n\n'
+        '8. Missing or weak validation step: Plan must include a final validation step before user review that: (a) uses /delegate skill to dispatch independent testing subagents for each validation task — never self-validate (the implementing agent is biased), (b) subagent prompts must include the WHY (what user problem this solves), may include the WHAT (what changed) if critical for testing, and never include the HOW (implementation details) to avoid bias, (c) traces every code path touched by the plan to verify correctness, (d) validates code serves real user scenarios end-to-end, (e) uses browser testing via tester agent and /agent-browser skill when UI is involved, (f) runs the full suite and expensive test categories once, in this final validation step — never per slice or per subagent, (g) autonomously fixes all issues that don\'t significantly change the plan\'s architecture, (h) final step: stop and present results to user for manual verification and feedback (no commits).\n\n'
         '9. Contains deferred work: Items marked as deferred, punted to a future phase, declared out of scope for now, or any form of "deferred" or "this ships later, not now." Every item in a plan ships. If it doesn\'t ship, it doesn\'t go in the plan.\n\n'
         '10. Contains optionality: Plans must not present choices ("Option A or B", "we could do X or Y"), optional items ("Nice-to-have", "if time allows"), or undecided scope. The user decides all options and scope before the plan is finalized. Plans contain decisions, not choices.\n\n'
         'Plan:\n'
@@ -48,7 +49,7 @@ def _eval_prompt(plan):
 def main():
     event = read_event()
     session_id = field(event, "session_id", "")
-    if not session_id or session_id.startswith("agent-"):
+    if not session_id or is_dispatched(event):
         return 0
     plan = field(event, "tool_input.plan", "")
     if not plan:

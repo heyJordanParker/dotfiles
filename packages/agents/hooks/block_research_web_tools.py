@@ -33,6 +33,10 @@ BINDING = {
     "timeout": 5,
     "harness": "claude",
     "roots": "all",
+    # One list, not two keys: a second `"except"` literal replaced the first, so
+    # only copywriter was ever excluded and the gate generated into experimental
+    # against the intent above.
+    "except": ["experimental", "copywriter"],
 }
 
 MSG = """BLOCKED: the researcher reaches the web through /agent-browser only.
