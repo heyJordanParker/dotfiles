@@ -2,7 +2,6 @@
 paths:
   - "**/docs/plans/*.md"
   - "**/docs/shaping/*/V*-plan.md"
-  - "**/.claude/plans/*.md"
 ---
 
 ### Treat Plans as Decisions
@@ -39,15 +38,3 @@ Never: full implementations or line-by-line instructions.
 IF writing a Plan:
 ### Validate every guess by reading code
 Validate every guess by reading code before writing.
-
-IF writing a Plan:
-### Make every decision via AskUserQuestion
-Make every decision via AskUserQuestion before writing.
-
-IF writing a Plan:
-### List one chosen approach
-List a single chosen approach with no alternatives.
-
-IF writing a Plan:
-### Draft Definition of Done and Verification sections
-Draft the Definition of Done and Verification sections before writing.

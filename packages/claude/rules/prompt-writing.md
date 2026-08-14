@@ -20,5 +20,4 @@ A new Prompt file, a new file type, or a new name is an Architectural Decision. 
 makes it.
 
 ### Write Prompts in the communication style
-Prompt text follows every Rule in communication.md, Simplified Technical English first among
-them: active voice, present tense, one meaning per word, the verb over its noun form.
+Prompt text follows every Rule in communication.md, Simplified Technical English first.

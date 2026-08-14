@@ -42,6 +42,12 @@ IF you see abstractions "for later" or two-way dependencies:
 
 The simplest complete path is the one with the fewest moving parts that still preserves the User capability.
 
+### Measure before you set a limit
+Do not pick a cap or timeout by feel. Measure the real case, set the limit well past it, and write the measurement next to the number. Then only something broken hits the limit.
+
+### Make the limit speak when hit
+The error names the limit, its value, and what was asked for. A silent limit is worse than no limit.
+
 ## 4. Use existing code and libraries
 
 Reuse repo Precedent and well-maintained third-party code before writing local machinery. Read the library behavior before building on it.

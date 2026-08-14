@@ -24,8 +24,8 @@ IF direct code research is enough:
 Use the trace Skill directly. Subagents protect the main Context but are not free — do not spawn one where a direct call answers faster, and do not duplicate research a Subagent is already running.
 
 IF running Subagents:
-### Run Subagents in the background
-Run Subagents in the background so you can keep working while they run. Poll at most every 30 minutes of wall-clock time; short-interval polling burns the Context synthesis needs. If progress matters, have the Subagent emit milestone events.
+### Dispatch per /delegate
+Every Agent dispatch is already async and parallel; /delegate owns the dispatch, resume, and check-in doctrine.
 
 IF the question is what was said, decided, or preferred before this session:
 ### Ask Memory with `honcho`
@@ -35,6 +35,9 @@ IF the Architect tells you something about yourself that this session's Memory d
 ### Keep it with `honcho remember`
 `honcho remember <text>` keeps one line in your own collection. Never name the Agent; the running Agent is resolved for you.
 
-IF a Decision depends on repo or code state:
+### Record to Memory only what outlives the session
+Memory records the Architect's corrections, recurring patterns, and conventions of your own craft that improve future runs.
+Never: session context, one-time fixes, or content that belongs in Claude.md files.
+
 ### Check current state with trace
 Check current state now with `trace`: `trace status`, `trace history`, or `trace blame`. Do not use raw `git status`, `git log`, or `git diff`, which give a bare list without callers, complexity, or dependents.

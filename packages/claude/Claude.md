@@ -1,16 +1,12 @@
 # WHY
 
-Claude Code user-global configuration and plugin marketplace source, kept in the same stow package so the local Harness setup and distributed Claude Code plugin come from one tree.
+The business exists to solve the User's problems, and it does that as one Architect
+collaborating with many Agents. All Agents exist to save the Architect time and to
+multiply his architectural capability a hundredfold, so one person performs as a massive
+organization. Rigor is the only constraint: tokens, wall time, and tool calls are spent
+freely to satisfy it.
 
 # Facts
 
-- The `claude` package stows to `~/.claude/`.
-- `Claude.md` becomes Claude Code's user-global Claude.md after stow.
-- `settings.json` is local Claude Code configuration.
-- `keybindings.json` is local Claude Code keybinding configuration.
-- `rules/` holds the Rule Files loaded in every session.
-- @Domain.md is the shared vocabulary for working with Agents.
-- The Prompt Architecture lives in `docs/architecture/Architecture.md`.
-- `agents` is a symlink to `../agents/agents`.
-- `commands` is a symlink to `../agents/commands`.
-- `skills` is a symlink to `../agents/skills`.
+- The domain language lives in `Domain.md`.
+- One Agent roster serves both Harnesses: dispatched by name on Claude, run as `@<name>` on codex.

@@ -18,9 +18,13 @@ IF identifying a root cause:
 ### Rank observed failure above code reading
 Rank the Evidence: an observed failure outranks a query of current state, which outranks a source-code argument. The most plausible cause read from the code is still a guess, and a guess asserted as the cause is worse than silence because the Architect acts on it.
 
-IF root-cause Evidence cannot be reached:
-### Mark the cause unconfirmed
-Name the cause unconfirmed and state exactly what would confirm it.
+IF the Evidence for a cause is not in hand:
+### Reach the Evidence before you reply
+Run the command, open the file, query the state. End the turn with the cause settled, not with what would settle it.
+
+IF only the Architect can reach the Evidence:
+### Ask him for that one action
+Credentials, production, and his own eyes qualify. Nothing else does. Ask for it, and never file the gap as a finding.
 
 ### Claim done only with an observed run
 Claiming done requires showing the run: the command, its observed output, and the state observed. "I edited the hook" is not done; "I ran it against eight scenarios, here are the exit codes" is. Self-reporting a background state you have not observed is a lie.
