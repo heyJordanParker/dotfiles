@@ -3,7 +3,7 @@
 //! One `git log` subprocess for the whole repo's lifecycle facts instead of
 //! N*2 per-file:
 //!   1. `git log -n <cap> -M --diff-merges=first-parent --name-status
-//!       --pretty=format:COMMIT|%ad|%an|%s --date=short`
+//!       --pretty=format:COMMIT|%H|%ad|%an|%s --date=short`
 //! The 30-day commit counts are derived from the dated commits this same
 //! walk parses — no second `git log`. The walk is bounded to `HISTORY_CAP`
 //! recent commits; on a history deeper than the cap, `commit_count` becomes
@@ -16,7 +16,7 @@
 use crate::cache;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::{Mutex, OnceLock};
@@ -56,6 +56,22 @@ impl GitActivity {
 /// is high enough that ordinary repos walk their whole history unchanged.
 const HISTORY_CAP: usize = 4000;
 
+/// Upper bound on the files one commit contributes to co-change. The pairing
+/// is quadratic in the commit's file count, so an unbounded commit is an
+/// unbounded allocation: a shallow clone's graft commit reports the whole tree
+/// (29,122 files in `references/next.js`), which is 848 million retained pairs
+/// at 270 bytes each. Above the cap a commit adds nothing, which loses no
+/// signal — a commit touching hundreds of files raises every pair by one and
+/// so ranks nothing.
+const CO_CHANGE_COMMIT_CAP: usize = 100;
+
+/// Upper bound on the pairs the whole walk retains. `CO_CHANGE_COMMIT_CAP`
+/// bounds one commit; this bounds their sum, so a deep history of medium
+/// commits cannot accumulate without limit either. The walk runs newest-first,
+/// so the pairs kept are the recent couplings, and git log order is stable for
+/// a fixed HEAD, so a truncated walk truncates identically on every run.
+const CO_CHANGE_PAIR_CAP: usize = 1_000_000;
+
 /// Deploy branches checked for file presence, in display order.
 /// (label, ref). Refs absent from the repo are silently skipped.
 const DEPLOY_BRANCHES: &[(&str, &str)] = &[
@@ -80,6 +96,39 @@ fn git_str(repo_root: &Path, args: &[&str], timeout_ok: bool) -> Option<String> 
 
 pub fn head_sha(repo_root: &Path) -> Option<String> {
     git_str(repo_root, &["rev-parse", "HEAD"], true).map(|s| s.trim().to_string())
+}
+
+/// The commits a shallow clone grafted its history onto, read from
+/// `<git-dir>/shallow`. Git has no parent to diff a graft against, so
+/// `--name-status` reports the entire working tree as added: in
+/// `references/elementor` every one of 7,828 files claims the clone date as
+/// its first commit and HEAD's author as its owner. The set is read rather
+/// than derived from the oldest commit, because a clone can hold several —
+/// `references/codex` lists nine, and its oldest reachable commit is the
+/// third of them. Empty for a full clone.
+fn grafts(repo_root: &Path) -> HashSet<String> {
+    let shallow = git_str(repo_root, &["rev-parse", "--is-shallow-repository"], true);
+    if shallow.as_deref().map(str::trim) != Some("true") {
+        return HashSet::new();
+    }
+    let git_dir = match git_str(repo_root, &["rev-parse", "--git-dir"], true) {
+        Some(d) => PathBuf::from(d.trim()),
+        None => return HashSet::new(),
+    };
+    let git_dir = if git_dir.is_absolute() {
+        git_dir
+    } else {
+        repo_root.join(git_dir)
+    };
+    match std::fs::read_to_string(git_dir.join("shallow")) {
+        Ok(text) => text
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .map(str::to_string)
+            .collect(),
+        Err(_) => HashSet::new(),
+    }
 }
 
 /// Full relpath -> GitActivity map for the repo (single git log pass).
@@ -117,6 +166,23 @@ pub fn bulk(repo_root: &Path) -> HashMap<String, GitActivity> {
             GitActivity {
                 working_state: Some(state.clone()),
                 present_in: presence.get(path).cloned().unwrap_or_default(),
+                ..GitActivity::empty()
+            },
+        );
+    }
+    // Deploy-branch presence is a fact about the current refs, not about
+    // history, so it survives a repo whose history the walk dropped. In a
+    // shallow clone every file's only commit is a graft, which leaves no
+    // history entry and previously no entry at all — silently turning a file
+    // that is on origin/main into `presence: local-only`.
+    for (path, refs) in &presence {
+        if out.contains_key(path) {
+            continue;
+        }
+        out.insert(
+            path.clone(),
+            GitActivity {
+                present_in: refs.clone(),
                 ..GitActivity::empty()
             },
         );
@@ -274,6 +340,7 @@ struct History {
 /// whether the cap was hit.
 fn walk_history(repo_root: &Path) -> History {
     let cap_arg = format!("-n{HISTORY_CAP}");
+    // `%H` leads the record so a graft commit can be recognized and dropped.
     let stdout = match git_str(
         repo_root,
         &[
@@ -282,7 +349,7 @@ fn walk_history(repo_root: &Path) -> History {
             "-M",
             "--diff-merges=first-parent",
             "--name-status",
-            "--pretty=format:COMMIT|%ad|%an|%s",
+            "--pretty=format:COMMIT|%H|%ad|%an|%s",
             "--date=short",
         ],
         true,
@@ -290,6 +357,7 @@ fn walk_history(repo_root: &Path) -> History {
         Some(s) => s,
         None => return History::default(),
     };
+    let graft_shas = grafts(repo_root);
 
     // 30-day cutoff as a YYYY-MM-DD string, compared lexically against the
     // `--date=short` author dates the walk already parses. Same author-date
@@ -313,17 +381,34 @@ fn walk_history(repo_root: &Path) -> History {
     let mut current_author: Option<String> = None;
     let mut current_subject: Option<String> = None;
     let mut current_paths: Vec<String> = Vec::new();
+    // The commit's true file count. `current_paths` stops growing at the cap,
+    // because its `contains` scan is linear and an unbounded list makes the
+    // parse itself quadratic in the commit's size; this counter keeps going so
+    // `flush_co` can tell a 100-file commit from a 29,122-file one.
+    let mut current_files = 0usize;
+    // Distinct pairs retained so far, weighed against `CO_CHANGE_PAIR_CAP`.
+    let mut pairs_held = 0usize;
+    // Set for a graft commit, whose diff is the whole working tree rather than
+    // a change: it contributes no count, no author, and no co-change.
+    let mut skip_commit = false;
 
     let flush_co = |co_by_path: &mut HashMap<String, OrderedCounter>,
-                    paths: &[String]| {
-        if paths.len() <= 1 {
+                    pairs_held: &mut usize,
+                    paths: &[String],
+                    files: usize| {
+        // A commit is all-or-nothing at both caps, so what a file carries is
+        // whole commits and the ceiling truncates the same way on every run.
+        if paths.len() <= 1 || files > CO_CHANGE_COMMIT_CAP {
+            return;
+        }
+        if *pairs_held >= CO_CHANGE_PAIR_CAP {
             return;
         }
         for a in paths {
             let counter = co_by_path.entry(a.clone()).or_default();
             for b in paths {
-                if a != b {
-                    counter.add(b);
+                if a != b && counter.add(b) {
+                    *pairs_held += 1;
                 }
             }
         }
@@ -350,17 +435,19 @@ fn walk_history(repo_root: &Path) -> History {
     let mut current_recent = false;
     for line in stdout.split('\n') {
         if let Some(rest) = line.strip_prefix("COMMIT|") {
-            flush_co(&mut co_by_path, &current_paths);
+            flush_co(&mut co_by_path, &mut pairs_held, &current_paths, current_files);
             current_paths.clear();
+            current_files = 0;
             commit_seen += 1;
-            let parts: Vec<&str> = rest.splitn(3, '|').collect();
-            if parts.len() == 3 {
-                current_date = Some(parts[0].to_string());
-                current_author = Some(parts[1].to_string());
-                current_subject = Some(parts[2].to_string());
-            } else if parts.len() == 2 {
-                current_date = Some(parts[0].to_string());
-                current_author = Some(parts[1].to_string());
+            let parts: Vec<&str> = rest.splitn(4, '|').collect();
+            skip_commit = graft_shas.contains(parts.first().copied().unwrap_or(""));
+            if parts.len() == 4 {
+                current_date = Some(parts[1].to_string());
+                current_author = Some(parts[2].to_string());
+                current_subject = Some(parts[3].to_string());
+            } else if parts.len() == 3 {
+                current_date = Some(parts[1].to_string());
+                current_author = Some(parts[2].to_string());
                 current_subject = None;
             }
             // `--date=short` dates are zero-padded YYYY-MM-DD, so a lexical
@@ -371,7 +458,7 @@ fn walk_history(repo_root: &Path) -> History {
                 .unwrap_or(false);
             continue;
         }
-        if line.trim().is_empty() || current_date.is_none() {
+        if line.trim().is_empty() || current_date.is_none() || skip_commit {
             continue;
         }
         let date = current_date.clone().unwrap();
@@ -399,7 +486,8 @@ fn walk_history(repo_root: &Path) -> History {
             if let Some(a) = &current_author {
                 authors_by_path.entry(path.clone()).or_default().add(a);
             }
-            if !current_paths.contains(&path) {
+            current_files += 1;
+            if current_files <= CO_CHANGE_COMMIT_CAP && !current_paths.contains(&path) {
                 current_paths.push(path.clone());
             }
             aliases.entry(old_path).or_insert(path);
@@ -416,12 +504,13 @@ fn walk_history(repo_root: &Path) -> History {
             if let Some(a) = &current_author {
                 authors_by_path.entry(target.clone()).or_default().add(a);
             }
-            if !current_paths.contains(&target) {
+            current_files += 1;
+            if current_files <= CO_CHANGE_COMMIT_CAP && !current_paths.contains(&target) {
                 current_paths.push(target);
             }
         }
     }
-    flush_co(&mut co_by_path, &current_paths);
+    flush_co(&mut co_by_path, &mut pairs_held, &current_paths, current_files);
 
     for (path, entry) in out.iter_mut() {
         if let Some(ac) = authors_by_path.get(path) {
@@ -446,11 +535,16 @@ struct OrderedCounter {
 }
 
 impl OrderedCounter {
-    fn add(&mut self, key: &str) {
-        if !self.counts.contains_key(key) {
+    /// True when `key` was not already counted. Each new key costs two owned
+    /// `String`s here, so the co-change walk counts them to hold itself under
+    /// `CO_CHANGE_PAIR_CAP`.
+    fn add(&mut self, key: &str) -> bool {
+        let fresh = !self.counts.contains_key(key);
+        if fresh {
             self.order.push(key.to_string());
         }
         *self.counts.entry(key.to_string()).or_insert(0) += 1;
+        fresh
     }
 
     /// Top `n` by count descending; ties keep first-insertion order via a

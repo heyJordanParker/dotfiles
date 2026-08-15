@@ -1906,3 +1906,76 @@ fn listing_commands_exclude_files_deleted_from_disk_but_kept_in_index() {
         vf["entries"]
     );
 }
+
+#[test]
+fn co_change_ignores_a_commit_over_the_file_cap() {
+    // Co-change pairs every file in a commit with every other, so a commit's
+    // cost is quadratic in its file count and a sweep touching everything
+    // raises every pair by one — ranking nothing while burying the couplings
+    // that mean something. A commit over the cap contributes nothing, and the
+    // genuine two-file pair survives it.
+    let f = Fixture::new();
+    f.write("pair_a.py", "a = 1\n");
+    f.write("pair_b.py", "b = 1\n");
+    f.commit("the real coupling");
+    for i in 0..120 {
+        f.write(&format!("bulk/mod_{i:03}.py"), "x = 1\n");
+    }
+    f.write("pair_a.py", "a = 2\n");
+    f.commit("sweep touching 121 files");
+
+    let r = f.trace(&["read", "pair_a.py", "--json"]);
+    r.ok();
+    let shoulder = r.json()["passive_context"].as_str().unwrap().to_string();
+    assert!(
+        shoulder.contains("\u{00b7} together: pair_b.py \u{00b7}"),
+        "the two-file coupling must survive the sweep: {shoulder:?}"
+    );
+    assert!(
+        !shoulder.contains("mod_"),
+        "a commit over the cap must contribute no co-change: {shoulder:?}"
+    );
+}
+
+#[test]
+fn shallow_clone_graft_commit_leaves_no_history() {
+    // A graft commit has no parent to diff against, so git reports the whole
+    // working tree as added. Left in, every file in a shallow clone claims the
+    // clone date as its first commit, HEAD's author as its owner, and the
+    // alphabetical head of the tree as its co-change. Grafts leave the walk,
+    // so a depth-1 clone carries no history at all — while presence, which is
+    // a fact about the current refs rather than about history, stays.
+    let f = Fixture::new();
+    f.write("core.py", "def a():\n    return 1\n");
+    f.write("sibling.py", "x = 1\n");
+    f.commit("first");
+    f.write("core.py", "def a():\n    return 2\n");
+    f.commit("second");
+
+    // `--depth` is silently ignored for a plain local path — git warns and
+    // clones the whole history — so the source must be addressed as file://,
+    // and the fixture asserts it really came out shallow.
+    let url = format!("file://{}", f.root.to_string_lossy());
+    let clone = f.root.join("clone");
+    f.git(&["clone", "--depth=1", &url, clone.to_str().unwrap()]);
+    assert!(
+        clone.join(".git").join("shallow").exists(),
+        "fixture is not a shallow clone — the source must be addressed as file://"
+    );
+
+    let r = tracer_cli_tests::trace(&clone, ["read", "core.py", "--json"]);
+    r.ok();
+    let shoulder = r.json()["passive_context"].as_str().unwrap().to_string();
+    assert!(
+        shoulder.contains("git: no-history"),
+        "a graft commit must leave no history: {shoulder:?}"
+    );
+    assert!(
+        !shoulder.contains("together:"),
+        "a graft commit must contribute no co-change: {shoulder:?}"
+    );
+    assert!(
+        !shoulder.contains("owner:"),
+        "a graft commit must attribute no owner: {shoulder:?}"
+    );
+}
