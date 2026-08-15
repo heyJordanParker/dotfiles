@@ -127,7 +127,7 @@ The contract for reaching a Goal. The Plan's Architecture is immutable and chang
 _Avoid_: roadmap, spec
 
 **Interview**:
-Process where an Agent builds understanding of the Architect's requirements and context by asking one question at a time, each grounded in facts the Agent found in the codebase.
+Process where an Agent builds understanding of the Architect's requirements and context by asking questions.
 _Avoid_: requirements gathering, discovery, planning session
 
 **Decision**:

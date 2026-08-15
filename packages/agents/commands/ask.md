@@ -15,7 +15,7 @@ Ask the Architect one self-contained Architecture Decision question at a time.
 3. Remove tactical decisions you own.
 4. Rank the remaining options by correctness, best first.
 5. Ask one question at a time.
-6. Put the full Context in the question.
+6. Show the full Context in the question, per /show-me.
 7. Collect every answer before continuing.
 
 Template:
@@ -39,12 +39,10 @@ Template:
   Context: [WHY this matters in 1-2 sentences]
 
   Current state:
-  `path/to/file.ts:L23-30`
-  [relevant code snippet]
+  [the view per /show-me: annotated lines, a tree, or a diagram]
 
   Proposed change:
-  `path/to/file.ts`
-  [what it would look like after]
+  [the same view after the change, or a diff]
 
   Pros:
   - [pros]
@@ -72,7 +70,7 @@ Example:
   Context: Adding phone validation for two-factor authentication. Email validation already lives here.
 
   Current state:
-  `src/auth/validate.ts:12-18`
+  `src/auth/validate.ts`
   ```ts
   const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 

@@ -127,7 +127,7 @@ def directive(forced_state, forced_mode, governing_mode=None):
                "produce the proposal under its contract.")
     if forced_mode == "interview":
         out = ("This is an interview turn. Load the interview skill now and interview "
-               "the architect one question at a time.")
+               "the architect under its contract.")
     mode_line = {
         "orchestrate": "Load the /orchestrate skill now.",
         "build": "Load the /build skill now.",
