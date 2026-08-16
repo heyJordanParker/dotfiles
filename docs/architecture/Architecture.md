@@ -13,6 +13,12 @@ The Architect-approved architecture for the prompt system: agents, skills, hooks
 - **`Claude.md`** — the folder's WHY, and it loads the relevant references: its Decisions (`docs/architecture/decisions/`), a Design.md, whatever record the WHY rests on. Never Rules, Process, vocabulary, or inline Decisions.
 - **`Domain.md`** — the domain's words, nothing else.
 
+## Rules call Skills, and never depend on them
+
+Rules are the main system and Skills are its subsystems. A Rule calls a Skill — `Load /show-me`, `Propose options via /pcc` — and the Agent goes and runs that Process. A Rule never depends on a Skill: it does not take its wording, its definitions, or any part of its own instruction from one, because a Rule must be obeyable exactly as written by an Agent that never loads the Skill.
+
+Skills depend on Rules freely. A Skill names a Rule, builds on it, and is written to serve it.
+
 ## Artifacts outside Claude.md and SKILL.md
 
 1. **Decisions** — `docs/architecture/decisions/000N-<the-decision>.md`; situation, choice, why, one to three sentences, plus measured scores when an experiment produced them. The Agent proposes Decisions; only the Architect makes them — typically through /interview.

@@ -74,6 +74,11 @@ Never: a nuance clause appended to a winning correction. Measured: one banned ph
 
 ## 5. Write every block in its shape
 
+### Write every block specific, never abstract
+Name the specific thing, the specific action, and the specific Condition it holds under. An abstraction hands the Agent the choice of which case is meant, and it chooses differently each time — which is the judgement the block was written to remove.
+Example: "Run the Hook tests with `uv run pytest tests/hooks` from the repo root" is specific in all three.
+Never: an abstract noun standing in for the thing, such as "the relevant artifact" or "the appropriate layer"; an abstract qualifier such as "as needed", "where appropriate", "if relevant", "properly", "correctly", or "generally"; or a principle written where an instruction belongs.
+
 The shape identifies the block without its heading. Every Prompt file is flat: heading, then content; an unnumbered listicle by default, numbered when order matters, one item for the WHY. A list that has grown hard to read is broken apart into Skills, more rules files, or more folders, never subheaded.
 
 A Fact is a plain sentence in a listicle:
