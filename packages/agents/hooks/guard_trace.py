@@ -38,6 +38,7 @@ Re-run the trace command with no pipe and no redirect; read all of it:
   grep -r / rg         -> trace grep <pattern> [-l <lang>]
   cat / head / sed -n  -> trace read <file> [<method>]
   find                 -> trace find <pattern> [<base>]
+  tail / grep on a log -> trace logs <pattern> [--path <dir>] [--since <when>]
 For partial output, use the in-binary filter — never a pipe:
   trace ... | jq '<expr>'  -> trace ... --json --filter '<expr>'"""
 

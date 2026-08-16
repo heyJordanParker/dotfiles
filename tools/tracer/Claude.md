@@ -25,6 +25,8 @@ Local code-intelligence command-line interface for Agents working in a repositor
 - User-global `$HOME/.claude/rules/*.md` files are included in the `trace docs` walk.
 - Directory-scoped `trace docs` calls surface unconditional user-global Rules.
 - File-scoped `trace docs` calls surface conditional user-global Rules matched against that file.
+- `commands::logs` reads log files directly, so a gitignored or untracked log is searchable.
+- `commands::logs` frames one entry per line and attaches an untimestamped line to the entry above it.
 - `--filter` runs an in-process jq program through the `jaq` crates.
 - `--filter` requires `--json`.
 - `jsonfmt` owns the stable JavaScript Object Notation byte format for command output and cache entries.

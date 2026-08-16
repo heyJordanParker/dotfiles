@@ -60,7 +60,7 @@ Never: pipe to `jq`.
 Start with `trace context`, then `trace survey`, then `trace list`, `trace tree`, `trace info`, `trace structure`, or `trace symbols`.
 
 ### Use search commands by match type
-Use `trace grep` for text, `trace struct` for structural search, `trace find` for basenames, and `trace glob` for full-path globs.
+Use `trace grep` for text in code, `trace logs` for text in a log file, `trace struct` for structural search, `trace find` for basenames, and `trace glob` for full-path globs.
 
 ### Use history commands for why and ownership
 Use `trace diff` for changed files, `trace status` for dirty files by blast radius, `trace history` for file or symbol history, and `trace blame` for function or line ownership.
@@ -113,7 +113,18 @@ Without a path, it returns the session manifest: `scope`, `session_active`, `loa
 ### `trace docs load` is hook-facing
 It forwards to path mode and uses `--source trace_docs_load` by default. `inject_docs.py` invokes path mode with `--source trace_inject_hook`.
 
-## 4. Use `trace read` modes correctly
+## 4. Use `trace logs` for logs
+
+### `trace logs` returns entries, not lines
+One line is one entry. A line carrying no timestamp attaches to the entry above it, so a stack trace comes back whole. Laravel, PHP and WordPress `debug.log`, nginx access and error, syslog, log4j, Python logging, Go, and JSON lines all frame; a file with no timestamp anywhere returns one entry per line.
+
+### The defaults answer the common question with no flags
+`--path .`, `--file *.log*`, `--around 0`, `--limit 20` newest first, and smart-case matching. `--file *.log*` reaches `access.log`, `access.log.1`, `access.log.2.gz`, and `laravel-2026-08-15.log`. A `.git`, `node_modules`, `vendor`, or `.tracer-cache` directory is never walked.
+
+### Windows compare against the log's own clock
+`--since` and `--until` take `YYYY-MM-DD`, `YYYY-MM-DD HH:MM[:SS]`, or `HH:MM[:SS]`. A bare time means that time on the date of the newest log selected. A dated filename outside the window is never opened, so a window over a rotated directory costs one file.
+
+## 5. Use `trace read` modes correctly
 
 ### Project docs are opt-in for direct reads
 Pass `--docs` to load ancestor docs. There is no `--no-docs` flag because direct reads default to docs off.
@@ -124,7 +135,7 @@ Default reads strip generated banners, decorative separators, runs of blank line
 ### `--at` reads a git ref
 Use `--diff` with `--at` to append a symbol-level diff of added, removed, and changed top-level exports.
 
-## 5. Interpret passive-Context shoulders
+## 6. Interpret passive-Context shoulders
 
 ### The shoulder has two lines when docs awareness is available
 The first line carries lifecycle and complexity; the second line carries docs Context coverage.
@@ -138,7 +149,7 @@ Template:
 ### Lifecycle labels are ordered by confidence
 Labels include `untracked`, `added (uncommitted)`, `renamed (uncommitted)`, `modified (new file)`, `modified (N commits)`, `renamed-from <path>`, `no-history`, `new (1 commit)`, and `N commits`. Presence names deploy branches such as `main` or `production`; `local-only` means no tracked branch reaches the file.
 
-## 6. Know which project docs trace recognizes
+## 7. Know which project docs trace recognizes
 
 ### Project docs are graph nodes
 The graph recognizes `CLAUDE.md`, `Claude.md`, `AGENTS.md`, `Agents.md`, their `.local.md` peers, and every `.claude/rules/*.md`. It preserves `@include` edges and conditional `paths:` frontmatter.

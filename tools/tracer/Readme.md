@@ -48,6 +48,7 @@ trace tree <path>                  Annotated file tree with complexity ranks (re
 trace info <path>                  Complexity structure + architectural overview of a file or directory
 trace structure <file>             Methods, properties, variables, imports, exports
 trace grep <pattern>               Text search with per-match enrichment
+trace logs [<pattern>] [--path <p>] [--file <glob>] [--since <when>] [--until <when>] [--around N] [--limit N]   Timestamped entries from log files, ignore rules never consulted. One line is one entry; an untimestamped line attaches to the entry above it, so a stack trace comes back whole. Reads `.gz` rotations, spans dated filenames across a window, and streams, so a rotated 80 MB directory costs the window and not the files
 trace struct <pattern> -l <lang>   Structural AST search via ast-grep with per-match enrichment
 trace glob <pattern> [<base>]      Full-path pattern search (** recursive, gitignore-respecting); bare paths, --details adds ccn + rank + lifecycle
 trace find <pattern> [<base>]      Filename-pattern search with complexity rank + lifecycle shoulder
@@ -99,7 +100,7 @@ Per-file and per-function cyclomatic complexity is computed by an in-process tre
 
 ## Status
 
-All 24 commands implemented. Architecture extraction supports Python, TypeScript / TSX / JSX, and PHP — extensions without an extractor still get per-file facts (complexity, git activity) but no architecture-graph entry.
+All 25 commands implemented. Architecture extraction supports Python, TypeScript / TSX / JSX, and PHP — extensions without an extractor still get per-file facts (complexity, git activity) but no architecture-graph entry.
 
 ## License
 

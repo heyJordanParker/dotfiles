@@ -79,6 +79,33 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Timestamped entries from log files, including the ones the ignore
+    /// walk skips. One line is one entry; a line with no timestamp of its
+    /// own attaches to the entry above it, so a stack trace stays whole.
+    Logs {
+        pattern: Option<String>,
+        #[arg(long, default_value = ".")]
+        path: String,
+        /// Filename glob under <path>. The default reaches access.log,
+        /// access.log.1, access.log.2.gz, and laravel-2026-08-15.log.
+        #[arg(long = "file", default_value = "*.log*")]
+        file_glob: String,
+        /// Window start: YYYY-MM-DD, 'YYYY-MM-DD HH:MM[:SS]', or HH:MM[:SS]
+        /// on the day of the newest log selected.
+        #[arg(long)]
+        since: Option<String>,
+        /// Window end, same three forms.
+        #[arg(long)]
+        until: Option<String>,
+        /// Whole entries either side of each match.
+        #[arg(long, default_value_t = 0)]
+        around: usize,
+        /// Cap on matching entries, keeping the newest.
+        #[arg(long, default_value_t = 20)]
+        limit: usize,
+        #[arg(long)]
+        json: bool,
+    },
     /// Structural (AST) search via ast-grep with per-match enrichment.
     Struct {
         pattern: String,
@@ -418,6 +445,27 @@ fn main() -> Result<()> {
             json,
         } => output::run_value(json, filter, || {
             commands::grep::run(&pattern, lang.as_deref(), &path, json)
+        }),
+        Command::Logs {
+            pattern,
+            path,
+            file_glob,
+            since,
+            until,
+            around,
+            limit,
+            json,
+        } => output::run_value(json, filter, || {
+            commands::logs::run(
+                pattern.as_deref(),
+                &path,
+                &file_glob,
+                since.as_deref(),
+                until.as_deref(),
+                around,
+                limit,
+                json,
+            )
         }),
         Command::Struct {
             pattern,

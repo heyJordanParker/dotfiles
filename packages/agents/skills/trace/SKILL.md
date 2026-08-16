@@ -50,7 +50,7 @@ Template:
   ```
 
 ### Use search commands for unknown names
-Use `trace grep` for text, `trace struct` for structural search, `trace find` for basenames, and `trace glob` for full paths.
+Use `trace grep` for text in code, `trace logs` for text in a log file, `trace struct` for structural search, `trace find` for basenames, and `trace glob` for full paths.
 
 Template:
   ```bash
@@ -89,6 +89,20 @@ Template:
 
 ### Calibrate read depth by complexity
 Use `trace survey` to find the complexity distribution. Full-read files past the repository p95. Skim uniformly-low files only when the task does not need every line.
+
+IF reading or searching a log file:
+### Use `trace logs`
+`trace grep` does not search a gitignored path and `trace read` loads the whole file. `trace logs` reads the files the ignore rules skip, returns one entry per line with stack traces kept whole, and windows by time so a rotated 80 MB directory returns a window.
+
+Template:
+  ```bash
+  trace logs [<pattern>] [--path P] [--file GLOB] [--since WHEN] [--until WHEN] [--around N] [--limit N]
+  trace logs <pattern> --path storage/logs
+  trace logs <pattern> --since "2026-08-15 10:52" --until "2026-08-15 10:55"
+  trace logs <pattern> --around 2
+  trace logs <pattern> --file "laravel-*.log"
+  trace logs --path /var/log/nginx --limit 5
+  ```
 
 ## 5. Treat passive Context as a hypothesis
 
