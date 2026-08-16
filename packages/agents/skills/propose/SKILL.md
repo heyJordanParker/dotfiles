@@ -69,7 +69,7 @@ Each row is one Decision: the question, then options separated by `vs`. Options 
 ## 3. Draw the maps
 
 ### Open with the whole-change map
-Every Proposal opens with one whole-change annotated file tree in `/show-me` style: every file the change creates or touches, `<- (NEW)` on new files, and a three-to-five-word job note on each file.
+Every Proposal opens with one whole-change annotated file tree in `/show-me` style: every file the change creates or touches, `<- (NEW)` on new files, and a job note under nine words on each file.
 
 ### Open the Decisions section with the hierarchy map
 The Decision Hierarchy map shows every Decision as one row, options separated by `vs`, options ordered highest-confidence first, and gated Decisions nested beneath their parent. The map carries candidates and rank only. The Decision node heading carries settled or open state.

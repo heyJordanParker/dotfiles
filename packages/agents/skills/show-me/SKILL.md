@@ -59,11 +59,11 @@ Never: scatter symbols through prose as decoration.
 ## 2. Draw file trees when location matters
 
 ### Use box-drawing characters and short annotations
-Use `├──`, `└──`, and `│` for structure. Use `<-` annotations with three to five words, adapted to the purpose.
+Use `├──`, `└──`, and `│` for structure. Use `<-` annotations under nine words, adapted to the purpose.
 Template:
   ```
   directory/
-  ├── file.ts*             <- annotation (3-5 words)
+  ├── file.ts*             <- annotation (under nine words)
   ├── subdirectory/
   │   ├── nested.ts*       <- changed file marked with *
   │   └── related.ts       <- context file (no *)
@@ -75,8 +75,8 @@ A changed file gets `*` suffix. An unchanged file gets a plain role annotation a
 Never: `KEEP:`, `REMOVE:`, `PRESERVE:`, `* new`, or `existing,` prefixes.
 
 ### Match annotations to the purpose
-Overview annotations name responsibility. Feature annotations name data movement. Debugging annotations name dependency or failure location.
-Example: `engine.ts* <- orchestrates subsystems`; `validate.ts* <- checks credentials`; `UserRepo.ts* <- fails here`.
+Overview annotations name responsibility. Feature annotations name data movement. Debugging annotations name dependency or failure location. When the row's name already carries that, the annotation carries the reason instead — why the file exists, why it changed, why it stays.
+Example: `engine.ts* <- orchestrates subsystems`; `validate.ts* <- the browser cannot be trusted with the ceiling`; `UserRepo.ts* <- fails here`.
 Never: annotations that repeat the filename or a tree with no annotations.
 
 ### List a file's methods under it when the file is the subject
@@ -324,11 +324,12 @@ Never: a before block followed by an after block.
 ## 8. Write the text around the view
 
 ### Put the view where the question lands
-The view sits at the point it answers, with the short text it supports.
-Never: every drawing collected at the end, or a drawing with no sentence naming what it answers.
+The view sits at the point it answers, and one line above it says why this thing is on screen — what it lets the Architect decide, or what changes because of it. The detail inside a view means nothing until that line exists.
+Example: `The gate reads the mode from one place, so a wrong answer there refuses every write:` above the tree.
+Never: every drawing collected at the end, or a drawing dropped in with no line above it, which lets deep detail arrive with no reason to read it.
 
-### Let prose carry the WHY only
-The view carries what changes. Prose carries why the edge sits there, why the dependency runs that direction, and what is hard.
+### Let prose carry the WHY no single row owns
+The view carries what changes, and a row needing its own reason carries it in its annotation. Prose carries the reason that spans the view: why the edge sits there, why the dependency runs that direction, and what is hard.
 Never: a paragraph restating what the drawing above it already shows.
 
 ### Name the effect on the User, not the mechanism

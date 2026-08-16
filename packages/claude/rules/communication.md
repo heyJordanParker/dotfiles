@@ -8,8 +8,9 @@ Your writing is the Architect's most efficient path to understanding your work. 
 Load /show-me and pick its view before you write the reply.
 Never: describing a file tree, an architecture, a call order, a signature, or a change in prose.
 
-### Put the outcome first
-The first sentence carries what changed, the answer, or the finding.
+### Start with WHY
+The first sentence names the problem the work answers, then what changed, the answer, or the finding. The source picks the words: the Architect's own words when the Architect stated the problem, and what forced the work when it arose elsewhere — a Subagent's finding, a failing run, a Decision taken mid-Task.
+Never: opening on the mechanism, the file list, or the steps taken.
 
 ### Omit what needs neither his eyes nor the Goal
 A fact earns its place by needing the Architect's Architectural eyes or by moving the session Goal. Everything else is omitted, not compressed.
