@@ -34,6 +34,7 @@ brew "hcloud"
 brew "opencode"
 brew "rust"
 brew "rustup"                   # needed for wasm32-wasip1 target (zellij plugin build)
+brew "zig"                      # linux cross toolchain for the tracer plugin prebuilts
 brew "cmake"                    # needed to compile llama.cpp in the prompt-reviewer build
 brew "git-delta"
 brew "modem-dev/tap/hunk"

@@ -15,6 +15,24 @@
 //!   cargo xtask sync-dist            regenerate the mirror (idempotent)
 //!   cargo xtask sync-dist --check    exit non-zero if the mirror has drifted
 //!                                    from the tracer source (the drift guard)
+//!   cargo xtask build-bin            build every shipped prebuilt from the
+//!                                    mirror and stamp it with the mirror's hash
+//!   cargo xtask build-bin --check    exit non-zero if a prebuilt is missing or
+//!                                    older than the mirror it ships beside
+//!
+//! `build-bin` is the second half of the same payload. The launcher execs a
+//! committed prebuilt before it considers anything else, and setup.sh cannot
+//! run on Linux (it opens with xcode-select and brew bundle), so a Linux host
+//! gets whatever binary is in the tree and nothing else. Until this task
+//! existed nothing produced them: linux-x86_64 was committed once on 17 May and
+//! never rebuilt. `scripts/tracer.py` now calls both tasks from `sync.py`, so
+//! the payload is rebuilt at the commit that changes it rather than reported on.
+//!
+//! Both Linux prebuilts cross-compile on the host through cargo-zigbuild. zig
+//! carries the Linux linker, libc, and C compiler the eleven tree-sitter
+//! grammars need, which is the whole reason a container was ever involved. That
+//! keeps a daemon out of the commit path and moves the glibc floor from a base
+//! image tag onto the target triple, where it is chosen on purpose.
 //!
 //! The crux: `tools/tracer/` is a cargo workspace with this xtask as a member
 //! when developed in-repo, but the mirror must build standalone with NO
@@ -24,9 +42,27 @@
 //! table stripped, and the mirrored lock is resolved from that stripped
 //! manifest — not the workspace lock, which carries xtask and its deps.
 
+use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
+
+/// The glibc version every Linux prebuilt links against, appended to the target
+/// triple so zig links the stubs for exactly that release. 2.17 is RHEL 7 era,
+/// below any distribution still in service, and pinning it here is what makes
+/// the floor a decision rather than a side effect of whichever machine built the
+/// binary. The produced binary needs no symbol above it.
+const GLIBC: &str = "2.17";
+
+/// The prebuilts the plugin ships: directory under `tracer-dist/bin`, and the
+/// Rust target that builds it. `None` means the host — nothing cross-compiles a
+/// macOS binary, so mac-arm64 builds natively and `build-bin` needs an
+/// Apple-silicon host.
+const PREBUILTS: &[(&str, Option<&str>)] = &[
+    ("mac-arm64", None),
+    ("linux-x86_64", Some("x86_64-unknown-linux-gnu")),
+    ("linux-arm64", Some("aarch64-unknown-linux-gnu")),
+];
 
 fn main() -> ExitCode {
     let mut args = std::env::args().skip(1);
@@ -35,12 +71,13 @@ fn main() -> ExitCode {
 
     match task.as_deref() {
         Some("sync-dist") => sync_dist(check),
+        Some("build-bin") => build_bin(check),
         Some(other) => {
-            eprintln!("xtask: unknown task `{other}` (known: sync-dist)");
+            eprintln!("xtask: unknown task `{other}` (known: sync-dist, build-bin)");
             ExitCode::from(2)
         }
         None => {
-            eprintln!("xtask: missing task (known: sync-dist [--check])");
+            eprintln!("xtask: missing task (known: sync-dist [--check], build-bin [--check])");
             ExitCode::from(2)
         }
     }
@@ -57,14 +94,20 @@ fn tracer_root() -> PathBuf {
         .to_path_buf()
 }
 
-/// The plugin payload mirror, derived from the tracer root:
-/// `<repo>/tools/tracer` -> `<repo>/packages/claude/bin/tracer-dist/crate`.
-fn mirror_dir(tracer_root: &Path) -> PathBuf {
+/// The plugin payload root, derived from the tracer root:
+/// `<repo>/tools/tracer` -> `<repo>/packages/claude/bin/tracer-dist`.
+fn dist_dir(tracer_root: &Path) -> PathBuf {
     let repo = tracer_root
         .parent() // tools/
         .and_then(|p| p.parent()) // <repo>/
         .expect("tracer root is always <repo>/tools/tracer");
-    repo.join("packages/claude/bin/tracer-dist/crate")
+    repo.join("packages/claude/bin/tracer-dist")
+}
+
+/// The build-from-source mirror inside the payload — also the source every
+/// prebuilt is compiled from, so one tree defines both fallback paths.
+fn mirror_dir(tracer_root: &Path) -> PathBuf {
+    dist_dir(tracer_root).join("crate")
 }
 
 fn sync_dist(check: bool) -> ExitCode {
@@ -108,6 +151,204 @@ fn sync_dist(check: bool) -> ExitCode {
             }
         }
     }
+}
+
+fn build_bin(check: bool) -> ExitCode {
+    let src_root = tracer_root();
+    let mirror = mirror_dir(&src_root);
+    let bin = dist_dir(&src_root).join("bin");
+
+    let stamp = match crate_stamp(&mirror) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("xtask build-bin: {e}");
+            return ExitCode::from(1);
+        }
+    };
+
+    if check {
+        let stale = stale_prebuilts(&bin, &stamp);
+        if stale.is_empty() {
+            return ExitCode::SUCCESS;
+        }
+        eprintln!("xtask build-bin: STALE — the shipped prebuilts do not match");
+        eprintln!("packages/claude/bin/tracer-dist/crate:");
+        for reason in &stale {
+            eprintln!("  {reason}");
+        }
+        eprintln!("Run: cargo xtask build-bin   (from tools/tracer)");
+        return ExitCode::from(1);
+    }
+
+    match produce(&mirror, &bin, &stamp) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("xtask build-bin: {e}");
+            ExitCode::from(1)
+        }
+    }
+}
+
+/// One line per prebuilt that is missing, plus one for a stamp that disagrees
+/// with the mirror. Empty means every shipped binary was built from the crate
+/// sitting beside it.
+fn stale_prebuilts(bin: &Path, stamp: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for (dir, _) in PREBUILTS {
+        if !bin.join(dir).join("trace").is_file() {
+            out.push(format!("{dir}/trace is missing"));
+        }
+    }
+    match fs::read_to_string(bin.join("source.sha256")) {
+        Ok(recorded) if recorded.trim() == stamp => {}
+        Ok(_) => out.push("source.sha256 records a different crate".to_string()),
+        Err(_) => out.push("source.sha256 is missing".to_string()),
+    }
+    out
+}
+
+/// Build every prebuilt, then record the crate they came from. The stamp is
+/// written last so an interrupted run leaves the previous stamp in place and
+/// the next `--check` still reports stale.
+fn produce(mirror: &Path, bin: &Path, stamp: &str) -> Result<(), String> {
+    require_cross_toolchain()?;
+    for (dir, target) in PREBUILTS {
+        let target_dir = mirror.join("target").join(format!("dist-{dir}"));
+        let produced = match target {
+            None => {
+                host_build(mirror, &target_dir)?;
+                target_dir.join("release/trace")
+            }
+            Some(t) => {
+                linux_build(mirror, &target_dir, t)?;
+                // cargo lays the output under the bare triple; the `.2.17` the
+                // build was asked for is a linker instruction, not a directory.
+                target_dir.join(t).join("release/trace")
+            }
+        };
+        let dest = bin.join(dir);
+        fs::create_dir_all(&dest).map_err(|e| format!("create {}: {e}", dest.display()))?;
+        fs::copy(&produced, dest.join("trace"))
+            .map_err(|e| format!("copy {} -> {}: {e}", produced.display(), dest.display()))?;
+        eprintln!("xtask build-bin: {dir}");
+    }
+    fs::write(bin.join("source.sha256"), format!("{stamp}\n"))
+        .map_err(|e| format!("write source.sha256: {e}"))
+}
+
+/// zig supplies the Linux linker, libc, and C compiler the eleven tree-sitter
+/// grammars need; cargo-zigbuild puts them behind a cargo subcommand. Checked
+/// before the first build so a missing toolchain costs no compile time and says
+/// what to install, the shape `trace doctor` uses for a missing binary.
+fn require_cross_toolchain() -> Result<(), String> {
+    let zig = Command::new("zig")
+        .arg("version")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_ok();
+    // Probed through cargo, not PATH: `cargo install` puts cargo-zigbuild in
+    // $CARGO_HOME/bin, which cargo searches for `cargo-*` subcommands but which
+    // is not on an interactive PATH here.
+    let zigbuild = rustup_cargo()
+        .args(["zigbuild", "--help"])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+    if zig && zigbuild {
+        return Ok(());
+    }
+    let mut missing = String::new();
+    if !zig {
+        missing.push_str("  ✗ zig\n    install: brew install zig\n");
+    }
+    if !zigbuild {
+        missing.push_str("  ✗ cargo-zigbuild\n    install: cargo install cargo-zigbuild\n");
+    }
+    Err(format!(
+        "the Linux prebuilts cross-compile with zig.\n\nMissing:\n{missing}\nThen \
+         re-run `cargo xtask build-bin`."
+    ))
+}
+
+/// mac-arm64, compiled for the host. Guarded on the host triple because this
+/// build produces a binary for whatever machine runs it, and a non-Apple-silicon
+/// host would silently ship the wrong architecture under the mac-arm64 name.
+fn host_build(mirror: &Path, target_dir: &Path) -> Result<(), String> {
+    if !(std::env::consts::OS == "macos" && std::env::consts::ARCH == "aarch64") {
+        return Err(format!(
+            "mac-arm64 needs an Apple-silicon host; this is {}-{}",
+            std::env::consts::OS,
+            std::env::consts::ARCH
+        ));
+    }
+    let status = rustup_cargo()
+        .args(["build", "--release", "--locked", "--manifest-path"])
+        .arg(mirror.join("Cargo.toml"))
+        .arg("--target-dir")
+        .arg(target_dir)
+        .status()
+        .map_err(|e| format!("run cargo build for mac-arm64: {e}"))?;
+    if !status.success() {
+        return Err("cargo build failed for mac-arm64".into());
+    }
+    Ok(())
+}
+
+/// One Linux prebuilt, cross-compiled on the host. The glibc version rides on
+/// the target triple, so the floor is chosen here rather than inherited from
+/// whatever libc the building machine happens to carry.
+fn linux_build(mirror: &Path, target_dir: &Path, target: &str) -> Result<(), String> {
+    let status = rustup_cargo()
+        .args(["zigbuild", "--release", "--locked", "--manifest-path"])
+        .arg(mirror.join("Cargo.toml"))
+        .arg("--target")
+        .arg(format!("{target}.{GLIBC}"))
+        .arg("--target-dir")
+        .arg(target_dir)
+        .status()
+        .map_err(|e| format!("run cargo zigbuild for {target}: {e}"))?;
+    if !status.success() {
+        return Err(format!("cargo zigbuild failed for {target}"));
+    }
+    Ok(())
+}
+
+/// cargo from the rustup toolchain, never whatever `cargo` PATH resolves to.
+/// The Brewfile installs both `rust` and `rustup`, and Homebrew's `rust` wins on
+/// PATH while shipping only the host target — a plain `cargo zigbuild` fails
+/// with `can't find crate for core`. Going through `rustup run` picks the
+/// toolchain that holds the Linux targets whatever the caller's PATH looks like,
+/// and builds all three prebuilts with one compiler.
+fn rustup_cargo() -> Command {
+    let mut cmd = Command::new("rustup");
+    cmd.args(["run", "stable", "cargo"]);
+    cmd
+}
+
+/// sha256 over the mirror crate: for every file in sorted relative-path order,
+/// the path bytes, a zero byte, the file bytes, a zero byte. `target/` is
+/// excluded — it is build output, not input. `scripts/tracer.py` recomputes
+/// this exact rule, so the pre-commit path checks the stamp with no cargo, no
+/// Rust toolchain, and no network round trip.
+fn crate_stamp(mirror: &Path) -> Result<String, String> {
+    let mut rels = vec!["Cargo.lock".to_string(), "Cargo.toml".to_string()];
+    for rel in list_files(&mirror.join("src"))? {
+        rels.push(format!("src/{}", rel.display()));
+    }
+    rels.sort();
+
+    let mut hasher = Sha256::new();
+    for rel in &rels {
+        let bytes = fs::read(mirror.join(rel)).map_err(|e| format!("read {rel}: {e}"))?;
+        hasher.update(rel.as_bytes());
+        hasher.update([0u8]);
+        hasher.update(&bytes);
+        hasher.update([0u8]);
+    }
+    Ok(format!("{:x}", hasher.finalize()))
 }
 
 /// The tracer manifest with its `[workspace]` table removed. The mirror is

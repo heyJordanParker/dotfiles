@@ -1979,3 +1979,48 @@ fn shallow_clone_graft_commit_leaves_no_history() {
         "a graft commit must attribute no owner: {shoulder:?}"
     );
 }
+
+#[test]
+fn structure_reports_a_failing_ctags_instead_of_thinning_its_answer() {
+    // `structure` takes its symbols from universal-ctags and backfills from the
+    // tree-sitter cache when ctags returns none, which is what keeps .tsx
+    // useful. A ctags that runs and fails lands on that same empty-symbol path,
+    // so the command used to exit 0 with a thinner answer and nothing saying
+    // the tool had failed. That is not hypothetical: on linux-x86_64 an absent
+    // ctags reaches it, because a missing binary does not surface as a spawn
+    // error there the way it does on mac-arm64 and linux-arm64.
+    let f = Fixture::new();
+    f.write("m.py", "def alpha():\n    return 1\n");
+    f.commit("python file");
+
+    let shim_dir = f.root.join("shim");
+    std::fs::create_dir_all(&shim_dir).unwrap();
+    let shim = shim_dir.join("ctags");
+    std::fs::write(&shim, "#!/bin/sh\necho 'ctags: boom' >&2\nexit 1\n").unwrap();
+    std::fs::set_permissions(
+        &shim,
+        <std::fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(0o755),
+    )
+    .unwrap();
+
+    // Prepended to the inherited PATH, never a fixed list: the harness resolves
+    // `trace` on PATH too, and a hand-written list drops wherever it lives —
+    // on macOS that silently runs Apple's own /usr/bin/trace instead.
+    let path = format!(
+        "{}:{}",
+        shim_dir.display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+    let r = f.trace_env(&["structure", "m.py", "--json"], &[("PATH", &path)]);
+    assert_ne!(
+        r.code,
+        0,
+        "a ctags that fails must not pass for a thin answer: {}",
+        r.combined()
+    );
+    assert!(
+        r.combined().contains("ctags failed"),
+        "the failure must name ctags: {}",
+        r.combined()
+    );
+}

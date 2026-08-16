@@ -6,8 +6,8 @@
 # so a single committed file cannot serve every platform. This launcher
 # resolves the right binary for the host:
 #
-#   1. uname -sm matches a committed prebuilt (mac-arm64 / linux-x86_64)
-#      -> exec it.
+#   1. uname -sm matches a committed prebuilt (mac-arm64 / linux-x86_64 /
+#      linux-arm64) -> exec it.
 #   2. A previously locally-built binary is cached in the plugin dir
 #      -> exec it.
 #   3. cargo is available -> build --release from the crate source shipped
@@ -27,6 +27,7 @@ CACHE="$DIST/built"
 case "$(uname -sm)" in
     'Darwin arm64')  PREBUILT="$DIST/bin/mac-arm64/trace" ;;
     'Linux x86_64')  PREBUILT="$DIST/bin/linux-x86_64/trace" ;;
+    'Linux aarch64') PREBUILT="$DIST/bin/linux-arm64/trace" ;;
     *)               PREBUILT='' ;;
 esac
 

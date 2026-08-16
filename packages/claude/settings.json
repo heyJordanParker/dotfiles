@@ -46,7 +46,7 @@
     ],
     "defaultMode": "bypassPermissions"
   },
-  "model": "opus",
+  "model": "fable",
   "hooks": {
     "Notification": [
       {

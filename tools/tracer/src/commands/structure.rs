@@ -68,6 +68,20 @@ fn ctags_symbols(path: &Path) -> Result<Vec<Symbol>> {
             anyhow::bail!("ctags failed: {e}");
         }
     };
+    // A non-zero exit is checked, not just a failed spawn. On linux-x86_64 a
+    // missing `ctags` does not surface as a spawn error, so an absent
+    // universal-ctags produced empty stdout, zero symbols, and a silent
+    // fall-through to the tree-sitter backfill below — a thinner answer with
+    // nothing saying the tool never ran. linux-arm64 and mac-arm64 bail on the
+    // same input. Reading the status makes every platform report it.
+    if !out.status.success() {
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        let detail = stderr.trim();
+        if detail.is_empty() {
+            anyhow::bail!("ctags failed: {}", out.status);
+        }
+        anyhow::bail!("ctags failed: {} ({detail})", out.status);
+    }
 
     let mut symbols = Vec::new();
     for line in String::from_utf8_lossy(&out.stdout).lines() {

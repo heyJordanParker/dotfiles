@@ -26,7 +26,7 @@
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
 use std::fs;
@@ -665,17 +665,6 @@ pub fn events() -> Vec<Value> {
         .filter(|l| !l.trim().is_empty())
         .filter_map(|l| serde_json::from_str::<Value>(l).ok())
         .collect()
-}
-
-/// The materialized view as a JSON value — exposed for tests and future
-/// query callers that want the projection directly. Reads from the active
-/// log when present, else falls back to the archived one.
-pub fn view() -> Value {
-    let Some(dir) = read_log_dir() else {
-        return json!({"emitted": {}});
-    };
-    let path = dir.join("view.json");
-    serde_json::to_value(load_view(&path)).unwrap_or_else(|_| json!({"emitted": {}}))
 }
 
 /// One entry in the session's current "what the agent has" manifest.

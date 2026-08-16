@@ -32,4 +32,11 @@ Local code-intelligence command-line interface for Agents working in a repositor
 - `packages/claude/bin/trace` is the plugin-distributed launcher.
 - `packages/claude/bin/tracer-dist/crate/` is the plugin build-from-source fallback mirror.
 - `cargo xtask sync-dist` regenerates the plugin fallback mirror.
+- `cargo xtask build-bin` builds every prebuilt the plugin ships from that mirror.
+- The shipped prebuilts are `mac-arm64`, `linux-x86_64`, and `linux-arm64`.
+- The Linux prebuilts cross-compile on the host through `cargo-zigbuild`.
+- The Linux prebuilts pin their glibc floor at 2.17 through the target triple.
+- `build-bin` runs every compile through `rustup run stable cargo`.
+- `packages/claude/bin/tracer-dist/bin/source.sha256` records the crate the prebuilts were built from.
+- `scripts/sync.py` rebuilds a mirror or prebuilt that has fallen behind the tracer source.
 - `tools/tracer/tests` contains the black-box command-line test suite.

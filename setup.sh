@@ -52,8 +52,15 @@ fi
 (cd "$DOTFILES_DIR/tools/tracer" && cargo build --release)
 mkdir -p "$HOME/.local/bin"
 install -m 755 "$DOTFILES_DIR/tools/tracer/target/release/trace" "$HOME/.local/bin/trace"
-echo "==> Regenerating tracer plugin crate mirror..."
+# The plugin ships prebuilts for Linux too, cross-compiled here by cargo-zigbuild
+# (zig comes from the Brewfile). rustup owns the toolchain that carries the Linux
+# targets; Homebrew's rust ships only the host one and wins on an interactive PATH.
+echo "==> Installing the tracer linux cross toolchain..."
+rustup target add x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu >/dev/null
+cargo install cargo-zigbuild --locked >/dev/null
+echo "==> Regenerating the tracer plugin payload..."
 (cd "$DOTFILES_DIR/tools/tracer" && cargo xtask sync-dist)
+(cd "$DOTFILES_DIR/tools/tracer" && cargo xtask build-bin)
 
 echo "==> Installing prompt-reviewer (local prompt-review CLI)..."
 # Compiles llama.cpp in-process (needs cmake, from the Brewfile). The model

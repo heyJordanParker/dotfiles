@@ -8,3 +8,6 @@ description = "Workspace automation for the tracer crate (cargo xtask)"
 [[bin]]
 name = "xtask"
 path = "src/main.rs"
+
+[dependencies]
+sha2 = "0.10"
