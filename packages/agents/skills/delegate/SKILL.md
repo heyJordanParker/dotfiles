@@ -79,7 +79,7 @@ Template:
   Verification:
   <observable criteria>
   <the name of the test that reproduces this change, or the behavior it must show>
-  <the consumers the change reaches and the expected effect on each>
+  <each consumer the change reaches, what it does today, and the expected effect>
 
   Architecture:
   <one-paragraph orientation>
@@ -90,8 +90,8 @@ Template:
   2. One file at a time — read it, then edit it. No bulk-rewrite scripts, no shortcuts,
      and no git reset, git restore, or git checkout -- to undo your own work
   3. Implement against the Goal
-  4. Use /prove for every Verification item, writing report.md to the Evidence directory
-     the dispatch named. A failing item is fixed and re-proved, never reported as progress
+  4. Use /prove before you report done, writing report.md to the Evidence directory the
+     dispatch named. A failing item is fixed and re-proved, never reported as progress
 
 ## 4. Dispatch independent Subagents at once
 
@@ -145,8 +145,10 @@ IF the Decision a dispatch rests on is still open with the Architect:
 ### Hold the dispatch until the Decision closes
 Dispatching mid-interrogation executes an unapproved change. The Architect is still questioning the Decision, so no Subagent starts on it until he closes it.
 
-### Judge the Evidence yourself
-Read the report.md against the dispatch's Verification criteria and open its screenshots.
+### Judge the Evidence against the code, never the report against itself
+report.md is the Subagent's account of the diff, and every way it can be wrong reads
+the same on the page. Open the diff and the files it names, then read the report
+against them and open its screenshots.
 Thin Evidence and a screenshot that does not show what the report claims go back to the same
 Subagent, naming the failed item. For a reported symptom, Evidence must show the symptom's
 own surface, the reporter's page and not a stand-in fixture. /orchestrate's "Measure again"

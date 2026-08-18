@@ -1,8 +1,8 @@
 ---
 name: frontend-engineer
 description: |
-  Frontend execution agent for implementation and UX verification. Dispatched by /review for
-  user flow testing, or standalone for frontend feature work. Focuses on UX correctness,
+  Frontend execution agent for implementation and UX verification. Dispatched for frontend
+  feature work, or to test user flows across a changeset. Focuses on UX correctness,
   user flow tracing, design quality, and regression prevention. Reads Claude.md files for
   stack-specific patterns.
 color: yellow

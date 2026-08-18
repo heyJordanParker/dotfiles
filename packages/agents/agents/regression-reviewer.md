@@ -2,7 +2,7 @@
 name: regression-reviewer
 description: |
   Use for capability-regression detection — scanning diffs for loss of user-facing
-  or system-level capability. Dispatched by /review or standalone. Maps the diff
+  or system-level capability. Maps the diff
   to affected capabilities and traces each through the code. Reports findings only.
 color: yellow
 model: opus

@@ -30,7 +30,7 @@ Launch all five reviewer Subagents through the Agent tool with the Prompts from 
 
 ## 4. Aggregate the findings and apply the gate
 
-Use /review for the aggregation Template and the gate. Title the report `# Plan Review` and prefix each issue with the Subagent name that found it.
+Use /triage for the aggregation Template and the gate. Title the report `# Plan Review` and prefix each issue with the Subagent name that found it.
 
 ### Block until the artifacts are revised
 Critical here blocks the artifact, not a commit: the Shaping, Modeling, Slicing, or Plan Prompt is revised before Execution starts.

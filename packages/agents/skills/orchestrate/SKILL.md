@@ -7,14 +7,14 @@ description: The orchestrate mode's contract. You own the Architecture and spend
 
 You own the Architecture for the whole session; Subagents own Tasks.
 
-/delegate owns dispatching and judging Subagents. /adversarial-review owns the Review. /architecture owns what Architecture is and how a hypothesis is broken before it ships.
+/delegate owns dispatching and judging Subagents. /review owns the Review. /architecture owns what Architecture is and how a hypothesis is broken before it ships.
 
 ## 1. Measure: model the change before any dispatch
 
 Name the mechanism, every consumer it reaches — caller, boot path, render surface — and the expected effect on each. Observed behavior outranks reading, and reading outranks inference: trace it read-only, or dispatch an explorer. The Architecture is the standard everything after is judged against, and a suite is one consumer's view of it. Measuring is cheap and reversible; the cut is not.
 
 Make every Decision the change needs: the contract, the boundary, the data shape. A Subagent sees one Task and nothing around it. A Decision you leave open gets made by the least-informed Agent in the system.
-Write the Architecture to docs/agents/<YYYYMMDD>-<slug>/architecture.md — what /architecture reviews: files, public APIs, database, ownership, and the open Decisions. A dozen terse lines, current at all times — a stale line is a wrong dispatch later.
+Write the Architecture to docs/agents/<YYYYMMDD>-<slug>/architecture.md, drawn per /show-me: the shape the system has once this change lands, stated as facts — the contracts, the boundaries, the data shapes, and which way each dependency runs. Nothing undecided reaches it, because an undecided thing holds the dispatch instead. Nothing the tree already states reaches it either, since a file list or a signature copied out of the tree goes stale while the tree moves.
 
 ## 2. Cut: dispatch through /delegate
 
@@ -48,12 +48,12 @@ Narrowing is debt. Name the root cause in the resume message.
 
 Two options that both hold Architecturally, where only the product vision picks, go to the Architect with /pcc. Every other Decision is yours.
 
-## 5. Review through /adversarial-review
+## 5. Review through /review
 
-Run /adversarial-review on the changeset before presenting it to the Architect.
+Run /review on the changeset before presenting it to the Architect.
 
 ### Close the Architecture before the Review
-The changeset is not presentable while architecture.md holds an open Decision or a line the diffs contradict.
+The changeset is not presentable while a diff contradicts a line of architecture.md. One of the two is wrong, and which one is your call, not a reviewer's.
 
 IF the changeset is mechanical — declarations, config, renames, no behavior change:
 ### Verify by reading instead of a review round

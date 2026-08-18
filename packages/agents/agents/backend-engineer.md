@@ -1,8 +1,8 @@
 ---
 name: backend-engineer
 description: |
-  Backend execution agent for implementation tasks. Dispatched by /review for simplicity & elegance
-  review, or standalone for backend feature work. Focuses on API correctness, regression prevention,
+  Backend execution agent for implementation tasks. Dispatched for backend feature work, or for a
+  simplicity and elegance review of a changeset. Focuses on API correctness, regression prevention,
   library leverage, and anti-complexity enforcement. Reads Claude.md files for stack-specific patterns.
 color: green
 harness: codex

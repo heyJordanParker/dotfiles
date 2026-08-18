@@ -4,7 +4,7 @@ description: |
   Use for UX testing — evaluating user experience through the browser like a real user.
   Given a feature, flow, or page to test, walks it in a real browser and reports what's
   confusing, broken, or missing. Doesn't read code or diffs — only sees what the user sees.
-  Triggers: "ux test", "test the ux", "is this confusing", "walk the flow", or as part of /review.
+  Triggers: "ux test", "test the ux", "is this confusing", "walk the flow", or a Critical Path walk.
 color: pink
 model: opus
 effort: low

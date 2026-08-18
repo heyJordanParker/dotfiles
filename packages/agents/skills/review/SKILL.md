@@ -1,87 +1,48 @@
 ---
 name: review
-description: Run the full code review gate on uncommitted changes by dispatching the reviewer Subagents in parallel, then triaging the returned findings with /triage. TRIGGER on "/review", "code review", "review the changes", or before commit when the Architect asks for review.
+description: Review a changeset with one Claude reviewer and one codex reviewer on the same target at once, merge their findings yourself, and iterate until a round returns no breaking finding. TRIGGER on "review the changes", "code review", on the Review before a changeset is presented to the Architect, and when a /orchestrate or /verify-changes step names it. DO NOT TRIGGER for N identical reviewers on one Task (that is /independent-review).
 ---
 
 # Review
 
-- Full code Review gate for uncommitted changes.
-- The gate runs eight reviewer Subagents in parallel through the Agent tool, not the Task tool.
+- Two Harnesses read the same changeset, so a blind spot in one is caught by the other.
+- /delegate owns the dispatch Prompt and the Evidence bar.
 
-## 1. Capture the current changes
+## 1. Dispatch both reviewers on one target
 
-Current Changes:
+Send one Claude Subagent per /delegate and one codex Subagent per /codex, in the same message, both given the same target and the same Verification.
 
-!`git changes`
+### Give both reviewers the identical target
+Same diff, same surrounding code, same Prompt. A difference in scope makes the two returns incomparable.
 
-Full Diff:
+### Require a cause, never a symptom
+The dispatch tells each reviewer to run /5-whys on every finding before reporting it, and to report the cause its chain reached. A reviewer that reports what it saw sends you one round per symptom of the same cause.
 
-!`git diff HEAD`
+## 2. Merge the findings yourself
 
-### Paste the captured diff into code-reading Subagent Prompts
+### Never forward a reviewer's words onward
+The reviewers report to you. You verify each finding against the code and write the merged result in your own voice.
+Never: pasting a reviewer's report to the Architect or into the next dispatch.
 
-Use the Current Changes and Full Diff blocks above instead of telling Subagents to run `git diff HEAD`.
+### Classify each finding as breaking or not
+A breaking finding is one that loses a capability, breaks the Critical Path, or contradicts the Architecture. Everything else is recorded, not fixed.
 
-## 2. Dispatch the six diff reviewers
+## 3. Route each breaking finding
 
-Dispatch these six Subagents in parallel. Each Prompt includes the Current Changes and Full Diff blocks from step 1.
+### Run /5-whys before you route
+Route the cause the chain reaches, never the finding as it arrived. A fix dispatched at a symptom returns the same cause as a new finding next round.
 
-The naming Subagent is the one dispatch that carries no `subagent_type`.
+IF the fix leaves the Architecture unchanged:
+### Dispatch it back to the owning Subagent
+The Subagent that wrote the surface fixes it.
 
-Template:
-    @code-reviewer Prompt:
-    Review uncommitted changes. Review the diff provided and scan all 12 AI Slop categories. Report each finding as one line naming who it affects (the User, the Architecture, or the business) and what breaks for them — graded Blocking, Important, or Polish. If clean: "No AI Slop found."
+IF the fix needs an Architectural change:
+### Take it to the Architect with /pcc
+The Architect owns the Architecture, so the Review stops at the Decision instead of making it.
 
-Template:
-    @architect Prompt:
-    Review uncommitted changes. Review the diff provided and apply your full review protocol. Report each finding as one line naming who it affects (the User, the Architecture, or the business) and what breaks for them — graded Blocking, Important, or Polish.
+## 4. Re-run both reviewers on the fixed changeset
 
-Template:
-    general-purpose naming Prompt:
-    Apply the /naming Skill. Review uncommitted changes. Review the diff provided and check all changed identifiers for naming issues. Report each finding as one line naming who it affects (the User, the Architecture, or the business) and what breaks for them — graded Blocking, Important, or Polish. If clean: "No naming issues found."
+Repeat steps 1 through 3 on the updated changeset.
 
-Template:
-    @backend-engineer Prompt:
-    Review uncommitted changes. Review the diff provided and apply your review-mode protocol: reinvented wheels, library leverage, unnecessary complexity, approach quality, and public contract regressions. Report each finding as one line naming who it affects (the User, the Architecture, or the business) and what breaks for them — graded Blocking, Important, or Polish. If clean: "Code is appropriately simple."
-
-Template:
-    @frontend-engineer Prompt:
-    Review uncommitted changes. Review the diff provided and apply your Critical Path protocol. Identify affected Critical Path, trace each through the code, and report gaps. Report each finding as one line naming who it affects (the User, the Architecture, or the business) and what breaks for them — graded Blocking, Important, or Polish. If clean: "All Critical Path verified."
-
-Template:
-    @regression-reviewer Prompt:
-    Review uncommitted changes for capability regressions. Map the diff to affected Critical Path and system capabilities. Trace each end-to-end. Flag any capability that is lost or degraded. Report each finding as one line naming who it affects (the User, the Architecture, or the business) and what breaks for them — graded Blocking, Important, or Polish. If clean: "No capability regressions found."
-
-## 3. Dispatch the documentation reviewer
-
-Dispatch @context-engineer with the Current Changes and Full Diff blocks from step 1.
-
-Template:
-    @context-engineer Prompt:
-    Audit Claude.md files against the current uncommitted changes. Report each finding
-    as one line naming who it affects (the User, the Architecture, or the business) and
-    what breaks for them — graded Blocking, Important, or Polish.
-    Blocking: Architectural change with no Claude.md, or Claude.md Rules contradicted by changes.
-    Important: missing WHY for a significant Decision, stale Rule, or wrong hierarchy placement.
-    Polish: Template compliance gaps, Fluff, or pruning opportunities.
-    If clean: "Documentation is up to date."
-    Do not make changes. Report findings only.
-
-## 4. Dispatch the User experience reviewer when it can test a Critical Path
-
-IF no development server is running, changes are backend-only with no User Interface impact, or affected routes cannot be determined from the diff:
-### Skip the @ux-tester Subagent
-
-Do not dispatch a User experience reviewer when there is no reachable Critical Path to test.
-
-When the Condition does not apply, dispatch @ux-tester without the diff. Translate the diff into features and Critical Path, with URLs or routes when identifiable.
-
-Template:
-    @ux-tester Prompt:
-    Do a complete User experience Review of the following features and Critical Path affected by the current changes: [list features and Critical Path derived from the diff, with URLs or routes if identifiable].
-    Report each finding as one line naming what breaks for the User — graded Blocking, Important, or Polish.
-    If clean: "User experience is clean."
-
-## 5. Triage the returned findings
-
-Triage every returned report with /triage: the one-line finding shape, duplicate merge, the severity grades, the gate, and the report shape all live there.
+### Stop only on a clean round
+The Review ends when one full round from both reviewers returns no breaking finding. A round that fixed something is never the last round.

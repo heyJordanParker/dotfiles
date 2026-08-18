@@ -2,7 +2,7 @@
 name: code-reviewer
 description: |
   Use for code quality review — scanning diffs for slop patterns, defensive bloat, silent failures,
-  dead code, and other anti-patterns. Dispatched by /review or standalone for quality gates.
+  dead code, and other anti-patterns. Dispatched for a quality gate on a changeset.
   Does NOT cover architecture (architect agent), naming (the /naming Skill), or stack-specific patterns.
 color: red
 model: opus
