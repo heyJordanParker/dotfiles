@@ -16,7 +16,7 @@ Template:
   trace context
   trace context <path> [--offset N] [--limit N] [--no-record]
   trace context prime --reason session_start|post_compact [--observed-from PATH|-]
-  trace list <dir> [--all]
+  trace list <dir> [--all] [--recent] [--limit N]
   trace tree <path> [--depth N]
   trace info <path> [--brief]
   trace structure <file>
@@ -142,7 +142,7 @@ The first line carries lifecycle and complexity; the second line carries docs Co
 
 Template:
   ```text
-  [git: <state> · age: <age> · presence: <branches|local-only> · callers: N · dependents: N · ccn: <total> <rank> · owner: <name> · last: <subject>]
+  [git: <state> · age: <age> · presence: <branches|local-only> · churn: N commits, N/30d · callers: N · dependents: N · loc: N · ccn: <total> <rank> · together: <files> · owner: <name> · last: <subject>]
   [docs: M/N in Context · not loaded: <path>, <path>]
   ```
 

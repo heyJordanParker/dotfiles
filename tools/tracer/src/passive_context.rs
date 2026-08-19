@@ -8,10 +8,11 @@
 //! from the SAME builder — never a parallel hand-written format. The shoulder
 //! carries the complete repo-state picture: lifecycle, both ages
 //! (created → modified), churn (total + 30-day velocity), changed-together,
-//! deploy-branch presence, complexity, owner, last subject, and (when the
-//! caller supplies the graph counts) callers + dependents.
+//! deploy-branch presence, size (loc), complexity, owner, last subject, and
+//! (when the caller supplies the graph counts) callers + dependents.
 
 use crate::file_facts::FileFacts;
+use crate::git_activity::GitActivity;
 use serde_json::Value;
 use std::path::Path;
 
@@ -44,10 +45,11 @@ fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
 
 /// A single date string bucketed to an age token (today/Nd/Nw/Nmo/NyNmo).
 fn age_token(date: &str) -> Option<String> {
-    let days = days_since(date)?;
-    if days < 0 {
-        return None;
-    }
+    // Git dates carry the committer's local day while `days_since` counts
+    // UTC days, so a commit made after local midnight but before UTC
+    // midnight sits up to one day "in the future". Any such skew means the
+    // date is current: clamp to today instead of dropping the field.
+    let days = days_since(date)?.max(0);
     Some(if days == 0 {
         "today".to_string()
     } else if days == 1 {
@@ -73,40 +75,56 @@ fn age_token(date: &str) -> Option<String> {
 /// Collapses to a single token when the file was first seen and last touched
 /// in the same age bucket (or when `first_seen` is unknown), so a brand-new
 /// file reads `today` rather than `today→today`.
-fn age(facts: &FileFacts) -> Option<String> {
-    let modified = facts.last_modified.as_ref().and_then(|m| age_token(m))?;
-    match facts.first_seen.as_ref().and_then(|c| age_token(c)) {
+fn age_range(first_seen: Option<&String>, last_modified: Option<&String>) -> Option<String> {
+    let modified = last_modified.and_then(|m| age_token(m))?;
+    match first_seen.and_then(|c| age_token(c)) {
         Some(created) if created != modified => Some(format!("{created}\u{2192}{modified}")),
         _ => Some(modified),
     }
 }
 
+fn age(facts: &FileFacts) -> Option<String> {
+    age_range(facts.first_seen.as_ref(), facts.last_modified.as_ref())
+}
+
 /// Lifecycle label: working-tree state if dirty, else commit-count /
-/// rename-derived history state.
-fn state_label(facts: &FileFacts) -> String {
-    match facts.working_state.as_deref() {
+/// rename-derived history state. One vocabulary for every renderer.
+fn lifecycle_label(
+    working_state: Option<&str>,
+    commit_count: i64,
+    rename_from: Option<&String>,
+) -> String {
+    match working_state {
         Some("untracked") => return "untracked".into(),
         Some("added") => return "added (uncommitted)".into(),
         Some("renamed") => return "renamed (uncommitted)".into(),
         Some("modified") => {
-            return if facts.commit_count <= 1 {
+            return if commit_count <= 1 {
                 "modified (new file)".into()
             } else {
-                format!("modified ({} commits)", facts.commit_count)
+                format!("modified ({commit_count} commits)")
             };
         }
         _ => {}
     }
-    if let Some(rf) = &facts.rename_from {
+    if let Some(rf) = rename_from {
         return format!("renamed-from {rf}");
     }
-    if facts.commit_count == 0 {
+    if commit_count == 0 {
         "no-history".into()
-    } else if facts.commit_count == 1 {
+    } else if commit_count == 1 {
         "new (1 commit)".into()
     } else {
-        format!("{} commits", facts.commit_count)
+        format!("{commit_count} commits")
     }
+}
+
+fn state_label(facts: &FileFacts) -> String {
+    lifecycle_label(
+        facts.working_state.as_deref(),
+        facts.commit_count,
+        facts.rename_from.as_ref(),
+    )
 }
 
 /// Clip a commit subject to `max_chars`, appending an ellipsis when cut.
@@ -163,6 +181,7 @@ fn parts(facts: &FileFacts, graph: Option<&Value>, dense: bool) -> Vec<String> {
     }
     if dense {
         parts.push(churn(facts));
+        parts.push(format!("loc: {}", facts.loc));
         parts.push(format!(
             "ccn: {} {}",
             facts.cyclomatic_complexity_total, facts.rank
@@ -183,6 +202,7 @@ fn parts(facts: &FileFacts, graph: Option<&Value>, dense: bool) -> Vec<String> {
             .unwrap_or(0);
         parts.push(format!("callers: {callers} · dependents: {dep}"));
     }
+    parts.push(format!("loc: {}", facts.loc));
     parts.push(format!(
         "ccn: {} {}",
         facts.cyclomatic_complexity_total, facts.rank
@@ -211,4 +231,28 @@ pub fn render(facts: &FileFacts, graph: Option<&Value>) -> String {
 /// is one line among many. Bracketed identically so the two read alike.
 pub fn render_compact(facts: &FileFacts) -> String {
     format!("[{}]", parts(facts, None, true).join(" · "))
+}
+
+/// The git-history column group alone — state, age, 30-day velocity, owner —
+/// for renderers that group columns by source (`trace list`'s table) instead
+/// of joining every source into one shoulder. Reads the bulk `GitActivity`
+/// directly so the group needs no per-file extraction. None when git holds
+/// nothing for the file: no history and no working-tree state.
+pub fn git_group(a: &GitActivity) -> Option<String> {
+    if a.commit_count == 0 && a.working_state.is_none() {
+        return None;
+    }
+    let mut parts = vec![lifecycle_label(
+        a.working_state.as_deref(),
+        a.commit_count,
+        a.rename_from.as_ref(),
+    )];
+    if let Some(age) = age_range(a.first_seen.as_ref(), a.last_modified.as_ref()) {
+        parts.push(age);
+    }
+    parts.push(format!("{}/30d", a.commits_30d));
+    if let Some(owner) = &a.top_author {
+        parts.push(owner.clone());
+    }
+    Some(parts.join(" \u{00b7} "))
 }

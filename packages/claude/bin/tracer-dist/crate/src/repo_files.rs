@@ -81,6 +81,54 @@ pub fn tracked_paths(repo_root: &Path, base: Option<&Path>) -> Option<Vec<PathBu
         .map(|rels| rels.into_iter().map(|r| repo_root.join(r)).collect())
 }
 
+/// Nested git checkouts strictly under `base` — directories carrying their
+/// own `.git` entry (a directory for a checkout, a file for a linked
+/// worktree). Each is its own scope: `tracked_files` never crosses into one
+/// and `walk_files` prunes them, so a search that came up empty names them
+/// instead of silently skipping a vendored repository. Only the outermost
+/// nested root is reported; repos inside a reported repo belong to its scope.
+pub fn nested_repos(base: &Path) -> Vec<PathBuf> {
+    let skip = skip_dirs();
+    let mut found: Vec<PathBuf> = Vec::new();
+    let walker = walkdir::WalkDir::new(base).into_iter().filter_entry(|e| {
+        if !e.file_type().is_dir() {
+            return false;
+        }
+        if e.depth() == 0 {
+            return true;
+        }
+        let name = e.file_name().to_string_lossy();
+        !skip.contains(name.as_ref()) && !name.starts_with('.')
+    });
+    for entry in walker.flatten() {
+        if entry.depth() > 0 && entry.path().join(".git").exists() {
+            found.push(entry.path().to_path_buf());
+        }
+    }
+    found.sort();
+    let mut outermost: Vec<PathBuf> = Vec::new();
+    for p in found {
+        if !outermost.iter().any(|kept| p.starts_with(kept)) {
+            outermost.push(p);
+        }
+    }
+    outermost
+}
+
+/// `nested_repos` as base-relative strings — the shape the search commands
+/// report on an empty result.
+pub fn nested_repo_rels(base: &Path) -> Vec<String> {
+    nested_repos(base)
+        .iter()
+        .map(|p| {
+            p.strip_prefix(base)
+                .unwrap_or(p)
+                .to_string_lossy()
+                .to_string()
+        })
+        .collect()
+}
+
 /// Filesystem walk under `base`, pruning SKIP_DIRS and hidden dirs/files.
 pub fn walk_files(base: &Path) -> Vec<PathBuf> {
     let skip = skip_dirs();

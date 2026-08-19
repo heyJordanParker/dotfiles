@@ -15,8 +15,13 @@ description: Code intelligence for the local codebase — search, callers, defin
 Use `trace <cmd> --json --filter '<jq expr>'` when you need partial output. The filter requires `--json`.
 Never: pipe `trace` into `grep`, `rg`, `head`, `tail`, `sed`, `awk`, `cut`, `sort`, `uniq`, `wc`, `jq`, or redirect it into a repository file.
 
-### Do not use raw file-search commands on repository paths
-Use the matching `trace` subcommand instead. `guard_trace.py` blocks raw `cat`, `grep`, `rg`, `find`, `sed`, `awk`, `head`, and `tail` against in-repo paths.
+### Do not use raw file-search or listing commands on repository paths
+Use the matching `trace` subcommand instead. `guard_trace.py` blocks raw `cat`, `grep`, `rg`, `find`, `sed`, `awk`, `head`, and `tail` against in-repo paths, and blocks `ls` and `tree` reaching the repo.
+Example: `trace list src/` replaces `ls src/`; `trace tree src/` replaces `tree src/`.
+
+### Find the newest artifact with `trace list --recent`
+`trace list` lists the filesystem, so gitignored artifact directories (test runs, logs, builds) list too. `--recent` orders newest-first by mtime, `--limit N` caps the rows, and `entries=N` always carries the full count.
+Example: `trace list tests/.runs --recent --limit 5` replaces `ls -t tests/.runs | head -5`.
 
 IF a trace command reports missing dependencies:
 ### Run `trace doctor`
@@ -60,6 +65,11 @@ Template:
   trace glob <pattern> [base]
   ```
 
+IF a search result names a `nested repository (its own search scope)`:
+### Re-run the search with the base inside the nested repository
+A vendored checkout carries its own `.git`, and enumeration never crosses into it from above.
+Example: `trace find "*.min.js" public/content/themes` returns no matches and names `bricks`; `trace find "*.min.js" public/content/themes/bricks` returns 128.
+
 ### Use state commands for change review
 Use `trace diff`, `trace status`, `trace history`, and `trace blame` to understand change scope, file history, and ownership.
 
@@ -87,6 +97,10 @@ Template:
   trace read <file> --docs
   ```
 
+### Scope the read by the `loc:` field before reading a whole file
+Every listing row, search match, and shoulder carries `loc:`. Past 500 loc, a whole-file read overflows into a spill file that costs more calls than the read saved. Run `trace info <file>` for the function table with line spans, then read with `--method <name>` or `--lines L1:L2`.
+Never: `trace read <file>` with no scope on a file past 500 loc.
+
 ### Calibrate read depth by complexity
 Use `trace survey` to find the complexity distribution. Full-read files past the repository p95. Skim uniformly-low files only when the task does not need every line.
 
@@ -106,7 +120,7 @@ Template:
 
 ## 5. Treat passive Context as a hypothesis
 
-`trace read`, `trace info`, `trace tree`, `trace list`, and the Read Hook attach a shoulder with git state, age, branch presence, callers, dependents, complexity, owner, and last commit.
+`trace read`, `trace info`, `trace tree`, `trace list`, and the Read Hook attach a shoulder with git state, age, branch presence, callers, dependents, size (`loc:`), complexity, owner, and last commit.
 
 ### Validate lifecycle labels before acting
 New, untracked, or added files likely have no callers. Renamed files continue old code. Recent files with few commits may still be moving. Old files with many commits are settled Precedents. `local-only` is not deployed; `main` or `production` means capability regression matters.

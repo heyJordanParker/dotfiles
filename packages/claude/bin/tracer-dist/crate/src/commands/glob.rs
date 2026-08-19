@@ -186,12 +186,27 @@ pub fn run(pattern: &str, base: &str, details: bool, as_json: bool) -> Result<Va
         })
     };
 
+    // An empty result over a base that contains nested checkouts is a scope
+    // fact, not an absence fact — name them so the next call is scoped inside.
+    let mut value = value;
+    let nested = if matches.is_empty() {
+        crate::repo_files::nested_repo_rels(&base_abs)
+    } else {
+        Vec::new()
+    };
+    if !nested.is_empty() {
+        value["nested_repos"] = json!(nested);
+    }
+
     if as_json {
         return Ok(value);
     }
 
     if matches.is_empty() {
         println!("(no matches)");
+        for r in &nested {
+            println!("nested repository (its own search scope): {r}");
+        }
         return Ok(value);
     }
 

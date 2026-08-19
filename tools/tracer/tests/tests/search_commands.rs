@@ -500,3 +500,143 @@ fn glob_results_are_deterministically_sorted() {
     b.ok();
     assert_eq!(a.stdout, b.stdout, "glob output is not deterministic");
 }
+
+/// A snippet stays a snippet on a minified single-line file: past the cap
+/// the rendered match is a character window around the submatch offset
+/// `rg --json` reports, ellipsized on the cut side(s) — never the whole
+/// line. Guards the 27KB-per-match failure on vendored bundles.
+#[test]
+fn grep_snippet_windows_long_minified_line() {
+    let f = Fixture::new();
+    let line = format!("{}needle_token_here{}", "x".repeat(3000), "y".repeat(3000));
+    f.write("bundle.js", &format!("{line}\n"));
+    f.commit("minified bundle");
+    let r = f.trace(&["grep", "needle_token_here", "--path", ".", "--json"]);
+    r.ok();
+    let v = r.json();
+    assert_eq!(v["match_count"].as_i64().unwrap(), 1, "{v}");
+    let snippet = v["matches"][0]["snippet"].as_str().unwrap();
+    assert!(
+        snippet.contains("needle_token_here"),
+        "window must contain the match: {snippet}"
+    );
+    // 240-char window plus one ellipsis per cut side.
+    assert_eq!(
+        snippet.chars().count(),
+        242,
+        "mid-line match is the full window with both ellipses: {snippet}"
+    );
+    assert!(
+        snippet.starts_with('\u{2026}') && snippet.ends_with('\u{2026}'),
+        "both cut sides carry an ellipsis: {snippet}"
+    );
+}
+
+/// The window applies only past the cap — an ordinary source line renders
+/// whole, exactly as before.
+#[test]
+fn grep_snippet_keeps_short_lines_whole() {
+    let f = standard_repo();
+    let r = f.trace(&["grep", "helper", "--path", ".", "--json"]);
+    r.ok();
+    let v = r.json();
+    let m = v["matches"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|m| m["file"].as_str().unwrap().ends_with("src/util.py"))
+        .expect("grep must hit src/util.py");
+    assert_eq!(
+        m["snippet"].as_str().unwrap(),
+        "def helper(v):",
+        "short line must render whole: {m}"
+    );
+}
+
+/// A vendored checkout under the base is its own search scope. An empty
+/// result must name it — "(no matches)" alone reads as "the code does not
+/// exist" when it actually sits one scope down.
+#[test]
+fn find_empty_result_names_nested_repos() {
+    let f = standard_repo();
+    f.write(".gitignore", "themes/\n");
+    f.commit("ignore themes");
+    f.git(&["init", "--quiet", "themes/vendortheme"]);
+    f.write("themes/vendortheme/bundle.min.js", "vendored_token()\n");
+    f.git(&["-C", "themes/vendortheme", "add", "-A"]);
+    f.git(&["-C", "themes/vendortheme", "commit", "--quiet", "-m", "vendor"]);
+
+    let r = f.trace(&["find", "*.min.js", ".", "--json"]);
+    r.ok();
+    let v = r.json();
+    assert_eq!(v["match_count"].as_i64().unwrap(), 0, "{v}");
+    let nested: Vec<&str> = v["nested_repos"]
+        .as_array()
+        .expect("empty result over a base with a nested checkout carries nested_repos")
+        .iter()
+        .map(|x| x.as_str().unwrap())
+        .collect();
+    assert_eq!(nested, vec!["themes/vendortheme"], "{v}");
+
+    // Scoped inside the nested repo, the same pattern matches.
+    let scoped = f.trace(&["find", "*.min.js", "themes/vendortheme", "--json"]);
+    scoped.ok();
+    assert_eq!(
+        scoped.json()["match_count"].as_i64().unwrap(),
+        1,
+        "{}",
+        scoped.stdout
+    );
+
+    let h = f.trace(&["find", "*.min.js", "."]);
+    h.ok();
+    assert!(
+        h.stdout.contains("(no matches)")
+            && h.stdout
+                .contains("nested repository (its own search scope): themes/vendortheme"),
+        "{}",
+        h.stdout
+    );
+}
+
+/// Same scope fact on the text-search path: rg respects the outer
+/// gitignore, so a vendored checkout's content is unreachable from above —
+/// the empty result names the checkout.
+#[test]
+fn grep_empty_result_names_nested_repos() {
+    let f = standard_repo();
+    f.write(".gitignore", "themes/\n");
+    f.commit("ignore themes");
+    f.git(&["init", "--quiet", "themes/vendortheme"]);
+    f.write("themes/vendortheme/bundle.min.js", "vendored_token()\n");
+    f.git(&["-C", "themes/vendortheme", "add", "-A"]);
+    f.git(&["-C", "themes/vendortheme", "commit", "--quiet", "-m", "vendor"]);
+
+    let r = f.trace(&["grep", "vendored_token", "--path", ".", "--json"]);
+    r.ok();
+    let v = r.json();
+    assert_eq!(v["match_count"].as_i64().unwrap(), 0, "{v}");
+    let nested: Vec<&str> = v["nested_repos"]
+        .as_array()
+        .expect("empty grep over a base with a nested checkout carries nested_repos")
+        .iter()
+        .map(|x| x.as_str().unwrap())
+        .collect();
+    assert_eq!(nested, vec!["themes/vendortheme"], "{v}");
+
+    // Scoped inside the nested repo, the same pattern matches.
+    let scoped = f.trace(&[
+        "grep",
+        "vendored_token",
+        "--path",
+        f.path("themes/vendortheme").as_str(),
+        "--json",
+    ]);
+    scoped.ok();
+    assert_eq!(
+        scoped.json()["match_count"].as_i64().unwrap(),
+        1,
+        "{}",
+        scoped.stdout
+    );
+}

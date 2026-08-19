@@ -5,7 +5,8 @@ Two blocks, both reading the command through lib.command's quote-aware parser so
 quoted text (a commit message, an echo argument) is never mistaken for command
 structure:
   A. a real `trace` command piped into a text-trimmer or redirected into a repo file.
-  B. a raw cat/grep/find/sed/etc. command run against a path that exists in the repo.
+  B. a raw cat/grep/find/sed/etc. command run against a path that exists in the repo,
+     or a raw ls/tree listing that reaches the repo (no path argument lists cwd).
 A plain, unpiped, unredirected `trace` always passes.
 """
 
@@ -25,6 +26,8 @@ BINDING = {
 TRIMMERS = {"grep", "egrep", "fgrep", "rg", "sed", "awk", "head", "tail",
             "cut", "sort", "uniq", "wc", "column", "fold", "tr", "jq"}
 RAW_TOOLS = {"cat", "grep", "egrep", "fgrep", "rg", "find", "sed", "awk", "head", "tail"}
+# Listing tools default to cwd, so they are in-repo even with no path argument.
+LIST_TOOLS = {"ls", "tree"}
 _DEVICES = {"/dev/null", "/dev/stdout", "/dev/stderr", "/dev/tty"}
 _OP_CHARS = set(";|&()<>\n")
 
@@ -35,9 +38,11 @@ Claude.md + rules, git activity. Piping it through grep/head/sed/awk/jq,
 or using raw grep/find/sed/cat on repo files, throws that away.
 
 Re-run the trace command with no pipe and no redirect; read all of it:
-  grep -r / rg         -> trace grep <pattern> [-l <lang>]
-  cat / head / sed -n  -> trace read <file> [<method>]
+  grep -r / rg         -> trace grep <pattern> [-l <lang>] [--path <dir>]
+  cat / head / sed -n  -> trace read <file> [<method>|--lines L1:L2]
   find                 -> trace find <pattern> [<base>]
+  ls                   -> trace list <dir>
+  tree                 -> trace tree <dir>
   tail / grep on a log -> trace logs <pattern> [--path <dir>] [--since <when>]
 For partial output, use the in-binary filter — never a pipe:
   trace ... | jq '<expr>'  -> trace ... --json --filter '<expr>'"""
@@ -125,7 +130,17 @@ def _raw_read_in_repo(command, cwd):
     if segs is None:
         return False
     for words in segs:
-        if command_head(words) not in RAW_TOOLS:
+        head = command_head(words)
+        if head in LIST_TOOLS:
+            args = [t for t in words[1:] if t and not t.lstrip("\"'").startswith("-")]
+            resolved = [resolve_path(tok, cwd) for tok in args]
+            paths = [rp for rp in resolved if rp and os.path.exists(rp)]
+            # No path argument means the tool lists cwd — the repo itself. An
+            # argument that resolves nowhere (a glob, a variable) stays allowed
+            # unless some argument lands inside the repo.
+            if not args or any(inside_repo(rp, cwd) for rp in paths):
+                return True
+        if head not in RAW_TOOLS:
             continue
         for tok in words:
             rp = resolve_path(tok, cwd)

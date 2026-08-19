@@ -321,7 +321,7 @@ fn emit_directory_line_on_first_touch(directory: &Path) {
 /// reused rather than re-derived. Empty string when the directory holds
 /// neither sub-directories nor files.
 fn directory_files_line(directory: &Path) -> String {
-    let value = match super::list_::run(directory, false, true) {
+    let value = match super::list_::run(directory, false, false, None, true) {
         Ok(v) => v,
         Err(_) => return String::new(),
     };

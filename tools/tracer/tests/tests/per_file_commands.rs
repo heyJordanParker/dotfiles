@@ -154,7 +154,7 @@ fn read_json_shape_is_stable() {
     );
     assert_eq!(
         normalize_age(v["passive_context"].as_str().unwrap()),
-        "[git: new (1 commit) \u{00b7} age: <AGE> \u{00b7} presence: local-only \u{00b7} churn: 1 commit, 1/30d \u{00b7} ccn: 2 low \u{00b7} together: readme.md, widget.php, pyproject.toml \u{00b7} owner: Tracer Test \u{00b7} last: init standard repo]",
+        "[git: new (1 commit) \u{00b7} age: <AGE> \u{00b7} presence: local-only \u{00b7} churn: 1 commit, 1/30d \u{00b7} loc: 4 \u{00b7} ccn: 2 low \u{00b7} together: readme.md, widget.php, pyproject.toml \u{00b7} owner: Tracer Test \u{00b7} last: init standard repo]",
         "read passive_context must be the exact settled shoulder: {}",
         v["passive_context"]
     );
@@ -602,10 +602,10 @@ fn info_directory_aggregates_files() {
     assert_eq!(
         serde_json::Value::Array(files_proj),
         serde_json::json!([
-            {"file": "app.py",   "loc": 8, "cyclomatic_complexity_total": 4, "function_count": 1, "rank": "low", "passive_context": "[git: new (1 commit) \u{00b7} age: <AGE> \u{00b7} churn: 1 commit, 1/30d \u{00b7} ccn: 4 low]"},
-            {"file": "consts.ts","loc": 1, "cyclomatic_complexity_total": 0, "function_count": 0, "rank": "low", "passive_context": "[git: new (1 commit) \u{00b7} age: <AGE> \u{00b7} churn: 1 commit, 1/30d \u{00b7} ccn: 0 low]"},
-            {"file": "front.tsx","loc": 3, "cyclomatic_complexity_total": 2, "function_count": 1, "rank": "low", "passive_context": "[git: new (1 commit) \u{00b7} age: <AGE> \u{00b7} churn: 1 commit, 1/30d \u{00b7} ccn: 2 low]"},
-            {"file": "util.py",  "loc": 4, "cyclomatic_complexity_total": 2, "function_count": 1, "rank": "low", "passive_context": "[git: new (1 commit) \u{00b7} age: <AGE> \u{00b7} churn: 1 commit, 1/30d \u{00b7} ccn: 2 low]"}
+            {"file": "app.py",   "loc": 8, "cyclomatic_complexity_total": 4, "function_count": 1, "rank": "low", "passive_context": "[git: new (1 commit) \u{00b7} age: <AGE> \u{00b7} churn: 1 commit, 1/30d \u{00b7} loc: 8 \u{00b7} ccn: 4 low]"},
+            {"file": "consts.ts","loc": 1, "cyclomatic_complexity_total": 0, "function_count": 0, "rank": "low", "passive_context": "[git: new (1 commit) \u{00b7} age: <AGE> \u{00b7} churn: 1 commit, 1/30d \u{00b7} loc: 1 \u{00b7} ccn: 0 low]"},
+            {"file": "front.tsx","loc": 3, "cyclomatic_complexity_total": 2, "function_count": 1, "rank": "low", "passive_context": "[git: new (1 commit) \u{00b7} age: <AGE> \u{00b7} churn: 1 commit, 1/30d \u{00b7} loc: 3 \u{00b7} ccn: 2 low]"},
+            {"file": "util.py",  "loc": 4, "cyclomatic_complexity_total": 2, "function_count": 1, "rank": "low", "passive_context": "[git: new (1 commit) \u{00b7} age: <AGE> \u{00b7} churn: 1 commit, 1/30d \u{00b7} loc: 4 \u{00b7} ccn: 2 low]"}
         ]),
         "info directory files[] (minus the per-run abs_path) must be exact: {}",
         v["files"]
@@ -862,10 +862,10 @@ fn tree_json_carries_repo_context_and_ranks() {
     assert_eq!(
         serde_json::Value::Array(files_norm),
         serde_json::json!([
-            {"path": "app.py",   "ccn_total": 4, "ccn_max_function": 4, "loc": 8, "rank": "low", "passive_context": "[git: new (1 commit) \u{00b7} age: <AGE> \u{00b7} churn: 1 commit, 1/30d \u{00b7} ccn: 4 low]"},
-            {"path": "consts.ts","ccn_total": 0, "ccn_max_function": 0, "loc": 1, "rank": "low", "passive_context": "[git: new (1 commit) \u{00b7} age: <AGE> \u{00b7} churn: 1 commit, 1/30d \u{00b7} ccn: 0 low]"},
-            {"path": "front.tsx","ccn_total": 2, "ccn_max_function": 2, "loc": 3, "rank": "low", "passive_context": "[git: new (1 commit) \u{00b7} age: <AGE> \u{00b7} churn: 1 commit, 1/30d \u{00b7} ccn: 2 low]"},
-            {"path": "util.py",  "ccn_total": 2, "ccn_max_function": 2, "loc": 4, "rank": "low", "passive_context": "[git: new (1 commit) \u{00b7} age: <AGE> \u{00b7} churn: 1 commit, 1/30d \u{00b7} ccn: 2 low]"}
+            {"path": "app.py",   "ccn_total": 4, "ccn_max_function": 4, "loc": 8, "rank": "low", "passive_context": "[git: new (1 commit) \u{00b7} age: <AGE> \u{00b7} churn: 1 commit, 1/30d \u{00b7} loc: 8 \u{00b7} ccn: 4 low]"},
+            {"path": "consts.ts","ccn_total": 0, "ccn_max_function": 0, "loc": 1, "rank": "low", "passive_context": "[git: new (1 commit) \u{00b7} age: <AGE> \u{00b7} churn: 1 commit, 1/30d \u{00b7} loc: 1 \u{00b7} ccn: 0 low]"},
+            {"path": "front.tsx","ccn_total": 2, "ccn_max_function": 2, "loc": 3, "rank": "low", "passive_context": "[git: new (1 commit) \u{00b7} age: <AGE> \u{00b7} churn: 1 commit, 1/30d \u{00b7} loc: 3 \u{00b7} ccn: 2 low]"},
+            {"path": "util.py",  "ccn_total": 2, "ccn_max_function": 2, "loc": 4, "rank": "low", "passive_context": "[git: new (1 commit) \u{00b7} age: <AGE> \u{00b7} churn: 1 commit, 1/30d \u{00b7} loc: 4 \u{00b7} ccn: 2 low]"}
         ]),
         "tree files[] must be the exact four-file fixture set: {}",
         v["files"]
@@ -929,7 +929,8 @@ fn list_directory_json_separates_dirs_and_files() {
     let v = r.json();
     // standard_repo()'s root has exactly three sub-directories (docs, lib,
     // src) and one top-level file (pyproject.toml). Every field is
-    // hand-verifiable: file_count per dir, the aggregate ccn (docs 0,
+    // hand-verifiable: child_count is the disk's direct-children number,
+    // file_count the tracked subtree total, and the aggregate ccn (docs 0,
     // lib widget.php 3, src 4+2+2+0=8). last_modified is the single
     // hermetic commit's date — see the assertion below for why it is the
     // one field asserted by shape, not value.
@@ -939,6 +940,7 @@ fn list_directory_json_separates_dirs_and_files() {
         .map(|d| {
             serde_json::json!({
                 "name": d["name"],
+                "child_count": d["child_count"],
                 "file_count": d["file_count"],
                 "ccn_total": d["ccn_total"],
                 "has_uncommitted": d["has_uncommitted"],
@@ -948,9 +950,9 @@ fn list_directory_json_separates_dirs_and_files() {
     assert_eq!(
         serde_json::Value::Array(dir_proj),
         serde_json::json!([
-            {"name": "docs", "file_count": 1, "ccn_total": 0, "has_uncommitted": false},
-            {"name": "lib",  "file_count": 1, "ccn_total": 3, "has_uncommitted": false},
-            {"name": "src",  "file_count": 4, "ccn_total": 8, "has_uncommitted": false}
+            {"name": "docs", "child_count": 1, "file_count": 1, "ccn_total": 0, "has_uncommitted": false},
+            {"name": "lib",  "child_count": 1, "file_count": 1, "ccn_total": 3, "has_uncommitted": false},
+            {"name": "src",  "child_count": 4, "file_count": 4, "ccn_total": 8, "has_uncommitted": false}
         ]),
         "list directories must be the exact three-dir fixture set: {}",
         v["directories"]
@@ -968,26 +970,153 @@ fn list_directory_json_separates_dirs_and_files() {
             "last_modified must be a YYYY-MM-DD date: {lm}"
         );
     }
-    let root_files: Vec<serde_json::Value> = v["files"]
+    // The one root file carries all three column groups: stat always, code
+    // because scc indexes TOML (loc 3, ccn 0 low), git because the file is
+    // committed. Sizes and mtimes are run-time values, so the stat group is
+    // asserted by presence and positivity, the code and git groups exactly.
+    let files = v["files"].as_array().unwrap();
+    assert_eq!(files.len(), 1, "exactly pyproject.toml at root: {}", v["files"]);
+    let file = &files[0];
+    assert_eq!(file["name"], "pyproject.toml");
+    assert!(
+        file["stat"]["size_bytes"].as_i64().unwrap() > 0
+            && file["stat"]["mtime_ns"].as_i64().unwrap() > 0
+            && !file["stat"]["mtime"].as_str().unwrap().is_empty(),
+        "stat group must always be present and populated: {file}"
+    );
+    assert_eq!(
+        serde_json::json!({
+            "loc": file["code"]["loc"],
+            "ccn_total": file["code"]["ccn_total"],
+            "rank": file["code"]["rank"],
+        }),
+        serde_json::json!({"loc": 3, "ccn_total": 0, "rank": "low"}),
+        "code group must carry scc's TOML metrics: {file}"
+    );
+    assert_eq!(
+        file["git"]["commit_count"].as_i64().unwrap(),
+        1,
+        "git group must carry the one hermetic commit: {file}"
+    );
+    assert_eq!(v["entries"].as_i64().unwrap(), 1, "{v}");
+    assert_eq!(v["limited"], false, "{v}");
+}
+
+/// The row source is the disk, not the git universe: a gitignored artifact
+/// directory lists its files with the stat group, code and git groups absent
+/// (no language resolves, git holds nothing). This is the `tests/.runs`
+/// case that motivated the rebuild.
+#[test]
+fn list_shows_gitignored_artifact_files_stat_only() {
+    let f = standard_repo();
+    f.write(".gitignore", "runs/\n");
+    f.commit("ignore runs");
+    f.write("runs/test-001.txt", "run output one\n");
+    f.write("runs/test-002.txt", "run output two\n");
+
+    let r = f.trace(&["list", "runs", "--json"]);
+    r.ok();
+    let v = r.json();
+    let names: Vec<&str> = v["files"]
         .as_array()
         .unwrap()
         .iter()
-        .map(|e| {
-            serde_json::json!({
-                "name": e["name"],
-                "rank": e["rank"],
-                "ccn_total": e["ccn_total"],
-                "passive_context": normalize_age(e["passive_context"].as_str().unwrap()),
-            })
-        })
+        .map(|e| e["name"].as_str().unwrap())
         .collect();
     assert_eq!(
-        serde_json::Value::Array(root_files),
-        serde_json::json!([
-            {"name": "pyproject.toml", "rank": "low", "ccn_total": 0, "passive_context": "[git: new (1 commit) \u{00b7} age: <AGE> \u{00b7} churn: 1 commit, 1/30d \u{00b7} ccn: 0 low]"}
-        ]),
-        "list root files must be exactly pyproject.toml: {}",
+        names,
+        vec!["test-001.txt", "test-002.txt"],
+        "gitignored artifacts must list from disk: {}",
         v["files"]
+    );
+    for file in v["files"].as_array().unwrap() {
+        assert!(
+            file["stat"]["size_bytes"].as_i64().unwrap() > 0,
+            "stat group always present: {file}"
+        );
+        assert!(file["code"].is_null(), "no language resolves for .txt: {file}");
+        assert!(file["git"].is_null(), "git holds nothing for an ignored file: {file}");
+    }
+    assert_eq!(v["entries"].as_i64().unwrap(), 2, "{v}");
+}
+
+/// `--recent` orders by filesystem mtime newest-first; `--limit` caps the
+/// file rows after ordering while `entries` keeps the pre-cap total.
+#[test]
+fn list_recent_orders_by_mtime_and_limit_keeps_total() {
+    let f = standard_repo();
+    f.write(".gitignore", "runs/\n");
+    f.commit("ignore runs");
+    f.write("runs/older.txt", "old\n");
+    let older = f.path("runs/older.txt");
+    let past = std::time::SystemTime::now() - std::time::Duration::from_secs(3600);
+    let file = std::fs::File::options().append(true).open(&older).unwrap();
+    file.set_modified(past).unwrap();
+    f.write("runs/newer.txt", "new\n");
+
+    let r = f.trace(&["list", "runs", "--recent", "--limit", "1", "--json"]);
+    r.ok();
+    let v = r.json();
+    let names: Vec<&str> = v["files"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| e["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        names,
+        vec!["newer.txt"],
+        "--recent --limit 1 must keep only the newest file: {}",
+        v["files"]
+    );
+    assert_eq!(v["entries"].as_i64().unwrap(), 2, "pre-cap total: {v}");
+    assert_eq!(v["limited"], true, "{v}");
+
+    let h = f.trace(&["list", "runs", "--recent", "--limit", "1"]);
+    h.ok();
+    assert!(
+        h.stdout.contains("entries=2 (showing 1)"),
+        "human form must carry the pre-cap total: {}",
+        h.stdout
+    );
+}
+
+/// A nested checkout under the base is its own scope: never a row set,
+/// always named.
+#[test]
+fn list_names_nested_checkout_as_scope() {
+    let f = standard_repo();
+    f.git(&["init", "--quiet", "vendorland"]);
+    f.write("vendorland/lib.js", "vendored()\n");
+
+    let r = f.trace(&["list", ".", "--json"]);
+    r.ok();
+    let v = r.json();
+    let dir_names: Vec<&str> = v["directories"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|d| d["name"].as_str().unwrap())
+        .collect();
+    assert!(
+        !dir_names.contains(&"vendorland"),
+        "a nested checkout is not a directory row: {dir_names:?}"
+    );
+    let nested: Vec<&str> = v["nested_repos"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|x| x.as_str().unwrap())
+        .collect();
+    assert_eq!(nested, vec!["vendorland"], "{v}");
+
+    let h = f.trace(&["list", "."]);
+    h.ok();
+    assert!(
+        h.stdout
+            .contains("nested repository (its own search scope): vendorland"),
+        "{}",
+        h.stdout
     );
 }
 

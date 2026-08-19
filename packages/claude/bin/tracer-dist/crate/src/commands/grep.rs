@@ -10,6 +10,36 @@ use serde_json::{json, Value};
 use std::path::Path;
 use std::process::Command;
 
+/// A snippet stays a snippet on minified or generated lines. The matched
+/// line is the unit for ordinary source, but a 27KB single-line bundle is
+/// not "context around the match" — so past `MAX_SNIPPET_CHARS` the snippet
+/// becomes a character window positioned by the submatch byte offset
+/// `rg --json` already reports, ellipsized on the cut side(s).
+const MAX_SNIPPET_CHARS: usize = 240;
+const WINDOW_BEFORE_CHARS: usize = 80;
+
+fn window_snippet(line: &str, match_byte_start: usize) -> String {
+    let total_chars = line.chars().count();
+    if total_chars <= MAX_SNIPPET_CHARS {
+        return line.to_string();
+    }
+    let prefix_chars = line
+        .get(..match_byte_start.min(line.len()))
+        .map(|p| p.chars().count())
+        .unwrap_or(0);
+    let begin = prefix_chars.saturating_sub(WINDOW_BEFORE_CHARS);
+    let window: String = line.chars().skip(begin).take(MAX_SNIPPET_CHARS).collect();
+    let mut out = String::new();
+    if begin > 0 {
+        out.push('\u{2026}');
+    }
+    out.push_str(&window);
+    if begin + MAX_SNIPPET_CHARS < total_chars {
+        out.push('\u{2026}');
+    }
+    out
+}
+
 /// Run `ripgrep` for a text pattern and collect the matches.
 fn ripgrep(pattern: &str, path: &str, lang: Option<&str>) -> Vec<Match> {
     let mut cmd = Command::new("rg");
@@ -33,10 +63,11 @@ fn ripgrep(pattern: &str, path: &str, lang: Option<&str>) -> Vec<Match> {
         }
         let data = &event["data"];
         let text = data["lines"]["text"].as_str().unwrap_or("");
+        let match_start = data["submatches"][0]["start"].as_u64().unwrap_or(0) as usize;
         matches.push(Match {
             file: data["path"]["text"].as_str().unwrap_or("").to_string(),
             line: data["line_number"].as_i64().unwrap_or(0),
-            snippet: text.trim_end_matches('\n').to_string(),
+            snippet: window_snippet(text.trim_end_matches('\n'), match_start),
         });
     }
     matches
@@ -49,7 +80,7 @@ pub fn run(pattern: &str, lang: Option<&str>, path: &str, as_json: bool) -> Resu
     let (enriched, files_matched) = enrich::enrich(&matches, &search_root);
     let repo_ctx = repo_context::repo_context(&cache::absolutize(Path::new(path)));
 
-    let out = json!({
+    let mut out = json!({
         "query": pattern,
         "lang_filter": lang,
         "matches": enriched,
@@ -57,9 +88,22 @@ pub fn run(pattern: &str, lang: Option<&str>, path: &str, as_json: bool) -> Resu
         "files_matched": files_matched,
         "repo_context": repo_ctx,
     });
+    // An empty result over a base that contains nested checkouts is a scope
+    // fact, not an absence fact — name them so the next call is scoped inside.
+    let nested = if enriched.is_empty() && abs.is_dir() {
+        crate::repo_files::nested_repo_rels(&abs)
+    } else {
+        Vec::new()
+    };
+    if !nested.is_empty() {
+        out["nested_repos"] = json!(nested);
+    }
 
     if !as_json {
         enrich::render_human(&enriched, files_matched, &repo_ctx);
+        for r in &nested {
+            println!("nested repository (its own search scope): {r}");
+        }
     }
     Ok(out)
 }

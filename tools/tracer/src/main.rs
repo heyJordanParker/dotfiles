@@ -158,11 +158,19 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
-    /// One-level annotated ls: files + sub-directories with passive context.
+    /// One-level directory listing from the filesystem: every file on disk
+    /// (gitignored included) with stat, code, and git column groups.
     List {
         path: PathBuf,
         #[arg(long = "all")]
         show_hidden: bool,
+        /// Order files newest-first by filesystem mtime.
+        #[arg(long)]
+        recent: bool,
+        /// Cap the file rows after ordering (no default cap); `entries=N`
+        /// always reports the pre-cap total.
+        #[arg(long)]
+        limit: Option<usize>,
         #[arg(long)]
         json: bool,
     },
@@ -505,9 +513,11 @@ fn main() -> Result<()> {
         Command::List {
             path,
             show_hidden,
+            recent,
+            limit,
             json,
         } => output::run_value(json, filter, || {
-            commands::list_::run(&path, show_hidden, json)
+            commands::list_::run(&path, show_hidden, recent, limit, json)
         }),
         Command::Tree { path, depth, json } => {
             output::run_value(json, filter, || commands::tree::run(&path, depth, json))
