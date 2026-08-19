@@ -1,7 +1,7 @@
 ---
 name: commit
 description: |
-  Mandatory contract for every commit. Loads automatically when the classifier authorizes a commit — it injects "Skills to execute: /commit" whenever the Architect asks to commit ("/commit", "commit this", "create a commit"). Holds the whole commit job: stage, write the message, commit, verify, then suggest which session notes should become permanent — plus the commit-message format (type prefix, what+why body, file tree). TRIGGER on every commit-authorized turn, or when the Architect asks to write or revise a commit message. DO NOT TRIGGER when the Architect has not asked to commit — applying changes, deploying, shipping, or replacing files are not commit requests.
+  Mandatory contract for every commit. The classifier names it when it authorizes a commit — it injects "Skills to execute: /commit" whenever the Architect asks to commit ("/commit", "commit this", "create a commit"). Holds the whole commit job: stage, write the message, commit, verify, then suggest which session notes should become permanent — plus the commit-message format (type prefix, what+why body, file tree). TRIGGER on every commit-authorized turn, or when the Architect asks to write or revise a commit message. DO NOT TRIGGER when the Architect has not asked to commit — applying changes, deploying, shipping, or replacing files are not commit requests.
 ---
 
 # Commit

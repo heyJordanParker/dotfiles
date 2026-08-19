@@ -1,26 +1,24 @@
 #!/usr/bin/env python3
-"""SessionStart on `compact`: put the session's mode and state Skills back.
+"""SessionStart on `compact`: name the session's mode and state Skills again.
 
-Compaction replaces the conversation with a summary, and every Skill loaded into
-it goes with the conversation. The mode Skill and the state Skill are the two
-that must not: they say how the session works, and the gates keep enforcing both
-axes off session_state either way.
+Compaction replaces the conversation with a summary, and every Skill in it goes
+with the conversation. The mode Skill and the state Skill are the two that must
+not: they say how the session works, and the gates keep enforcing both axes off
+session_state either way.
 
-Nothing else was reloading them. `classify_intent.directive` emits the load
-directive only on a turn that types /orchestrate, /build, /interview, /propose or
-/execute — every other turn resolves an empty mode and emits nothing — so the
-Skills entered context once per typed command and never came back. The
-descriptions of `orchestrate`, `build`, `propose` and `execute` already name this
-reload.
+Nothing else was naming them. `classify_intent.directive` emits its order only on
+a turn that types /orchestrate, /build, /interview, /propose or /execute — every
+other turn resolves an empty mode and emits nothing — so the Skills arrived once
+per typed command and never came back.
 
-The directive text keeps its one home in classify_intent. This hook resolves
-which Skills govern — `session_mode.resolve` for the mode and
-`session_mode.state` for the state axis, the same two answers block_writes and
-block_spawning gate on — and reuses it, so the Skill the Agent reloads can never
-be the one it is no longer being gated by.
+The directive text keeps its one home in classify_intent. This hook resolves which
+Skills govern — `session_mode.resolve` for the mode and `session_mode.state` for
+the state axis, the same two answers block_writes and block_spawning gate on — and
+reuses it, so the Skill the Agent is sent back to can never be the one it is no
+longer being gated by.
 
-Only `compact` fires it. A `resume` restores the whole transcript with its Skill
-loads intact, and a `startup` or `clear` has no Skill to put back.
+Only `compact` fires it. A `resume` restores the whole transcript intact, and a
+`startup` or `clear` has no Skill to name again.
 """
 
 import sys
@@ -35,9 +33,9 @@ BINDING = {
     "harness": "all",
 }
 
-PREAMBLE = ("### Reload the Skills the compaction dropped\n"
-            "The conversation was compacted and the Skills loaded in it left context. "
-            "These Skills still govern this session.")
+PREAMBLE = ("### Use the Skills the compaction dropped\n"
+            "The conversation was compacted and the Skills in it left with it. These "
+            "Skills still govern this session.")
 
 
 def main():

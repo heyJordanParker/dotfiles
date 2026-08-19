@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
-"""Record one session-state change per hook event, driving the session_state spine.
+"""Record one session-state change per hook event, driving the session_state store.
 
 Replaces the seven-plus-one inline jq blocks that used to live in settings.json,
 one per wired event. Claude Code hands this hook the event JSON on stdin; the hook
 reads it once, routes on hook_event_name (and tool name where the contract needs
-it), and drives the existing spine to record the matching change.
+it), and drives the existing store to record the matching change.
 
 Recording contract (one per event, mirroring the retired jq wiring):
 
   SessionStart    -> start    (plain session id, passes the transcript path through)
-  UserPromptSubmit-> prompt   (plain session id, prompt TEXT on the spine's stdin)
+  UserPromptSubmit-> prompt   (plain session id, prompt TEXT on the store's stdin)
                      and, when the prompt is a completed <task-notification>,
                      archive that subagent's tracer log
 
-The spine is driven in-process (its cmd_* functions imported directly). The one
+The store is driven in-process (its cmd_* functions imported directly). The one
 subprocess is the tracer-log archive, reused from archive_subagent_log.py, only on
 the rare completed-task-notification path. The hook never blocks: it returns 0 on
 every path, including malformed/empty payloads and a missing session id.
@@ -43,9 +43,9 @@ _STATUS = re.compile(r"<status>([a-z]*)</status>")
 
 
 def _record_prompt(session_id, prompt):
-    """Drive the spine's prompt command, which reads the prompt off stdin (it
+    """Drive the store's prompt command, which reads the prompt off stdin (it
     filters system-injected prompts and rotates the turn timers). Feed the text in
-    the same way the spine tests do -- swap sys.stdin for the duration of the call."""
+    the same way the store's tests do -- swap sys.stdin for the duration of the call."""
     saved = sys.stdin
     sys.stdin = io.StringIO(prompt)
     try:

@@ -80,7 +80,7 @@ Subagents read the actual code instead of inferring from names.
 IF the Architect asks for browser testing:
 ### Append browser testing to each Subagent Prompt
 
-Add that after tracing the code, the Subagent loads the /agent-browser Skill and walks this Critical Path in the actual User Interface. Add that it loads the /design Skill and evaluates the User experience at each step.
+Add that after tracing the code, the Subagent uses /agent-browser and walks this Critical Path in the actual User Interface. Add that it uses /design and evaluates the User experience at each step.
 
 Template:
   ```markdown

@@ -1,9 +1,9 @@
 """Coverage for the session-state tamper guard after it was repointed from the
-/tmp control file to the spine's <sessions>/<id>/state.json.
+/tmp control file to <sessions>/<id>/state.json.
 
 The guard blocks a hook-external Write or shell command that targets a session
 state.json directly, so a subagent can't rewrite control state behind the
-spine's back — while the session hooks themselves pass through the
+store's back — while the session hooks themselves pass through the
 CLAUDE_SESSION_HOOK bypass. Each case calls main() in this process and asserts
 the exit code (2 = blocked, 0 = allowed); the first block and the first allow
 stay a real `python3 <hook>` run, because the harness reads the exit code off

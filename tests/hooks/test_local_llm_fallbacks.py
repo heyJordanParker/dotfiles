@@ -3,7 +3,7 @@
 Covers classify_intent.py, babysitter.py, and validate_plan_quality.py with the
 local LLM stubbed to fail (local_llm fixture), so each hook takes its
 deterministic fallback branch. Each case asserts the Python hook's own exit code,
-stdout (JSON-normalized), stderr, and the control fields on the spine
+stdout (JSON-normalized), stderr, and the control fields in session state
 (<CLAUDE_DATA_ROOT>/sessions/<session_id>/state.json) directly.
 
 These hooks all funnel their model call through lib.model_call.run_model, which
@@ -90,13 +90,13 @@ S = {"state": "execute", "commit_requested": False}
 # Forced-command fallback strings classify_intent emits when the LLM is down but
 # a typed /propose | /execute | /subagents | /commit is present (fallback_context()
 # and COMMIT_DIRECTIVE).
-PROPOSE_FALLBACK = ("This is a proposing-state turn. Load the /propose skill now and "
-                    "produce the proposal under its contract.")
-EXECUTE_FALLBACK = ("This is an executing-state turn. Load the /execute skill now and "
-                    "work under its contract: implement the approved work, and the moment "
-                    "it needs an architectural change, stop and escalate with /pcc.")
-ORCHESTRATE_FALLBACK = "Load the /orchestrate skill now."
-BUILD_FALLBACK = "Load the /build skill now."
+PROPOSE_FALLBACK = ("This is a proposing-state turn. Use /propose now and produce the "
+                    "proposal under its contract.")
+EXECUTE_FALLBACK = ("This is an executing-state turn. Use /execute now and work under its "
+                    "contract: implement the approved work, and the moment it needs an "
+                    "architectural change, stop and escalate with /pcc.")
+ORCHESTRATE_FALLBACK = "Use /orchestrate now."
+BUILD_FALLBACK = "Use /build now."
 COMMIT_FALLBACK = "Skills to execute: /commit"
 
 # stdout each classify_intent case emits, as the additionalContext envelope.
@@ -116,7 +116,7 @@ def _ctx_standing(text):
 
 
 # Default control fields classify_intent writes for a non-skipped session before
-# its (offline-unreachable) classifier runs: the spine's _default_main_state.
+# its (offline-unreachable) classifier runs: session_state's _default_main_state.
 CI_DEFAULT_STATE = {"mode": "build", "state": "propose", "commit_requested": False,
                     "goal": None, "notes": []}
 
@@ -158,8 +158,8 @@ CASES = [
 
 
 @pytest.fixture
-def spine_root(tmp_path, monkeypatch):
-    """Point the spine at a per-test data root so seeding and reading the session
+def state_root(tmp_path, monkeypatch):
+    """Point session state at a per-test data root so seeding and reading the session
     record never touches the real ~/.claude. _run copies os.environ into the
     subprocess env, so the setenv reaches the hook under test."""
     root = tmp_path / "claude"
@@ -168,18 +168,18 @@ def spine_root(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize("name,hook,payload,sid,pre,expected", CASES, ids=[c[0] for c in CASES])
-def test_fallback_behavior(name, hook, payload, sid, pre, expected, local_llm, spine_root,
+def test_fallback_behavior(name, hook, payload, sid, pre, expected, local_llm, state_root,
                            monkeypatch, capsys):
     session_id = sid if sid is not None else "agent-skip"
     body = json.dumps({"session_id": session_id, **payload})
 
     if sid is not None:
-        _reset_state(spine_root, sid, pre)
+        _reset_state(state_root, sid, pre)
     if name in PROCESS_CASES:
         rc, out, err = _run(hook, body, dict(os.environ))
     else:
         rc, out, err = _call(hook, body, monkeypatch, capsys)
-    state = _read_state(spine_root, sid) if sid is not None else None
+    state = _read_state(state_root, sid) if sid is not None else None
 
     exp_rc, exp_out, exp_err, exp_state = expected
     assert rc == exp_rc, f"{name}: exit {rc}, expected {exp_rc}"
@@ -193,13 +193,13 @@ def test_fallback_behavior(name, hook, payload, sid, pre, expected, local_llm, s
                 f"{name}: control field {k}={state.get(k) if state else None}, expected {v}"
 
 
-def test_stop_gate_reaches_eval_without_crash(local_llm, spine_root, write_transcript,
+def test_stop_gate_reaches_eval_without_crash(local_llm, state_root, write_transcript,
                                               monkeypatch, capsys):
     """The eval-prompt builder must not reference a removed state field. A turn that
     edits files gathers the read-log facts and reaches the full builder; with the LLM
     down the hook returns 0 — it must build that prompt without crashing."""
     sid = "vc_eval"
-    _reset_state(spine_root, sid, dict(S))
+    _reset_state(state_root, sid, dict(S))
 
     def edit(i):
         return {"type": "assistant", "message": {"content": [

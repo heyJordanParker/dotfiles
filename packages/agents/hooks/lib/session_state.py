@@ -212,7 +212,7 @@ _RETIRED_APPROACHES = {"solo": "build", "subagents": "orchestrate"}
 def _migrate_axes(state):
     """Rewrite one state.json object onto the state/mode axes, or None when it already is.
 
-    The pre-mode-axis spine spelled the stage `proposing`/`executing` and carried a
+    The pre-mode-axis state spelled the stage `proposing`/`executing` and carried a
     separate `approach` of `solo`/`subagents`, and spelled interview as a stage. Readers
     know the new values only, so the files are rewritten once rather than mapped on every
     read. Returns None for an already-migrated object, which is what makes it idempotent.

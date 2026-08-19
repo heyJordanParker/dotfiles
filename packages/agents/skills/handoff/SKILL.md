@@ -35,7 +35,7 @@ Save the handoff document in the temporary directory, never in the current works
 ## 4. Add suggested Skills
 
 ### Include a suggested Skills section
-Name the Skills the next Agent should invoke.
+Name the Skills the next Agent should use.
 
 Template:
   ```markdown

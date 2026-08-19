@@ -5,7 +5,7 @@ On every UserPromptSubmit this reads what the user said and maintains the
 session's goal — one paragraph of session-spanning memory
 of the user's intent, set when missing and updated only when the user's input
 diverges — translating only what the user expressed, never inventing or padding.
-It then hands the main agent the goal read back from the spine, a one-line take
+It then hands the main agent the goal read back from session state, a one-line take
 on what the user is doing this turn relative to the goal (the hook's inference,
 framed as such), and an optional one-line note when one would prevent confusion.
 
@@ -139,7 +139,7 @@ def main():
     if isinstance(new_goal, str) and new_goal.strip():
         merge_state(session_id, {"goal": new_goal.strip()})
 
-    # The message reflects the spine, read back after the write — not raw LLM text.
+    # The message reflects session state, read back after the write — not raw LLM text.
     state = load_state(session_id)
     message = build_message(state, result)
     if message:

@@ -1,7 +1,7 @@
 ---
 name: propose
 description: |
-  Mandatory contract for every proposing-state turn — the classifier injects it on each one. Builds the Proposal as a Decision Hierarchy: dominant call on top, gated children nested beneath it, genuine peers side by side, the work breakdown tagged onto Decisions rather than used as the skeleton. Opens with a whole-change annotated map, shows code instead of prose about code, and carries the /pcc shape (pros, cons, confidence) on every Decision node, guarded by the seven named Proposal failures. TRIGGER on every proposing-state turn — the classifier mandates this. DO NOT TRIGGER for executing turns (that loads /execute) or auto turns (mixed intents resolve action first). For the pros/cons/confidence ranking, /pcc is canonical; for the opening maps, /show-me is canonical.
+  Mandatory contract for every proposing-state turn. The classifier names it when the Architect types /propose. Builds the Proposal as a Decision Hierarchy: dominant call on top, gated children nested beneath it, genuine peers side by side, the work breakdown tagged onto Decisions rather than used as the skeleton. Opens with a whole-change annotated map, shows code instead of prose about code, and carries the /pcc shape (pros, cons, confidence) on every Decision node, guarded by the seven named Proposal failures. TRIGGER on every proposing-state turn — the classifier mandates this. DO NOT TRIGGER for executing turns (that is /execute) or auto turns (mixed intents resolve action first). For the pros/cons/confidence ranking, /pcc is canonical; for the opening maps, /show-me is canonical.
 ---
 
 # Proposal

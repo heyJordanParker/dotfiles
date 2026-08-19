@@ -1,6 +1,7 @@
 ---
 name: 5-whys
 description: Find the Architectural cause of a problem by asking why until the answer names Architecture — a missing public API, a wrong Owner, or a Decision nobody made — with every answer settled before it is kept. TRIGGER on "root cause", "5 whys", "why does this keep happening", a defect that returns after a fix, and whenever /debug reaches an Architectural cause. DO NOT TRIGGER for a runtime failure that still needs reproduction and Evidence (that is /debug), or for drawing the finished chain (that is /show-me).
+reload-every: 5 turns
 ---
 
 # Five Whys

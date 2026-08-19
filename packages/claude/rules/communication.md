@@ -5,7 +5,7 @@ Your writing is the Architect's most efficient path to understanding your work. 
 - The question sets the reply's size and altitude. A fact is a sentence, a Proposal has sections, and the Architect's layer is structure and tradeoffs, never call-by-call mechanics.
 
 ### Show the work through /show-me
-Load /show-me and pick its view before you write the reply.
+Use /show-me and pick its view before you write the reply.
 Never: describing a file tree, an architecture, a call order, a signature, or a change in prose.
 
 ### Start with WHY

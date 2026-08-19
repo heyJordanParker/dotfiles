@@ -145,9 +145,13 @@ _ARCHITECT_ORIGINATORS = ("codex_work_desktop",)
 # injections, which arrive on the user role carrying no metadata at all. On Claude
 # it is a backstop behind the label, and the same test the intent classifier runs
 # on a raw prompt.
+# The record a Skill's own arrival writes, named because two readers key on it:
+# the machine-authored test below, and `skill_arrivals`.
+SKILL_PREAMBLE = "Base directory for this skill:"
+
 _MACHINE_PREAMBLES = (
     "This session is being continued",
-    "Base directory for this skill:",
+    SKILL_PREAMBLE,
     "Stop hook feedback:",
     "Another Claude session sent a message:",
 )
@@ -304,6 +308,33 @@ def awaits_async_work(lines):
         if '"run_in_background":true' in packed or '"name":"Agent"' in packed:
             return True
     return False
+
+
+def skill_arrivals(recs):
+    """Skill name -> index of the record that last brought it into the conversation.
+
+    Two ways in, because there are two ways to ask for one. The architect types
+    /<name> and the harness expands the Skill itself, writing the
+    `Base directory for this skill:` record `_MACHINE_PREAMBLES` already knows.
+    The agent uses the Skill through the Skill tool, whose call stays in the
+    transcript whatever the tool answers — and a second use answers
+    `instructions unchanged`, so the call is the only record of it.
+
+    A Skill absent here was never used, which is what makes this the whole answer
+    to which Processes govern: no list is kept beside it.
+    """
+    out = {}
+    for i, record in enumerate(recs):
+        text = text_of(record)
+        if text.startswith(SKILL_PREAMBLE):
+            out[os.path.basename(text.splitlines()[0].rstrip())] = i
+            continue
+        for block in blocks(record, "tool_use"):
+            if block.get("name") == "Skill":
+                name = (block.get("input") or {}).get("skill")
+                if isinstance(name, str) and name:
+                    out[name] = i
+    return out
 
 
 def tool_outcomes(recs):

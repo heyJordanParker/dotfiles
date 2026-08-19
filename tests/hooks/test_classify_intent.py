@@ -14,7 +14,7 @@ from lib.session_state import load_state
 
 
 @pytest.fixture
-def spine_root(tmp_path, monkeypatch):
+def state_root(tmp_path, monkeypatch):
     root = tmp_path / "claude"
     monkeypatch.setenv("CLAUDE_DATA_ROOT", str(root))
     monkeypatch.delenv("CLAUDE_SESSION_HOOK", raising=False)
@@ -36,7 +36,7 @@ def _run(monkeypatch, payload, model_result):
     return rc, captured.get("text")
 
 
-def test_question_emits_answer_contract(monkeypatch, spine_root):
+def test_question_emits_answer_contract(monkeypatch, state_root):
     rc, text = _run(monkeypatch,
                     {"session_id": "ci1", "prompt": "why does X work this way?"},
                     {"intent": "question"})
@@ -50,7 +50,7 @@ def test_question_emits_answer_contract(monkeypatch, spine_root):
 
 
 
-def test_plain_action_emits_only_standing_reminders(monkeypatch, spine_root):
+def test_plain_action_emits_only_standing_reminders(monkeypatch, state_root):
     rc, text = _run(monkeypatch,
                     {"session_id": "ci1", "prompt": "add a guard to the parser"},
                     {"intent": "action"})
@@ -73,7 +73,7 @@ def test_plain_action_emits_only_standing_reminders(monkeypatch, spine_root):
 @pytest.mark.parametrize("command,mode", [("/orchestrate", "orchestrate"),
                                           ("/build", "build"),
                                           ("/interview", "interview")])
-def test_a_typed_mode_command_writes_the_mode_axis(monkeypatch, spine_root, command, mode):
+def test_a_typed_mode_command_writes_the_mode_axis(monkeypatch, state_root, command, mode):
     """Mode is the axis the architect types. Interview used to be a state written when
     the interview SKILL was invoked; it is a mode set by typing the command now."""
     _run(monkeypatch, {"session_id": "ci1", "prompt": "%s the parser" % command},
@@ -87,12 +87,12 @@ def test_a_typed_mode_command_writes_the_mode_axis(monkeypatch, spine_root, comm
 
 
 
-def test_typed_interview_skips_the_model_call(monkeypatch, spine_root):
+def test_typed_interview_skips_the_model_call(monkeypatch, state_root):
     """Interview turns the LLM hooks off for speed — only the deterministic directive
     rides, and the standing reminders that ride every other turn do not."""
     _, text = _run(monkeypatch, {"session_id": "ci1", "prompt": "/interview the parser"},
                    {"intent": "action"})
-    assert "Load the interview skill now" in text
+    assert "Use /interview now" in text
     assert "The architect's call governs" not in text
 
 
@@ -130,13 +130,15 @@ def _stub_skills(monkeypatch, names):
     monkeypatch.setattr(classify_intent, "_available_skills", lambda: set(names))
 
 
-def test_typed_skill_emits_reload_directive(monkeypatch, spine_root):
+def test_typed_skill_emits_reload_directive(monkeypatch, state_root):
     _stub_skills(monkeypatch, ["naming", "pcc"])
     _, text = _run(monkeypatch,
                    {"session_id": "ci1", "prompt": "give me names /naming"},
                    {"intent": "action"})
-    assert "The architect typed /naming this turn" in text
-    assert "reload for a fresh copy" in text
+    # The Skill named the way anyone names one, and never a report of who asked.
+    # reload_stale_skills emits this same sentence.
+    assert "Use /naming now, before anything else" in text
+    assert "The architect typed" not in text
 
 
 
@@ -161,7 +163,7 @@ INCIDENT_BATCH_APPROVAL = 'Ready to execute — already approved by you; one go 
 INCIDENT_ENTER_EXECUTE = 'oh, enter /execute for the execution\n\n- unverified whether permission prompts function under your bypassPermissions default; codex has no plan mode, so cross-harness mode inheritance dies; your typed /propose becomes a harness UI mode\ncodex has planning mode\n\nbut, you\'re hititng a good point – I very much want to keep my MODES, that\'s something I use and want to use\nso delete everything is out\nkeep everything is a noop option (& thus stupid because I\'m discussing this which clearly means action is needed) so it\'s out too\n\nthe question is how muc hwe reduce\nexplore that & give me the options; be specific – i can\'t review shit like "keep the spine" or "full reduction"; those are unclear'
 
 
-def test_incident_batch_approval_enters_executing(monkeypatch, spine_root):
+def test_incident_batch_approval_enters_executing(monkeypatch, state_root):
     # "okay /execute those" sits mid-message after a numbered list whose item 6
     # mentions /propose; /execute is typed later, so last-wins holds executing.
     _, text = _run(monkeypatch,
@@ -171,7 +173,7 @@ def test_incident_batch_approval_enters_executing(monkeypatch, spine_root):
     assert "This is an executing-state turn" in text
 
 
-def test_incident_enter_execute_is_overridden_by_a_stray_propose(monkeypatch, spine_root):
+def test_incident_enter_execute_is_overridden_by_a_stray_propose(monkeypatch, state_root):
     # The architect typed /execute on line 1, then quoted a pasted finding that
     # contains a bare, unquoted "/propose" further down. Under "any position,
     # last wins" that stray token is indistinguishable from a typed command, so

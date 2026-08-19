@@ -1,6 +1,7 @@
 ---
 name: cc
 description: Write and fix Claude Code Prompts — skills, agents, commands, hooks, rules files, Claude.md, and plugin distribution. TRIGGER when the task says "cc"/"claude code"/"claude-code", or asks to build, edit, test, or share a skill/agent/hook/command, tune a description's triggering, write or prune a Claude.md, or cut prompt bloat. DO NOT TRIGGER to name a Claude.md's identifiers (that is /naming) or to record domain vocabulary (that is /domain-design).
+reload-every: 20 turns
 ---
 
 # Claude Code
@@ -47,8 +48,8 @@ A blank filled for symmetry is Fluff. A Skill never carries a Frame, never Princ
 A roster, catalog, worked-example set, or data table stays in SKILL.md even when that makes it long. Never split out content needed 80% of the time: the Agent writes a working Prompt from SKILL.md alone. A Reference that reads as optional background is never opened; cut it or fold it back. The link line names the problem the Reference solves.
 
 ### A Process another Skill owns is named, never restated
-Use `/skill-name` in the step that needs it. Both Harnesses load the named Skill, whole.
-Never name a `disable-model-invocation` Skill — the Architect fires those; an Agent's load falls through to whatever Claude ships under that name.
+Use `/skill-name` in the step that needs it. Both Harnesses take the named Skill whole.
+Never name a `disable-model-invocation` Skill — the Architect fires those; an Agent naming one falls through to whatever Claude ships under that name.
 
 ### A deterministic Hook IS its Rule
 Duplicate prose is cut. A model-backed Hook batches its event's Rules into one call and fails open, so the prose fallback stays.
@@ -58,7 +59,7 @@ The Agent proposes Decisions; only the Architect makes them, typically through /
 
 ## 4. Correct with the lightest delivery that holds
 
-Three axes pick the delivery: load guarantee (always-loaded, Condition-loaded, Skill the Agent invokes), recency (session start, per turn, at the moment of the action), strength (prose, Example, checked, blocked).
+Three axes pick the delivery: load guarantee (always-loaded, Condition-loaded, Skill the Agent uses), recency (session start, per turn, at the moment of the action), strength (prose, Example, checked, blocked).
 
 - A behavior that must hold every turn is a Hook; always-loaded prose is forgotten after a few turns.
 - A step that interprets no human language is code, not Prompt.

@@ -18,7 +18,7 @@ Never: duplicate `/review`, `/model`, `/permissions`, `/plugins`, or `/mcp` unde
 
 IF no built-in slash command does the Task and the Architect should fire it manually:
 ### Write `commands/<command>.md`
-Use a Command for a manual side effect or a manual Process the Architect explicitly invokes.
+Use a Command for a manual side effect or a manual Process the Architect explicitly runs.
 Template:
   ````markdown
   ---
@@ -41,7 +41,7 @@ Example:
   claude-current-plan-path --copy
   ```
   ````
-Never: put a recurring Agent-invoked Process in `commands/`; write a Skill and let the Agent invoke the Skill.
+Never: put a recurring Agent-run Process in `commands/`; write a Skill and let the Agent use it.
 
 ## 2. Built-in slash command facts
 

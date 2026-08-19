@@ -1,15 +1,15 @@
 """Coverage for record_session_event.py — the one hook that reads a Claude Code
-event and records the matching session-state change through the spine.
+event and records the matching session-state change through the store.
 
 It centralizes the session-state recording that settings.json wires for each
 Claude Code event. The tests feed real event payloads and assert the resulting
-on-disk state.json is exactly what the spine produces today, plus the
+on-disk state.json is exactly what the store produces today, plus the
 completed-task-notification archive path, and the never-block contract.
 
-The store is isolated under tmp_path via CLAUDE_DATA_ROOT (same as the spine
-tests). The hook imports the spine as `lib.session_state` and the archive as
-`archive_subagent_log`; we drive the hook through its `main()` by feeding the
-payload on stdin, and monkeypatch the spine's clock for determinism.
+The store is isolated under tmp_path via CLAUDE_DATA_ROOT (same as the
+session_state tests). The hook imports the store as `lib.session_state` and the
+archive as `archive_subagent_log`; we drive the hook through its `main()` by
+feeding the payload on stdin, and monkeypatch the store's clock for determinism.
 """
 
 import io
@@ -20,7 +20,7 @@ import sys
 import pytest
 from conftest import PY_HOOKS
 
-# The hook imports `from lib.session_state import ...`; the spine module also
+# The hook imports `from lib.session_state import ...`; the store module also
 # refers to itself as a bare `session_state`. Put the lib dir on the path and pin
 # the same module object under both names so a clock patch on one is seen by both.
 sys.path.insert(0, os.path.join(PY_HOOKS, "lib"))
@@ -65,7 +65,7 @@ def _read(path):
 
 
 # ---------------------------------------------------------------------------
-# The recording commands: event in -> spine result out
+# The recording commands: event in -> store result out
 # ---------------------------------------------------------------------------
 
 
@@ -150,7 +150,7 @@ def test_session_start_rewrites_a_mode_nobody_typed(root, tmp_path, clock, monke
 # ---------------------------------------------------------------------------
 
 def _start_parent_and_subagent(root, monkeypatch, parent, agent_task):
-    """Establish a parent main session and a subagent under it via the spine."""
+    """Establish a parent main session and a subagent under it via the store."""
     _fire({"hook_event_name": "SessionStart", "session_id": parent,
            "transcript_path": "/p/%s/%s.jsonl" % (parent, parent)}, monkeypatch)
     session_state.cmd_start(["agent-%s" % agent_task, "--transcript-path",

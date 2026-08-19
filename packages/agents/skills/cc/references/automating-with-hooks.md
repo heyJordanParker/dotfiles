@@ -261,6 +261,9 @@ Template:
 ### Do not make a Hook invoke a `disable-model-invocation` Skill
 A Hook cannot make the Harness invoke a `disable-model-invocation` Skill through the Skill tool. Injecting `Load /<skill> now via the Skill tool` as `additionalContext` routes the model to the same gate and fails with `Skill <name> cannot be used with Skill tool due to disable-model-invocation`.
 
+### Name the Skill, and expect no text back on a second use
+The Skill tool answers a second use with `Skill /<name> is already loaded above; instructions unchanged`. That is the Harness saying the Process is still in the conversation, not a failure: an order to use it again buys the Agent going back to the steps, never the text arriving twice. Verified at 2.1.195 on `/5-whys` and `/cc`.
+
 ### Inline content only when the Hook accepts the loss of Skill machinery
 A Hook can inline that Skill's body as plain `additionalContext`, but that carries no `allowed-tools`, `references/`, `!` autorun, or Skill registration. See `building-skills.md` for the `disable-model-invocation` flag.
 

@@ -6,9 +6,9 @@ On every UserPromptSubmit this does two jobs:
 - Deterministic, no LLM: typed mode-commands map straight to control state
   (/propose /execute force STATE; /orchestrate /build /interview force MODE, with
   /orchestrate and /build also entering the executing state; /commit forces a
-  commit), persisted to the session spine and echoed as the matching skill-load
+  commit), persisted to session state and echoed as the matching skill-load
   directive. Every other typed /skill is matched against the skills and commands
-  on disk and echoed as a head-anchored reload directive.
+  on disk and echoed as a head-anchored directive to use it.
 
 - One LLM call: classify the message intent (question | correction | action),
   whether a question also carries action items, whether its steps are ordered,
@@ -28,7 +28,7 @@ import os
 import re
 import sys
 
-from lib import feedback, transcript
+from lib import feedback, frontmatter, transcript
 from lib.event import field, read_event
 from lib.model_call import run_model
 from lib.session_mode import is_dispatched, resolve
@@ -111,26 +111,26 @@ def directive(forced_state, forced_mode, governing_mode=None):
     the skills a live session is still gated by.
 
     The mode line names `governing_mode` — what lib.session_mode.resolve answers
-    for this event after the write landed — so the skill the agent loads and the
+    for this event after the write landed — so the skill the agent uses and the
     mode the gates enforce are read off one policy. Announcing the typed word
-    instead let a turn that typed only /execute reload the previous mode's skill.
+    instead let a turn that typed only /execute name the previous mode's skill.
     """
     if governing_mode is None:
         governing_mode = forced_mode
     out = ""
     if forced_state == "execute":
-        out = ("This is an executing-state turn. Load the /execute skill now and "
-               "work under its contract: implement the approved work, and the moment "
-               "it needs an architectural change, stop and escalate with /pcc.")
+        out = ("This is an executing-state turn. Use /execute now and work under its "
+               "contract: implement the approved work, and the moment it needs an "
+               "architectural change, stop and escalate with /pcc.")
     elif forced_state == "propose":
-        out = ("This is a proposing-state turn. Load the /propose skill now and "
-               "produce the proposal under its contract.")
+        out = ("This is a proposing-state turn. Use /propose now and produce the "
+               "proposal under its contract.")
     if forced_mode == "interview":
-        out = ("This is an interview turn. Load the interview skill now and interview "
-               "the architect under its contract.")
+        out = ("This is an interview turn. Use /interview now and interview the "
+               "architect under its contract.")
     mode_line = {
-        "orchestrate": "Load the /orchestrate skill now.",
-        "build": "Load the /build skill now.",
+        "orchestrate": "Use /orchestrate now.",
+        "build": "Use /build now.",
     }.get(governing_mode, "")
     if mode_line:
         out = (out + "\n\n" + mode_line) if out else mode_line
@@ -146,7 +146,7 @@ WRITE_FAILED_NOTICE = ("The typed command could not be applied: the session stat
 
 # --- typed skills (deterministic) ----------------------------------------------
 
-_SKILLS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "skills")
+SKILLS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "skills")
 _COMMANDS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "commands")
 
 # The mode/commit commands above carry richer state/mode directives; the
@@ -160,7 +160,7 @@ _SKILL_TOKEN = re.compile(r"(?:^|\s)/([a-z][a-z0-9-]*)")
 
 def _available_skills():
     names = set()
-    for directory, suffix in ((_SKILLS_DIR, None), (_COMMANDS_DIR, ".md")):
+    for directory, suffix in ((SKILLS_DIR, None), (_COMMANDS_DIR, ".md")):
         try:
             entries = os.listdir(directory)
         except OSError:
@@ -177,25 +177,17 @@ def _available_skills():
 def _skill_disables_model_invocation(name):
     """True when skills/<name>/SKILL.md sets `disable-model-invocation: true`.
 
-    Such a skill loads only via the harness slash-dispatch when the user types
-    `/<name>`; the Skill tool refuses it. The reload directive routes the model
+    Such a skill reaches context only via the harness slash-dispatch when the user
+    types `/<name>`; the Skill tool refuses it. The directive routes the model
     through the Skill tool, so for these skills it dead-ends on a failing call —
     skip it. Commands (no SKILL.md) never carry the flag, so they're unaffected.
     """
     try:
-        with open(os.path.join(_SKILLS_DIR, name, "SKILL.md"), encoding="utf-8") as fh:
-            lines = fh.read().splitlines()
+        with open(os.path.join(SKILLS_DIR, name, "SKILL.md"), encoding="utf-8") as fh:
+            declared = frontmatter.declared(fh.read(), "disable-model-invocation")
     except OSError:
         return False
-    if not lines or lines[0].strip() != "---":
-        return False
-    for line in lines[1:]:
-        if line.strip() == "---":
-            return False
-        match = re.match(r"disable-model-invocation:\s*(.+)$", line)
-        if match:
-            return match.group(1).strip().strip("'\"").lower() == "true"
-    return False
+    return (declared or "").lower() == "true"
 
 
 def typed_skills(prompt):
@@ -214,10 +206,21 @@ def typed_skills(prompt):
 
 
 def skills_directive(skills):
-    each = "it" if len(skills) == 1 else "each"
-    return ("The architect typed %s this turn. Load %s now via the Skill tool, before "
-            "anything else — even if already loaded earlier this session; reload for a "
-            "fresh copy so its contract governs this turn." % (", ".join(skills), each))
+    """The order that puts the agent back on a Skill, whatever asked for it.
+
+    The Skill is named the way anyone names one, `/<name>`, because that is how
+    every Prompt in this repository refers to a Skill and the agent needs no other
+    handle. A second use answers `instructions unchanged` rather than the text,
+    which is the harness saying the Process is still in the conversation: what the
+    order buys is the agent going back to it, not the bytes arriving twice.
+
+    An order only. Naming who typed it, or how far the session has run since, hands
+    the agent a fact where an instruction belongs. reload_stale_skills emits this
+    same sentence, so one wording covers both callers.
+    """
+    contract = "its contract governs" if len(skills) == 1 else "their contracts govern"
+    return ("Use %s now, before anything else, so %s this turn."
+            % (", ".join(skills), contract))
 
 
 # --- intent contracts ----------------------------------------------------------
@@ -343,7 +346,7 @@ def main():
     # A dispatched agent gets its task from its dispatcher, not from a typed
     # command, so it is skipped. The architect's hand-managed teammates are not
     # dispatched — they carry an agentId and nothing else — and skipping those
-    # dropped every mode command they typed, leaving the spine on the mode the
+    # dropped every mode command they typed, leaving session state on the mode the
     # roster declared while the statusline showed what he asked for.
     if not session_id or is_dispatched(event):
         return 0
@@ -391,7 +394,7 @@ def main():
     else:
         context = WRITE_FAILED_NOTICE if (forced_state or forced_mode or forced_commit) else ""
 
-    # Every other typed /skill: a head-anchored reload directive, leading the block.
+    # Every other typed /skill: a head-anchored order to use it, leading the block.
     typed = typed_skills(scanned)
     if typed:
         skills_block = skills_directive(typed)

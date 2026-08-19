@@ -6,7 +6,7 @@ script. It leaves the named tools (codex, codex-run, trace, git, uv/pytest, npm)
 running, and never blocks *writing* a script outside that tree: it allows the
 write and emits a heads-up that execution is blocked.
 
-Each case calls the hook's main() against an isolated proposing-state spine and
+Each case calls the hook's main() against an isolated proposing-state record and
 asserts the return code (2 = blocked, 0 = allowed). The guard resolves its session
 from os.environ at call time, so a seeded environment and a direct call prove what
 a spawn proves; the spawned exit code is pinned once in
@@ -28,7 +28,7 @@ REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 
 @pytest.fixture
 def proposing(tmp_path, monkeypatch):
-    """Pin the governing session to propose on the spine, the way the guard reads it.
+    """Pin the governing session to propose in session state, the way the guard reads it.
 
     The guard resolves the session through lib.event.owner_session, which prefers
     CLAUDE_CODE_SESSION_ID over the payload's session_id, so the id has to be in the

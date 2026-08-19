@@ -16,8 +16,8 @@ else: correctness of the reply is judged from the reply, not the session.
 The Stop event's Rules, batched into one model call, and the turn's own facts pick
 which ones it carries — a Rule the turn cannot produce never reaches the judge,
 rather than shipping with a Condition the judge has to apply to itself. Intent
-comes off the spine where classify_intent stored it, mode and state off the same
-spine.
+comes off session state where classify_intent stored it, mode and state off the
+same record.
 
 allow=false raises a non-halting concern carrying the offending Rule; the response
 contract that concern arrives with belongs to feedback.raise_concern's Stop
@@ -409,7 +409,7 @@ def main():
     # axes, and a codex run launched by Claude reads the launcher's. `state` already
     # resolves that session, so intent and the commit flag are read from the same
     # record — split across two sessions they can disagree about one turn.
-    spine = load_state(owner_session(event))
+    governing = load_state(owner_session(event))
     current_state = state(event)
 
     # The one gate that decides alone, ahead of any model call. It rules on wording
@@ -444,7 +444,7 @@ def main():
         return 0
 
     # Wrapping up: the commit is the deliverable, not the message.
-    if spine.get("commit_requested"):
+    if governing.get("commit_requested"):
         return 0
 
     # The architect's own last message, resolved by speaker. The newest `user`
@@ -452,7 +452,7 @@ def main():
     # gate's own feedback replayed back — and judging the reply against one of
     # those is how a question he did ask reads as unanswered.
     request = transcript.clamp(transcript.architect_request(recs))
-    intent = spine.get("intent") or "action"
+    intent = governing.get("intent") or "action"
     # The state axis holds a main session's writes back while it proposes; mode
     # holds a dispatched or orchestrating agent's. Either way the agent could not
     # have edited or run a check this turn.
@@ -913,7 +913,7 @@ def _rules(intent, current_state, mode, can_write=True,
 
 def _turn_facts(intent, current_state, mode, can_write,
                 permission="", forwarded="", unsettled=""):
-    """What this turn is, read off the spine rather than re-derived from the text.
+    """What this turn is, read off session state rather than re-derived from the text.
 
     Every line is a fact, never an instruction: a judge that faults the agent for
     not editing or not running a check writes that into `reason`, and `reason` is

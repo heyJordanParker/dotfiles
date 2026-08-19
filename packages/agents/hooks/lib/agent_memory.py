@@ -19,24 +19,15 @@ quietly become permission, so a definition that exists and cannot be read denies
 A *grant* inverts only the last part — unreadable withholds it, because a grant
 has to be read to be given.
 
-Matching scripts/frontmatter.py is the point of the parsing here. That module is
-this repository's frontmatter precedent and it unquotes a matching pair of
-quotes, so `memory: "none"` and `memory: 'none'` are valid spellings of the same
-declaration and are honoured as such. A trailing `# comment` is stripped too —
-frontmatter.py does not do that, but reading `none # one-shot` as anything other
-than a denial would be the exact failure this module exists to stop. Widening
-what counts as a denial is safe; widening what counts as permission is not.
-
-Scans the frontmatter block directly rather than importing frontmatter.py
-itself: that module is a build-time dependency of sync.py and is never stowed to
-~/.agents, where both gates run from.
+Reading the block belongs to `lib.frontmatter`, which every definition file in
+this repository is read through. What stays here is what only this module knows:
+which key means a restriction, which means a grant, and what an unreadable
+definition answers for each.
 """
 
 import os
-import re
 
-# scripts/frontmatter.py's key pattern, so the two agree on what a key line is.
-_KEY = re.compile(r"^([A-Za-z_][\w-]*):\s?(.*)$")
+from lib import frontmatter
 
 # The environment variable carrying the running agent's definition path into a
 # codex run. Named here because both ends read declarations through this module:
@@ -116,7 +107,7 @@ def _declares(path, key, value, unreadable):
         return unreadable
     if text is None:
         return False
-    declared = _declared(text, key)
+    declared = frontmatter.declared(text, key)
     return declared is not None and declared.lower() == value
 
 
@@ -144,7 +135,7 @@ def declaration(path, key):
             "read the %s declaration through its own reader, which decides what "
             "an unreadable definition means" % key)
     text = _read(path)
-    return None if text is None else _declared(text, key)
+    return None if text is None else frontmatter.declared(text, key)
 
 
 def _read(path):
@@ -156,26 +147,3 @@ def _read(path):
         return None
 
 
-def _declared(text, key):
-    """The value `key` carries in the frontmatter block, or None."""
-    lines = text.splitlines()
-    if not lines or lines[0].strip() != "---":
-        return None
-    for line in lines[1:]:
-        if line.strip() == "---":
-            return None
-        match = _KEY.match(line)
-        if match and match.group(1) == key:
-            return _value(match.group(2))
-    return None
-
-
-def _value(rest):
-    rest = rest.strip()
-    if len(rest) >= 2 and rest[0] in "'\"":
-        # The scalar is what sits between the quotes; anything after the closing
-        # quote (`"none"  # one-shot`) is not part of it.
-        close = rest.find(rest[0], 1)
-        if close > 0:
-            return rest[1:close].strip()
-    return rest.split("#", 1)[0].strip()

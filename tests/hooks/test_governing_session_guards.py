@@ -7,8 +7,8 @@ run is read-only too. The launching session's id is inherited in the environment
 hook payload, with no classified mode of its own.
 
 Both guards resolve the governing session through lib.event.owner_session, which
-reads os.environ at call time. The cases pin the governing session to proposing on
-the spine and give the run its own distinct session id, seeded to the opposite
+reads os.environ at call time. The cases pin the governing session to proposing in
+session state and give the run its own distinct session id, seeded to the opposite
 state — and assert the edit is blocked anyway, because the governing session
 governs. `monkeypatch.setenv` plus a direct `main()` call proves exactly what a
 spawned process proves, so the proposal guard runs in-process here. The commit
@@ -38,7 +38,7 @@ RUN_OWN_SID = "codex_run_own_session"
 
 @pytest.fixture
 def governing_proposing(tmp_path, monkeypatch):
-    """Pin the launching (governing) session to proposing on the spine, and export
+    """Pin the launching (governing) session to proposing in session state, and export
     its id as CLAUDE_CODE_SESSION_ID — the way a codex run inherits its launcher's
     identity.
 

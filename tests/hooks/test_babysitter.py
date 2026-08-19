@@ -13,7 +13,7 @@ import pytest
 
 
 @pytest.fixture
-def spine_root(tmp_path, monkeypatch):
+def state_root(tmp_path, monkeypatch):
     root = tmp_path / "claude"
     monkeypatch.setenv("CLAUDE_DATA_ROOT", str(root))
     return root
@@ -32,14 +32,14 @@ def _payload(prompt_msg, sid="bs1"):
             "transcript_path": "", "cwd": ""}
 
 
-def test_allows_when_model_allows(monkeypatch, spine_root, capsys):
+def test_allows_when_model_allows(monkeypatch, state_root, capsys):
     rc, out, err = _run(monkeypatch, capsys, _payload("here is a concrete proposal"),
                         {"allow": True})
     assert rc == 0
     assert out == "" and err == ""
 
 
-def test_blocks_when_model_blocks(monkeypatch, spine_root, capsys):
+def test_blocks_when_model_blocks(monkeypatch, state_root, capsys):
     # A concern is non-halting: exit 0 with the model's reason wrapped in a
     # systemMessage on stdout, not a stderr block.
     rc, out, err = _run(monkeypatch, capsys, _payload("we should add a backend factory"),
@@ -55,7 +55,7 @@ def test_blocks_when_model_blocks(monkeypatch, spine_root, capsys):
 
 
 
-def test_agent_session_is_skipped(monkeypatch, spine_root, capsys):
+def test_agent_session_is_skipped(monkeypatch, state_root, capsys):
     rc, _, _ = _run(monkeypatch, capsys, _payload("anything", sid="agent-x"),
                     {"allow": False})
     assert rc == 0

@@ -472,7 +472,7 @@ def _alive(pid):
 def _output_paths():
     """The (answer, events, record) triple for one run, sharing a stem.
 
-    Resolves the session through the spine exactly as model_call._record does;
+    Resolves the session through session state exactly as model_call._record does;
     falls back to /tmp when there is no valid session (the same no-session
     fallback spirit — the runner must still surface its files). The pid +
     high-resolution timestamp stem is unique per parallel invocation, which is
@@ -494,7 +494,7 @@ def _resolve_output_dir():
 
 
 def _transcript_path():
-    """The Claude transcript for this session, recorded by the session-state spine."""
+    """The Claude transcript for this session, recorded by the session-state store."""
     try:
         with open(os.path.join(_resolve_output_dir(), "transcript"), encoding="utf-8") as fh:
             return fh.read().strip()

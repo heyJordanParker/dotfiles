@@ -5,7 +5,7 @@ description: Buyer discovery — run the discover pass on the audience axis: who
 
 # Discover Audience
 
-Run the discover Process (`skills/discover/SKILL.md`) on the audience axis. Subject: the market thread. The base owns the sweep, the page gate, the trust check, the observed-facts-only rule, and the write into `research/<subject>/discovery/`. This skill adds only the audience axis below.
+Run /discover on the audience axis. Subject: the market thread. The base owns the sweep, the page gate, the trust check, the observed-facts-only rule, and the write into `research/<subject>/discovery/`. This skill adds only the audience axis below.
 
 Inputs: the population the product serves, stated as people, from the research `Brief.md`. Excluded: owner facts, product facts, competitor records, any persona or target buyer, and any handed-in problem — the buyer and the problems are research outputs, and a guess handed in as input biases the whole thread.
 

@@ -1,6 +1,7 @@
 ---
 name: delegate
 description: Framework for dispatching one-shot Subagents that complete a Task and return. Covers Prompting (WHY -> WHAT -> HOW), the Story/Business/Goal/Verification/Process Prompt Template, Verification, Evidence, and Orchestrator-side ranking. TRIGGER when dispatching, resuming, or judging Subagents, when Orchestration needs the dispatch Prompt Template, or when the Architect says "/delegate this to ...". DO NOT TRIGGER for work the Agent does itself with no Subagents; use /build.
+reload-every: 20 turns
 ---
 
 # Delegate

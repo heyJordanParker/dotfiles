@@ -1,7 +1,8 @@
 ---
 name: execute
 description: |
-  Mandatory contract for every executing-state turn. Loads automatically when the session state is executing — the classifier injects "load /execute" on every executing turn. Implements the work the Architect approved; when that work needs an Architectural change, stop and escalate instead of deciding. TRIGGER on every executing-state turn — the classifier mandates this. DO NOT TRIGGER for proposing turns (that loads /propose) or auto turns.
+  Mandatory contract for every executing-state turn. The classifier names it when the Architect types /execute, and every 30 turns after that while the session is executing. Implements the work the Architect approved; when that work needs an Architectural change, stop and escalate instead of deciding. TRIGGER on every executing-state turn — the classifier mandates this. DO NOT TRIGGER for proposing turns (that is /propose) or auto turns.
+reload-every: 30 turns
 ---
 
 # Execute

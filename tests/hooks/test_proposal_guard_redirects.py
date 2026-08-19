@@ -31,7 +31,7 @@ REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 
 @pytest.fixture
 def proposing_state(tmp_path, monkeypatch):
-    """Pin the governing session to propose on the spine, the way the guard reads it.
+    """Pin the governing session to propose in session state, the way the guard reads it.
 
     The guard resolves the session through lib.event.owner_session, which prefers
     CLAUDE_CODE_SESSION_ID over the payload's session_id, so the id has to be in the

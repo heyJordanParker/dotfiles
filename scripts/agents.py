@@ -15,9 +15,17 @@ founding one. Both artifacts are gitignored; this regenerates them.
 
 import glob
 import os
+import sys
 
-import files
-import frontmatter
+# The frontmatter reader lives with the hooks, so one definition of a declaration
+# serves this generator and the gates that run from ~/.agents. Inserted before the
+# import because a module-level import resolves at import time, and this module
+# runs standalone as well as through sync.py.
+sys.path.insert(0, os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "packages", "agents", "hooks"))
+
+import files  # noqa: E402
+from lib import frontmatter  # noqa: E402
 
 
 def generate(agents_dir):
@@ -134,7 +142,6 @@ def _write(path, text):
 
 
 if __name__ == "__main__":
-    import sys
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     packages = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "packages")
     written = generate(os.path.join(packages, "agents", "agents"))

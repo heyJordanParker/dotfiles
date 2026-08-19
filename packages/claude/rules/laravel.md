@@ -3,8 +3,8 @@ paths: "**/*.php"
 ---
 
 IF the project is Laravel:
-### Load /laravel proactively
-Load the /laravel Skill.
+### Use /laravel proactively
+Use /laravel.
 
 ### Match project patterns first
 Consistency outranks correctness. Match existing project patterns before applying any Rule.

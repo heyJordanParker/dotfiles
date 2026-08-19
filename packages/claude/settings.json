@@ -553,6 +553,10 @@
           },
           {
             "type": "command",
+            "command": "python3 ~/.agents/hooks/reload_stale_skills.py"
+          },
+          {
+            "type": "command",
             "command": "python3 ~/.agents/hooks/remember_architect_message.py",
             "timeout": 10
           },

@@ -1,6 +1,7 @@
 ---
 name: orchestrate
 description: The orchestrate mode's contract. You own the Architecture and spend your whole capacity on it — Subagents make every change, and you validate what they return with read-only checks. TRIGGER when the session enters orchestrate mode, on the /orchestrate command, and when orchestrate mode is re-injected after compaction. DO NOT TRIGGER for build mode, where the Agent does the work itself with no Subagents (that is /build).
+reload-every: 20 turns
 ---
 
 # Orchestrate
