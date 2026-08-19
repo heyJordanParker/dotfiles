@@ -61,9 +61,9 @@ Template:
 ### Order the changes in the prose by overall User impact
 When the body carries more than one change, the change with the largest effect on the User comes first, and the rest follow in decreasing impact.
 
-### Write the commit message without self-reference
-The message names the change, not the Agent that made it.
-Never: `I added the feature`, `we fixed it`, or `Claude updated the files`.
+### Write the commit message without self-reference or Claude attribution
+The message names the change, not the Agent that made it, and ends at the file tree.
+Never: `I added the feature`, `we fixed it`, `Claude updated the files`, a `Claude-Session:` trailer, or a `Co-Authored-By: Claude` line.
 
 ### Group multi-concern commits by area
 Use bullets only when a commit has more than one concern.
