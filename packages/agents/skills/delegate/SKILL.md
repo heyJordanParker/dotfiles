@@ -140,7 +140,7 @@ Further resumes buy guesses. Dispatch a debugger to capture the failing artifact
 ## 5. Verify, hold the Goal, and orchestrate
 
 ### Preserve Context for coordination
-Context spent on the work is Context not held for the big picture. Doing a Task yourself, or reading a wide diff yourself, is why the Task goes to a Subagent.
+Context spent on the work is Context not held for the big picture. Doing a Task yourself, or reading a wide diff yourself, is why the Task goes to a Subagent. The Review is the one exception, and /review owns it: you read the changeset there, because a merge of reports nobody checked is not a Review.
 
 IF the Decision a dispatch rests on is still open with the Architect:
 ### Hold the dispatch until the Decision closes
