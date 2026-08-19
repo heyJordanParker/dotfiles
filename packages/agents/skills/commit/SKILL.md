@@ -36,7 +36,7 @@ Name the files that do not belong, then wait for the Architect before staging or
 
 ## 3. Write and commit the message
 
-Write the message in the shape below, match recent commit style, then commit with it. The Architect can amend after with `git commit --amend`.
+Write the message in the shape below to a file, match recent commit style, then `git commit -F` it.
 
 ### Describe the staged changeset, not your own work
 Other Agents work the same branch, so the staged diff is larger than your Context. Write the message from the step-1 diff, covering every staged change equally. Run `trace diff` and read any staged change you do not recognize before writing a word about it.
