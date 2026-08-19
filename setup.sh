@@ -100,6 +100,12 @@ fi
 # which cold-launches it in the foreground and takes focus from the frontmost app.
 printf '#!/bin/sh\nexec /Applications/OrbStack.app/Contents/MacOS/bin/orbctl start\n' > /Applications/Docker.app/Contents/MacOS/Docker
 chmod +x /Applications/Docker.app/Contents/MacOS/Docker
+# Lando resolves docker from the bundle first and PATH second; without this
+# file a thin PATH (launchd, cron, env -i) reads as "no engine" and lando
+# auto-runs `lando setup`, which installs Docker Desktop over the stub.
+mkdir -p /Applications/Docker.app/Contents/Resources/bin
+printf '#!/bin/sh\nexec /Applications/OrbStack.app/Contents/MacOS/xbin/docker "$@"\n' > /Applications/Docker.app/Contents/Resources/bin/docker
+chmod +x /Applications/Docker.app/Contents/Resources/bin/docker
 
 echo "==> Linking dotfiles & syncing generated files..."
 # All repo maintenance — the stow package->target mapping, restow, and the
