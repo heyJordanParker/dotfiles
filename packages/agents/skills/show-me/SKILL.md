@@ -47,9 +47,24 @@ Bars show ranking and proportion before a single number is read.
 Two axes crossing, one mark per cell, nothing else.
 Never: a word, a count, or a path in a cell. Content past marks belongs to the view that owns it — a per-item detail to the tree, a movement to the diagram, a change to the diff.
 
+### Let a table column hold a mark or an option row only
+A column past the label carries `○`/`●` state, a `yes`/`no`, or options separated by `vs`. The eye reads it in one glance, never as text.
+Example:
+  ```
+                   Claude   codex
+  skills inline      ●        ●
+  hooks wired        ●        ○
+  rules loaded       ●        ○
+  ```
+Never: a path on the left and a sentence on the right — that is a file tree whose annotations grew into prose.
+
 ### Show the highest-leverage view that answers
 Views rank by altitude, and Architecture sits above code: a tree, diagram, signature, or chain answers an Architectural question, and code lines answer a code question. Show the highest view that carries the answer whole. Drop to code lines when the Decision lives in the exact lines — a defect in them, a subtle behavior no higher view carries, or wording under review.
 Never: code lines answering a question a higher view already answers, or code quoted as proof that work happened.
+
+IF the reply compares two or more options:
+### Run /pcc before writing the options
+/pcc filters the options, ranks confidence, and owns the one option format. Its filter can leave one option, and then the reply presents it directly with no options block.
 
 ### Use markers only when the symbol carries meaning
 `○` and `●` carry checklist state, `↔` carries a relationship where both sides affect each other, and `=`, `≠`, `≈`, `≤`, `≥`, `±`, `×` carry a relation or formula. No other symbol earns a place.
@@ -73,6 +88,10 @@ Template:
 ### Mark changed files with `*`
 A changed file gets `*` suffix. An unchanged file gets a plain role annotation and no status prefix. Skip irrelevant files entirely.
 Never: `KEEP:`, `REMOVE:`, `PRESERVE:`, `* new`, or `existing,` prefixes.
+
+### Move an annotation past nine words out of the tree
+A row keeps its name and a note under nine words. What the note cannot hold goes to the Decision that owns it, as a diff, a signature, or one prose sentence above the tree.
+Never: a tree row wrapped onto a second line, or a note with a semicolon in it.
 
 ### Match annotations to the purpose
 Overview annotations name responsibility. Feature annotations name data movement. Debugging annotations name dependency or failure location. When the row's name already carries that, the annotation carries the reason instead — why the file exists, why it changed, why it stays.
