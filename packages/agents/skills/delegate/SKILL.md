@@ -152,8 +152,8 @@ the same on the page. Open the diff and the files it names, then read the report
 against them and open its screenshots.
 Thin Evidence and a screenshot that does not show what the report claims go back to the same
 Subagent, naming the failed item. For a reported symptom, Evidence must show the symptom's
-own surface, the reporter's page and not a stand-in fixture. /orchestrate's "Measure again"
-owns the attack on the returned diff.
+own surface, the reporter's page and not a stand-in fixture. /orchestrate's "Judge what
+arrived" owns the attack on the returned diff.
 
 Never: dispatch any Subagent to re-verify a completed work item, as in "the screenshots look
 thin, let me have the tester confirm it".
@@ -163,7 +163,7 @@ IF a second Subagent is running on the surface you are about to correct:
 ### Stop it before sending the correction
 Two live Subagents on one surface collide: each overwrites what the other wrote. Stopping the duplicate abandons its Task, so record the abandonment, then send the correction to the one Owner.
 
-IF the Architect gives feedback on a thing the Orchestrator owns:
+IF the Architect's words hold and change a thing the Orchestrator owns:
 ### Translate owned feedback into the dispatch
 The Goal, the Architecture, and coordination are the Orchestrator's. Fold the feedback
 into the Goal and Architecture blocks. A correction to work in flight rides a resume; a
