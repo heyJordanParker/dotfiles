@@ -53,6 +53,10 @@ def main():
     # A prior Stop block this turn already forced a rewrite; never loop.
     if field(event, "stop_hook_active", False):
         return 0
+    # The harness hands the reply text directly (the field babysitter.py reads);
+    # a non-empty reply is the whole answer, with no transcript flush to race.
+    if field(event, "last_assistant_message", "").strip():
+        return 0
     path = field(event, "transcript_path", "")
     for attempt in range(REREADS):
         if _turn_allows(path):

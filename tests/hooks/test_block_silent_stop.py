@@ -5,10 +5,10 @@ import subprocess
 from conftest import PY_HOOKS
 
 
-def _run(transcript_path):
+def _run(transcript_path, **event):
     return subprocess.run(
         ["python3", os.path.join(PY_HOOKS, "block_silent_stop.py")],
-        input=json.dumps({"transcript_path": transcript_path}),
+        input=json.dumps({"transcript_path": transcript_path, **event}),
         text=True,
         capture_output=True,
     )
@@ -26,6 +26,23 @@ def test_blocks_turn_that_ran_tools_and_wrote_no_text(write_transcript):
     result = _run(path)
 
     assert result.returncode == 2
+
+
+def test_allows_reply_delivered_on_the_event(write_transcript):
+    # The second live false-fire, 2026-08-21 09:49: the reply existed only in
+    # the event's last_assistant_message while the transcript still ended on a
+    # tool call. The event field is the whole answer.
+    path = write_transcript([
+        {"type": "user", "message": {"role": "user", "content": "status?"}},
+        {"type": "assistant", "message": {"role": "assistant", "stop_reason": "tool_use", "content": [
+            {"type": "tool_use", "id": "t1", "name": "Bash",
+             "input": {"command": "true"}},
+        ]}},
+    ])
+
+    result = _run(path, last_assistant_message="The gate is green.")
+
+    assert result.returncode == 0
 
 
 def test_allows_reply_whose_text_record_has_not_flushed(write_transcript):
