@@ -313,7 +313,7 @@ def redirects_output(command):
     if lines is None:
         return None
     return any(">" in t and all(c in ">&" for c in t)
-               for line in lines for t in tokenize(line))
+               for line, _ in lines for t in tokenize(line))
 
 
 def all_segments(command):
@@ -331,7 +331,7 @@ def all_segments(command):
     if lines is None:
         return None
     found = []
-    for line in lines:
+    for line, _ in lines:
         found.extend(segments(line))
     return found
 
@@ -354,20 +354,26 @@ def invocations(command):
     if lines is None:
         return None
     found = []
-    for line in lines:
+    for line, _ in lines:
         for words in segments(line):
             found.extend(_expand(words, 0))
     return found
 
 
-def _lines(command, depth):
-    """This command line and every shell script nested inside it.
+def _lines(command, depth, remote=False):
+    """This command line and every shell script nested inside it, as
+    `(line, remote)` pairs.
 
     A shell around a `-c` string is transport, not a command: codex hands every
     shell call over as `["/bin/zsh", "-lc", "<command>"]`, so a guard that judged
     the wrapper would refuse a read-only agent its whole shell on that harness
     while allowing the same command on Claude. The script is what runs, so it
     becomes a line of its own and the wrapper stops being a command.
+
+    `remote` marks a line that runs on another machine — a line `_remote_scripts`
+    lifted out of an ssh, and everything nested inside it. The write guards judge
+    every line alike, but composition is judged per machine, and the tag is what
+    lets `composition_refusal` tell the two apart.
 
     A segment that hands its work to something outside the string — inline runtime
     code, or a script file that is not our own tooling — leaves the real command
@@ -377,17 +383,18 @@ def _lines(command, depth):
     segs = _split(command)
     if segs is None:
         return None
-    lines = [command]
+    lines = [(command, remote)]
     if depth >= _MAX_DEPTH:
         return lines
     for words, piped in segs:
         if hides_execution(words, piped):
             return None
         script = _shell_script(words)
-        nested_lines = ([script] if script is not None else []) \
-            + _remote_scripts(words) + _exec_scripts(words)
-        for inner in nested_lines:
-            nested = _lines(inner, depth + 1)
+        nested_lines = [(s, remote) for s in ([script] if script is not None else [])] \
+            + [(s, True) for s in _remote_scripts(words)] \
+            + [(s, remote) for s in _exec_scripts(words)]
+        for inner, inner_remote in nested_lines:
+            nested = _lines(inner, depth + 1, inner_remote)
             if nested is None:
                 return None
             lines.extend(nested)
@@ -453,7 +460,18 @@ def _shell_script(words):
             # and the flag is what makes that command a write.
             while rest and rest[0].startswith("-"):
                 rest = rest[1:]
-            return " ".join(rest) if rest else None
+            if not rest:
+                return None
+            # One token is Claude's shape — the whole script in one quoted word —
+            # and its content is the line, lossless. More tokens is the codex
+            # join, where posix tokenizing already consumed the quotes: a bare
+            # re-join turned `ssh prod 'cd /srv && ls'` into a local `&&`, so
+            # quoting is restored per token. Operator tokens stay bare so a
+            # nested redirect still reads as one.
+            if len(rest) == 1:
+                return rest[0]
+            return " ".join(w if w and all(c in _PUNCTUATION for c in w)
+                            else shlex.quote(w) for w in rest)
     return None
 
 
@@ -707,13 +725,22 @@ def composition_refusal(command):
     Reads the line and every shell script nested inside it, so a chain inside
     `zsh -lc` answers exactly as a chain typed directly — which is the shape codex
     sends every command in.
+
+    Composition is judged per machine: a line that runs over ssh is exempt,
+    because a remote session's state dies with the call, so a chain there cannot
+    be split into calls the way a local one can — the exported variable the next
+    step needs is gone. The write guards still read remote lines through
+    `all_segments` and `invocations`, and a remote string this reader cannot
+    parse still refuses as None here.
     """
     lines = _lines(command, 0)
     if lines is None:
         return ("this line hides what it runs, or cannot be parsed. Inline code, a "
                 "script that is not our own tooling, and an unbalanced quote each "
                 "leave the real command unknowable")
-    for line in lines:
+    for line, remote in lines:
+        if remote:
+            continue
         if _HEREDOC.search(line):
             return ("a heredoc carries a whole file inside a command. Write the file "
                     "with the Write tool, and pass its path")

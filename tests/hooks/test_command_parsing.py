@@ -188,6 +188,9 @@ def test_command_head_agrees_with_the_first_invocation():
     # codex hands every shell call over wrapped, so the composition sits one
     # level in and the outer line looks like a single command.
     "/bin/zsh -lc 'cd /tmp && ls'",
+    # The `&&` sits outside the quotes, so it chains two local steps and the
+    # ssh exemption does not reach it.
+    "ssh prod uptime && echo done",
 ])
 def test_a_line_carrying_more_than_one_step_is_refused(line):
     assert composition_refusal(line) != ""
@@ -207,9 +210,24 @@ def test_a_line_carrying_more_than_one_step_is_refused(line):
     "rg 'a && b' README.md",
     "git commit -m 'add x; drop y'",
     "echo 'one | two'",
+    # Composition is judged per machine: a remote session's state dies with the
+    # call, so a chain over ssh cannot be split into calls.
+    "ssh prod 'export PGPASSWORD=$(grep DB .env | cut -d= -f2) && psql -c \"\\dt\"'",
+    # The same remote chain in codex's shape: the harness sends the shell call as
+    # a list that command_str joins with spaces, so the wrapper's own quoting is
+    # gone and only the payload's survives.
+    "/bin/zsh -lc ssh prod 'cd /srv && ls'",
 ])
 def test_a_single_step_line_is_allowed(line):
     assert composition_refusal(line) == ""
+
+
+def test_a_remote_line_is_exempt_from_composition_but_still_read():
+    """Composition is judged per machine; the write guards are judged everywhere.
+    The exemption must never take the remote `rm` away from `invocations`."""
+    line = "ssh prod 'rm -rf /srv && systemctl restart app'"
+    assert composition_refusal(line) == ""
+    assert "rm" in heads(line)
 
 
 def test_a_line_hiding_its_own_program_is_refused():
