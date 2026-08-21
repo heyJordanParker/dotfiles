@@ -603,6 +603,7 @@
   },
   "alwaysThinkingEnabled": true,
   "effortLevel": "medium",
+  "outputStyle": "Concise",
   "agent": "cto",
   "autoUpdatesChannel": "latest",
   "autoMemoryEnabled": false,

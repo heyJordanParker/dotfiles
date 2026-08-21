@@ -2,7 +2,6 @@
 input=$(cat)
 cwd=$(echo "$input" | jq -r '.workspace.current_dir')
 model=$(echo "$input" | jq -r '.model.display_name')
-style=$(echo "$input" | jq -r '.output_style.name')
 
 # Shorten home directory to ~
 short_dir="${cwd/#$HOME/~}"
@@ -33,9 +32,6 @@ if [ "$model" != "null" ]; then
   clean_model="${model%% (*}"
   model_info=" 󰧑 $clean_model"
 fi
-
-style_info=""
-[ "$style" != "default" ] && [ "$style" != "null" ] && style_info=" [$style]"
 
 # Context usage progress bar (approximates /context output)
 context_size=$(echo "$input" | jq -r '.context_window.context_window_size // 200000')
@@ -210,8 +206,8 @@ fi
 # Line 1: directory + git branch + model
 printf "\033[97m%s\033[0m\033[35m%s\033[0m\033[34m%s\033[0m\n" "$short_dir" "$git_info" "$model_info"
 
-# Line 2: classifier state + style + progress bar
-printf "%b\033[32m%s\033[0m %s\n" "$classifier_status" "$style_info" "$progress_bar"
+# Line 2: classifier state + progress bar
+printf "%b %s\n" "$classifier_status" "$progress_bar"
 
 # Running codex jobs
 if [ -n "$codex_status" ]; then
