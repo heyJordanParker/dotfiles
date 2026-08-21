@@ -43,12 +43,8 @@ A because-chain runs from the problem down to the Architecture that produced it.
 ### Use bars for any count, size, or complexity number
 Bars show ranking and proportion before a single number is read.
 
-### Use a marks grid when every cell is a yes or a no
-Two axes crossing, one mark per cell, nothing else.
-Never: a word, a count, or a path in a cell. Content past marks belongs to the view that owns it — a per-item detail to the tree, a movement to the diagram, a change to the diff.
-
-### Let a table column hold a mark or an option row only
-A column past the label carries `○`/`●` state, a `yes`/`no`, or options separated by `vs`. The eye reads it in one glance, never as text.
+### Use a table only when rows and columns both mean something
+Two axes crossing, one short mark or word per cell: `○`/`●` state, `yes`/`no`, a count, or options separated by `vs`. The information is the match between row, column, and cell, so every axis carries equal weight.
 Example:
   ```
                    Claude   codex
@@ -56,7 +52,7 @@ Example:
   hooks wired        ●        ○
   rules loaded       ●        ○
   ```
-Never: a path on the left and a sentence on the right — that is a file tree whose annotations grew into prose.
+Never: a sentence in a cell, one column carrying more text than the rest combined, or a finding list re-sorted into a grid when nesting carries it.
 
 ### Show the highest-leverage view that answers
 Views rank by altitude, and Architecture sits above code: a tree, diagram, signature, or chain answers an Architectural question, and code lines answer a code question. Show the highest view that carries the answer whole. Drop to code lines when the Decision lives in the exact lines — a defect in them, a subtle behavior no higher view carries, or wording under review.
@@ -337,8 +333,11 @@ Every untouched line stays byte-identical, so the eye lands on the change.
 Never: reformatting, re-wrapping, or re-ordering the lines around the edit.
 
 ### Show one diff per subject
-One diff carries both states. Two blocks side by side make the reader hold four columns at once.
-Never: a before block followed by an after block.
+For text, a tree, or a step list, one diff carries both states. Two blocks side by side make the reader hold four columns at once.
+Never: a before block followed by an after block for a change one diff can carry.
+
+### Draw architecture before and after as two diagrams
+A structural change shows the old shape and the new shape as two labeled block diagrams, before above after. A diff carries changed text only; a reshaped diagram never fits one.
 
 ## 8. Write the text around the view
 

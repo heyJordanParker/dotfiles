@@ -492,6 +492,10 @@
           },
           {
             "type": "command",
+            "command": "python3 ~/.agents/hooks/block_silent_stop.py"
+          },
+          {
+            "type": "command",
             "command": "python3 ~/.agents/hooks/close_abandoned_browsers.py",
             "timeout": 60
           },
