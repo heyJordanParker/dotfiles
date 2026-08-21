@@ -8,12 +8,59 @@ import shlex
 _ASSIGN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 
 
+# Git global options that consume a separate value token, verified against git
+# itself (`--exec-path status` prints and consumes nothing). Every other global
+# option is a single token — joined forms (`--git-dir=/x`, `-cuser.name=x`) and
+# bare flags (`--no-pager`, `-p`, `--bare`) — and skips as a dash-word.
+_GIT_VALUE_OPTS = frozenset(("-C", "-c", "--git-dir", "--work-tree", "--namespace"))
+
+
+def _past_git_options(args):
+    """Index of the first token after git's global options: the subcommand."""
+    i = 0
+    while i < len(args):
+        if args[i] in _GIT_VALUE_OPTS:
+            i += 2
+        elif args[i].startswith("-"):
+            i += 1
+        else:
+            break
+    return i
+
+
 def git_normalize(command):
-    """Strip git global flags that can evade detection (-C/-c <x>, --git-dir=, --work-tree=)."""
-    n = re.sub(r"git\s+-[Cc]\s+\S+", "git", command)
-    n = re.sub(r"git\s+--git-dir=\S+", "git", n)
-    n = re.sub(r"git\s+--work-tree=\S+", "git", n)
-    return n
+    """Rewrite each git segment without its global options, so a guard's
+    `git <subcommand>` pattern reads the real subcommand however the call was
+    spelled — `git -C repo commit`, `git --no-pager reset`. Grammar, not a flag
+    inventory: 6427d59 landed past the inventory this replaced. Redirect tokens
+    stay bare and other words re-quote, so a caller reading redirects or
+    invocations off the result reads them unchanged. An unparseable line
+    returns as it came, the guards' standing treatment for one.
+    """
+    segs = segments(command)
+    if segs is None:
+        return command
+    out = []
+    for words in segs:
+        head, args = head_and_args(words)
+        if head == "git":
+            words = ["git"] + args[_past_git_options(args):]
+        out.append(" ".join(w if is_redirect(w) else shlex.quote(w) for w in words))
+    return " ; ".join(out)
+
+
+def git_subcommand(words):
+    """The subcommand a git segment runs, past every global option.
+
+    `words` is one tokenized segment. "" when the segment does not run git or
+    names no subcommand. `git -C repo commit`, `git --no-pager commit`, and
+    `sudo git -c a=b commit` all answer "commit".
+    """
+    head, args = head_and_args(words)
+    if head != "git":
+        return ""
+    i = _past_git_options(args)
+    return args[i] if i < len(args) else ""
 
 
 # Shell metacharacters shlex surfaces as standalone tokens. The default

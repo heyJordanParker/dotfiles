@@ -11,10 +11,32 @@ import pytest
 from lib.command import (
     command_head,
     composition_refusal,
+    git_normalize,
+    git_subcommand,
     invocations,
     redirects_output,
     segments,
+    tokenize,
 )
+
+
+def test_git_subcommand_resolves_past_global_options():
+    line = "git --no-pager -c user.name=x -C /repo commit -m hi"
+    assert git_subcommand(tokenize(line)) == "commit"
+    assert git_subcommand(tokenize("sudo git --git-dir=/x/.git push")) == "push"
+    assert git_subcommand(tokenize("ls -la")) == ""
+
+
+def test_git_normalize_reads_the_subcommand_past_any_option_spelling():
+    normalized = git_normalize("git --no-pager -c user.name=x -C /repo reset --hard")
+    assert "git reset --hard" in normalized
+
+
+def test_git_normalize_keeps_quoted_redirects_and_real_redirects_apart():
+    line = 'rg "a > b" && cat x > y'
+    normalized = git_normalize(line)
+    assert redirects_output(normalized)
+    assert "'a > b'" in normalized
 
 
 def heads(line):

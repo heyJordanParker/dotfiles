@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Block git commit unless commit_requested is set in session state."""
 
-import re
 import sys
 
 from lib import feedback
+from lib.command import git_subcommand, segments
 from lib.event import command_str, owner_session, read_event
 from lib.session_state import load_state
 
@@ -24,25 +24,23 @@ def main():
     event = read_event()
     command = command_str(event)
 
-    # Strip quoted strings first so echo/printf content can't trip the match.
-    stripped = re.sub(r"(['\"])[^'\"]*\1", "", command)
-    if not re.search(r"(^|[;&|\s])git\s+commit(\s|$)", stripped):
+    # Resolve each segment's git subcommand past every global option — a flag
+    # inventory can be walked around (6427d59 landed past one), the option
+    # grammar cannot. An unparseable line (unbalanced quotes) cannot run in the
+    # shell either, so mentioning commit there gates fail-closed rather than
+    # resurrecting a weaker scanner.
+    segs = segments(command)
+    if segs is not None:
+        if not any(git_subcommand(words) == "commit" for words in segs):
+            return 0
+    elif "commit" not in command:
         return 0
 
     session_id = owner_session(event)
     if not session_id:
         return 0
 
-    data = load_state(session_id)
-    commit_requested = data.get("commit_requested")
-    if commit_requested is None or commit_requested is False:
-        requested = "false"
-    elif commit_requested is True:
-        requested = "true"
-    else:
-        requested = str(commit_requested)
-
-    if requested != "true":
+    if load_state(session_id).get("commit_requested") is not True:
         return feedback.block("block_unauthorized_commits", MSG)
     return 0
 
