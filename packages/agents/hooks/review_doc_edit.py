@@ -7,7 +7,8 @@ artifact edits. The hook assembles the full review context deterministically —
 the post-edit file, its related docs, the diff, and the law itself
 (docs/architecture/Architecture.md, Domain.md, the /cc SKILL.md) — and hands it
 to one `run_model` call. Structural findings (a block outside its allowance,
-its home, its shape, its words, its reader's need, or its one job) block the
+its home, its shape, its words, its plain language, its reader's need, or its
+one job) block the
 edit with exit 2 so the agent fixes and retries in the same turn; the one
 advisory finding (no-disposition-change) is raised as a concern.
 
@@ -63,7 +64,7 @@ SYSTEM_PROMPT = (
     "section that meets a bar, in top-to-bottom order — never a representative subset, "
     "never stop early.\n"
     "\n"
-    "Six STRUCTURAL categories — these go in 'block'. Each states the evidence you must "
+    "Seven STRUCTURAL categories — these go in 'block'. Each states the evidence you must "
     "produce; no evidence, no finding:\n"
     "1. wrong-home — a building block sits in a file whose allowance excludes it: a "
     "Process in an agent file, Rules or vocabulary in a Claude.md, a Frame in a SKILL.md, "
@@ -104,9 +105,14 @@ SYSTEM_PROMPT = (
     "file or a Claude.md — those are collections of Rules and Facts by design, and many "
     "unrelated entries is their normal state. Evidence: name both jobs and quote a line "
     "of each.\n"
+    "7. figurative-language — the added text corrects through a metaphor, analogy, "
+    "idiom, or rhetorical question instead of stating what is. A plain declarative "
+    "sentence using a domain word is NEVER this finding. Evidence: quote the "
+    "figurative sentence AND state it in one plain declarative sentence — if you "
+    "cannot restate it plainly, it is not figurative, no finding.\n"
     "\n"
     "One ADVISORY category — this goes in 'polish':\n"
-    "7. no-disposition-change — the prompt would not change the agent's behavior: it "
+    "8. no-disposition-change — the prompt would not change the agent's behavior: it "
     "states what the agent already knows or would already do unprompted. Evidence: quote "
     "the passage AND name the default behavior or known fact it restates.\n"
     "\n"
