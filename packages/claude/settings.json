@@ -605,9 +605,9 @@
     "dev-browser@dev-browser-marketplace": false,
     "skill-creator@claude-plugins-official": true
   },
+  "outputStyle": "Concise",
   "alwaysThinkingEnabled": true,
   "effortLevel": "medium",
-  "outputStyle": "Concise",
   "agent": "cto",
   "autoUpdatesChannel": "latest",
   "autoMemoryEnabled": false,

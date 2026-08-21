@@ -11,6 +11,8 @@ Codex is excluded the way babysitter.py is: the check is built on Claude's
 turn boundary, which a codex rollout does not carry.
 """
 
+import time
+
 from lib import feedback, transcript
 from lib.event import field, read_event
 
@@ -19,26 +21,44 @@ BINDING = {
     "harness": "claude",
 }
 
+# The reply's records can land on disk AFTER Stop fires — observed twice live on
+# 2026-08-21, the text record 98ms behind the hook. One read cannot separate
+# "ended on a tool call" from "text still in flight", so a would-block re-reads
+# until the flush wins or the retries run out. A truly silent turn never grows
+# text, so retrying costs it nothing but the delay.
+REREADS = 3
+REREAD_DELAY = 0.4
+
+
+def _turn_allows(path):
+    turn = transcript.current_turn(transcript.records(path))
+    ran_tools = False
+    last_stop_reason = ""
+    for record in turn:
+        if record.get("type") != "assistant":
+            continue
+        if transcript.text_of(record).strip():
+            return True
+        message = record.get("message") or {}
+        last_stop_reason = message.get("stop_reason") or ""
+        if transcript.blocks(record, "tool_use"):
+            ran_tools = True
+    # A last assistant record stopped by end_turn proves a final non-tool message
+    # exists even when its text is not on disk yet.
+    return not ran_tools or last_stop_reason == "end_turn"
+
 
 def main():
     event = read_event()
     # A prior Stop block this turn already forced a rewrite; never loop.
     if field(event, "stop_hook_active", False):
         return 0
-    turn = transcript.current_turn(
-        transcript.records(field(event, "transcript_path", "")))
-    ran_tools = False
-    for record in turn:
-        if record.get("type") != "assistant":
-            continue
-        for block in transcript.blocks(record):
-            kind = block.get("type")
-            if kind == "text" and block.get("text", "").strip():
-                return 0
-            if kind == "tool_use":
-                ran_tools = True
-    if not ran_tools:
-        return 0
+    path = field(event, "transcript_path", "")
+    for attempt in range(REREADS):
+        if _turn_allows(path):
+            return 0
+        if attempt < REREADS - 1:
+            time.sleep(REREAD_DELAY)
     return feedback.block(
         "block_silent_stop",
         "This turn ran tools and wrote no reply text, so the architect sees "
