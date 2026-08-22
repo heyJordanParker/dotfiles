@@ -13,6 +13,8 @@ The clock and ISO timestamp shell out to `date` so the test harness's
 PATH-level `date` mock can drive time deterministically.
 """
 
+import contextlib
+import fcntl
 import json
 import os
 import re
@@ -93,30 +95,40 @@ _LOCK_TRIES = 500
 _LOCK_WAIT = 0.01
 
 
-def _with_lock(path):
-    lock_dir = path + ".lock"
-    tries = 0
-    while True:
-        try:
-            os.mkdir(lock_dir)
-            return True
-        except FileExistsError:
-            tries += 1
-            if tries > _LOCK_TRIES:
-                return False
-            time.sleep(_LOCK_WAIT)
-        except Exception:
-            tries += 1
-            if tries > _LOCK_TRIES:
-                return False
-            time.sleep(_LOCK_WAIT)
+@contextlib.contextmanager
+def _locked(path):
+    """Yields True while this process holds the session's write lock, False when
+    it stayed contended for the whole budget.
 
-
-def _release_lock(path):
+    The lock is an `fcntl.flock` on an open file description, which the kernel
+    drops when the holder's process ends — a hook killed mid-write cannot leave
+    one behind. Its predecessor was a lock directory released by hand in a
+    `finally`, and one interrupted hook left a directory that failed every later
+    write to that session for good.
+    """
     try:
-        os.rmdir(path + ".lock")
-    except Exception:
-        pass
+        gate = open(path + ".lock", "a+", encoding="utf-8")
+    except OSError:
+        yield False
+        return
+    try:
+        for _ in range(_LOCK_TRIES):
+            try:
+                fcntl.flock(gate, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                time.sleep(_LOCK_WAIT)
+            except OSError:
+                # Not contention — spinning the whole budget on a broken lock would
+                # stall every hook on the event for five seconds each.
+                yield False
+                return
+        else:
+            yield False
+            return
+        yield True
+    finally:
+        gate.close()
 
 
 def _human_prompt(content):
@@ -260,6 +272,30 @@ def migrate_sessions():
             if updated is not None and _atomic_write(path, _dump(updated)):
                 migrated += 1
     return migrated
+
+
+def clear_stale_locks():
+    """Remove every `state.json.lock` the retired lock-directory scheme left behind.
+
+    The lock is a file now, so a directory at that path is a relic, and it makes the
+    lock file unopenable: `_locked` yields False and the session's state can never be
+    written again. Returns how many were removed; a second run returns 0.
+    """
+    sessions_root = _sessions_root()
+    if not os.path.isdir(sessions_root):
+        return 0
+    cleared = 0
+    for pattern in (os.path.join(sessions_root, "*", "state.json.lock"),
+                    os.path.join(sessions_root, "*", "subagents", "*", "state.json.lock")):
+        for path in sorted(glob(pattern)):
+            if not os.path.isdir(path):
+                continue
+            try:
+                os.rmdir(path)
+            except OSError:
+                continue
+            cleared += 1
+    return cleared
 
 
 def _is_valid_session_id(sid):
@@ -537,10 +573,10 @@ def cmd_set(args):
     if session_dir is None:
         return 1
     state_file = os.path.join(session_dir, "state.json")
-    if not _with_lock(state_file):
-        _err("Error: lock timeout: %s" % state_file)
-        return 1
-    try:
+    with _locked(state_file) as held:
+        if not held:
+            _err("Error: lock timeout: %s" % state_file)
+            return 1
         state = _read_json(state_file)
         if not isinstance(state, dict):
             _err("Error: failed to update state.json: %s" % state_file)
@@ -553,8 +589,6 @@ def cmd_set(args):
         if not _atomic_write(state_file, _dump(state)):
             return 1
         return 0
-    finally:
-        _release_lock(state_file)
 
 
 def load_state(session_id):
@@ -576,16 +610,14 @@ def merge_state(session_id, fragment):
     if session_dir is None:
         return False
     state_file = os.path.join(session_dir, "state.json")
-    if not _with_lock(state_file):
-        return False
-    try:
+    with _locked(state_file) as held:
+        if not held:
+            return False
         state = _read_json(state_file)
         if not isinstance(state, dict):
             return False
         state.update(fragment)
         return _atomic_write(state_file, _dump(state))
-    finally:
-        _release_lock(state_file)
 
 
 def gate_block_count(session_id, gate):
@@ -612,9 +644,9 @@ def bump_gate_block(session_id, gate):
     if session_dir is None:
         return 0
     state_file = os.path.join(session_dir, "state.json")
-    if not _with_lock(state_file):
-        return 0
-    try:
+    with _locked(state_file) as held:
+        if not held:
+            return 0
         state = _read_json(state_file)
         if not isinstance(state, dict):
             return 0
@@ -626,8 +658,6 @@ def bump_gate_block(session_id, gate):
         state["gate_blocks"] = blocks
         _atomic_write(state_file, _dump(state))
         return count
-    finally:
-        _release_lock(state_file)
 
 
 def cmd_merge(args):
@@ -666,10 +696,10 @@ def cmd_prompt(args):
     if session_dir is None:
         return 1
     state_file = os.path.join(session_dir, "state.json")
-    if not _with_lock(state_file):
-        _err("Error: lock timeout: %s" % state_file)
-        return 1
-    try:
+    with _locked(state_file) as held:
+        if not held:
+            _err("Error: lock timeout: %s" % state_file)
+            return 1
         state = _read_json(state_file)
         if not isinstance(state, dict):
             _err("Error: failed to record prompt event: %s" % state_file)
@@ -678,8 +708,6 @@ def cmd_prompt(args):
         if not _atomic_write(state_file, _dump(state)):
             return 1
         return 0
-    finally:
-        _release_lock(state_file)
 
 
 _DISPATCH = {

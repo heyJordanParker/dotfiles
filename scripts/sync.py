@@ -21,12 +21,13 @@ import agents  # noqa: E402
 import hooks  # noqa: E402
 import stow  # noqa: E402
 import tracer  # noqa: E402
-from lib.session_state import migrate_sessions  # noqa: E402
+from lib.session_state import clear_stale_locks, migrate_sessions  # noqa: E402
 
 
 def main():
     stow.restow(PACKAGES)
     migrate_sessions()
+    clear_stale_locks()
     agents.generate(os.path.join(PACKAGES, "agents", "agents"))
     agents.generate_profiles(os.path.join(PACKAGES, "claude", "profiles"))
     hooks.generate(
