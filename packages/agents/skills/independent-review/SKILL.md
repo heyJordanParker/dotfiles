@@ -1,13 +1,13 @@
 ---
 name: independent-review
-description: Run N identical parallel Subagents on the same Task for independent Verification. Use when the Architect wants consensus through redundancy — multiple Subagents independently analyze, review, or test the same thing, then results are compared for agreement, disagreements, and unique finds. Invocation /independent-review [count] "task"
+description: Run N identical parallel Subagents on the same Task for independent Verification. Use when the Architect wants consensus through redundancy — multiple Subagents independently analyze, review, or test the same thing, then the combined returns are triaged with /triage. Invocation /independent-review [count] "task"
 disable-model-invocation: true
 ---
 
 # Independent Review
 
 - N identical Subagents do the same Task independently.
-- The value is consensus through redundancy: agreement, disagreements, and unique finds.
+- The value is coverage through redundancy: N independent passes surface findings one pass misses.
 
 ## 1. Capture current changes for Review Tasks
 
@@ -58,15 +58,6 @@ Dispatch every reviewer in one message, per /delegate. Each returns its report o
 
 This Skill wraps any Task the Architect provides: code Review, bug analysis, Architecture assessment, test adequacy, or migration risk.
 
-## 5. Synthesize the results
+## 5. Triage the returns with /triage
 
-Compare all Subagent returns before reporting.
-
-- Consensus means findings that two or more Subagents independently identified. List each finding and which Subagents found it.
-- Unique finds means findings only one Subagent caught. These need Architect judgment because each could be an insight or a false positive.
-- Disagreements means Subagents contradict each other. Present both sides with Evidence.
-- Confidence means the `N-of-N` agreement ratio, such as "3/3 Subagents agree" or "2/5 Subagents found this".
-
-### Require Evidence for every finding
-
-Every finding includes concrete Evidence. "Might be a problem" is not a finding.
+Collect every return, then run /triage over the combined findings. Consensus proves nothing; the assessment against the code does. A finding only one Subagent caught gets the same assessment as one all of them caught, and a disagreement between Subagents is settled by reading the code, never by counting votes.

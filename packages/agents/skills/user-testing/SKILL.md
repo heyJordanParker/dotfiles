@@ -91,7 +91,7 @@ Template:
 
 ## 4. Evaluate returned gaps
 
-After all Subagents return, evaluate the overall implementation with /pcc, then triage the returned findings with /triage: the one-line finding shape, duplicate merge, the severity grades, the gate, and the report shape all live there.
+After all Subagents return, evaluate the overall implementation with /pcc, then triage the returned findings with /triage: the assessment against the code, the one-line finding shape, duplicate merge, the severity grades, the gate, and the report shape all live there.
 
 ## 5. Report without modifying code
 

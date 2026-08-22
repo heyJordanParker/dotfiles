@@ -11,7 +11,7 @@ description: Autonomous async Execution. The Architect hands off and walks away;
 
 ## 1. Build the Verification plan from code
 
-Dispatch a research Subagent with /trace and /delegate to study the affected area and map every Critical Path the Task touches: entry, input, expected output, and end state.
+Dispatch a research Subagent running /understand to study the affected area and map every Critical Path the Task touches: entry, input, expected output, and end state.
 
 ### Exercise User behavior, not confidence
 
@@ -38,11 +38,11 @@ Template:
 
 ## 3. Execute through Subagents
 
-Use /delegate for Execution. You are the Orchestrator: hold the Goal and judge each Subagent's Evidence per /delegate.
+Use /delegate for Execution. You are the Orchestrator: hold the Goal and judge each Subagent's Evidence per /orchestrate.
 
 ### Keep issues assigned to the Subagent that owns them
 
-A Subagent claim is not accepted until proved. Contradictions with the Architect's reported outcomes follow /delegate contradiction handling.
+A Subagent claim is not accepted until proved. Contradictions with the Architect's reported outcomes follow /orchestrate contradiction handling.
 
 ### Restore manually after destructive git damage
 
@@ -50,7 +50,7 @@ The Agent that broke a file restores it manually; do not hide the damage behind 
 
 ## 4. Handle blockers without stopping the run
 
-Use /delegate claimed-blocker handling. A real blocker is recorded under Pending Architect input with the item, the paths attempted, and which boundary each path crosses. Pause that item and continue other work.
+Use /orchestrate claimed-blocker handling. A real blocker is recorded under Pending Architect input with the item, the paths attempted, and which boundary each path crosses. Pause that item and continue other work.
 
 IF shared state is corrupted and needs manual restore:
 ### Stop the run
@@ -75,7 +75,7 @@ Send a PushNotification naming the blocker and what it blocks, then continue oth
 
 ## 6. Verify the whole changeset
 
-Run the Verification plan from the implementing Subagents' Evidence per /delegate, then run /verify-changes, once every Task has landed.
+Run the Verification plan from the implementing Subagents' Evidence per /orchestrate, then run /verify-changes, once every Task has landed.
 
 ### Done means the Critical Paths are green
 

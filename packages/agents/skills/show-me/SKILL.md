@@ -21,6 +21,21 @@ Example: use a file tree when explaining what exists and what changes.
 A relationship diagram shows movement, ownership, or end-to-end behavior.
 Example: use a relationship diagram when the question is how data moves through the system.
 
+### Use a class diagram for Architecture structure
+A class diagram shows the classes and how each relates to the others. One box per class with its fields and methods inside, every line labelled with the relation: extends, implements, constructs, calls, reads, writes.
+Example:
+  ```
+  ┌───────────────────────┐
+  │ AccessService         │
+  │ check() / admission() │
+  └──────┬────────────────┘
+         │ calls includes()
+         ▼
+  ┌───────┐  implements   ┌──────────┐
+  │ Owner │ ────────────> │ Audience │
+  └───────┘               └──────────┘
+  ```
+
 ### Use a call flow for order
 A call flow shows what runs, in what order, at what depth.
 Example: use a call flow when the question is what happens first, or where a run breaks.

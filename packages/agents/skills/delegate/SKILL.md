@@ -1,6 +1,6 @@
 ---
 name: delegate
-description: Framework for dispatching one-shot Subagents that complete a Task and return. Covers Prompting (WHY -> WHAT -> HOW), the Story/Business/Goal/Verification/Process Prompt Template, Verification, Evidence, and Orchestrator-side ranking. TRIGGER when dispatching, resuming, or judging Subagents, when Orchestration needs the dispatch Prompt Template, or when the Architect says "/delegate this to ...". DO NOT TRIGGER for work the Agent does itself with no Subagents; use /build.
+description: Framework for dispatching one-shot Subagents that complete a Task and return. Covers Prompting (WHY -> WHAT -> HOW), the Story/Business/Goal/Verification/Process Prompt Template, and Evidence directories. TRIGGER when dispatching or resuming Subagents, when Orchestration needs the dispatch Prompt Template, or when the Architect says "/delegate this to ...". DO NOT TRIGGER for judging what a Subagent returned (that is /orchestrate), or for work the Agent does itself with no Subagents; use /build.
 reload-every: 20 turns
 ---
 
@@ -53,6 +53,9 @@ Process is the operating procedure the Subagent runs first and last.
 
 ### Weave findings into the section they belong to
 A prior finding about User impact belongs in Story; a prior finding about a boundary belongs in Business. A trailing notes section is a dump the Subagent reads too late.
+
+### Require the class diagram and the file tree in the Goal
+A Goal that delivers Architecture requires a class diagram, never a table. A Goal that delivers file or API changes requires an annotated file tree, never a table. Both formats are /show-me's.
 
 ### Make Verification observable, specific, and complete
 Verification is input → output, or command + expected status and body.
@@ -146,19 +149,6 @@ IF the Decision a dispatch rests on is still open with the Architect:
 ### Hold the dispatch until the Decision closes
 Dispatching mid-interrogation executes an unapproved change. The Architect is still questioning the Decision, so no Subagent starts on it until he closes it.
 
-### Judge the Evidence against the code, never the report against itself
-report.md is the Subagent's account of the diff, and every way it can be wrong reads
-the same on the page. Open the diff and the files it names, then read the report
-against them and open its screenshots.
-Thin Evidence and a screenshot that does not show what the report claims go back to the same
-Subagent, naming the failed item. For a reported symptom, Evidence must show the symptom's
-own surface, the reporter's page and not a stand-in fixture. /orchestrate's "Judge what
-arrived" owns the attack on the returned diff.
-
-Never: dispatch any Subagent to re-verify a completed work item, as in "the screenshots look
-thin, let me have the tester confirm it".
-Never: a suite run, a browser walk, a reviewer dispatch, or polish before every Task has landed.
-
 IF a second Subagent is running on the surface you are about to correct:
 ### Stop it before sending the correction
 Two live Subagents on one surface collide: each overwrites what the other wrote. Stopping the duplicate abandons its Task, so record the abandonment, then send the correction to the one Owner.
@@ -179,46 +169,3 @@ what the Architect said.
 Never: turning "the spacing feels cramped" into "set the gap to 16px" for the designer;
 adding fixes, preferences, or decisions the Architect never gave.
 
-## 6. Treat Subagent output as a claim until proved
-
-### Repo behavior outranks the summary
-The Subagent summary describes what it believes it did. The repo, common sense grounded in the User, the Architecture, and the business, and the Architect's reported outcome outrank the summary.
-
-### Re-dispatch contradictions deeper
-When a finding contradicts what the Architect reported, the finding is incomplete. Re-dispatch deeper until a Subagent reproduces the reported outcome.
-
-### Establish what the system already owns before a suggestion touches the Architecture
-A Subagent scoped to the diff cannot say what the rest of the system already does. Before its suggestion adds a file, a surface, or a pattern, find what already owns that job and would be duplicated, then keep the suggestion only if nothing does.
-
-### Reject effort arguments
-"Done", "tests pass", and "no change needed" earn belief only after a repo check. "Out of scope", "too many files", and "too slow" are effort arguments, not scope. "It was broken before" is yours to settle, from the Task's own diff and whether the change can reach the failing code. Never send a Subagent to produce a before state. "I'm blocked" is usually a skipped simple step: retry, restart the server, clear the cache, re-run.
-
-## 7. Hold the returned work to the Evidence bar
-
-### Judge the Evidence with /prove
-Use /prove for what counts as an observed run, what `report.md` carries, and the baseline a pre-existing failure needs. Accept "done" only against that bar.
-
-### Advance a status only with its Evidence
-A work item moves to fixed or closed only with the Evidence path that proves it; a status that moves backward gets a one-line written cause.
-
-## 8. Rank returned options yourself
-
-### Strip the recommendation and keep the facts
-A Subagent saw a Slice; the Orchestrator holds the project, its Rules, the Architect's prior calls, and sibling code. Its recommendation is one finding, not a verdict.
-
-### Finish the research before ranking
-Re-dispatch every gap in parallel and re-run Subagents that came back thin. Stop when nothing is left to investigate, never when the batch returns. Every surviving claim comes from a read.
-
-### Eliminate before ranking
-Drop every option that breaks a standard, convention, or Rule. The Orchestrator does this, not the Subagent.
-
-### Rank in your own voice
-Rank survivors with /pcc, then recommend one in your own voice.
-
-Never: "the Agent recommends", "per the research", "based on the findings X is best", "Architect recommended Option N", "following the analysis Option N".
-
-Template:
-  <the research Task>. Close every research gap. Dispatch as much in parallel as is
-  independent. Do not stop to ask, do not deliver half-finished work, run the loop until
-  nothing is left to investigate. Every code claim must come from a read, not a guess.
-  Findings only — no scope changes, no ranking, no recommendation.

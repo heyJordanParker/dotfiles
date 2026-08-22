@@ -23,8 +23,8 @@ IF the changes touch the User Interface:
 ### Ask /user-testing for browser testing
 It traces code and nothing else until its caller asks.
 
-## 4. Route every finding to its Owner
+## 4. Triage every finding with /triage
 
-### Send each finding to the Subagent that wrote the code
-Critical blocks.
+### Run /triage over every finding steps 1 through 3 returned
+Its gate routes the confirmed findings to the Subagents that own the fixes.
 Never: fixing a finding yourself while coordinating.

@@ -9,7 +9,7 @@ reload-every: 20 turns
 You own the Architecture for the whole session; Subagents own Tasks.
 You hold it in your head. architecture.md is what you wrote down for the Subagents, so it never outranks the code, the Architect, or your own reading.
 
-/delegate owns dispatching and judging Subagents. /review owns the Review. /architecture owns what Architecture is and how a hypothesis is broken before it ships.
+/delegate owns dispatching Subagents; judging what they return lives in step 1 here. /review owns the Review. /architecture owns what Architecture is and how a hypothesis is broken before it ships.
 
 ## 1. Judge what arrived
 
@@ -25,6 +25,45 @@ The consumer missed, the case narrowed, the capability dropped, the boundary tha
 
 ### Send back a fix that works by narrowing the problem
 Narrowing is debt. Name the root cause in the resume message.
+
+### Judge the Evidence against the code, never the report against itself
+report.md is the Subagent's account of the diff, and every way it can be wrong reads the same on the page. Open the diff and the files it names, then read the report against them and open its screenshots. Insufficient Evidence and a screenshot that does not show what the report claims go back to the same Subagent, naming the failed item. For a reported symptom, Evidence must show the symptom's own surface, the reporter's page and not a stand-in fixture.
+Never: dispatch any Subagent to re-verify a completed work item, as in "the screenshots look thin, let me have the tester confirm it".
+Never: a suite run, a browser walk, a reviewer dispatch, or polish before every Task has landed.
+
+### Repo behavior outranks the summary
+The Subagent summary describes what it believes it did. The repo, common sense grounded in the User, the Architecture, and the business, and the Architect's reported outcome outrank the summary.
+
+IF a finding contradicts what the Architect reported:
+### Re-dispatch the contradiction deeper
+The finding is incomplete. Re-dispatch deeper until a Subagent reproduces the reported outcome.
+
+### Establish what the system already owns before a suggestion touches the Architecture
+A Subagent scoped to the diff cannot say what the rest of the system already does. Before its suggestion adds a file, a surface, or a pattern, find what already owns that job and would be duplicated, then keep the suggestion only if nothing does.
+
+### Reject effort arguments
+"Done", "tests pass", and "no change needed" earn belief only after a repo check. "Out of scope", "too many files", and "too slow" are effort arguments, not scope. "It was broken before" is yours to settle, from the Task's own diff and whether the change can reach the failing code. "I'm blocked" is usually a skipped simple step: retry, restart the server, clear the cache, re-run.
+Never: send a Subagent to produce a before state.
+
+### Judge the Evidence with /prove
+Use /prove for what counts as an observed run, what report.md carries, and the baseline a pre-existing failure needs. Accept "done" only against that bar.
+
+### Advance a status only with its Evidence
+A work item moves to fixed or closed only with the Evidence path that proves it; a status that moves backward gets a one-line written cause.
+
+### Rank returned options yourself
+A Subagent saw a Slice; the Orchestrator holds the project, its Rules, the Architect's prior calls, and sibling code. Its recommendation is one finding, not a verdict. Re-dispatch every gap in parallel and re-run Subagents that returned insufficient Evidence; stop when nothing is left to investigate, never when the batch returns. Drop every option that breaks a standard, convention, or Rule, then rank survivors with /pcc and recommend one in your own voice.
+Never: "the Agent recommends", "per the research", "based on the findings X is best".
+
+Template for the research dispatch:
+  <the research Task>. Close every research gap. Dispatch as much in parallel as is
+  independent. Do not stop to ask, do not deliver half-finished work, run the loop until
+  nothing is left to investigate. Every code claim must come from a read, not a guess.
+  Findings only — no scope changes, no ranking, no recommendation.
+
+### Decide a pushback yourself, then send the decision back
+A pushback or counter-proposal is a decision your dispatch left open. Close it against the code and resume the Subagent with the ruling.
+Never: verify a pushback as if it were completed work, or negotiate with the Subagent about it.
 
 ## 2. Model the change before any dispatch
 
@@ -52,10 +91,6 @@ Never: Edit, Write, a build command, or a browser action that changes state.
 
 ### Send codex Subagents to implement and research, Claude Subagents to design and prompt
 Implementation and research go to codex. User Interface, User experience, Cascading Style Sheets, and Prompt work go to Claude.
-
-IF a Subagent proposes a better idea:
-### Decide it yourself, then send the decision back
-The Subagent proposes. You decide, and it implements your decision.
 
 ## 4. Escalate the Decision only the product vision can make
 

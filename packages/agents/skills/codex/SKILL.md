@@ -12,7 +12,7 @@ The Orchestrator holds the Goal and Orchestration; each codex run does the work 
 ## 1. Compose through /delegate
 
 ### Follow the Subagent Process
-Use /delegate for the Prompt Template, WHAT/WHY not HOW, independent dispatch, claim handling, Verification, the long hard way, and the ranking Process. Codex only changes the Execution substrate.
+Use /delegate for the Prompt Template, WHAT/WHY not HOW, independent dispatch, and Verification; use /orchestrate for claim handling and the ranking Process. Codex only changes the Execution substrate.
 
 ### Let the Agent type carry the lens
 There is no review mode. The lens lives in the Agent type's Prompt; scope the Prompt to what to review.
@@ -176,7 +176,7 @@ Never: Edit, Write, or NotebookEdit while orchestrating.
 
 ## 7. Synthesize yourself
 
-### Use the /delegate ranking Process
+### Use the /orchestrate ranking Process
 Strip codex-run recommendations, keep facts, rank with /pcc, and present your own judgment.
 
 Never: forwarding a run's ranking or recommendation.
