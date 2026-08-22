@@ -15,17 +15,9 @@ IF broad codebase exploration needs more than three queries:
 ### Dispatch the explorer Agent
 Dispatch the explorer Agent instead of continuing direct exploration.
 
-IF external research is needed:
-### Dispatch the researcher Agent
-Dispatch the researcher Agent for library docs or APIs.
-
 IF direct code research is enough:
 ### Use the trace Skill directly
 Use the trace Skill directly. Subagents protect the main Context but are not free — do not spawn one where a direct call answers faster, and do not duplicate research a Subagent is already running.
-
-IF running Subagents:
-### Dispatch per /delegate
-Every Agent dispatch is already async and parallel; /delegate owns the dispatch, resume, and check-in doctrine.
 
 IF the question is what was said, decided, or preferred before this session:
 ### Ask Memory with `honcho`

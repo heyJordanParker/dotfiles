@@ -20,7 +20,7 @@ Open the file the finding names and confirm the call, the missing check, or the 
 Never: grade or route a finding without confirming it against the code.
 
 ### Write each verdict to triage.md the moment you reach it
-The sheet is docs/agents/<YYYYMMDD>-<task-slug>/triage.md in the run's Evidence directory: one row per finding — source, what the code showed, grade, ruling. Append the row as the finding is assessed, never in a batch at the end, so the write records the judgment instead of replacing it.
+The sheet is docs/agents/<NNN>-<task-slug>/triage.md in the run's Evidence directory: one row per finding — source, what the code showed, grade, ruling. Append the row as the finding is assessed, never in a batch at the end, so the write records the judgment instead of replacing it.
 
 ## 3. Rewrite each finding as who it affects and what breaks
 

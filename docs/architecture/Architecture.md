@@ -24,7 +24,7 @@ Skills depend on Rules freely. A Skill names a Rule, builds on it, and is writte
 1. **Decisions** — `docs/architecture/decisions/000N-<the-decision>.md`; situation, choice, why, one to three sentences, plus measured scores when an experiment produced them. The Agent proposes Decisions; only the Architect makes them — typically through /interview.
 2. **Shaping** — `docs/shaping/<feature>/` (moved from `~/.claude/shaping/`): frame.md, shaping.md (`shaping: true`), affordances.md (`modeling: true`), slices.md, V<N>-plan.md, research-<topic>.md. Frontmatter types the artifact; the sync Hook fires on the frontmatter, so the move costs the Hook nothing.
 3. **Plans** — `docs/plans/<kebab-name>-V<N>.md` (moved from `~/.claude/plans/`); versions are new files, never overwrites. The plan-quality rules glob follows the move.
-4. **Evidence** — `docs/agents/<YYYYMMDD>-<task-slug>/`: one directory per Evidence record, report.md plus screenshots beside it. Scoped to the Task, not to a plan — an Agent producing Evidence off a Proposal or a bare Prompt writes to the same place with the same shape. When a plan, Slice, or Skill step demands Evidence, it names the expected directory, and the completion gate's deterministic check is that the named report.md exists non-empty.
+4. **Evidence** — `docs/agents/<NNN>-<task-slug>/`: one directory per Evidence record, report.md plus screenshots beside it. Scoped to the Task, not to a plan — an Agent producing Evidence off a Proposal or a bare Prompt writes to the same place with the same shape. When a plan, Slice, or Skill step demands Evidence, it names the expected directory, and the completion gate's deterministic check is that the named report.md exists non-empty.
 5. **Session state** — sessions root, `<id>/state.json`, Subagents nested.
 6. **The experiment record** — the recorded prompt experiments and their scores: the Evidence behind the prompt Decisions. `docs/architecture/prompt-experiment-findings.md` and `docs/architecture/prompt-score-ledger.md`. Append-only.
 
@@ -43,5 +43,5 @@ A block has exactly one home. Every other Prompt that needs it names that home i
 | domain language | Domain.md |
 | Decision | docs/architecture/decisions/ |
 | Shaping, Plans | docs/shaping/<feature>/, docs/plans/ |
-| Evidence | docs/agents/<YYYYMMDD>-<task-slug>/ |
+| Evidence | docs/agents/<NNN>-<task-slug>/ |
 | session state | sessions root <id>/state.json |

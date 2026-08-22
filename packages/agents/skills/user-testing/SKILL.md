@@ -84,7 +84,7 @@ Add that after tracing the code, the Subagent uses /agent-browser and walks this
 
 Template:
   ```markdown
-  Process addition: For each step, perform the action in the browser, screenshot the result to the Evidence directory (docs/agents/<YYYYMMDD>-<task-slug>/[critical-path]-step-[N].png), evaluate whether the User Interface reflects the expected state, evaluate whether the step is clear and consistent, and report visual bugs, confusing interactions, and /design findings.
+  Process addition: For each step, perform the action in the browser, screenshot the result to the Evidence directory (docs/agents/<NNN>-<task-slug>/[critical-path]-step-[N].png), evaluate whether the User Interface reflects the expected state, evaluate whether the step is clear and consistent, and report visual bugs, confusing interactions, and /design findings.
 
   Verification addition: Each step screenshotted and visually verified; User experience evaluated per /design Skill Principles; visual bugs and interaction issues listed separately.
   ```

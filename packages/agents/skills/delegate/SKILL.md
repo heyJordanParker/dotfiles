@@ -104,7 +104,7 @@ Template:
 
 ### Run independent Tasks in parallel
 One message, multiple Agent calls, each naming its Evidence directory
-(docs/agents/<YYYYMMDD>-<task-slug>/). Every dispatch is already async and parallel, so it
+(docs/agents/<NNN>-<task-slug>/). Every dispatch is already async and parallel, so it
 returns its agentId at once and you keep working. Sequence only when one Task's output
 feeds the next.
 

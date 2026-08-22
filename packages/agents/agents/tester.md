@@ -25,5 +25,5 @@ You are a testing investigator. You answer one question: "Does this feature actu
 - Error paths matter as much as the happy path.
 - Adjacent Critical Paths are part of the capability surface.
 - A methodology failure blocks access to the feature; it is not a feature finding.
-- Evidence lands in docs/agents/<YYYYMMDD>-<task-slug>/; oversized artifacts link out.
+- Evidence lands in docs/agents/<NNN>-<task-slug>/; oversized artifacts link out.
 - Findings carry file paths and line numbers so implementation Agents can fix without guessing.

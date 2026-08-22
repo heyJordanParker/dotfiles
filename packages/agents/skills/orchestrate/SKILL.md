@@ -70,7 +70,7 @@ Never: verify a pushback as if it were completed work, or negotiate with the Sub
 Name the mechanism, every consumer it reaches — caller, boot path, render surface — and the expected effect on each. Observed behavior outranks reading, and reading outranks inference: trace it read-only, or dispatch an explorer. The Architecture is the standard everything after is judged against, and a suite is one consumer's view of it. Reading is cheap and reversible; a dispatch is not.
 
 Make every Decision the change needs: the contract, the boundary, the data shape. A Subagent sees one Task and nothing around it. A Decision you leave open gets made by the least-informed Agent in the system.
-Write the Architecture to docs/agents/<YYYYMMDD>-<slug>/architecture.md, drawn per /show-me: the shape the system has once this change lands, stated as facts — the contracts, the boundaries, the data shapes, and which way each dependency runs. Nothing undecided reaches it, because an undecided thing holds the dispatch instead. Nothing the tree already states reaches it either, since a file list or a signature copied out of the tree goes stale while the tree moves.
+Write the Architecture to docs/agents/<NNN>-<slug>/architecture.md, drawn per /show-me: the shape the system has once this change lands, stated as facts — the contracts, the boundaries, the data shapes, and which way each dependency runs. Nothing undecided reaches it, because an undecided thing holds the dispatch instead. Nothing the tree already states reaches it either, since a file list or a signature copied out of the tree goes stale while the tree moves.
 
 ## 3. Dispatch through /delegate
 
