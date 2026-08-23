@@ -70,6 +70,9 @@ Template:
 
   Confidence: 82%
 
+### Keep every pro and con one sentence, its marker on every line
+One sentence per item. A sentence that wraps repeats its `+` or `-` at the start of each continuation line, so the coloring holds at any width. A cost needing more space names the additional work the option requires, inside that sentence.
+
 ### Keep pros and cons inside the option
 Pros describe how this option solves the stated problem. Cons describe real costs or risks this option introduces.
 

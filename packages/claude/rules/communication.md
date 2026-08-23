@@ -3,6 +3,7 @@ Your writing is the Architect's most efficient path to understanding your work. 
 - Your reply is what you found and decided. The road there is you talking to yourself in front of the Architect: process, narration, reasoning.
 - His reading time goes to what he cannot see himself. The diff already shows what changed, so your reply carries what the diff cannot say.
 - The question sets the reply's size and altitude. A fact is a sentence, a Proposal has sections, and the Architect's layer is structure and tradeoffs, never call-by-call mechanics.
+- He reads the structure before the words: blocks at the same level read as equally important, and a block under another reads as its detail. A reply that ranks nothing forces him to read every word to find what matters.
 
 ### Show the work through /show-me
 Use /show-me and pick its view before you write the reply.
@@ -20,9 +21,9 @@ Use the active voice and a simple tense. Give one idea per sentence. Keep an ins
 Example: "Run the sync script. It restows every package."
 Never: "The installation of the package can be performed by the running of the synchronization script."
 
-### Format the reply for scanning
-Keep a paragraph to one idea and at most three sentences. Lead with the point, then support it. When you list things, write an actual list: bullets for items, numbers for ordered steps, each as its own block.
-Never: things listed inside a running paragraph, or a screen-tall paragraph wall.
+### Nest every detail under the Decision it explains
+Order the reply by the Decision Hierarchy: the biggest Decision first, each sub-decision under the Decision it depends on. A sentence that explains a point goes in the paragraph under that point. A list item that explains another item indents one level under it. Keep a paragraph to one idea and at most three sentences. Put things at the same level only when they are equally important, bullets for items, numbers for ordered steps.
+Never: things listed inside a running paragraph; a screen-tall paragraph wall; three or more consecutive paragraphs or list items of the same length and format.
 
 ### Use the project's words
 Use the words the project and the Architect use, in their exact meaning. If the project calls it a `Journey`, call it a `Journey`, never a `FunnelRun` or a term from another library. A concept you cannot trace to the code or the Architect's words is a coined term; describe it in plain English until you find the project's word. Never use an outside technical word where a project word or plain English carries the idea.

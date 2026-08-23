@@ -13,6 +13,10 @@ The Architect-approved architecture for the prompt system: agents, skills, hooks
 - **`Claude.md`** — the folder's WHY, and it loads the relevant references: its Decisions (`docs/architecture/decisions/`), a Design.md, whatever record the WHY rests on. Never Rules, Process, vocabulary, or inline Decisions.
 - **`Domain.md`** — the domain's words, nothing else.
 
+## Structure carries the Decision Hierarchy
+
+Indentation shows importance: blocks at the same level are equally important, and a block sits under the block it explains. A flat list of thirty items says all thirty are equally important; when they are not, the reader must read every word to find the ones that matter. So write the importance as the structure: a heading holds the subheadings it governs, a list item holds the sub-items that explain it, and a step names another Skill when that Skill owns the work. A flat list is correct exactly when its items are equally important.
+
 ## Rules call Skills, and never depend on them
 
 Rules are the main system and Skills are its subsystems. A Rule calls a Skill — `Use /show-me`, `Propose options via /pcc` — and the Agent goes and runs that Process. A Rule never depends on a Skill: it does not take its wording, its definitions, or any part of its own instruction from one, because a Rule must be obeyable exactly as written by an Agent that never uses the Skill.

@@ -69,6 +69,9 @@ Example:
   ```
 Never: a sentence in a cell, one column carrying more text than the rest combined, or a finding list re-sorted into a grid when nesting carries it.
 
+### Keep one level of detail per diagram
+A diagram shows systems — services, tables, files — or it shows method calls. Never both in one diagram. Method calls appear only when the question asked for a call chain.
+
 ### Show the highest-leverage view that answers
 Views rank by altitude, and Architecture sits above code: a tree, diagram, signature, or chain answers an Architectural question, and code lines answer a code question. Show the highest view that carries the answer whole. Drop to code lines when the Decision lives in the exact lines — a defect in them, a subtle behavior no higher view carries, or wording under review.
 Never: code lines answering a question a higher view already answers, or code quoted as proof that work happened.
