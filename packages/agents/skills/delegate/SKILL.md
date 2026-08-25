@@ -15,9 +15,7 @@ A Subagent's Context is a fixed budget spent once: the Prompt, every file it rea
 The WHY primes the Agent: the User pain and the Business behind it. The WHAT names the deliverable and observable success. The HOW is what you have already decided — a call you made rides in the dispatch, a file you need read is named by path, and what you left open the Agent settles itself, finding related files on its own. A contract left implicit is a decision the Agent will invent.
 
 ### Give an Agent only what its Task consumes
-Context that exists to be forbidden is Context that should be absent. Never tell an Agent about sibling Agents, parallel explorations, or files it must not read — independence comes from omission, not prohibition. Your reasoning, your caveats, and what you already ruled out are the same waste: every line is room the Subagent no longer has for the code.
-
-Never: "a parallel exploration you must not converge with", "do not read X (another agent's output)", or "do not touch Agent B's plan file".
+Your reasoning, your caveats, and what you already ruled out consume Context the Subagent needs for the code.
 
 IF the Task is mechanical:
 ### Give exact mechanical steps
@@ -41,15 +39,19 @@ Symptoms cluster to the system that owns them. Two live Subagents touching the s
 ### Keep a dispatched Task singular and unchanging
 The Orchestrator corrects by resuming and re-scopes by dispatching anew; the Subagent never widens its own Task.
 
-## 3. Write the Prompt Template
+## 3. Write task.md
 
-A dispatch Prompt has Story, Business, Goal, Verification, Architecture, and Process.
+docs/agents/<NNN>-<slug>/task.md is the whole dispatch. It has Story, Business, Goal, Verification, Architecture, Process, and Queue.
 Story says what the User experiences and needs.
 Business says WHY it matters, the boundaries, and the limitations.
 Goal says what the Subagent delivers.
 Verification says how the Subagent proves its work before returning.
 Architecture orients the Subagent before the Process and marks files to change with `*`.
 Process is the operating procedure the Subagent runs first and last.
+Queue says what the Owner must do after founding, and is empty until then.
+
+### Send the task.md path and nothing else
+The Agent call and every resume carry the path to task.md as their whole message.
 
 ### Weave findings into the section they belong to
 A prior finding about User impact belongs in Story; a prior finding about a boundary belongs in Business. A trailing notes section is a dump the Subagent reads too late.
@@ -97,16 +99,17 @@ Template:
   4. Use /prove before you report done, writing report.md to the Evidence directory the
      dispatch named. A failing item is fixed and re-proved, never reported as progress
 
+  Queue:
+
 ## 4. Dispatch independent Subagents at once
 
 ### Dispatch a roster Agent, never a Harness built-in
 `subagent_type` names an Agent from the roster. A Hook refuses `Explore`, `Plan`, and `general-purpose`, and the refusal kills the whole parallel batch: every dispatch in that message comes back as a failed row.
 
 ### Run independent Tasks in parallel
-One message, multiple Agent calls, each naming its Evidence directory
-(docs/agents/<NNN>-<task-slug>/). Every dispatch is already async and parallel, so it
-returns its agentId at once and you keep working. Sequence only when one Task's output
-feeds the next.
+One message, multiple Agent calls, each with its own task.md path as the prompt. Every
+dispatch is already async and parallel, so it returns its agentId at once and you keep
+working. Sequence only when one Task's output feeds the next.
 
 ### Dispatch without a name
 An unnamed dispatch returns its report and resumes by agentId; `block_builtin_subagents.py`
@@ -115,9 +118,10 @@ Never: `name`, or `run_in_background`, which the Agent tool has no parameter for
 
 ### Resume only to finish or correct the dispatched Task
 `SendMessage({to: agentId})` resumes an agent from its transcript, even after it returned,
-using the agentId from its spawn result. A resume finishes or corrects that agent's own
-founding Task, nothing else. A new finding, failure, or scope item — even on the same
-surface — is a fresh dispatch: one agent, one task, and a clean Context beats a warm one.
+using the agentId from its spawn result. The message is the task.md path, and the Queue
+section holds what the agent must do next. A resume finishes or corrects that agent's own
+founding Task, nothing else. A new finding, failure, or scope item is a fresh Task even on
+the same surface. One agent, one task, and a clean Context beats a warm one.
 
 Never: a resume carrying work the founding Prompt did not name, or "it already has
 context" as the reason to route new work to an old agent.
@@ -128,10 +132,9 @@ session dispatched, with its agentType and model. Read it when the id has left y
 Context — the agent is still resumable.
 
 ### Check on Agents; never put them on a timer
-On the coordination cadence, read a running agent's Evidence directory; when nothing moved,
-SendMessage it by agentId for status. Only when resume fails — including an agent whose Context is
-exhausted and resumes into silence — dispatch a replacement implementing Subagent with the original
-Prompt, the current diff, and the Evidence directory.
+On the coordination cadence, read a running agent's Evidence directory. Only when a resume
+fails, including an agent whose Context is exhausted and resumes into silence, dispatch a
+replacement implementing Subagent on the same task.md with the current diff.
 
 Never: kill or time out an agent still working the Task. Stop one only when you have abandoned
 its Task, and record the abandonment.
@@ -156,13 +159,13 @@ Two live Subagents on one surface collide: each overwrites what the other wrote.
 IF the Architect's words hold and change a thing the Orchestrator owns:
 ### Translate owned feedback into the dispatch
 The Goal, the Architecture, and coordination are the Orchestrator's. Fold the feedback
-into the Goal and Architecture blocks. A correction to work in flight rides a resume; a
-changed Goal founds a fresh dispatch.
+into the Goal and Architecture blocks of task.md. A correction to work in flight goes in
+the Queue and rides a resume. A changed Goal founds a fresh Task.
 
 IF the Architect gives feedback on a thing a Subagent owns:
 ### Relay the Architect's words to the Owner
-Quote the feedback verbatim in the resume message and add the Context the Owner lacks —
-prior calls, boundaries, sibling work. The Owner makes the decisions about its craft;
+Quote the feedback verbatim in the Queue and add the Context the Owner lacks, meaning
+prior calls, boundaries, and sibling work. The Owner makes the decisions about its craft.
 a translated version replaces the Owner's judgment with the Orchestrator's and distorts
 what the Architect said.
 

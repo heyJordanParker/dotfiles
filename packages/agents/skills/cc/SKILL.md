@@ -107,6 +107,7 @@ A Template is a label with the block indented on new lines beneath it.
 ## 6. Audit every line
 
 - Corrects nothing: cut.
+- Cut what the Agent does not need to know. Every Prompt is written on a need-to-know basis.
 - Corrects too hard: smaller and positive ("Use X", never "consider using X"; the Agent mirrors the voice of the rules it reads).
 - Needed under 80% of the time: split out per Progressive Disclosure.
 - Correcting more than the failure costs is Overprompting: the volume buries the signal and the Agent starts ignoring instructions wholesale.
