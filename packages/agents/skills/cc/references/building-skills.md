@@ -4,6 +4,12 @@ The Process for writing or fixing a Skill: one ordered Process that corrects a r
 Agent failure. A Skill never carries a Frame, never carries broad Principles, and never
 carries WHY; those live in the Agent and Claude.md.
 
+- Every Skill's description sits in every Agent's context in every session, and the body
+  loads only when the description wins.
+- The source of truth is `packages/agents/skills/<name>/SKILL.md`.
+- Stow and plugin packaging copy the source into the runtime locations, which include
+  `~/.claude/skills/`, `.claude/skills/`, and plugin `skills/`.
+
 ## 1. Name the gap
 
 State the Agent's default and the behavior wanted instead. No observed gap, no Skill.
@@ -12,101 +18,37 @@ State the Agent's default and the behavior wanted instead. No observed gap, no S
 A line that corrects no failure is Fluff. The control run in testing-skills.md decides when
 unsure.
 
+### Keep side effects user-only
+A Process that edits code, runs a pipeline, or starts a server is the Architect's to fire. That is
+a Command.
+
 ## 2. Find the Precedent
 
 Read the sibling Skills closest to the Task and match their shape. Check for overlap before
 creating anything.
 
-- The source of truth is `packages/agents/skills/<name>/SKILL.md`.
-- Stow and plugin packaging copy the source into the runtime locations.
-- Runtime locations include `~/.claude/skills/`, `.claude/skills/`, and plugin `skills/`.
-
 ### Extend the overlapping Skill instead of creating a near-duplicate
-Similarity is a bug. A near-duplicate is the existing Skill's missing Rule, Example, Template,
-Condition, or Reference.
+A near-duplicate is the existing Skill's missing Rule, Example, Template, Condition, or
+Reference.
 
 ### Model a new Process on the real human team that already does this work
-Thousands of years of human process optimization beat invention. When no repo Precedent
-exists, the Precedent is the real-world team: name the human role or process the Skill
-or Agent roster mirrors (editorial desk, agency, code review) before shaping anything.
+An existing human process is a better Precedent than an invented one. When no repo Precedent
+exists, name the human role or process the Skill or Agent roster mirrors (editorial desk, agency,
+code review) before shaping anything.
 Never: an invented roster or Process no working human team has ever run.
 
 ### Read every file before editing an existing Skill
 Read SKILL.md and every Reference in full first. Piecemeal edits create contradictions.
 
-## 3. Write the frontmatter gate
+## 3. Fill the Template
 
-A Skill needs `name` and `description`. `name` is lowercase hyphenated text up to 64 characters and
-matches the directory. `description` is up to 1024 characters and is never empty: an empty
-`description` leaks the body into listings. Listings show at most 1536 characters of a
-description.
-
-### Make the description the only trigger
-The body never carries a trigger section. Write the description as what the Skill does, TRIGGER
-phrases Users actually say, and DO NOT TRIGGER with the adjacent case plus the Skill that fires
-instead.
-Example: `description: Write and fix Claude Code Prompts. TRIGGER when the task says "cc" or asks to build a Skill. DO NOT TRIGGER to name code identifiers; use /naming.`
-Never: `description: Use this when needed.`
-
-### Add frontmatter keys only when the Skill reaches for them
-Common keys: `allowed-tools`, `disallowed-tools`, `context: fork`, `agent`, `model`, `effort`,
-`hooks`, and `argument-hint`. `disable-model-invocation: true` makes the Skill user-only and drops
-it from the listing; `user-invocable: false` hides it from the slash menu only.
-
-### Keep side effects user-only
-A Process that edits code, runs a pipeline, or starts a server is the Architect's to fire. That is
-a Command.
-
-### Read the live schema for unknown keys
-For any frontmatter key not named here, use updating-cc-skill.md instead of a memorized catalog.
-No XML angle brackets in frontmatter. No `claude` or `anthropic` in Skill names.
-
-## 4. Write SKILL.md as the whole method
-
-Everything needed 80 percent of the time lives in SKILL.md. An overconfident Agent acts from
-SKILL.md alone, so it must carry the whole Process.
-
-### Use steps only when order matters
-A Skill is a Process, so numbered steps are normal. Each step carries only the Rules, Facts,
-Examples, Templates, Conditions, and Verification that correct that step.
-
-### Put live state in front of the Agent with an auto-run line
-A backtick-wrapped command prefixed with `!` runs at expansion and inlines stdout before the
-Agent's Bash tool and guard Hooks.
-Template:
-  ````markdown
-  ## Current Changes
-
-  !`git changes`
-  ````
-
-`${CLAUDE_EFFORT}` resolves to the active effort level. In command bodies, escape a literal `$`
-before a digit as `\$`. The `disableSkillShellExecution` setting turns inline `!` execution off.
-
-### Derive volatile lists live
-Enumerating files or dependencies inline goes stale. Have the Skill derive them live with repo
-commands or trace.
-Example: `git ls-files packages/agents/skills/cc/references`.
-Never: a copied list of every Reference file.
-
-## 5. Split a Reference only for a hard sub-task
-
-A Reference is a Process split out for Progressive Disclosure. Split only a hard sub-task the
-Agent needs under 80 percent of the time. Never split a roster, catalog, worked-example set, or
-background reading.
-
-### Name the Reference by the problem it solves
-The link line names the doing, not the component.
-Example: `Your Example is not changing behavior → building-examples.md`.
-Never: `hooks.md — hook system`.
-
-## 6. Fill the Template
-
+### Write the file into this shape before you correct any part of it
+Every step below corrects one part of this shape.
 Template:
   ```markdown
   ---
   name: skill-directory-name
-  description: What this Skill does. TRIGGER when Users say the real phrases. DO NOT TRIGGER when the adjacent case applies; use other-skill.
+  description: The problem this Skill solves and what it delivers. TRIGGER when Users say the real phrases. DO NOT TRIGGER when the adjacent case applies; use other-skill.
   ---
 
   # Skill Name
@@ -129,7 +71,6 @@ Template:
 
   - Problem this Reference solves → reference-file.md
   ```
-
 Example:
   ```markdown
   ---
@@ -150,11 +91,76 @@ Example:
 
   - Building or restructuring a Skill → building-skills.md
   ```
-
 Never: a body trigger section, a Frame, broad Principles, a roster split into a Reference, or a
 blank Rule slot filled for symmetry.
 
-## 7. Verify against real behavior
+## 4. Write the description
+
+The description is the whole of what an Agent has when it decides whether this Skill answers what
+it is doing right now, and it is the only trigger the Skill has, which is why the body never
+carries a trigger section. Three slots serve that decision. It runs up to 1024 characters and is
+never empty, because an empty description leaks the body into listings, and a listing shows at
+most 1536 characters.
+
+### State the problem the Skill solves and what it delivers in the first slot
+The method belongs to the body. An Agent that has not loaded the body cannot act on the method,
+and every Agent that never fires the Skill pays context for it.
+Example: `description: Write and fix Claude Code Prompts. TRIGGER when the task says "cc" or asks to build a Skill. DO NOT TRIGGER to name code identifiers; use /naming.`
+Never: `description: Audit a merge: each side's commits become claims, and each claim is verified in the merged code.`
+
+### Write TRIGGER with the phrases Users actually say
+Never: `description: Use this when needed.`
+
+### Write DO NOT TRIGGER with the adjacent case and the Skill that fires instead
+The adjacent case is the one an Agent genuinely confuses with this Skill, not every neighbour.
+
+## 5. Add the frontmatter keys the Skill reaches for
+
+`name` is lowercase hyphenated text up to 64 characters and matches the directory. No `claude` or
+`anthropic` in Skill names, and no XML angle brackets in frontmatter.
+
+### Read the live schema instead of a memorized key list
+updating-cc-skill.md reaches the current schema. Two keys decide who fires the Skill:
+`disable-model-invocation: true` makes it user-only and drops it from the listing, and
+`user-invocable: false` hides it from the slash menu only.
+
+## 6. Write SKILL.md as the whole method
+
+Everything needed 80 percent of the time lives in SKILL.md. An overconfident Agent acts from
+SKILL.md alone, so it must carry the whole Process.
+
+### Use steps only when order matters
+A Skill is a Process, so numbered steps are normal. Each step carries only the Rules, Facts,
+Examples, Templates, Conditions, and Verification that correct that step.
+
+### Put live state in front of the Agent with an auto-run line
+A backtick-wrapped command prefixed with `!` runs at expansion and inlines stdout before the
+Agent's Bash tool and guard Hooks.
+Template:
+  ````markdown
+  ## Current Changes
+
+  !`git changes`
+  ````
+
+### Derive volatile lists live
+Enumerating files or dependencies inline goes stale. Have the Skill derive them live with repo
+commands or trace.
+Example: `git ls-files packages/agents/skills/cc/references`.
+Never: a copied list of every Reference file.
+
+## 7. Split a Reference only for a hard sub-task
+
+A Reference is a Process split out for Progressive Disclosure. Split only a hard sub-task the
+Agent needs under 80 percent of the time. Never split a roster, catalog, worked-example set, or
+background reading.
+
+### Name the Reference by the problem it solves
+The link line names the doing, not the component.
+Example: `Your Example is not changing behavior → building-examples.md`.
+Never: `hooks.md — hook system`.
+
+## 8. Verify against real behavior
 
 Testing-skills.md is the Process. Done means the Agent produces the right output from SKILL.md
 alone, every line names a default it overrides, and the description fires on the real phrases but
