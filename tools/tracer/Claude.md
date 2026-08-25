@@ -14,7 +14,11 @@ Local code-intelligence command-line interface for Agents working in a repositor
 - Per-function complexity is computed by the in-process tree-sitter decision-node walker.
 - `.tracer-cache/` lives at the target repository root.
 - The cache namespaces are `file/`, `architecture/`, and `sessions/<session_id>/<agent_id>/`.
-- The `file/` namespace stores per-file facts.
+- The `file/` namespace stores per-file facts, the bulk git-activity map, the deploy-presence map, and the mtime index.
+- A cache entry holds only what its key's inputs determine.
+- The per-file entry is keyed by contents and path, so it holds no git facts.
+- `git_activity` owns every git fact and keys its map by HEAD and the 30-day cutoff date.
+- `file_facts::with_git` joins the git facts onto per-file facts on every resolve.
 - The `architecture/` namespace stores the unified symbol graph, module graph, and doc-file graph.
 - The `sessions/` namespace stores session-context events and the materialized session view.
 - `commands::session_log` is the single owner of session-context state.
@@ -27,6 +31,12 @@ Local code-intelligence command-line interface for Agents working in a repositor
 - File-scoped `trace docs` calls surface conditional user-global Rules matched against that file.
 - `commands::logs` reads log files directly, so a gitignored or untracked log is searchable.
 - `commands::logs` frames one entry per line and attaches an untimestamped line to the entry above it.
+- `read` caps each file's rendered content at `READ_CONTENT_BUDGET_CHARS` bytes.
+- The cap is cut at a whole line, so the `L<n>: ` format always holds.
+- A capped read ends with an inline `[trimmed at L<n> of <total> …]` marker naming the command for the next window.
+- The marker survives `--raw`.
+- `--all` returns the whole selection with no cap and no marker.
+- The `read` payload carries `truncated`, `shown_lines`, and `total_lines` on every read.
 - `--filter` runs an in-process jq program through the `jaq` crates.
 - `--filter` requires `--json`.
 - `jsonfmt` owns the stable JavaScript Object Notation byte format for command output and cache entries.

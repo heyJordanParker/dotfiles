@@ -19,7 +19,7 @@ use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Debug, Clone, Default)]
@@ -190,15 +190,39 @@ pub fn bulk(repo_root: &Path) -> HashMap<String, GitActivity> {
     out
 }
 
+/// Process-wide memo of the disk-cached bulk map, keyed by repo root.
+///
+/// `file_facts::get` joins git facts onto every single-file resolve, and
+/// `glob`, `diff`, `blame`, and `structure` call it once per file, so without
+/// the memo a run would re-read and re-parse the whole map N times. The lock
+/// is held across the compute so concurrent callers serialize onto one build
+/// rather than racing the same git subprocesses.
+pub fn bulk_cached(repo_root: &Path) -> Arc<HashMap<String, GitActivity>> {
+    static MEMO: OnceLock<Mutex<HashMap<PathBuf, Arc<HashMap<String, GitActivity>>>>> =
+        OnceLock::new();
+    let memo = MEMO.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut guard = memo.lock().unwrap();
+    if let Some(hit) = guard.get(repo_root) {
+        return Arc::clone(hit);
+    }
+    let computed = Arc::new(bulk_cached_uncached(repo_root));
+    guard.insert(repo_root.to_path_buf(), Arc::clone(&computed));
+    computed
+}
+
 /// Disk-cached bulk map. Historical fields are cached under
-/// `git_activity__{head}` in the file namespace; working-tree state is
-/// always recomputed fresh and overlaid.
-pub fn bulk_cached(repo_root: &Path) -> HashMap<String, GitActivity> {
+/// `git_activity__{head}__{30d cutoff}` in the file namespace; working-tree
+/// state is always recomputed fresh and overlaid.
+///
+/// The cutoff date is in the key because `commits_30d` is computed against
+/// today's date: keyed by HEAD alone, a branch that sits idle keeps serving
+/// the velocity it had on the day the entry was written.
+fn bulk_cached_uncached(repo_root: &Path) -> HashMap<String, GitActivity> {
     let head = match head_sha(repo_root) {
         Some(h) => h,
         None => return bulk(repo_root),
     };
-    let key = format!("git_activity__{head}");
+    let key = format!("git_activity__{head}__{}", cutoff_30d());
     if let Some(Value::Object(map)) = cache::load(cache::NAMESPACE_FILE, &key, repo_root) {
         let mut history: HashMap<String, GitActivity> = HashMap::new();
         for (path, fields) in &map {
@@ -219,7 +243,7 @@ pub fn bulk_cached(repo_root: &Path) -> HashMap<String, GitActivity> {
     // Persist without working_state — it is recomputed live, never cached.
     let mut payload = serde_json::Map::new();
     for (path, act) in &history {
-        payload.insert(path.clone(), git_activity_to_json(act, false));
+        payload.insert(path.clone(), git_activity_to_json(act));
     }
     let _ = cache::save(
         cache::NAMESPACE_FILE,
@@ -227,10 +251,11 @@ pub fn bulk_cached(repo_root: &Path) -> HashMap<String, GitActivity> {
         &Value::Object(payload),
         repo_root,
     );
+    cache::evict_prefixed(cache::NAMESPACE_FILE, "git_activity__", &key, repo_root);
     history
 }
 
-fn git_activity_to_json(a: &GitActivity, include_working: bool) -> Value {
+fn git_activity_to_json(a: &GitActivity) -> Value {
     let mut m = serde_json::Map::new();
     m.insert("last_modified".into(), opt_str(&a.last_modified));
     m.insert("last_author".into(), opt_str(&a.last_author));
@@ -239,9 +264,6 @@ fn git_activity_to_json(a: &GitActivity, include_working: bool) -> Value {
     m.insert("commit_count".into(), json!(a.commit_count));
     m.insert("commit_count_is_floor".into(), json!(a.commit_count_is_floor));
     m.insert("rename_from".into(), opt_str(&a.rename_from));
-    if include_working {
-        m.insert("working_state".into(), opt_str(&a.working_state));
-    }
     m.insert(
         "present_in".into(),
         json!(a.present_in.clone()),
@@ -358,16 +380,7 @@ fn walk_history(repo_root: &Path) -> History {
         None => return History::default(),
     };
     let graft_shas = grafts(repo_root);
-
-    // 30-day cutoff as a YYYY-MM-DD string, compared lexically against the
-    // `--date=short` author dates the walk already parses. Same author-date
-    // basis git's own `--since` uses, so the derived counts match the
-    // previous second-pass `--since=<30d>` exactly.
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0);
-    let cutoff_30d = unix_to_ymd(now - 30 * 86400);
+    let cutoff_30d = cutoff_30d();
 
     // Count distinct COMMIT records to detect whether the cap truncated the
     // walk: a full history emits fewer than `HISTORY_CAP` commits.
@@ -561,6 +574,19 @@ impl OrderedCounter {
     }
 }
 
+/// The 30-day cutoff as a YYYY-MM-DD string, compared lexically against the
+/// `--date=short` author dates the walk parses. Same author-date basis git's
+/// own `--since` uses, so the derived counts match a `--since=<30d>` pass
+/// exactly. Also part of the bulk cache key, because every `commits_30d` in
+/// an entry is relative to it.
+fn cutoff_30d() -> String {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    unix_to_ymd(now - 30 * 86400)
+}
+
 /// UTC date YYYY-MM-DD from a unix timestamp (days-since-epoch civil calc).
 fn unix_to_ymd(secs: i64) -> String {
     let days = secs.div_euclid(86400);
@@ -706,6 +732,7 @@ fn presence_by_path(repo_root: &Path) -> HashMap<String, Vec<String>> {
         &Value::Object(payload),
         repo_root,
     );
+    cache::evict_prefixed(cache::NAMESPACE_FILE, "git_presence__", &key, repo_root);
     computed
 }
 

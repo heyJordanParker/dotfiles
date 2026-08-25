@@ -110,9 +110,9 @@ struct DirSummary {
     has_uncommitted: bool,
 }
 
-/// Aggregate per-entry signals over a tracked subtree: source files pull
-/// real per-file facts (warm cache); non-source files fall to the bulk git
-/// activity map with ccn 0.
+/// Aggregate per-entry signals over a tracked subtree: complexity from the
+/// per-file facts (only source files are batched, so the rest contribute 0),
+/// git state from the bulk activity map that owns it.
 fn aggregate(
     rels: &[String],
     git_map: &std::collections::HashMap<String, git_activity::GitActivity>,
@@ -123,29 +123,13 @@ fn aggregate(
     let mut has_uncommitted = false;
 
     for rel in rels {
-        let (ccn, modified, state) = if is_source_ext(rel) {
-            match facts_map.get(rel) {
-                Some(f) => (
-                    f.cyclomatic_complexity_total,
-                    f.last_modified.clone(),
-                    f.working_state.clone(),
-                ),
-                None => {
-                    let a = git_map
-                        .get(rel)
-                        .cloned()
-                        .unwrap_or_else(git_activity::GitActivity::empty);
-                    (0, a.last_modified, a.working_state)
-                }
-            }
-        } else {
-            let a = git_map
-                .get(rel)
-                .cloned()
-                .unwrap_or_else(git_activity::GitActivity::empty);
-            (0, a.last_modified, a.working_state)
-        };
-        ccn_total += ccn;
+        ccn_total += facts_map
+            .get(rel)
+            .map(|f| f.cyclomatic_complexity_total)
+            .unwrap_or(0);
+        let activity = git_map.get(rel);
+        let modified = activity.and_then(|a| a.last_modified.clone());
+        let state = activity.and_then(|a| a.working_state.clone());
         if let Some(m) = &modified {
             if last_modified.as_ref().map(|lm| m > lm).unwrap_or(true) {
                 last_modified = Some(m.clone());

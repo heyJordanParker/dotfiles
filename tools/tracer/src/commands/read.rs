@@ -32,6 +32,15 @@ const LICENSE_MARKERS: &[&str] = &[
     "all rights reserved",
 ];
 
+/// Bytes of rendered content one file may emit before the trim marker.
+/// Claude Code budgets a Bash result at 30,000 characters and writes
+/// anything larger to a spill file the agent must fetch in a second call;
+/// codex truncates the middle in place with no line numbers. Neither tells
+/// the agent where the cut landed. This sits under both with headroom for
+/// the shoulder line and a `--docs` block, so a trimmed read arrives whole
+/// and says how to continue.
+const READ_CONTENT_BUDGET_CHARS: usize = 24_000;
+
 fn separator_re() -> &'static Regex {
     use std::sync::OnceLock;
     static RE: OnceLock<Regex> = OnceLock::new();
@@ -170,6 +179,94 @@ fn clean(content: &str, start_line: usize) -> String {
         }
     }
     out
+}
+
+/// Lines in `content`, where a trailing newline does not open a new line.
+fn line_count(content: &str) -> usize {
+    if content.is_empty() {
+        return 0;
+    }
+    let breaks = content.matches('\n').count();
+    if content.ends_with('\n') {
+        breaks
+    } else {
+        breaks + 1
+    }
+}
+
+/// Recover the true file line number `clean` wrote onto a rendered line.
+/// The number is right-aligned inside the prefix, so spaces may sit
+/// between the `L` and the digits. Blank lines carry no prefix.
+fn rendered_line_number(line: &str) -> Option<usize> {
+    let rest = line.strip_prefix('L')?.trim_start();
+    let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+    if digits.is_empty() || !rest[digits.len()..].starts_with(':') {
+        return None;
+    }
+    digits.parse().ok()
+}
+
+/// Trim rendered content to the last whole line fitting in `budget`, and
+/// report the true file line number that line carries. `None` when nothing
+/// was dropped — either the content already fits, or its first line alone
+/// is longer than the whole budget. A minified file is one such line, and
+/// cutting inside it would break the `L<n>: ` format and hand back a
+/// half-token, so it is emitted whole and unmarked instead.
+fn trim_to_budget(content: &str, raw: bool, start_line: usize, budget: usize) -> Option<(String, usize)> {
+    if content.len() <= budget {
+        return None;
+    }
+    let mut kept = String::new();
+    let mut kept_lines = 0usize;
+    let mut last_numbered: Option<usize> = None;
+    for line in content.split_inclusive('\n') {
+        if kept_lines > 0 && kept.len() + line.len() > budget {
+            break;
+        }
+        if let Some(n) = rendered_line_number(line) {
+            last_numbered = Some(n);
+        }
+        kept.push_str(line);
+        kept_lines += 1;
+    }
+    if kept.len() == content.len() {
+        return None;
+    }
+    // `--raw` skips cleaning, so rendered lines map one-to-one onto file
+    // lines and the count is exact. Cleaned output drops lines, so only
+    // the prefix is exact.
+    let last_line = if raw {
+        start_line + kept_lines - 1
+    } else {
+        last_numbered.unwrap_or(start_line)
+    };
+    Some((kept, last_line))
+}
+
+/// The inline trim marker. It sits in the content stream itself, at the
+/// end, so an agent reading top-to-bottom reaches it and no consumer can
+/// drop it.
+fn trim_marker(
+    file: &str,
+    flags: &str,
+    last_line: usize,
+    selection_end: usize,
+    total_lines: usize,
+) -> String {
+    if last_line >= selection_end {
+        return format!("\n[trimmed at L{last_line} of {total_lines}]\n");
+    }
+    // A path carrying whitespace has to survive being pasted into a shell.
+    let quoted = if file.contains(char::is_whitespace) {
+        format!("'{}'", file.replace('\'', r"'\''"))
+    } else {
+        file.to_string()
+    };
+    format!(
+        "\n[trimmed at L{last_line} of {total_lines} — continue: trace read {quoted} --lines {}:{}{flags}]\n",
+        last_line + 1,
+        selection_end
+    )
 }
 
 /// Find `method_name` in `source` via the AST CCN backend; return
@@ -541,6 +638,7 @@ fn render_one(
     between: Option<(&str, &str)>,
     ref_: Option<&str>,
     raw: bool,
+    all: bool,
     as_diff: bool,
     docs_on: bool,
     session_dedupe: &mut std::collections::BTreeSet<String>,
@@ -619,10 +717,39 @@ fn render_one(
         content = source.clone();
     }
 
+    let selection_end = start_line + line_count(&content).max(1) - 1;
+    let total_lines = line_count(&source);
     let content = if raw {
         content
     } else {
         clean(&content, start_line)
+    };
+    let selection_empty = content.is_empty();
+
+    let trimmed = if all {
+        None
+    } else {
+        trim_to_budget(&content, raw, start_line, READ_CONTENT_BUDGET_CHARS)
+    };
+    let truncated = trimmed.is_some();
+    let mut shown_end = selection_end;
+    let content = match trimmed {
+        Some((kept, last_line)) => {
+            shown_end = last_line;
+            let mut flags = String::new();
+            if let Some(r) = ref_ {
+                flags.push_str(&format!(" --at {r}"));
+            }
+            if raw {
+                flags.push_str(" --raw");
+            }
+            // The path the caller typed, never the repo-relative one: the
+            // marker's command has to run from the caller's own directory,
+            // and a file outside the repo root has no runnable relative form.
+            let marker = trim_marker(file_arg, &flags, last_line, selection_end, total_lines);
+            format!("{kept}{marker}")
+        }
+        None => content,
     };
 
     let mut symbol_diff_data: Option<Value> = None;
@@ -642,7 +769,7 @@ fn render_one(
     }
 
     let facts = if ref_.is_none() && file_path.is_file() {
-        file_facts::get(&file_path, &repo_root, None)
+        file_facts::get(&file_path, &repo_root)
     } else {
         None
     };
@@ -686,6 +813,9 @@ fn render_one(
         "source": if ref_.is_some() { "ref" } else { "worktree" },
         "content": content,
         "raw": raw,
+        "truncated": truncated,
+        "shown_lines": if selection_empty { None } else { Some(vec![start_line as i64, shown_end as i64]) },
+        "total_lines": total_lines,
         "passive_context": context_line,
         "graph": graph,
         "symbol_diff": symbol_diff_data,
@@ -757,6 +887,7 @@ pub fn run(
     method_flag: Option<&str>,
     as_json: bool,
     raw: bool,
+    all: bool,
     ref_: Option<&str>,
     lines_arg: Option<&str>,
     between: Option<(String, String)>,
@@ -827,6 +958,7 @@ pub fn run(
             between_ref,
             ref_,
             raw,
+            all,
             as_diff,
             docs_on,
             &mut session_dedupe,

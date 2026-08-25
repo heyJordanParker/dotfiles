@@ -345,7 +345,7 @@ pub fn run(
     let regions = collapse_regions(&blame_lines);
 
     let repo_root = cache::worktree_root_for(&path).unwrap_or_else(|| cache::display_root(&path));
-    let facts = file_facts::get(&path, &repo_root, None);
+    let facts = file_facts::get(&path, &repo_root);
     let display_file = cache::relative_to_root(&path, &repo_root);
 
     let payload = json!({

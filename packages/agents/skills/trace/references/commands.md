@@ -32,7 +32,7 @@ Template:
   trace struct <pattern> -l <lang> [--path <path>]
   trace find <pattern> [<base>] [--path <p>] [--exclude <p>]... [--type f|d] [--limit N] [--sort complexity|recent|path]
   trace glob <pattern> [<base>] [--details]
-  trace read <paths...> [--method <name>] [--at <ref>] [--lines L1:L2] [--between START END] [--diff] [--raw] [--docs]
+  trace read <paths...> [--method <name>] [--at <ref>] [--lines L1:L2] [--between START END] [--diff] [--raw] [--all] [--docs]
   trace docs <path> [--directory] [--source <s>] [--triggering-tool <t>] [--triggering-command <c>]
   trace docs <path> --graph
   trace docs load <path> [--source <s>] [--triggering-tool <t>] [--triggering-command <c>]
@@ -131,6 +131,15 @@ Pass `--docs` to load ancestor docs. There is no `--no-docs` flag because direct
 
 ### `--raw` skips cleaning
 Default reads strip generated banners, decorative separators, runs of blank lines, and prefix preserved lines with `L<n>:`.
+
+### Continue a trimmed read by running the command its marker prints
+Every read carries a size budget. A read past it is cut at a whole line and ends with a marker naming the next window.
+
+- The marker reads `[trimmed at L<n> of <total> — continue: trace read <file> --lines <n+1>:<end>]`.
+- The marker sits inside the content stream and survives `--raw`.
+- The budget applies to each file of a multi-file read separately.
+- `--all` returns every line of the selection with no marker.
+- `--json` carries `truncated`, `shown_lines` as `[first, last]`, and `total_lines` on every read.
 
 ### `--at` reads a git ref
 Use `--diff` with `--at` to append a symbol-level diff of added, removed, and changed top-level exports.

@@ -7,10 +7,15 @@
 //! always does the real extraction on cache miss.
 //!
 //! Cache-entry serialization order is fixed: path, language, loc, function_count,
-//! cyclomatic_complexity_total, cyclomatic_complexity_max, rank,
-//! last_modified, last_author, commits_30d, first_seen, commit_count,
-//! rename_from, working_state, present_in, last_subject, top_author,
-//! co_changed, mtime_ns, size_bytes, extraction  (extraction LAST).
+//! cyclomatic_complexity_total, cyclomatic_complexity_max, rank, mtime_ns,
+//! size_bytes, extraction  (extraction LAST).
+//!
+//! An entry holds only what its key determines. The key is
+//! sha256(schema, contents, relpath), so the git fields — which move with HEAD
+//! and with the working tree, never with the bytes — are not serialized here:
+//! `git_activity` owns them, keys its own cache by HEAD, and every resolve
+//! path joins them on through `with_git`. Storing them in this entry left a
+//! committed file rendering `modified (N commits)` until its bytes changed.
 
 use crate::cache;
 use crate::ccn;
@@ -22,7 +27,6 @@ use serde_json::{json, Map, Value};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
 
 #[derive(Debug, Clone)]
 pub struct FileFacts {
@@ -73,25 +77,6 @@ impl FileFacts {
             json!(self.cyclomatic_complexity_max),
         );
         m.insert("rank".into(), json!(self.rank));
-        m.insert("last_modified".into(), opt(&self.last_modified));
-        m.insert("last_author".into(), opt(&self.last_author));
-        m.insert("commits_30d".into(), json!(self.commits_30d));
-        m.insert("first_seen".into(), opt(&self.first_seen));
-        m.insert("commit_count".into(), json!(self.commit_count));
-        m.insert("rename_from".into(), opt(&self.rename_from));
-        m.insert("working_state".into(), opt(&self.working_state));
-        m.insert("present_in".into(), json!(self.present_in));
-        m.insert("last_subject".into(), opt(&self.last_subject));
-        m.insert("top_author".into(), opt(&self.top_author));
-        m.insert(
-            "co_changed".into(),
-            Value::Array(
-                self.co_changed
-                    .iter()
-                    .map(|(p, c)| json!([p, c]))
-                    .collect(),
-            ),
-        );
         m.insert("mtime_ns".into(), json!(self.mtime_ns));
         m.insert("size_bytes".into(), json!(self.size_bytes));
         m.insert(
@@ -119,43 +104,51 @@ impl FileFacts {
                 .get("extraction")
                 .filter(|e| !e.is_null())
                 .map(ExtractionResult::from_json),
-            last_modified: s("last_modified"),
-            last_author: s("last_author"),
-            commits_30d: n("commits_30d"),
-            first_seen: s("first_seen"),
-            commit_count: n("commit_count"),
-            rename_from: s("rename_from"),
-            working_state: s("working_state"),
-            present_in: v
-                .get("present_in")
-                .and_then(|x| x.as_array())
-                .map(|a| {
-                    a.iter()
-                        .filter_map(|e| e.as_str().map(|x| x.to_string()))
-                        .collect()
-                })
-                .unwrap_or_default(),
-            last_subject: s("last_subject"),
-            top_author: s("top_author"),
-            co_changed: v
-                .get("co_changed")
-                .and_then(|x| x.as_array())
-                .map(|a| {
-                    a.iter()
-                        .filter_map(|p| {
-                            let arr = p.as_array()?;
-                            Some((
-                                arr.first()?.as_str()?.to_string(),
-                                arr.get(1)?.as_i64()?,
-                            ))
-                        })
-                        .collect()
-                })
-                .unwrap_or_default(),
+            // Git fields are not in the entry; `with_git` fills them from the
+            // HEAD-keyed map on every resolve path.
+            last_modified: None,
+            last_author: None,
+            commits_30d: 0,
+            first_seen: None,
+            commit_count: 0,
+            rename_from: None,
+            working_state: None,
+            present_in: Vec::new(),
+            last_subject: None,
+            top_author: None,
+            co_changed: Vec::new(),
             mtime_ns: n("mtime_ns"),
             size_bytes: n("size_bytes"),
         })
     }
+}
+
+/// Join the git facts onto code facts. `git_activity` owns every one of them
+/// and keys its cache by HEAD, so this runs on the cache-hit paths and on
+/// fresh extraction alike. A path the map does not carry — no history, no
+/// working-tree state, no deploy-branch presence — keeps the empty values,
+/// which render as `no-history`.
+fn with_git(
+    mut facts: FileFacts,
+    rel: &str,
+    git_map: &HashMap<String, GitActivity>,
+) -> FileFacts {
+    let git = match git_map.get(rel) {
+        Some(g) => g,
+        None => return facts,
+    };
+    facts.last_modified = git.last_modified.clone();
+    facts.last_author = git.last_author.clone();
+    facts.commits_30d = git.commits_30d;
+    facts.first_seen = git.first_seen.clone();
+    facts.commit_count = git.commit_count;
+    facts.rename_from = git.rename_from.clone();
+    facts.working_state = git.working_state.clone();
+    facts.present_in = git.present_in.clone();
+    facts.last_subject = git.last_subject.clone();
+    facts.top_author = git.top_author.clone();
+    facts.co_changed = git.co_changed.clone();
+    facts
 }
 
 /// Complexity rank bucket (low / medium / high / critical) for a CCN total.
@@ -387,29 +380,8 @@ fn mtime_index_record(
     );
 }
 
-/// Per-process memo of the working-tree state map, keyed by repo root.
-fn working_state_for(repo_root: &Path) -> &'static HashMap<String, String> {
-    static CELL: OnceLock<HashMap<String, String>> = OnceLock::new();
-    CELL.get_or_init(|| git_activity::working_tree_state(repo_root))
-}
-
-/// Overlay live working-tree state onto cached facts.
-fn with_working_state(mut facts: FileFacts, path: &Path, repo_root: &Path) -> FileFacts {
-    let state_map = working_state_for(repo_root);
-    if state_map.is_empty() {
-        return facts;
-    }
-    let rel = cache::relative_to_root(path, repo_root);
-    let state = state_map.get(&rel).cloned();
-    if state == facts.working_state {
-        return facts;
-    }
-    facts.working_state = state;
-    facts
-}
-
 /// Facts for one file. NO lite-facts: always real extraction on a miss.
-pub fn get(path: &Path, repo_root: &Path, git: Option<&GitActivity>) -> Option<FileFacts> {
+pub fn get(path: &Path, repo_root: &Path) -> Option<FileFacts> {
     let p = path.canonicalize().ok()?;
     if !p.is_file() {
         return None;
@@ -418,6 +390,9 @@ pub fn get(path: &Path, repo_root: &Path, git: Option<&GitActivity>) -> Option<F
     let stat_mtime = mtime_ns_of(&md);
     let stat_size = md.len() as i64;
     let rel = cache::relative_to_root(&p, repo_root);
+    // Memoized per repo root, so the per-file callers (`glob`, `diff`,
+    // `blame`, `structure`) build it once for the whole run.
+    let git_map = git_activity::bulk_cached(repo_root);
 
     // 1. mtime fast path.
     let idx = mtime_index_load(repo_root);
@@ -428,7 +403,7 @@ pub fn get(path: &Path, repo_root: &Path, git: Option<&GitActivity>) -> Option<F
             if let Some(k) = entry.get("key").and_then(|x| x.as_str()) {
                 if let Some(cv) = cache::load(cache::NAMESPACE_FILE, k, repo_root) {
                     if let Some(f) = FileFacts::from_json(&cv) {
-                        return Some(with_working_state(f, &p, repo_root));
+                        return Some(with_git(f, &rel, &git_map));
                     }
                 }
             }
@@ -441,23 +416,15 @@ pub fn get(path: &Path, repo_root: &Path, git: Option<&GitActivity>) -> Option<F
     if let Some(cv) = cache::load(cache::NAMESPACE_FILE, &key, repo_root) {
         if let Some(f) = FileFacts::from_json(&cv) {
             mtime_index_record(repo_root, &rel, stat_mtime, stat_size, &key);
-            return Some(with_working_state(f, &p, repo_root));
+            return Some(with_git(f, &rel, &git_map));
         }
     }
 
     // 3. fresh real extraction.
-    let owned_git;
-    let git_ref = match git {
-        Some(g) => g,
-        None => {
-            let map = git_activity::bulk_cached(repo_root);
-            owned_git = map.get(&rel).cloned().unwrap_or_else(GitActivity::empty);
-            &owned_git
-        }
-    };
+    let git = git_map.get(&rel).cloned().unwrap_or_else(GitActivity::empty);
     let scc_map = repo_context::per_file_metrics(repo_root);
     let scc_data = scc_map.get(&rel).cloned().unwrap_or_else(|| json!({}));
-    let facts = extract_facts(&p, repo_root, git_ref, &scc_data, &data);
+    let facts = extract_facts(&p, repo_root, &git, &scc_data, &data);
     let _ = cache::save(
         cache::NAMESPACE_FILE,
         &key,
@@ -546,9 +513,7 @@ pub fn get_batch(
                                 if let Some(f) = FileFacts::from_json(&cv) {
                                     return Some((
                                         j.rel.clone(),
-                                        with_working_state(
-                                            f, &j.abs, repo_root,
-                                        ),
+                                        with_git(f, &j.rel, &git_map),
                                         None,
                                     ));
                                 }
@@ -566,7 +531,7 @@ pub fn get_batch(
                     if let Some(f) = FileFacts::from_json(&cv) {
                         return Some((
                             j.rel.clone(),
-                            with_working_state(f, &j.abs, repo_root),
+                            with_git(f, &j.rel, &git_map),
                             Some((
                                 j.rel.clone(),
                                 j.mtime_ns,
@@ -596,7 +561,7 @@ pub fn get_batch(
                 );
                 Some((
                     j.rel.clone(),
-                    with_working_state(facts, &j.abs, repo_root),
+                    facts,
                     Some((j.rel.clone(), j.mtime_ns, j.size, key)),
                 ))
             })

@@ -28,7 +28,7 @@ fn file_cache_key(schema_version: u32, file_bytes: &[u8], relpath: &str) -> Stri
 /// schema-bump test plants a poison entry at this version's key (proving
 /// the cache IS consulted by this exact schema-versioned key) and at a
 /// neighbor version's key (proving it is unreachable).
-const PUBLISHED_SCHEMA_VERSION: u32 = 14;
+const PUBLISHED_SCHEMA_VERSION: u32 = 15;
 
 #[test]
 fn cache_build_populates_both_namespaces() {
@@ -475,5 +475,87 @@ fn schema_version_bump_makes_prior_entries_unreachable() {
          invalidate prior entries",
         PUBLISHED_SCHEMA_VERSION - 1,
         PUBLISHED_SCHEMA_VERSION
+    );
+}
+
+/// The canonical passive-context shoulder for one file.
+fn shoulder(f: &Fixture, rel: &str) -> String {
+    let v = f.trace(&["info", rel, "--json"]).json();
+    v["passive_context"]
+        .as_str()
+        .unwrap_or_else(|| panic!("no passive_context for {rel}: {v}"))
+        .to_string()
+}
+
+/// Cache entries in the `file` namespace whose key starts with `prefix`.
+fn entries_with_prefix(f: &Fixture, prefix: &str) -> usize {
+    fs::read_dir(f.root.join(".tracer-cache/file"))
+        .map(|rd| {
+            rd.flatten()
+                .filter(|e| {
+                    e.file_name()
+                        .to_str()
+                        .map(|n| n.starts_with(prefix) && n.ends_with(".json"))
+                        .unwrap_or(false)
+                })
+                .count()
+        })
+        .unwrap_or(0)
+}
+
+/// A commit moves HEAD and empties `git status`, but leaves the file's bytes,
+/// size, and mtime untouched — so both the content-hash entry and its
+/// mtime-index row still match and the entry is served as-is. While that
+/// entry carried the git fields, the shoulder kept rendering the pre-commit
+/// `modified (N commits)` until the bytes changed, and on a clean tree the
+/// status overlay returned early and could never clear it.
+#[test]
+fn a_commit_refreshes_the_shoulder_with_no_content_change() {
+    let f = Fixture::new();
+    // Keep the cache out of git, so committing does not stage it and the tree
+    // is genuinely clean afterwards — the state the defect needed.
+    f.write(".gitignore", ".tracer-cache/\n");
+    f.write("u.py", "def helper(v):\n    return v\n");
+    f.commit("one");
+
+    f.write("u.py", "def helper(v):\n    if v:\n        return v\n    return 0\n");
+    let dirty = shoulder(&f, "u.py");
+    assert!(
+        dirty.contains("git: modified"),
+        "an edited file should read as modified: {dirty}"
+    );
+
+    f.commit("two");
+    let clean = shoulder(&f, "u.py");
+    assert!(
+        !clean.contains("modified"),
+        "a committed file still reads as uncommitted: {clean}"
+    );
+    assert!(
+        clean.contains("git: 2 commits"),
+        "the commit count did not move with HEAD: {clean}"
+    );
+}
+
+/// The bulk git map is keyed by HEAD and the 30-day cutoff date, so every
+/// commit and every new day writes a fresh entry. Without the eviction the
+/// superseded ones stay forever: 64 of them at ~800 KB each had accumulated
+/// in the dotfiles repo.
+#[test]
+fn superseded_git_activity_entries_are_evicted() {
+    let f = Fixture::new();
+    f.write(".gitignore", ".tracer-cache/\n");
+    f.write("u.py", "def helper(v):\n    return v\n");
+    f.commit("one");
+    shoulder(&f, "u.py");
+
+    f.write("u.py", "def helper(v):\n    if v:\n        return v\n    return 0\n");
+    f.commit("two");
+    shoulder(&f, "u.py");
+
+    assert_eq!(
+        entries_with_prefix(&f, "git_activity__"),
+        1,
+        "a superseded git-activity entry survived the commit"
     );
 }

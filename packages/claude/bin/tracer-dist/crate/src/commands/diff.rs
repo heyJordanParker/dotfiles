@@ -149,7 +149,7 @@ fn file_row(
 ) -> Value {
     let abs_path = repo_root.join(&change.path);
     let facts = if abs_path.is_file() {
-        file_facts::get(&abs_path, repo_root, None)
+        file_facts::get(&abs_path, repo_root)
     } else {
         None
     };
@@ -247,7 +247,7 @@ fn head_exports(path: &Path, repo_root: &Path) -> Vec<(String, String, i64)> {
     if !path.is_file() {
         return vec![];
     }
-    match file_facts::get(path, repo_root, None).and_then(|f| f.extraction) {
+    match file_facts::get(path, repo_root).and_then(|f| f.extraction) {
         Some(e) => e
             .exports
             .iter()

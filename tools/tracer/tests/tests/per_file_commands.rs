@@ -161,6 +161,252 @@ fn read_json_shape_is_stable() {
     assert!(v.get("nested_memories").is_none());
 }
 
+/// A file whose rendered read runs far past the size budget. No comments,
+/// blank lines, or separators, so `clean` drops nothing and a cleaned line
+/// number equals its source line number.
+fn oversized_python(lines: usize) -> String {
+    (1..=lines)
+        .map(|n| format!("value_{n} = {n} + 1000000\n"))
+        .collect()
+}
+
+/// The `[trimmed at …]` line out of a content stream, or None.
+fn trim_marker_of(content: &str) -> Option<&str> {
+    content.lines().find(|l| l.starts_with("[trimmed at "))
+}
+
+#[test]
+fn read_over_budget_trims_at_a_line_and_marks_the_cut() {
+    // The trim must land on a whole line, and the marker must name the real
+    // last line shown and the file's true total — an agent that receives a
+    // trimmed read must not be able to mistake it for the whole file.
+    let f = standard_repo();
+    f.write("big.py", &oversized_python(2000));
+    f.commit("add big.py");
+
+    let r = f.trace(&["read", "big.py", "--json"]);
+    r.ok();
+    let v = r.json();
+    assert_eq!(v["truncated"], true);
+    assert_eq!(v["total_lines"], 2000);
+    let last_shown = v["shown_lines"][1].as_i64().unwrap();
+    assert!(last_shown > 0 && last_shown < 2000, "expected a partial window, got {last_shown}");
+
+    let content = v["content"].as_str().unwrap();
+    let marker = trim_marker_of(content).unwrap_or_else(|| panic!("no trim marker in:\n{content}"));
+    assert!(
+        marker.contains(&format!("[trimmed at L{last_shown} of 2000 ")),
+        "marker must name the last line shown and the true total: {marker}"
+    );
+    // The cut is on a line boundary: the last shown line is present whole
+    // and the one after it is absent.
+    assert!(content.contains(&format!("value_{last_shown} = ")), "last shown line was cut mid-line");
+    assert!(!content.contains(&format!("value_{} = ", last_shown + 1)), "line past the cut leaked in");
+}
+
+#[test]
+fn read_trim_marker_command_returns_the_next_window() {
+    // The marker's whole value is that continuing costs no thinking. A
+    // marker suggesting a command that errors or returns the wrong window is
+    // worse than no marker, so run the command it prints, verbatim.
+    let f = standard_repo();
+    f.write("big.py", &oversized_python(2000));
+    f.commit("add big.py");
+
+    let first = f.trace(&["read", "big.py", "--json"]);
+    first.ok();
+    let v = first.json();
+    let last_shown = v["shown_lines"][1].as_i64().unwrap();
+    let marker = trim_marker_of(v["content"].as_str().unwrap()).expect("trim marker");
+
+    let command = marker
+        .split_once("continue: ")
+        .expect("marker must name the continue command")
+        .1
+        .trim_end_matches(']');
+    let printed: Vec<&str> = command.split_whitespace().collect();
+    assert_eq!(printed[0], "trace", "the marker must print a runnable trace command: {command}");
+
+    let mut args: Vec<&str> = printed[1..].to_vec();
+    args.push("--json");
+    let next = f.trace(&args);
+    next.ok();
+    let v2 = next.json();
+    assert_eq!(
+        v2["shown_lines"][0].as_i64().unwrap(),
+        last_shown + 1,
+        "the suggested command must resume on the line after the cut"
+    );
+}
+
+#[test]
+fn read_under_budget_carries_no_marker() {
+    let f = standard_repo();
+    let r = f.trace(&["read", "src/util.py", "--json"]);
+    r.ok();
+    let v = r.json();
+    assert_eq!(v["truncated"], false);
+    assert_eq!(v["total_lines"], 4);
+    assert_eq!(v["shown_lines"], serde_json::json!([1, 4]));
+    assert!(trim_marker_of(v["content"].as_str().unwrap()).is_none());
+}
+
+#[test]
+fn read_all_flag_returns_the_whole_file() {
+    let f = standard_repo();
+    f.write("big.py", &oversized_python(2000));
+    f.commit("add big.py");
+
+    let r = f.trace(&["read", "big.py", "--all", "--json"]);
+    r.ok();
+    let v = r.json();
+    assert_eq!(v["truncated"], false);
+    assert_eq!(v["shown_lines"], serde_json::json!([1, 2000]));
+    let content = v["content"].as_str().unwrap();
+    assert!(trim_marker_of(content).is_none(), "--all must not mark a trim");
+    assert!(content.contains("value_2000 = "), "--all must return the last line");
+}
+
+#[test]
+fn read_raw_over_budget_is_trimmed_and_marked() {
+    // `--raw` skips cleaning, not truthfulness. It also skips the `L<n>: `
+    // prefixes, so the marker is the only line number the output carries.
+    let f = standard_repo();
+    f.write("big.py", &oversized_python(2000));
+    f.commit("add big.py");
+
+    let r = f.trace(&["read", "big.py", "--raw", "--json"]);
+    r.ok();
+    let v = r.json();
+    assert_eq!(v["truncated"], true);
+    let marker = trim_marker_of(v["content"].as_str().unwrap()).expect("trim marker under --raw");
+    assert!(marker.ends_with("--raw]"), "the continue command must keep --raw: {marker}");
+
+    let last_shown = v["shown_lines"][1].as_i64().unwrap();
+    let next = f.trace(&["read", "big.py", "--lines", &format!("{}:2000", last_shown + 1), "--raw", "--json"]);
+    next.ok();
+    assert_eq!(next.json()["shown_lines"][0].as_i64().unwrap(), last_shown + 1);
+}
+
+#[test]
+fn read_single_line_past_the_budget_is_whole_and_unmarked() {
+    // A minified bundle is one line longer than the whole budget. Cutting
+    // inside it would break the `L<n>: ` format and hand back a half-token,
+    // so it is returned whole. It must not then claim a trim: an earlier
+    // build appended `[trimmed at L1 of 1]` to untrimmed content and
+    // reported `truncated: false` in the same payload.
+    let f = standard_repo();
+    f.write("bundle.js", &format!("var x = \"{}\";\n", "y".repeat(40_000)));
+    f.commit("add bundle.js");
+
+    let r = f.trace(&["read", "bundle.js", "--json"]);
+    r.ok();
+    let v = r.json();
+    assert_eq!(v["truncated"], false);
+    assert_eq!(v["total_lines"], 1);
+    let content = v["content"].as_str().unwrap();
+    assert!(trim_marker_of(content).is_none(), "untrimmed content must carry no marker");
+    assert!(content.contains(&"y".repeat(40_000)), "the whole line must survive");
+}
+
+#[test]
+fn read_trim_marker_echoes_the_path_the_caller_used() {
+    // The marker's command has to run from the caller's own directory. A
+    // repo-relative path is not runnable for a file addressed any other way,
+    // so the marker repeats the argument as given.
+    let f = standard_repo();
+    f.write("big.py", &oversized_python(2000));
+    f.commit("add big.py");
+
+    let r = f.trace(&["read", "./big.py", "--json"]);
+    r.ok();
+    let v = r.json();
+    let marker = trim_marker_of(v["content"].as_str().unwrap()).expect("trim marker");
+    assert!(
+        marker.contains("trace read ./big.py --lines"),
+        "the marker must repeat the caller's path: {marker}"
+    );
+}
+
+#[test]
+fn read_trim_marker_quotes_a_path_with_whitespace() {
+    let f = standard_repo();
+    f.write("spaced name.py", &oversized_python(2000));
+    f.commit("add spaced name.py");
+
+    let r = f.trace(&["read", "spaced name.py", "--json"]);
+    r.ok();
+    let v = r.json();
+    let marker = trim_marker_of(v["content"].as_str().unwrap()).expect("trim marker");
+    assert!(
+        marker.contains("trace read 'spaced name.py' --lines"),
+        "a path with whitespace must be shell-quoted: {marker}"
+    );
+}
+
+#[test]
+fn read_between_over_budget_continues_inside_the_anchor_section() {
+    // The window to continue is the rest of the anchored section, never the
+    // rest of the file.
+    let f = standard_repo();
+    f.write("big.py", &oversized_python(2000));
+    f.commit("add big.py");
+
+    let r = f.trace(&["read", "big.py", "--between", "value_100 ", "value_1900 ", "--json"]);
+    r.ok();
+    let v = r.json();
+    assert_eq!(v["truncated"], true);
+    assert_eq!(v["between_resolved_lines"], serde_json::json!([100, 1900]));
+    let last_shown = v["shown_lines"][1].as_i64().unwrap();
+    let marker = trim_marker_of(v["content"].as_str().unwrap()).expect("trim marker");
+    assert!(
+        marker.contains(&format!("--lines {}:1900]", last_shown + 1)),
+        "the continue window must end at the anchor, not at the file end: {marker}"
+    );
+}
+
+#[test]
+fn read_at_ref_over_budget_keeps_the_ref_in_the_continue_command() {
+    let f = standard_repo();
+    f.write("big.py", &oversized_python(2000));
+    f.commit("add big.py");
+
+    let r = f.trace(&["read", "big.py", "--at", "HEAD", "--json"]);
+    r.ok();
+    let v = r.json();
+    assert_eq!(v["truncated"], true);
+    let marker = trim_marker_of(v["content"].as_str().unwrap()).expect("trim marker");
+    assert!(marker.ends_with("--at HEAD]"), "the continue command must stay on the ref: {marker}");
+}
+
+#[test]
+fn read_empty_selection_reports_no_window() {
+    let f = standard_repo();
+    let r = f.trace(&["read", "src/util.py", "--lines", "500:600", "--json"]);
+    r.ok();
+    let v = r.json();
+    assert_eq!(v["truncated"], false);
+    assert!(v["shown_lines"].is_null());
+    assert_eq!(v["total_lines"], 4);
+}
+
+#[test]
+fn read_multi_file_caps_each_file_separately() {
+    // One large file must not starve the others of their content.
+    let f = standard_repo();
+    f.write("big.py", &oversized_python(2000));
+    f.commit("add big.py");
+
+    let r = f.trace(&["read", "big.py", "src/util.py", "--lines", "1:5000", "--json"]);
+    r.ok();
+    let v = r.json();
+    let files = v["files"].as_array().unwrap();
+    assert_eq!(files.len(), 2);
+    assert_eq!(files[0]["truncated"], true);
+    assert_eq!(files[1]["truncated"], false);
+    assert_eq!(files[1]["shown_lines"], serde_json::json!([1, 4]));
+}
+
 #[test]
 fn read_method_scopes_to_one_function() {
     // app.py's main() spans L5-L12 (def..return None). Extraction must

@@ -293,6 +293,9 @@ enum Command {
         json: bool,
         #[arg(long)]
         raw: bool,
+        /// Return the whole selection with no size budget and no trim marker.
+        #[arg(long = "all")]
+        all: bool,
         #[arg(long = "at", value_name = "REF")]
         at: Option<String>,
         #[arg(long = "lines", value_name = "L1:L2")]
@@ -637,6 +640,7 @@ fn main() -> Result<()> {
             method,
             json,
             raw,
+            all,
             at,
             lines,
             between,
@@ -649,6 +653,7 @@ fn main() -> Result<()> {
                 method.as_deref(),
                 json,
                 raw,
+                all,
                 at.as_deref(),
                 lines.as_deref(),
                 between.map(|v| (v[0].clone(), v[1].clone())),

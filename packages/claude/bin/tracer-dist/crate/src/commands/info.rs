@@ -25,7 +25,7 @@ fn leading_comment(path: &Path) -> Option<String> {
 
 fn file_info(path: &Path) -> Value {
     let repo_root = cache::worktree_root_for(path).unwrap_or_else(|| cache::display_root(path));
-    let facts = file_facts::get(path, &repo_root, None);
+    let facts = file_facts::get(path, &repo_root);
 
     let source = std::fs::read(path).unwrap_or_default();
     let functions = ccn::analyze(&source, &path.to_string_lossy()).unwrap_or_default();

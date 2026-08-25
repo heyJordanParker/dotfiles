@@ -95,18 +95,19 @@ Template:
   trace read <file> --at ref
   trace read <file> --at ref --diff
   trace read <file> --docs
+  trace read <file> --all
   ```
 
 ### Scope the read by the `loc:` field before reading a whole file
-Every listing row, search match, and shoulder carries `loc:`. Past 500 loc, a whole-file read overflows into a spill file that costs more calls than the read saved. Run `trace info <file>` for the function table with line spans, then read with `--method <name>` or `--lines L1:L2`.
-Never: `trace read <file>` with no scope on a file past 500 loc.
+Every listing row, search match, and shoulder carries `loc:`. `trace read` trims a file past its size budget at a whole line, ends the content with a `[trimmed at L<n> of <total>]` marker, and prints the command that reads the next window. A trimmed read still costs a second call, so scope the first one. Run `trace info <file>` for the function table with line spans, then read with `--method <name>` or `--lines L1:L2`.
+Never: `--all` to skim a large file. It returns every line and takes the whole cost.
 
 ### Calibrate read depth by complexity
 Use `trace survey` to find the complexity distribution. Full-read files past the repository p95. Skim uniformly-low files only when the task does not need every line.
 
 IF reading or searching a log file:
 ### Use `trace logs`
-`trace grep` does not search a gitignored path and `trace read` loads the whole file. `trace logs` reads the files the ignore rules skip, returns one entry per line with stack traces kept whole, and windows by time so a rotated 80 MB directory returns a window.
+`trace grep` does not search a gitignored path and `trace read` returns the head of the file and trims the rest. `trace logs` reads the files the ignore rules skip, returns one entry per line with stack traces kept whole, and windows by time so a rotated 80 MB directory returns a window.
 
 Template:
   ```bash

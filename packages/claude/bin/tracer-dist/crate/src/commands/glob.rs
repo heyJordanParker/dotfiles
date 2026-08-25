@@ -151,7 +151,7 @@ pub fn run(pattern: &str, base: &str, details: bool, as_json: bool) -> Result<Va
             .iter()
             .map(|p| {
                 let rel = rel_to_base(p, &base_abs);
-                match file_facts::get(p, &repo_root, None) {
+                match file_facts::get(p, &repo_root) {
                     None => json!({
                         "path": rel,
                         "ccn_total": 0,

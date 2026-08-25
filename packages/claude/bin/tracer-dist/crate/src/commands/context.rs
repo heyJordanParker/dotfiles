@@ -165,7 +165,7 @@ fn file_mode(p: &Path, lines: Option<(usize, usize)>, record: bool) -> Result<()
     };
 
     let repo_root = cache::worktree_root_for(p).unwrap_or_else(|| cache::display_root(p));
-    let facts = match file_facts::get(p, &repo_root, None) {
+    let facts = match file_facts::get(p, &repo_root) {
         Some(f) => f,
         None => return Ok(()),
     };
@@ -660,8 +660,7 @@ fn layout_section(repo_root: &Path, tracked: &[String]) -> String {
 
     for name in names {
         let paths = &by_top[name];
-        let summary =
-            aggregate_paths(paths, &source_exts, &git_map, &facts_map);
+        let summary = aggregate_paths(paths, &git_map, &facts_map);
         let mut bits = vec![
             format!("{} files", summary.0),
             format!("ccn={}", summary.1),
@@ -677,12 +676,11 @@ fn layout_section(repo_root: &Path, tracked: &[String]) -> String {
     out
 }
 
-/// Per-subdir aggregation. Source files pull real per-file facts (no
-/// lite-facts shortcut). Non-source files take last_modified /
-/// working_state from the bulk-cached git map.
+/// Per-subdir aggregation. Complexity comes from the per-file facts (only
+/// source files are batched, so the rest contribute 0); last_modified and
+/// working_state come from the bulk-cached git map that owns them.
 fn aggregate_paths(
     relative_paths: &[String],
-    source_exts: &std::collections::HashSet<&str>,
     git_map: &HashMap<String, git_activity::GitActivity>,
     facts_map: &HashMap<String, file_facts::FileFacts>,
 ) -> (usize, i64, Option<String>, bool) {
@@ -691,31 +689,13 @@ fn aggregate_paths(
     let mut has_uncommitted = false;
 
     for rel in relative_paths {
-        let ext = Path::new(rel)
-            .extension()
-            .and_then(|e| e.to_str())
-            .map(|s| s.to_lowercase());
-        let (ccn, modified, state) = if ext
-            .as_deref()
-            .map(|e| source_exts.contains(e))
-            .unwrap_or(false)
-        {
-            match facts_map.get(rel) {
-                Some(f) => (
-                    f.cyclomatic_complexity_total,
-                    f.last_modified.clone(),
-                    f.working_state.clone(),
-                ),
-                None => {
-                    let a = git_map.get(rel).cloned().unwrap_or_else(git_activity::GitActivity::empty);
-                    (0, a.last_modified, a.working_state)
-                }
-            }
-        } else {
-            let a = git_map.get(rel).cloned().unwrap_or_else(git_activity::GitActivity::empty);
-            (0, a.last_modified, a.working_state)
-        };
-        ccn_total += ccn;
+        ccn_total += facts_map
+            .get(rel)
+            .map(|f| f.cyclomatic_complexity_total)
+            .unwrap_or(0);
+        let activity = git_map.get(rel);
+        let modified = activity.and_then(|a| a.last_modified.clone());
+        let state = activity.and_then(|a| a.working_state.clone());
         if let Some(m) = &modified {
             if last_modified.as_ref().map(|lm| m > lm).unwrap_or(true) {
                 last_modified = Some(m.clone());

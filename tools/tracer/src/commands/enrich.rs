@@ -75,7 +75,7 @@ pub fn enrich(matches: &[Match], repo_root: &Path) -> (Vec<Value>, usize) {
     for m in matches {
         if !file_cache.contains_key(&m.file) {
             let abs = cache::absolutize(Path::new(&m.file));
-            let facts = file_facts::get(&abs, repo_root, None);
+            let facts = file_facts::get(&abs, repo_root);
             file_cache.insert(
                 m.file.clone(),
                 json!({

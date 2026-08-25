@@ -37,7 +37,7 @@ Tree-sitter grammars (Python, TypeScript/TSX/JSX, PHP, plus bash, lua, go, rust,
 **Per-file** (cached under `.tracer-cache/file/`):
 ```
 trace doctor                       Verify dependencies; print install instructions for any missing
-trace read <file> [--method <n>]   Cleaned read; method by name, line range, anchor, or full file; worktree or git ref; --docs opts in to project-docs injection (off by default)
+trace read <file> [--method <n>]   Cleaned read; method by name, line range, anchor, or whole file; worktree or git ref. Each file is capped at a size budget, cut at a whole line, and ends with a `[trimmed at L<n> of <total> — continue: …]` marker naming the next window; --all lifts the cap; --docs opts in to project-docs injection (off by default)
 trace docs <path> [--directory] [--source <s>] [--triggering-tool <t>] [--triggering-command <c>]   Deduped project-docs set (Claude.md / rules ancestors) for a path. Returns { docs, doc_count, already_loaded? } — `docs[]` is the freshly surfaced slice (with content); `already_loaded[]` is the dedupe-skipped slice (with per-entry source) and is omitted when empty
 trace docs load <path> [--source <s>] [--triggering-tool <t>] [--triggering-command <c>]   Hook-facing alias forwarding to path-mode with --source default flipped to `trace_docs_load`. Same shape, same behavior
 trace docs <path> --graph          Whole-repo docs graph (every CLAUDE.md / Claude.md / .claude/rules/*.md with @include edges + conditional-path frontmatter), plus the "available but not loaded" set. `<path>` is optional under `--graph`.

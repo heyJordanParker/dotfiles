@@ -49,7 +49,7 @@ pub const NAMESPACE_ARCHITECTURE: &str = "architecture";
 /// Bump whenever extraction, `FileFacts` shape, or the unified
 /// architecture-graph shape changes — old entries become unreachable
 /// automatically across all namespaces.
-pub const SCHEMA_VERSION: u32 = 14;
+pub const SCHEMA_VERSION: u32 = 15;
 
 /// Active CCN backend. There is exactly one backend — the tree-sitter
 /// AST decision-node walker — so cache identity is unconditionally
@@ -300,6 +300,35 @@ pub fn save(
     }
     fs::rename(&tmp, &entry)?;
     Ok(())
+}
+
+/// Delete every `{prefix}*` entry in `namespace` except `keep`.
+///
+/// The git-activity and deploy-presence maps are keyed by a repo state that
+/// moves — HEAD, the 30-day cutoff date, the deploy-branch tips — so without
+/// this sweep each move leaves its predecessor behind forever: 64 superseded
+/// `git_activity__*` entries totalling 52 MB had accumulated in this repo.
+/// Runs after the rename, so a crash mid-write never removes the only good
+/// entry, and matches on the filename prefix so the per-file content-hash
+/// entries sharing the namespace are never touched.
+pub fn evict_prefixed(namespace: &str, prefix: &str, keep: &str, repo_root: &Path) {
+    let dir = match namespace_dir(namespace, repo_root) {
+        Ok(d) => d,
+        Err(_) => return,
+    };
+    let keep_name = format!("{keep}.json");
+    if let Ok(rd) = fs::read_dir(&dir) {
+        for e in rd.flatten() {
+            let p = e.path();
+            let name = match p.file_name().and_then(|n| n.to_str()) {
+                Some(n) => n,
+                None => continue,
+            };
+            if name != keep_name && name.starts_with(prefix) && is_cache_entry(&p) {
+                let _ = fs::remove_file(&p);
+            }
+        }
+    }
 }
 
 /// Atomic save of a raw `.bin` entry, then evict every stale sibling so the
