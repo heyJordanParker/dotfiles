@@ -9,9 +9,9 @@ The reply is your deliverable, and its cost is the Architect's reading time. He 
 
 ## 1. Work the answer out in think.md
 
-Draft in the session scratchpad. The draft holds the evidence; the reply holds the Decisions and their reasoning.
+The draft holds the evidence; the reply holds the Decisions and their reasoning.
 
-1. Write everything there: the full answer, every finding, the reasoning.
+1. Write the draft to docs/agents/<NNN>-<task-slug>/think.md in the run's Evidence directory: the full answer, every finding, the reasoning.
 2. For every Decision, the draft must answer: what breaks today, in the Architect's words; why this Decision fixes it; what the User sees change and where; who owns which store today and after; the options with their real costs and your pick. A missing answer is research you have not done — get it before writing the reply. These are draft questions, never reply sections or labels.
 3. For a final report, start from a numbered inventory of everything settled since the session's first message.
 
