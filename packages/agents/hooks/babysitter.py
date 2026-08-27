@@ -37,7 +37,7 @@ from lib import feedback, transcript
 from lib.event import field, owner_session, read_event
 from lib.model_call import run_model
 from lib.session_mode import is_dispatched, permits, resolve, state
-from lib.session_state import bump_gate_block, gate_block_count, load_state
+from lib.session_state import bump_gate_block, gate_block_count, load_state, read_draft
 
 # This gate blocks at most this many times per turn, then yields for the rest of
 # the turn — it flags an obvious problem once and trusts the agent after that.
@@ -48,6 +48,12 @@ GATE_BLOCK_CAP = 1
 # coverage is usually near 1.0; the floor catches the residual
 # partial-read-then-edit case and a file that never recorded any read at all.
 COVERAGE_FLOOR = 0.5
+
+# think.md is the longest artifact a turn produces — the order asks for the full
+# answer, every finding, and the reasoning. transcript.clamp's 200,000-character
+# default is a pathological-turn guard, not a budget for something deliberately
+# long on every stop, so this file carries its own.
+DRAFT_CEILING = 20000
 
 # Claude only. The judgement is built on Claude's transcript — the turn boundary,
 # the request, the tool evidence — and codex's rollout carries none of those
@@ -363,6 +369,36 @@ def _dispatched_this_session(recs):
     return False
 
 
+def _draft_facts(event):
+    """This turn's think.md, when THINK_BEFORE_TALKING is on and the agent wrote
+    it this turn.
+
+    Resolves the session from the event, because the turn boundary belongs to the
+    session that wrote the file: owner_session resolves the launcher instead,
+    which is a different session whenever a nested `claude -p` inherits
+    CLAUDE_CODE_SESSION_ID.
+
+    A file older than the turn is ignored. An Evidence directory outlives its
+    run, so without the mtime check every later turn would be judged against a
+    finished one. current_turn_start is the same epoch stamp the gate-block
+    counter keys on, advanced by session_state on each human prompt.
+
+    Empty string on anything missing, and empty keeps the rendered prompt
+    identical to the ungated one: the block disappears and the Rule that reads it
+    stays out of the catalog.
+    """
+    if os.environ.get("THINK_BEFORE_TALKING") != "1":
+        return ""
+    session_id = field(event, "session_id", "")
+    turn_start = load_state(session_id).get("current_turn_start")
+    draft = read_draft(field(event, "cwd", ""), turn_start)
+    if not draft.strip():
+        return ""
+    return ("The agent's think.md for this turn, written before the reply. It "
+            "holds the findings; the reply carries the conclusions drawn from "
+            "them:\n%s\n---\n" % transcript.clamp(draft, DRAFT_CEILING))
+
+
 def _read_facts(edited_facts_block, opened, missing):
     """The facts the reading Rules reason over: per-edited-file coverage and
     caller lines, the opened-files list, then the paths the message names that do
@@ -479,6 +515,7 @@ def main():
         transcript.clamp(transcript.turn_evidence(turn)),
         _read_facts(edited_facts_block, opened, _missing_paths(last_msg, cwd)),
         permission, forwarded, unsettled, bool(opened), bool(edited_facts_block),
+        _draft_facts(event),
     )
     result = run_model(system_prompt=SYSTEM_PROMPT, user_prompt=prompt,
                        schema=JSON_SCHEMA)
@@ -831,6 +868,19 @@ UNCHECKED_CLAIM = (
     "sentence is about his own undecided call rather than the agent's unchecked claim."
 )
 
+REPLY_DROPS_DRAFT_DECISION = (
+    "### Name a Decision think.md settled and the reply drops\n"
+    "The think.md above settled something — a Decision, a verdict, a finding, a "
+    "required action — and the last message does not carry it, so he never learns "
+    "it. Name what think.md settled and the reply left out. Settled means the file "
+    "states it as decided; a line the file itself marks as open, tentative, "
+    "unverified, or a possibility to check is not settled, and a reply that leaves "
+    "it unresolved is right to. Evidence think.md holds and the reply states as a "
+    "conclusion is the file working as intended: allow it. Reasoning, dead ends, "
+    "and the search path belong in think.md alone, so their absence from the reply "
+    "is never this."
+)
+
 FINISHED_TURN = (
     "### Allow a turn that is genuinely finished\n"
     "The work is complete with nothing deferred, or the message summarizes work "
@@ -848,7 +898,7 @@ FINISHED_TURN = (
 
 def _rules(intent, current_state, mode, can_write=True,
            has_opened=False, has_edit_facts=False,
-           forwarded=False, unsettled=False):
+           forwarded=False, unsettled=False, has_draft=False):
     """The Rules this turn can produce, in order.
 
     Each Rule pairs with the turn fact that admits it; None admits it always. A
@@ -904,6 +954,7 @@ def _rules(intent, current_state, mode, can_write=True,
         (EDITED_BLIND, lambda i, s, m: has_edit_facts),
         (UNOPENED_EDIT_PROPOSED, lambda i, s, m: has_opened),
         (INVENTED_STRUCTURE, lambda i, s, m: has_opened),
+        (REPLY_DROPS_DRAFT_DECISION, lambda i, s, m: has_draft),
         (USABLE_MESSAGE, None),
         (FINISHED_TURN, lambda i, s, m: can_write),
     )
@@ -947,7 +998,8 @@ def _turn_facts(intent, current_state, mode, can_write,
 
 def _eval_prompt(request, last_msg, intent, current_state, mode, can_write,
                  plan="", turn_evidence="", read_facts="", permission="",
-                 forwarded="", unsettled="", has_opened=False, has_edit_facts=False):
+                 forwarded="", unsettled="", has_opened=False, has_edit_facts=False,
+                 draft_facts=""):
     plan_block = "The plan for this session:\n%s\n---\n" % plan if plan else ""
     turn_block = ""
     if turn_evidence:
@@ -962,17 +1014,17 @@ def _eval_prompt(request, last_msg, intent, current_state, mode, can_write,
         "%s"
         "The architect's last message, which this reply answers:\n%s\n---\n"
         "The agent's LAST MESSAGE, which he reads and acts on:\n%s\n---\n"
-        "%s%s"
+        "%s%s%s"
         "The Rules for this turn. Each names one failure, and the last ones name the "
         "message and the turn that pass:\n\n%s\n\n"
         "Return JSON. Allow: {\"allow\": true}. Block: {\"allow\": false, \"reason\": "
         "\"the Rule's title, then the offending part\"}."
     ) % (_turn_facts(intent, current_state, mode, can_write,
                      permission, forwarded, unsettled),
-         plan_block, request, last_msg, turn_block, read_facts,
+         plan_block, request, last_msg, turn_block, read_facts, draft_facts,
          "\n\n".join(_rules(intent, current_state, mode, can_write,
                             has_opened, has_edit_facts,
-                            bool(forwarded), bool(unsettled))))
+                            bool(forwarded), bool(unsettled), bool(draft_facts))))
 
 
 if __name__ == "__main__":

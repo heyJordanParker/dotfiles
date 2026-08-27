@@ -19,7 +19,7 @@ SessionStart matcher `startup|resume|clear|compact` runs `trace context prime --
 PreToolUse matcher `Read|Glob|Grep|Edit|Write` runs `trace context <file>`. Edit and Write pass `--no-record` because an edit is not a read. Glob and Grep resolve matched files and cap enrichment at twenty files.
 
 ### `guard_trace.py` blocks lossy commands
-PreToolUse matcher `Bash` blocks trace output piped to shell filters or redirected into a repository file, and raw file-search commands against in-repo paths. It whitelists `/tmp`, `/dev/null`, `docs/shaping/`, `docs/plans/`, `.claude/shaping/`, `.claude/plans/`, and `.tracer-cache/`.
+PreToolUse matcher `Bash` blocks trace output piped to shell filters or redirected into a repository file, and raw file-search commands against in-repo paths. It whitelists `/tmp`, `/dev/null`, `docs/shaping/`, `docs/plans/`, `docs/agents/`, `.claude/shaping/`, `.claude/plans/`, and `.tracer-cache/`.
 
 ### `inject_docs.py` blocks trace without docs Context
 PreToolUse matcher `Bash` runs `trace docs <path> --source trace_inject_hook --triggering-tool Bash --triggering-command <cmd>` before path-taking trace subcommands. It blocks the trace command with exit code 2 if docs loading fails.

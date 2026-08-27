@@ -291,6 +291,27 @@ STANDING_REMINDERS = (
 )
 
 
+def draft_directive():
+    """The order to draft before replying, when THINK_BEFORE_TALKING is on.
+
+    /present carries the same instruction, and a measured `cld -p` run showed the
+    agent skipping it: a single-shot turn answers straight from thinking. The
+    directive arrives with the turn instead. Empty while the flag is unset, so the
+    turn's injected context is what it was before this existed.
+    """
+    if os.environ.get("THINK_BEFORE_TALKING") != "1":
+        return ""
+    return ("### Write think.md before the reply\n"
+            "Write this turn's findings and the decisions you have settled to "
+            "docs/agents/<NNN>-<task-slug>/think.md in the run's Evidence "
+            "directory, then write the reply from that file. Replace the whole "
+            "file so it holds this turn only, never appended to an earlier "
+            "turn's. This file is your own working document, so writing it is "
+            "never the acting a question turn withholds. It records what you "
+            "did and settled, never what you would do: a decision you write "
+            "there is one you carry out this turn.")
+
+
 def intent_contract(intent, has_action_items):
     if intent == "question":
         return QUESTION_WITH_ACTION_CONTRACT if has_action_items else QUESTION_CONTRACT
@@ -442,6 +463,12 @@ def main():
         if current_state == "propose" and notes:
             block = NOTES_HEADER + "\n" + "\n".join("- %s" % n for n in notes)
             context = (context + "\n\n" + block) if context else block
+
+    # The draft order, when the flag is on. It leads the reminders because it is
+    # the first thing the turn does, and it is empty while the flag is unset.
+    draft = draft_directive()
+    if draft:
+        context = (context + "\n\n" + draft) if context else draft
 
     # Standing behavioral reminders — emitted every non-skipped turn.
     context = (context + "\n\n" + STANDING_REMINDERS) if context else STANDING_REMINDERS

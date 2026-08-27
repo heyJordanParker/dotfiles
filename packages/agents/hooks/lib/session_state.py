@@ -24,6 +24,14 @@ import tempfile
 import time
 from glob import glob
 
+# This module is imported both ways: as `lib.session_state` by every hook, and
+# bare by its own CLI entry point and by its tests, which put the lib directory
+# on the path. Only one spelling resolves in each, so both are tried.
+try:
+    from lib import transcript
+except ImportError:
+    import transcript
+
 _SID_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_-]*$")
 
 
@@ -132,30 +140,17 @@ def _locked(path):
 
 
 def _human_prompt(content):
-    """True if human-typed, False if system-injected."""
-    if content == "":
+    """True if the architect typed it, False if a machine wrote it.
+
+    `transcript.harness_authored` is the one test, and this asks it. The two used
+    to be separate copies, and the copy here knew four machine shapes where the
+    other knew six: a relayed cross-session message and replayed stop-gate
+    feedback opened a turn here while every prompt hook treated the same text as
+    machine-written. That split the turn boundary from the turn's own contract.
+    """
+    if not content:
         return False
-
-    # Rule 1: XML-tagged with a matching close tag
-    if content.startswith("<"):
-        rest = content[1:]
-        tag = re.split(r"[> ]", rest, maxsplit=1)[0]
-        if tag and ("</%s>" % tag) in content:
-            return False
-
-    # Rule 2: single-line bracket-enclosed
-    if "\n" not in content and content.startswith("[") and content.endswith("]"):
-        return False
-
-    # Rule 3: continuation prefix
-    if content.startswith("This session is being continued"):
-        return False
-
-    # Rule 4: skill expansion prefix
-    if content.startswith("Base directory for this skill:"):
-        return False
-
-    return True
+    return not transcript.harness_authored(content)
 
 
 def _default_main_state(session_id):
@@ -600,6 +595,41 @@ def load_state(session_id):
         return {}
     state = _read_json(os.path.join(session_dir, "state.json"))
     return state if isinstance(state, dict) else {}
+
+
+def read_draft(cwd, not_before):
+    """This turn's think.md from the run's Evidence directory, else "".
+
+    The agent names its own Evidence directory, so the file is found by its fixed
+    name and its write time rather than by a path this side rebuilds. Newest in
+    the window wins when a session has written more than one.
+
+    `not_before` is the turn's start. The window closes at both ends against one
+    clock, `_now()`: a lower bound alone lets a file stamped ahead of the clock
+    read as fresh on every turn for good, and mixing `_now()` with `time.time()`
+    made the two ends disagree wherever the harness drives `date`.
+    """
+    if not cwd or not isinstance(not_before, int):
+        return ""
+    try:
+        ceiling = _now() + 1
+    except Exception:
+        return ""
+    newest, stamp = "", 0
+    for path in glob(os.path.join(cwd, "docs", "agents", "*", "think.md")):
+        try:
+            mtime = os.stat(path).st_mtime
+        except OSError:
+            continue
+        if not_before <= mtime <= ceiling and mtime >= stamp:
+            newest, stamp = path, mtime
+    if not newest:
+        return ""
+    try:
+        with open(newest, encoding="utf-8", errors="replace") as fh:
+            return fh.read()
+    except OSError:
+        return ""
 
 
 def merge_state(session_id, fragment):

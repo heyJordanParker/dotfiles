@@ -73,8 +73,13 @@ def resolve_path(t, cwd):
 def inside_repo(p, cwd):
     if p in _DEVICES:
         return False
-    if ("/docs/shaping/" in p or "/docs/plans/" in p or "/.claude/shaping/" in p
-            or "/.claude/plans/" in p or "/.tracer-cache/" in p):
+    # The artifact homes are prose, not code: a report, a plan, a shaping doc, or
+    # a draft is read whole with cat, and `trace read` answers a code question it
+    # is not being asked. docs/agents/ was the one home missing here, so an agent
+    # reading a subagent's report.md or its own think.md was sent to trace.
+    if ("/docs/shaping/" in p or "/docs/plans/" in p or "/docs/agents/" in p
+            or "/.claude/shaping/" in p or "/.claude/plans/" in p
+            or "/.tracer-cache/" in p):
         return False
     return p == cwd or p.startswith(cwd + "/")
 
