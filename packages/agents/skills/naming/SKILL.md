@@ -18,18 +18,18 @@ Use the words this project already speaks. A word it spends on something else is
 ## 2. Pick the angles
 
 ### Give every candidate its own angle
-An angle is a different idea of what the thing is, not a different wording of one idea. Frame the thing several ways first: what the caller gets, the Domain event, the object that changes, the state after, the trigger before, the real-world act. Each candidate comes off a different framing and names it on its slate line. Two candidates share an angle when one sentence describes both, so replace one. The reply opens on the first candidate, never on a list of angles. The candidates below name a method that charges a failed payment on the backup card.
+An angle is a different idea of what the thing is, not a different wording of one idea. Frame the thing several ways first: what the caller gets, the Domain event, the object that changes, the state after, the trigger before, the real-world act. Each candidate comes off a different framing and names it on its slate line. Two candidates share an angle when one sentence describes both, so replace one. The reply opens on the first candidate, never on a list of angles. The candidates below name a method on `Payment` that charges a failed payment on the backup card.
 
 Never:
-    chargeFallbackInstrument / billAlternateSource / captureDuesElsewhere
-    collectViaSpareWallet / reattemptOnSecondaryCard
+    $payment->chargeFallbackInstrument() / $payment->billAlternateSource()
+    $payment->captureDuesElsewhere() / $payment->collectViaSpareWallet()
 
 Example:
-    retryCharge — the same operation runs again
-    recoverSubscription — the subscription returns to active
-    useBackupCard — the stored second card is what changes
-    settleBalance — the debt reaches zero
-    rescueAccount — the customer keeps their access
+    $payment->retryCharge() — the same operation runs again
+    $payment->recoverSubscription() — the subscription returns to active
+    $payment->useBackupCard() — the stored second card is what changes
+    $payment->settleBalance() — the debt reaches zero
+    $payment->rescueAccount() — the customer keeps their access
 
 ## 3. Generate a slate
 
@@ -44,6 +44,17 @@ Template:
     Runner-up: `name` — one-sentence reason.
 
 Never: "Let's call it X", "I'd name it X", "The right name is X", "Recommended: X" without a slate above it, any single candidate before the slate.
+
+IF the name belongs to a class, module, or object — a method, property, constant, or field:
+### Write every candidate as the caller writes it
+A bare member name reads well alone and badly against its owner. Every slate line, the recommendation, and the runner-up carry the whole callsite. A static member carries the class name. A non-static member carries a typical instance name from the project. Judge the candidate on that whole line, so a word the owner already says is a repeat you cut.
+
+Never:
+    fromOrder / isValid / retryCharge
+
+Example:
+    Invoice::fromOrder($order) — the static member reads with its class
+    $invoice->isPaid() — the property reads with a typical instance
 
 ### Change every fragment in every candidate
 A word that appears in one candidate appears in no other. The caller mixes words across candidates into a final name that was not on the slate, so a repeated word costs a slot and returns nothing.
