@@ -454,8 +454,8 @@ fn main() -> Result<()> {
             lang,
             path,
             json,
-        } => output::run_value(json, filter, || {
-            commands::grep::run(&pattern, lang.as_deref(), &path, json)
+        } => output::run_streamed(json, filter, |sink| {
+            commands::grep::run(&pattern, lang.as_deref(), &path, json, sink)
         }),
         Command::Logs {
             pattern,
@@ -483,8 +483,8 @@ fn main() -> Result<()> {
             lang,
             path,
             json,
-        } => output::run_value(json, filter, || {
-            commands::struct_::run(&pattern, &lang, &path, json)
+        } => output::run_streamed(json, filter, |sink| {
+            commands::struct_::run(&pattern, &lang, &path, json, sink)
         }),
         Command::Defines { symbol, json } => {
             output::run_value(json, filter, || commands::defines::run(&symbol, json))

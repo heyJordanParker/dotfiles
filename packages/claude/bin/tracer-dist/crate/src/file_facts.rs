@@ -27,6 +27,7 @@ use serde_json::{json, Map, Value};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, OnceLock};
 
 #[derive(Debug, Clone)]
 pub struct FileFacts {
@@ -354,10 +355,57 @@ fn mtime_index_key() -> String {
     )
 }
 
-fn mtime_index_load(repo_root: &Path) -> Map<String, Value> {
-    cache::load(cache::NAMESPACE_FILE, &mtime_index_key(), repo_root)
-        .and_then(|v| v.as_object().cloned())
-        .unwrap_or_default()
+/// Process-wide memo of the mtime index, keyed by repo root — the same memo
+/// `git_activity::bulk_cached` and `repo_context::load_or_compute` keep for
+/// the other two whole-repo maps this layer reads.
+///
+/// Without it, the index is the one bulk map still re-read and re-parsed per
+/// file: `get` consults it on entry and `get_batch` loads it once, so a
+/// command resolving N files one at a time paid N whole-index parses and, on
+/// the content-hash path, N whole-index writes. That is the O(N²) storm
+/// `get_batch`'s contract describes, and memoizing here removes it for every
+/// caller rather than requiring each one to reach for the bulk resolver.
+///
+/// Writes go through `mtime_index_record` and `mtime_index_store`, which
+/// update the memo in the same lock they write under, so a later read in the
+/// same process never serves a superseded index.
+fn mtime_index_memo() -> &'static Mutex<HashMap<PathBuf, Arc<Map<String, Value>>>> {
+    static MEMO: OnceLock<Mutex<HashMap<PathBuf, Arc<Map<String, Value>>>>> = OnceLock::new();
+    MEMO.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn mtime_index_load(repo_root: &Path) -> Arc<Map<String, Value>> {
+    let mut guard = mtime_index_memo().lock().unwrap();
+    if let Some(hit) = guard.get(repo_root) {
+        return Arc::clone(hit);
+    }
+    let loaded = Arc::new(
+        cache::load(cache::NAMESPACE_FILE, &mtime_index_key(), repo_root)
+            .and_then(|v| v.as_object().cloned())
+            .unwrap_or_default(),
+    );
+    guard.insert(repo_root.to_path_buf(), Arc::clone(&loaded));
+    loaded
+}
+
+/// Persist `index` and make it the memo's current value under the same lock,
+/// so no reader can observe the pre-write index after the write returns.
+///
+/// The index is wrapped for the save and unwrapped for the memo rather than
+/// cloned for one of them: on a repo with thousands of entries this runs on
+/// every single-file cache miss.
+fn mtime_index_store(repo_root: &Path, index: Map<String, Value>) {
+    let mut guard = mtime_index_memo().lock().unwrap();
+    let document = Value::Object(index);
+    let _ = cache::save(
+        cache::NAMESPACE_FILE,
+        &mtime_index_key(),
+        &document,
+        repo_root,
+    );
+    if let Value::Object(index) = document {
+        guard.insert(repo_root.to_path_buf(), Arc::new(index));
+    }
 }
 
 fn mtime_index_record(
@@ -367,17 +415,12 @@ fn mtime_index_record(
     size: i64,
     key: &str,
 ) {
-    let mut idx = mtime_index_load(repo_root);
+    let mut idx = (*mtime_index_load(repo_root)).clone();
     idx.insert(
         rel.to_string(),
         json!({"mtime_ns": mtime_ns, "size": size, "key": key}),
     );
-    let _ = cache::save(
-        cache::NAMESPACE_FILE,
-        &mtime_index_key(),
-        &Value::Object(idx),
-        repo_root,
-    );
+    mtime_index_store(repo_root, idx);
 }
 
 /// Facts for one file. NO lite-facts: always real extraction on a miss.
@@ -568,7 +611,7 @@ pub fn get_batch(
             .collect();
 
     // Merge index updates and persist ONCE (was the O(N²) fsync storm).
-    let mut new_index = index;
+    let mut new_index = (*index).clone();
     let mut out = HashMap::with_capacity(resolved.len());
     let mut dirty = false;
     for (rel, facts, upd) in resolved {
@@ -582,12 +625,7 @@ pub fn get_batch(
         out.insert(rel, facts);
     }
     if dirty {
-        let _ = cache::save(
-            cache::NAMESPACE_FILE,
-            &mtime_index_key(),
-            &Value::Object(new_index),
-            repo_root,
-        );
+        mtime_index_store(repo_root, new_index);
     }
     out
 }

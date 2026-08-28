@@ -1,7 +1,20 @@
 //! Per-match file enrichment shared by `grep` and `struct`.
 //! file_complexity, git_context, and the `nearest_doc` walk (in
-//! `crate::digest`). One parse per file even with many matches, via the
-//! per-file cache.
+//! `crate::digest`).
+//!
+//! Enrichment is per FILE, so it is stored once per file and referenced by
+//! every match in it. An `EnrichedMatch` is a borrowed match plus a shared
+//! handle to its file's enrichment; its `Serialize` writes the same seven
+//! keys, in the same order, that the emitted document has always carried, so
+//! every match still arrives with its full context. Storing it per match
+//! instead cost 168 MB on a 59,644-match search where the enrichment itself
+//! is 2,365 files' worth.
+//!
+//! Files resolve through `file_facts::get_batch`, which `file_facts.rs` names
+//! the only correct path for a multi-file command: the git map, the scc map,
+//! and the mtime index are hoisted once instead of being re-read per file.
+//! The batch is chunked and projected to the fields the enrichment renders,
+//! so the whole extraction set for every matched file is never resident.
 //!
 //! Also the shared `file_shoulders` join used by the architecture commands
 //! (`callers`, `downstream`, `defines`, `symbols`) to attach the canonical
@@ -10,14 +23,62 @@
 //! by path so a file appearing in many rows is resolved once.
 
 use crate::{cache, digest, file_facts, passive_context};
+use serde::ser::{SerializeMap, Serializer};
+use serde::Serialize;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
+
+/// Files resolved per `get_batch` call. The bulk resolver returns every
+/// input's whole `FileFacts` — extraction included — in one map, so a search
+/// spanning thousands of files would hold every declaration and reference in
+/// all of them at once. Chunking bounds that to the chunk; the maps the
+/// resolver hoists are memoized per repo root, so the only per-chunk cost is
+/// re-reading the mtime index.
+const RESOLVE_CHUNK: usize = 512;
 
 pub struct Match {
     pub file: String,
     pub line: i64,
     pub snippet: String,
+}
+
+/// One file's enrichment, held once however many matches the file has.
+pub struct FileEnrichment {
+    file_complexity: Value,
+    nearest_doc: Value,
+    git: Value,
+    shoulder: Value,
+}
+
+impl FileEnrichment {
+    fn nearest_doc_str(&self) -> Option<&str> {
+        self.nearest_doc.as_str()
+    }
+    fn shoulder_str(&self) -> Option<&str> {
+        self.shoulder.as_str()
+    }
+}
+
+/// A match plus a shared handle to its file's enrichment.
+pub struct EnrichedMatch<'a> {
+    m: &'a Match,
+    file: Rc<FileEnrichment>,
+}
+
+impl Serialize for EnrichedMatch<'_> {
+    fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        let mut map = s.serialize_map(Some(7))?;
+        map.serialize_entry("file", &self.m.file)?;
+        map.serialize_entry("line", &self.m.line)?;
+        map.serialize_entry("snippet", &self.m.snippet)?;
+        map.serialize_entry("file_complexity", &self.file.file_complexity)?;
+        map.serialize_entry("nearest_doc", &self.file.nearest_doc)?;
+        map.serialize_entry("git", &self.file.git)?;
+        map.serialize_entry("shoulder", &self.file.shoulder)?;
+        map.end()
+    }
 }
 
 /// Per-file complexity scalars from cached facts.
@@ -55,9 +116,9 @@ fn git_context(facts: Option<&file_facts::FileFacts>) -> Value {
 }
 
 /// Enrich matches with per-file complexity, nearest doc, and git context.
-/// One `file_facts::get` per unique file. `repo_root` is resolved once by
-/// the caller for the search path — every match lives under it, so per-file
-/// root resolution is correct without paying a `git rev-parse` per match.
+/// `repo_root` is resolved once by the caller for the search path — every
+/// match lives under it, so per-file root resolution is correct without
+/// paying a `git rev-parse` per match.
 ///
 /// Matches are sorted by `(file, line, snippet)` before enrichment so the
 /// emitted order is byte-identical across repeated identical invocations.
@@ -65,66 +126,76 @@ fn git_context(facts: Option<&file_facts::FileFacts>) -> Value {
 /// in parallel and emit per-file blocks in nondeterministic order; without
 /// this sort the same query returns the same matches in a different order
 /// each run, which breaks output diffing and caching for any consumer.
-pub fn enrich(matches: &[Match], repo_root: &Path) -> (Vec<Value>, usize) {
-    let mut matches: Vec<&Match> = matches.iter().collect();
-    matches.sort_by(|a, b| {
+pub fn enrich<'a>(
+    matches: &'a [Match],
+    repo_root: &Path,
+) -> (Vec<EnrichedMatch<'a>>, usize) {
+    let mut ordered: Vec<&Match> = matches.iter().collect();
+    ordered.sort_by(|a, b| {
         (&a.file, a.line, &a.snippet).cmp(&(&b.file, b.line, &b.snippet))
     });
-    let mut file_cache: HashMap<String, Value> = HashMap::new();
-    let mut enriched: Vec<Value> = Vec::new();
-    for m in matches {
-        if !file_cache.contains_key(&m.file) {
-            let abs = cache::absolutize(Path::new(&m.file));
-            let facts = file_facts::get(&abs, repo_root);
-            file_cache.insert(
-                m.file.clone(),
-                json!({
-                    "file_complexity": file_complexity(facts.as_ref()),
-                    "nearest_doc": digest::nearest_doc(&abs),
-                    "git": git_context(facts.as_ref()),
-                    "shoulder": facts.as_ref().map(|f| passive_context::render(f, None)),
+
+    let mut unique: Vec<&str> = ordered.iter().map(|m| m.file.as_str()).collect();
+    unique.dedup();
+    let abs: Vec<PathBuf> = unique
+        .iter()
+        .map(|f| cache::absolutize(Path::new(f)))
+        .collect();
+
+    // Resolve in chunks, projecting each file's facts to what the enrichment
+    // renders and dropping the facts with the chunk.
+    let mut by_file: HashMap<&str, Rc<FileEnrichment>> =
+        HashMap::with_capacity(unique.len());
+    for (names, paths) in unique
+        .chunks(RESOLVE_CHUNK)
+        .zip(abs.chunks(RESOLVE_CHUNK))
+    {
+        let facts_map = file_facts::get_batch(paths, repo_root);
+        for (name, path) in names.iter().zip(paths.iter()) {
+            let facts = facts_map.get(&cache::relative_to_root(path, repo_root));
+            by_file.insert(
+                name,
+                Rc::new(FileEnrichment {
+                    file_complexity: file_complexity(facts),
+                    nearest_doc: json!(digest::nearest_doc(path)),
+                    git: git_context(facts),
+                    shoulder: json!(facts.map(|f| passive_context::render(f, None))),
                 }),
             );
         }
-        let fc = &file_cache[&m.file];
-        enriched.push(json!({
-            "file": m.file,
-            "line": m.line,
-            "snippet": m.snippet,
-            "file_complexity": fc["file_complexity"],
-            "nearest_doc": fc["nearest_doc"],
-            "git": fc["git"],
-            "shoulder": fc["shoulder"],
-        }));
     }
-    let files_matched = file_cache.len();
+
+    let files_matched = by_file.len();
+    let enriched = ordered
+        .into_iter()
+        .map(|m| EnrichedMatch {
+            m,
+            file: Rc::clone(&by_file[m.file.as_str()]),
+        })
+        .collect();
     (enriched, files_matched)
 }
 
 /// Shared human renderer for grep/struct: grouped-by-file with a per-file
 /// shoulder, then a one-line summary.
-pub fn render_human(enriched: &[Value], files_matched: usize, repo_ctx: &Value) {
+pub fn render_human(enriched: &[EnrichedMatch], files_matched: usize, repo_ctx: &Value) {
     if enriched.is_empty() {
         println!("(no matches)");
         return;
     }
-    let mut current_file: Option<String> = None;
+    let mut current_file: Option<&str> = None;
     for m in enriched {
-        let file = m["file"].as_str().unwrap_or("").to_string();
-        if Some(&file) != current_file.as_ref() {
-            let doc = m["nearest_doc"].as_str().unwrap_or("(no doc)");
+        if current_file != Some(m.m.file.as_str()) {
+            let file = &m.m.file;
+            let doc = m.file.nearest_doc_str().unwrap_or("(no doc)");
             println!();
-            match m["shoulder"].as_str() {
+            match m.file.shoulder_str() {
                 Some(s) => println!("{file}  {s}  [doc={doc}]"),
                 None => println!("{file}  [doc={doc}]"),
             }
-            current_file = Some(file);
+            current_file = Some(m.m.file.as_str());
         }
-        println!(
-            "  L{:<5} {}",
-            m["line"].as_i64().unwrap_or(0),
-            m["snippet"].as_str().unwrap_or("")
-        );
+        println!("  L{:<5} {}", m.m.line, m.m.snippet);
     }
     println!();
     println!(

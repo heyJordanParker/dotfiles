@@ -13,12 +13,17 @@ use jaq_core::{data, unwrap_valr, Ctx, Vars};
 use jaq_json::{read, Val};
 use serde_json::Value;
 
-/// Run `program` (jq syntax) over `value`, returning every produced value
-/// in stream order. A parse/compile/runtime error fails loud with the jq
-/// diagnostic — never a partial or silent result.
-pub fn apply(value: &Value, program: &str) -> Result<Vec<Value>> {
-    let json = serde_json::to_string(value)?;
-    let input = match read::parse_single(&json.as_bytes()) {
+/// Run `program` (jq syntax) over the command's document, already serialized
+/// as JSON, returning every produced value in stream order. A parse/compile/
+/// runtime error fails loud with the jq diagnostic — never a partial or
+/// silent result.
+///
+/// The input is bytes rather than a `serde_json::Value` because jaq builds
+/// its own tree either way: taking a `Value` meant the caller materialized a
+/// whole second tree of the result purely to hand it over, which on a large
+/// document is the single biggest allocation in the run.
+pub fn apply(json: &[u8], program: &str) -> Result<Vec<Value>> {
+    let input = match read::parse_single(json) {
         Ok(v) => v,
         Err(e) => bail!("--filter: could not read command output as JSON: {e:?}"),
     };

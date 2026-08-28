@@ -134,16 +134,20 @@ impl<F: Formatter> Formatter for AsciiEscaper<F> {
 /// Pretty form: 2-space indent, ASCII-escaped scalars. Under indent the
 /// item separator is "," (a newline follows) and the key separator is ": ";
 /// serde_json's PrettyFormatter with a 2-space indent produces exactly this.
-pub fn to_pretty(value: &Value) -> String {
-    let indent = b"  ";
-    let pretty = serde_json::ser::PrettyFormatter::with_indent(indent);
-    let mut buf = Vec::new();
+///
+/// Written straight to `w`, and taken from any `Serialize` rather than a
+/// materialized `Value`: a command's result must not exist a second time as
+/// a `String` just to be printed.
+pub fn write_pretty<W: io::Write, T: serde::Serialize + ?Sized>(
+    w: &mut W,
+    value: &T,
+) -> io::Result<()> {
+    let pretty = serde_json::ser::PrettyFormatter::with_indent(b"  ");
     let mut ser = serde_json::Serializer::with_formatter(
-        &mut buf,
+        w,
         AsciiEscaper { inner: pretty },
     );
-    serde::Serialize::serialize(value, &mut ser).expect("json pretty");
-    String::from_utf8(buf).expect("utf8")
+    value.serialize(&mut ser).map_err(io::Error::other)
 }
 
 /// Compact form, no indent (used for cache entries): the separators are
