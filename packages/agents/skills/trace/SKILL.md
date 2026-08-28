@@ -19,6 +19,14 @@ Never: pipe `trace` into `grep`, `rg`, `head`, `tail`, `sed`, `awk`, `cut`, `sor
 Use the matching `trace` subcommand instead. `guard_trace.py` blocks raw `cat`, `grep`, `rg`, `find`, `sed`, `awk`, `head`, and `tail` against in-repo paths, and blocks `ls` and `tree` reaching the repo.
 Example: `trace list src/` replaces `ls src/`; `trace tree src/` replaces `tree src/`.
 
+### Do not read repository code with git
+Use the matching `trace` subcommand. `guard_trace.py` blocks the git forms trace already answers.
+Example: `trace read <path> --at <ref>` replaces `git show <ref>:<path>` and `git cat-file -p`; `trace grep <pattern>` replaces `git grep <pattern>`; `trace blame <file>` replaces `git blame`; `trace history <file>` replaces `git log -- <file>`; `trace history <file> <symbol>` replaces `git log -L`; `trace history --contains <pattern>` replaces `git log -S`; `trace diff` replaces `git diff --name-status`.
+Every other git command passes, including `git status`, `git branch`, `git tag`, `git rev-parse`, `git reflog`, `git stash`, `git merge-base`, `git describe`, `git ls-files`, plain `git diff`, `git log -p`, `git log -G`, and `git grep <pattern> <ref>`.
+
+### Bound a search before sorting it
+A search piped into `sort` or `uniq` holds its whole output in memory, so `guard_trace.py` blocks one that is not bounded. Count with `rg -c`, cap with `rg --max-count <n>`, or put `head -<n>` before the sort.
+
 ### Find the newest artifact with `trace list --recent`
 `trace list` lists the filesystem, so gitignored artifact directories (test runs, logs, builds) list too. `--recent` orders newest-first by mtime, `--limit N` caps the rows, and `entries=N` always carries the full count.
 Example: `trace list tests/.runs --recent --limit 5` replaces `ls -t tests/.runs | head -5`.
@@ -127,7 +135,7 @@ Template:
 New, untracked, or added files likely have no callers. Renamed files continue old code. Recent files with few commits may still be moving. Old files with many commits are settled Precedents. `local-only` is not deployed; `main` or `production` means capability regression matters.
 
 ### Cross-check modify-or-stack Decisions
-Before recommending modify or stack, read the nearest `Claude.md` or `Agents.md` and check `git show origin/production:<path>`. A locally new file may already be deployed through worktrees, squashed baselines, or branch divergence.
+Before recommending modify or stack, read the nearest `Claude.md` or `Agents.md` and check `trace read <path> --at origin/production`. A locally new file may already be deployed through worktrees, squashed baselines, or branch divergence.
 
 ## 6. Keep dependency direction straight
 

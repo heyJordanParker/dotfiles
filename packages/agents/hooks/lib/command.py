@@ -363,6 +363,21 @@ def redirects_output(command):
                for line, _ in lines for t in tokenize(line))
 
 
+def script_lines(command):
+    """This command line and every shell script nested inside it, as strings.
+
+    `all_segments` flattens the nesting away, which loses which segment feeds
+    which. A guard reading a pipeline — what sits on the left of a `|` — needs
+    the lines back, so it can `_split` each one itself and keep that adjacency
+    inside `zsh -lc '…'` exactly as it has it on the outer line.
+
+    None when the line cannot be parsed, which every guard here treats as a
+    block rather than a guess.
+    """
+    lines = _lines(command, 0)
+    return None if lines is None else [line for line, _ in lines]
+
+
 def all_segments(command):
     """Every command segment of this line and of every script nested inside it.
 
