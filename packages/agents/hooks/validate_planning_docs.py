@@ -12,7 +12,7 @@ import re
 import sys
 
 from lib import feedback
-from lib.event import field, read_event
+from lib.event import field, patch_target, patch_text, read_event
 from lib.model_call import run_model
 from lib.session_mode import is_dispatched
 
@@ -60,10 +60,8 @@ def main():
         file_path = field(event, "tool_input.file_path", "")
         content = field(event, "tool_input.new_string", "")
     elif tool_name == "apply_patch":
-        patch = (field(event, "tool_input.input", "") or field(event, "tool_input.patch", "")
-                 or field(event, "tool_input.changes", ""))
-        m = re.search(r"^\*\*\* (?:Update|Add|Delete) File: (.+)$", patch, re.M)
-        file_path = m.group(1) if m else ""
+        patch = patch_text(event)
+        file_path = patch_target(event)
         content = "\n".join(ln[1:] for ln in patch.splitlines()
                             if ln.startswith("+") and not ln.startswith("+++"))
     else:

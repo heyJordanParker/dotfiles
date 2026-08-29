@@ -23,7 +23,8 @@ import shlex
 import sys
 
 from lib import agent_memory, honcho
-from lib.event import agent_name, canonical_tool, command_str, field, read_event
+from lib.event import (agent_name, canonical_tool, command_str, field,
+                       patch_target, read_event)
 
 BINDING = {
     "events": {"PostToolUse": ["Bash", "Write", "Edit", "MultiEdit", "Agent"]},
@@ -69,7 +70,7 @@ def observation(event):
     """The one line this tool call is worth remembering, or ""."""
     kind = canonical_tool(event)
     if kind == "write":
-        path = field(event, "tool_input.file_path", "")
+        path = patch_target(event)
         return "wrote %s" % path if path else ""
     if kind == "shell":
         command = " ".join(command_str(event).split())

@@ -19,7 +19,7 @@ import sys
 
 from lib import feedback
 from lib.command import all_segments, git_normalize, is_ours, mutation_targets
-from lib.event import canonical_tool, field, read_event
+from lib.event import canonical_tool, field, patch_target, read_event
 from lib.session_mode import is_dispatched, permits, state
 
 BINDING = {
@@ -119,7 +119,7 @@ def main():
     refusal = MODE_MSG if banned else BLOCK_MSG
 
     cwd = field(event, "cwd", "") or os.getcwd()
-    file_path = field(event, "tool_input.file_path", "")
+    file_path = patch_target(event)
     command = field(event, "tool_input.command", "")
 
     if canonical_tool(event) == "write":
@@ -127,8 +127,9 @@ def main():
             return block(MODE_MSG)
         # codex delivers an apply_patch as tool_input.command carrying the patch body,
         # so the shell parse below would read the diff's own text as commands — a `+`
-        # line adding a redirect reads as a redirect. The write itself is what this
-        # gate cares about, and it has no file_path to check it against.
+        # line adding a redirect reads as a redirect. `patch_target` names the file
+        # the patch touches, so a codex write is judged against its target like any
+        # other; a patch naming no target leaves nothing to judge and is refused.
         if not file_path:
             return block()
 

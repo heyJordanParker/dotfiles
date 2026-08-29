@@ -26,7 +26,7 @@ import re
 import sys
 
 from lib import feedback
-from lib.event import canonical_tool, field, read_event
+from lib.event import canonical_tool, field, patch_target, patch_text, read_event
 from lib.model_call import run_model
 
 BINDING = {
@@ -148,17 +148,6 @@ def _read(path):
         return None
 
 
-def _patch_text(event):
-    return (field(event, "tool_input.input", "") or field(event, "tool_input.patch", "")
-            or field(event, "tool_input.changes", ""))
-
-
-def _patch_file_path(event):
-    """The file a codex apply_patch touches; '' when the event is not a patch."""
-    m = re.search(r"^\*\*\* (?:Update|Add) File: (.+)$", _patch_text(event), re.M)
-    return m.group(1).strip() if m else ""
-
-
 def _post_edit_content(event, file_path):
     """The file as it will read after the edit applies."""
     tool = field(event, "tool_name", "")
@@ -166,7 +155,7 @@ def _post_edit_content(event, file_path):
         return field(event, "tool_input.content", "")
     if tool == "apply_patch":
         current = _read(file_path) or ""
-        added = "\n".join(ln[1:] for ln in _patch_text(event).splitlines()
+        added = "\n".join(ln[1:] for ln in patch_text(event).splitlines()
                           if ln.startswith("+") and not ln.startswith("+++"))
         # A patch's post-image cannot be rebuilt without a full patch engine;
         # judge the current file plus every added line, which carries what the
@@ -193,7 +182,7 @@ def _diff_text(event):
     if tool == "Write":
         return "(whole file written)\n+++\n" + field(event, "tool_input.content", "")
     if tool == "apply_patch":
-        return _patch_text(event)
+        return patch_text(event)
     if tool == "Edit":
         return ("--- old\n" + field(event, "tool_input.old_string", "")
                 + "\n+++ new\n" + field(event, "tool_input.new_string", ""))
@@ -418,7 +407,7 @@ def main():
     if canonical_tool(event) != "write":
         return 0
 
-    file_path = field(event, "tool_input.file_path", "") or _patch_file_path(event)
+    file_path = patch_target(event)
     if not _reviewable(file_path):
         return 0
 

@@ -12,13 +12,12 @@ the touched file's rules. Best-effort: never blocks, never crashes.
 
 import json
 import os
-import re
 import shutil
 import subprocess
 import sys
 
 from lib import feedback
-from lib.event import field, read_event
+from lib.event import field, patch_target, read_event
 
 BINDING = {
     "events": {
@@ -30,7 +29,6 @@ BINDING = {
 }
 
 SOURCE = "inject_rules"
-_PATCH_FILE = re.compile(r"^\*\*\* (?:Update|Add|Delete) File: (.+)$", re.M)
 
 
 def _resolve(target, cwd):
@@ -105,10 +103,7 @@ def main():
     if tool_name == "Read":
         target = field(event, "tool_input.file_path", "") or field(event, "tool_input.path", "")
     elif tool_name == "apply_patch":
-        patch = (field(event, "tool_input.input", "") or field(event, "tool_input.patch", "")
-                 or field(event, "tool_input.changes", ""))
-        m = _PATCH_FILE.search(patch)
-        target = m.group(1) if m else ""
+        target = patch_target(event)
     elif tool_name in ("Write", "Edit"):
         target = field(event, "tool_input.file_path", "")
     if not target:

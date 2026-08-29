@@ -6,6 +6,7 @@ payload once and pull nested fields with a string default.
 
 import json
 import os
+import re
 import sys
 
 
@@ -27,16 +28,67 @@ def field(event, dotted, default=""):
 
 
 def command_str(event):
-    """The shell command as a string.
+    """The shell command as a string, or "" when the event is not a shell call.
 
     Claude sends `tool_input.command` as a string. Codex's shell tool may send it
     as a list (e.g. ["/bin/zsh", "-lc", "git reset --hard"]); a list is joined so
     command-pattern matching works either way. Anything else yields "".
+
+    Codex puts a whole apply_patch body under the same `command` key
+    (`apply_patch.rs:508`). Every command guard parses what this returns as
+    shell, so a patch's own text was read as commands and a `+` line adding a
+    newline refused the write. A tool `_CANONICAL_TOOL` knows to be something
+    other than a shell therefore carries no command here.
+
+    A tool it does not know — an unmapped MCP or function tool, or a payload
+    with no `tool_name` at all — still answers with whatever `command` holds.
+    Reading nothing there would pass every command guard on a line they cannot
+    identify, and the standing treatment for a line a guard cannot identify is
+    to judge it, never to wave it through.
     """
+    if canonical_tool(event) not in ("", "shell"):
+        return ""
     c = field(event, "tool_input.command", "")
     if isinstance(c, list):
         return " ".join(str(x) for x in c)
     return c if isinstance(c, str) else ""
+
+
+# The header naming the file a codex patch hunk touches. `*** Move to:` names a
+# rename's destination and is deliberately absent: the hunk's own file is what a
+# hook loads rules for, validates, or records.
+_PATCH_FILE = re.compile(r"^\*\*\* (?:Update|Add|Delete) File: (.+)$", re.M)
+
+
+def patch_text(event):
+    """The apply_patch body a write event carries, or "".
+
+    Codex serializes it under `command` (`apply_patch.rs:508`). The `input`,
+    `patch`, and `changes` spellings are read too: hooks here were written
+    against them, and no version is on record sending them, so they stay until
+    one is proven absent rather than being removed on this reading alone.
+    """
+    if canonical_tool(event) not in ("", "write"):
+        return ""
+    for key in ("command", "input", "patch", "changes"):
+        text = field(event, "tool_input." + key, "")
+        if isinstance(text, str) and "*** " in text:
+            return text
+    return ""
+
+
+def patch_target(event):
+    """The file a write event touches, however its harness names it.
+
+    Claude carries `file_path`; codex carries a patch whose first hunk header
+    names the file. A patch this cannot parse answers "", which every caller
+    treats as "no target known" rather than as "no file touched".
+    """
+    path = field(event, "tool_input.file_path", "")
+    if path:
+        return path
+    match = _PATCH_FILE.search(patch_text(event))
+    return match.group(1).strip() if match else ""
 
 
 # Our canonical tool names, keyed on the tool_name each harness emits on a tool
