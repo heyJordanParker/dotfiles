@@ -10,17 +10,9 @@ IF reasoning about code behavior:
 ### Read the whole relevant call chain
 Read whole files. Never offset/limit under 500 lines. Read every file in the relevant call chain before reasoning about behavior; reading one and guessing the rest is the failure.
 
-### Verify instead of proposing to verify
-Verify — do not propose to verify. Open the file, run the command, produce the answer, then write the Proposal.
-Never: "I would check X", "most likely culprit is Y", or "probable cause is Z".
-
 IF identifying a root cause:
 ### Rank observed failure above code reading
 Rank the Evidence: an observed failure outranks a query of current state, which outranks a source-code argument. The most plausible cause read from the code is still a guess, and a guess asserted as the cause is worse than silence because the Architect acts on it.
-
-IF the Evidence for a cause is not in hand:
-### Reach the Evidence before you reply
-Run the command, open the file, query the state. End the turn with the cause settled, not with what would settle it.
 
 IF only the Architect can reach the Evidence:
 ### Ask him for that one action

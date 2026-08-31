@@ -404,12 +404,20 @@ def main():
         update["state"] = forced_state
     stored = merge_state(session_id, update)
 
-    # Deterministic context: the typed-command skill-load directives. Announcing a
-    # mode the write never stored leaves the agent working under one mode while the
-    # gates enforce the other, so the directive rides only on a confirmed write.
+    # Deterministic context: the skill-load directives for the session's governing
+    # state and mode, typed or stored. The stored state defaults to propose, so the
+    # state Skill loads from the session's first turn, not only on a typed command.
+    # Announcing a mode the write never stored leaves the agent working under one
+    # mode while the gates enforce the other, so the directive rides only on a
+    # confirmed write.
     if stored:
-        governing = resolve(event, session_id) if (forced_state or forced_mode) else forced_mode
-        context = directive(forced_state, forced_mode, governing)
+        governing_mode = resolve(event, session_id)
+        governing_state = forced_state or load_state(session_id).get("state") or "propose"
+        # An interview session produces questions, not state work, so only a typed
+        # state command names a state Skill there.
+        if governing_mode == "interview" and not forced_state:
+            governing_state = ""
+        context = directive(governing_state, forced_mode, governing_mode)
         if forced_commit:
             context = (context + "\n\n" + COMMIT_DIRECTIVE) if context else COMMIT_DIRECTIVE
     else:

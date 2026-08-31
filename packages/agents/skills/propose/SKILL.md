@@ -18,7 +18,7 @@ description: |
 
 ## 2. Research until the Proposal is specific
 
-Read the code every claim rests on. Run what can be run here: the command, the API call, the page. Reuse an existing surface before creating one, name every noun the way the project names it, and stay inside every boundary the Claude.md files and the Architect set.
+Read the code every claim rests on. Use /understand to research the systems behind the change. Run what can be run here: the command, the API call, the page. Reuse an existing surface before creating one, name every noun the way the project names it, and stay inside every boundary the Claude.md files and the Architect set.
 
 ## 3. Order the Decisions
 

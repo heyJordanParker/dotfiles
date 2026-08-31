@@ -126,6 +126,37 @@ def test_typed_interview_skips_the_model_call(monkeypatch, state_root):
 
 
 
+def test_untyped_turn_loads_the_default_proposing_state_skill(monkeypatch, state_root):
+    """A turn with no typed command loads the Skill for the session's stored state.
+    The stored state defaults to propose, so the proposing contract arrives from the
+    session's first turn instead of only when the architect types /propose."""
+    _, text = _run(monkeypatch,
+                   {"session_id": "ci1", "prompt": "the save path drops the draft"},
+                   {"intent": "action"})
+    assert "This is a proposing-state turn. Use /propose now" in text
+
+
+def test_untyped_turn_loads_the_stored_executing_state_skill(monkeypatch, state_root):
+    from lib.session_state import merge_state
+    merge_state("ci1", {"state": "execute"})
+    _, text = _run(monkeypatch,
+                   {"session_id": "ci1", "prompt": "keep going"},
+                   {"intent": "action"})
+    assert "This is an executing-state turn. Use /execute now" in text
+    assert "proposing-state" not in text
+
+
+def test_stored_interview_mode_loads_no_state_skill(monkeypatch, state_root):
+    """An interview session produces questions, not state work, so an untyped turn
+    there names no state Skill."""
+    from lib.session_state import merge_state
+    merge_state("ci1", {"mode": "interview", "mode_typed": True})
+    _, text = _run(monkeypatch,
+                   {"session_id": "ci1", "prompt": "next question"},
+                   {"intent": "action"})
+    assert not text or "state turn" not in text
+
+
 def _stub_skills(monkeypatch, names):
     monkeypatch.setattr(classify_intent, "_available_skills", lambda: set(names))
 
