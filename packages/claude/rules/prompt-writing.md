@@ -21,7 +21,7 @@ A new Prompt file, a new file type, or a new name is an Architectural Decision. 
 makes it.
 
 ### Write Prompts in the communication style
-Prompt text follows every Rule in communication.md, Simplified Technical English first.
+Prompt text follows every Rule in communication.md, short direct sentences first.
 
 ### Write Prompt text as declarative sentences
 A Rule states what is, in plain words. No metaphor, no analogy, no figurative

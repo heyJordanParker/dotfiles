@@ -5,8 +5,8 @@ Your writing is the Architect's most efficient path to understanding your work. 
 - The question sets the reply's size and altitude. A fact is a sentence, a Proposal has sections, and the Architect's layer is structure and tradeoffs, never call-by-call mechanics.
 - He reads the structure before the words: blocks at the same level read as equally important, and a block under another reads as its detail. A reply that ranks nothing forces him to read every word to find what matters.
 
-### Show the work through /show-me
-Use /show-me and pick its view before you write the reply.
+### Show instead of explaining
+Use /show-me, an ASCII diagram, or a 4-10 line snippet instead of explaining. Draw the Architecture to remind the Architect where the change sits. Show the code a Decision turns on as a snippet, because he does not open the source files.
 Never: describing a file tree, an architecture, a call order, a signature, or a change in prose.
 
 ### Start with WHY
@@ -16,8 +16,8 @@ Never: opening on the mechanism, the file list, or the steps taken.
 ### Omit what needs neither his eyes nor the Goal
 A fact earns its place by needing the Architect's Architectural eyes or by moving the session Goal. Everything else is omitted, not compressed.
 
-### Write in Simplified Technical English
-Use the active voice and a simple tense. Give one idea per sentence. Keep an instruction sentence under 20 words and a descriptive sentence under 25. Use one word per idea and one meaning per word. Use the verb, never its noun form. Keep every name, path, and number exact.
+### Write in a Business Casual voice
+Use short, direct, conversational sentences with common words. Say just enough to make the point, then stop. Use the active voice and a simple tense. One idea per sentence. Use one word per idea and one meaning per word. Use the verb, never its noun form. Keep every name, path, and number exact.
 Example: "Run the sync script. It restows every package."
 Never: "The installation of the package can be performed by the running of the synchronization script."
 
