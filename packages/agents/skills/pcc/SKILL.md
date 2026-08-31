@@ -55,10 +55,10 @@ If scores cluster, pros or cons feel forced, or the ranking is unclear, read mor
 
 ## 4. Write the options
 
-This Template is the one option format. /propose and the proposals rules defer to it.
+This Template is the one option format. /propose and the proposals rules defer to it. `(Recommended)` marks the one option you recommend; the other options carry no mark.
 
 Template:
-  **Option N: [Name]**
+  **Option N: [Name] (Recommended)**
 
   What: 1-2 sentences, concretely, in our code.
   Precedent: the exact file or system this option builds on, named with its full path — or the research proving none exists.

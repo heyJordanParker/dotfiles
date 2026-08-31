@@ -50,7 +50,7 @@ Never: only diagram tables while hiding the public API the caller will use.
 Names are Architecture when they enter files, public APIs, database schema, or reusable vocabulary.
 Never: invent identifiers inside an Architectural Example.
 
-## 4. Present only genuine options with /pcc
+## 4. Present only genuine options, found with /discover
 
 ### Keep options in different tradeoff spaces
 Each option must solve at least one problem the others do not. State what each option is best for; if two options are best for the same thing, merge them.

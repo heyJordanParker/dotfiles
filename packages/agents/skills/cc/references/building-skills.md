@@ -4,8 +4,9 @@ The Process for writing or fixing a Skill: one ordered Process that corrects a r
 Agent failure. A Skill never carries a Frame, never carries broad Principles, and never
 carries WHY; those live in the Agent and Claude.md.
 
-- Every Skill's description sits in every Agent's context in every session, and the body
-  loads only when the description wins.
+- Every Agent starts every session holding a listing of every Skill, where one entry is one
+  Skill's name and its description. The Agent chooses a Skill from that listing, and the Skill's
+  body reaches the Agent only after the Agent calls it.
 - The source of truth is `packages/agents/skills/<name>/SKILL.md`.
 - Stow and plugin packaging copy the source into the runtime locations, which include
   `~/.claude/skills/`, `.claude/skills/`, and plugin `skills/`.
@@ -96,15 +97,14 @@ blank Rule slot filled for symmetry.
 
 ## 4. Write the description
 
-The description is the whole of what an Agent has when it decides whether this Skill answers what
-it is doing right now, and it is the only trigger the Skill has, which is why the body never
-carries a trigger section. Three slots serve that decision. It runs up to 1024 characters and is
-never empty, because an empty description leaks the body into listings, and a listing shows at
-most 1536 characters.
+The description is what an Agent reads to decide whether to call this Skill.
 
-### State the problem the Skill solves and what it delivers in the first slot
-The method belongs to the body. An Agent that has not loaded the body cannot act on the method,
-and every Agent that never fires the Skill pays context for it.
+Template:
+  description: <the problem this Skill solves>. TRIGGER <the phrases and the moment>. DO NOT TRIGGER <the adjacent case>; use /other-skill.
+
+### Write the problem the Skill solves, plus why to call it when the problem alone does not show that
+Those two are everything the description carries. The Process stays in the body, which the Agent
+reads after it calls the Skill.
 Example: `description: Write and fix Claude Code Prompts. TRIGGER when the task says "cc" or asks to build a Skill. DO NOT TRIGGER to name code identifiers; use /naming.`
 Never: `description: Audit a merge: each side's commits become claims, and each claim is verified in the merged code.`
 
@@ -113,6 +113,10 @@ Never: `description: Use this when needed.`
 
 ### Write DO NOT TRIGGER with the adjacent case and the Skill that fires instead
 The adjacent case is the one an Agent genuinely confuses with this Skill, not every neighbour.
+
+### Never leave the description empty
+An empty description puts the whole Skill body in the listing, in front of every Agent for the
+whole session.
 
 ## 5. Add the frontmatter keys the Skill reaches for
 

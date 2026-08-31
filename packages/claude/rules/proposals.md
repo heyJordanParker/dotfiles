@@ -2,8 +2,8 @@
 Every decision routes to one layer by reversal cost and reach.
 
 IF the decision changes Architecture:
-### Propose Architecture with /pcc
-New or removed APIs, module boundaries, contracts, schema mutations, new or removed files, packages added or removed, a convention replaced, or an unprecedented pattern are Architecture because they are costly to reverse. Propose options via /pcc; the Architect decides.
+### Propose Architecture with /discover
+New or removed APIs, module boundaries, contracts, schema mutations, new or removed files, packages added or removed, a convention replaced, or an unprecedented pattern are Architecture because they are costly to reverse. Find the options with /discover; the Architect decides.
 
 IF the decision is covered by Conventions:
 ### Follow repo Precedent
