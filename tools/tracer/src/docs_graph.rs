@@ -8,12 +8,9 @@
 //! `paths:` mechanics; each gets its own `kind` (`agents_md` /
 //! `agents_local_md` mirror the existing `claude_md` / `local_md`).
 //!
-//! Contributes doc-file nodes and `includes` edges to the unified
-//! architecture graph — no separate cache entry. The single cache entry
-//! lives under `architecture/` (keyed by `cache::architecture_fingerprint`
-//! over both per-file content hashes and the docs-side `git_head +
-//! doc_mtime_aggregate`), so a doc-file edit invalidates the same entry a
-//! code-file edit does.
+//! Builds in memory on every call and caches nothing, so the answer is
+//! always current. The walk covers doc files only — a few dozen in a large
+//! repo — so there is nothing here worth persisting.
 //!
 //! The walker, include resolver, and frontmatter parsers belong to
 //! `commands::nested_memory`; this module only assembles the graph from
@@ -81,32 +78,17 @@ impl DocsGraph {
     }
 }
 
-/// Docs-side inputs to the unified architecture fingerprint. Computed
-/// alongside the graph itself so callers fingerprint over the same
-/// snapshot they cache.
-#[derive(Debug, Clone)]
-pub struct DocsInputs {
-    pub head: String,
-    pub mtime_aggregate: String,
-}
-
 /// Build the docs graph for `repo_root`. Pure in-memory build — no cache
-/// reads, no cache writes. Returns the graph plus the docs-side inputs
-/// the unified architecture-graph fingerprint needs.
-pub fn build(repo_root: &Path) -> (DocsGraph, DocsInputs) {
+/// reads, no cache writes. The walk is over doc files only, so it is cheap
+/// enough to run per call.
+pub fn build(repo_root: &Path) -> DocsGraph {
     let head = git_head(repo_root);
     let doc_files = discover_doc_files(repo_root);
     let mtime_aggregate = mtime_aggregate(&doc_files);
-    let graph = assemble(repo_root, head.clone(), mtime_aggregate.clone(), &doc_files);
-    let inputs = DocsInputs { head, mtime_aggregate };
-    (graph, inputs)
+    assemble(repo_root, head, mtime_aggregate, &doc_files)
 }
 
-/// Current git HEAD for the repo — one `git rev-parse`, no tree walk. The
-/// architecture read path (`architecture::load_cached`) calls this to
-/// validate a cached entry's docs side cheaply without re-walking the doc
-/// tree for a full mtime aggregate.
-pub fn git_head(repo_root: &Path) -> String {
+fn git_head(repo_root: &Path) -> String {
     Command::new("git")
         .args(["rev-parse", "HEAD"])
         .current_dir(repo_root)

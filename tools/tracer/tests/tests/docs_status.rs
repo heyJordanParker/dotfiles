@@ -51,11 +51,11 @@ fn session_status_is_empty_before_anything_loads() {
 
     let r = f.trace_env(&["docs", "status", "--json"], &env);
     r.ok();
-    let v = r.json();
+    let v = r.view();
 
     assert_eq!(v["scope"].as_str().unwrap(), "session");
     assert_eq!(v["session_active"].as_bool().unwrap(), true);
-    assert_eq!(v["loaded_count"].as_i64().unwrap(), 0);
+    assert_eq!(v["loaded"].as_array().unwrap().len() as i64, 0);
     assert!(
         v["loaded"].as_array().unwrap().is_empty(),
         "empty manifest must serialize an empty array: {v}"
@@ -82,9 +82,9 @@ fn session_status_reports_every_doc_loaded_so_far_with_source() {
 
     let r = f.trace_env(&["docs", "status", "--json"], &env);
     r.ok();
-    let v = r.json();
+    let v = r.view();
 
-    assert_eq!(v["loaded_count"].as_i64().unwrap(), 2);
+    assert_eq!(v["loaded"].as_array().unwrap().len() as i64, 2);
     let loaded = v["loaded"].as_array().unwrap();
     for entry in loaded {
         for key in ["path", "source", "kind", "size", "content_hash"] {
@@ -122,8 +122,8 @@ fn session_status_without_session_id_reports_inactive_session() {
     let v: serde_json::Value =
         serde_json::from_str(&String::from_utf8_lossy(&r.stdout))
             .expect("standalone status must return JSON");
-    assert_eq!(v["session_active"].as_bool().unwrap(), false);
-    assert_eq!(v["loaded_count"].as_i64().unwrap(), 0);
+    assert_eq!(v["context"]["session_active"].as_bool().unwrap(), false);
+    assert_eq!(v["results"]["loaded"].as_array().unwrap().len() as i64, 0);
 }
 
 // --- `trace docs status <path>` — partition the ancestor chain ------------
@@ -136,24 +136,24 @@ fn path_status_with_nothing_loaded_reports_full_chain_as_not_loaded() {
 
     let r = f.trace_env(&["docs", "status", "sub/util.py", "--json"], &env);
     r.ok();
-    let v = r.json();
+    let v = r.view();
 
     assert_eq!(v["scope"].as_str().unwrap(), "path");
-    assert_eq!(v["loaded_count"].as_i64().unwrap(), 0);
+    assert_eq!(v["loaded"].as_array().unwrap().len() as i64, 0);
     assert_eq!(
-        v["not_loaded_count"].as_i64().unwrap(),
+        v["not_loaded"].as_array().unwrap().len() as i64,
         2,
         "both Claude.md ancestors must be not_loaded before anything surfaces: {v}"
     );
-    assert_eq!(v["chain_size"].as_i64().unwrap(), 2);
+    assert_eq!(r.json()["counts"]["chain"].as_i64().unwrap(), 2);
 
     // Pure read — must NOT have recorded anything. A follow-up status with
     // the same session must still report the chain as not_loaded.
     let r2 = f.trace_env(&["docs", "status", "sub/util.py", "--json"], &env);
     r2.ok();
-    let v2 = r2.json();
+    let v2 = r2.view();
     assert_eq!(
-        v2["not_loaded_count"].as_i64().unwrap(),
+        v2["not_loaded"].as_array().unwrap().len() as i64,
         2,
         "status is a pure read — must not record emissions: {v2}"
     );
@@ -176,15 +176,15 @@ fn path_status_with_partial_load_partitions_correctly() {
 
     let r = f.trace_env(&["docs", "status", "sub/util.py", "--json"], &env);
     r.ok();
-    let v = r.json();
+    let v = r.view();
 
     assert_eq!(
-        v["loaded_count"].as_i64().unwrap(),
+        v["loaded"].as_array().unwrap().len() as i64,
         1,
         "only the root Claude.md was loaded — must show as loaded: {v}"
     );
     assert_eq!(
-        v["not_loaded_count"].as_i64().unwrap(),
+        v["not_loaded"].as_array().unwrap().len() as i64,
         1,
         "the sub-dir Claude.md was not loaded — must show as not_loaded: {v}"
     );
@@ -216,10 +216,10 @@ fn path_status_with_everything_loaded_has_empty_not_loaded() {
 
     let r = f.trace_env(&["docs", "status", "sub/util.py", "--json"], &env);
     r.ok();
-    let v = r.json();
+    let v = r.view();
 
-    assert_eq!(v["loaded_count"].as_i64().unwrap(), 2);
-    assert_eq!(v["not_loaded_count"].as_i64().unwrap(), 0);
+    assert_eq!(v["loaded"].as_array().unwrap().len() as i64, 2);
+    assert_eq!(v["not_loaded"].as_array().unwrap().len() as i64, 0);
     assert!(v["not_loaded"].as_array().unwrap().is_empty());
 }
 
@@ -331,7 +331,7 @@ fn read_fraction_for(status: &serde_json::Value, filename: &str) -> Option<f64> 
 fn status_json(f: &Fixture, env: &[(&str, &str)]) -> serde_json::Value {
     let r = f.trace_env(&["docs", "status", "--json"], env);
     r.ok();
-    r.json()
+    r.view()
 }
 
 #[test]

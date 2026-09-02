@@ -1,10 +1,9 @@
 //! Cache lifecycle and the CCN backend.
 //!
-//! Covers: cold build, warm reuse, invalidation on content change, the two
-//! namespaces (`file` / `architecture`), `cache clear` (scoped, all),
-//! `cache stats` (human + json), and the single AST CCN backend — CCN is
-//! AST-derived regardless of the `TRACER_CCN_BACKEND` value, and the cache
-//! does not fork on that value.
+//! Covers: cold build, warm reuse, invalidation on content change, the
+//! `file` namespace, `cache clear` (scoped, all), `cache stats` (human +
+//! json), and the single AST CCN backend — CCN is AST-derived regardless of
+//! the `TRACER_CCN_BACKEND` value, and the cache does not fork on that value.
 
 use sha2::{Digest, Sha256};
 use std::fs;
@@ -31,99 +30,93 @@ fn file_cache_key(schema_version: u32, file_bytes: &[u8], relpath: &str) -> Stri
 const PUBLISHED_SCHEMA_VERSION: u32 = 15;
 
 #[test]
-fn cache_build_populates_both_namespaces() {
+fn cache_build_populates_the_file_namespace() {
     let f = standard_repo();
     let r = f.trace(&["cache", "build", "."]);
     r.ok();
-    assert!(r.stdout.contains("Architecture graph:"), "{}", r.stdout);
+    assert!(r.stdout.contains("Relations:"), "{}", r.stdout);
     let stats = f.trace(&["cache", "stats", "--json"]);
     stats.ok();
-    let v = stats.json();
-    // `cache build .` over standard_repo() populates exactly 8 file/
-    // entries and 1 architecture/ entry for this fixed tree.
+    let v = stats.view();
+    // `cache build .` over standard_repo() populates exactly 9 file/
+    // entries for this fixed tree: six per-file entries, the mtime index,
+    // the git-activity map, and the relations index.
     assert_eq!(
         v["file"]["entries"].as_i64().unwrap(),
-        8,
-        "file namespace must hold exactly 8 entries after build: {}",
+        9,
+        "file namespace must hold exactly 9 entries after build: {}",
         stats.stdout
     );
     assert_eq!(
-        v["architecture"]["entries"].as_i64().unwrap(),
+        relations_entry_count(&f),
         1,
-        "architecture namespace must hold exactly 1 entry after build: {}",
+        "build must leave exactly one relations index: {}",
         stats.stdout
     );
 }
 
-/// Count the `.bin` entries in the architecture namespace — the durable
-/// graph entries (the architecture graph is bincode, not JSON).
-fn architecture_entry_count(f: &Fixture) -> usize {
-    let dir = f.root.join(".tracer-cache/architecture");
-    if !dir.is_dir() {
-        return 0;
-    }
-    fs::read_dir(&dir)
-        .unwrap()
-        .flatten()
-        .filter(|e| e.path().extension().and_then(|x| x.to_str()) == Some("bin"))
-        .count()
+/// Count the relations-index entries in the file namespace. The index is
+/// keyed by schema alone, so there is one per repo and it is rewritten in
+/// place rather than rotated.
+fn relations_entry_count(f: &Fixture) -> usize {
+    entries_with_prefix(f, "relations_")
 }
 
-/// Eviction: across successive builds that move HEAD and change a doc file —
-/// each of which rotates the architecture fingerprint — the namespace must
-/// hold exactly one entry. Without eviction every fingerprint's entry would
-/// accumulate without bound (the gigabytes-on-disk symptom this fixes).
+/// The relations index is one mutable entry per repo, and it always answers
+/// from the current tree. Across a doc change, a code change, and a new
+/// file — each with a HEAD move — the namespace must still hold exactly one
+/// index, and that index must report the edit rather than the prior state.
 #[test]
-fn architecture_namespace_holds_one_entry_across_builds() {
+fn the_relations_index_stays_single_and_current_across_builds() {
     let f = standard_repo();
     f.write("Claude.md", "# project\n");
     f.commit("add doc");
 
     f.trace(&["cache", "build", "."]).ok();
     assert_eq!(
-        architecture_entry_count(&f),
+        relations_entry_count(&f),
         1,
-        "first build must leave exactly one architecture entry"
+        "first build must leave exactly one relations index"
     );
 
-    // A doc change + HEAD move: rebuild and re-assert single entry.
+    // A doc change + HEAD move: neither touches code relations.
     f.write("Claude.md", "# project updated\n");
     f.commit("doc change");
     f.trace(&["cache", "build", "."]).ok();
-    assert_eq!(
-        architecture_entry_count(&f),
-        1,
-        "doc change + HEAD move must evict the prior entry, not accumulate"
-    );
+    assert_eq!(relations_entry_count(&f), 1, "a doc change must not add an index");
 
-    // A code change + HEAD move: rebuild and re-assert single entry.
-    f.write("src/util.py", "def helper(v):\n    return v + 99\n");
+    // A code change + HEAD move: the renamed symbol must replace the old one.
+    f.write("src/util.py", "def renamed_helper(v):\n    return v + 99\n");
     f.commit("code change");
     f.trace(&["cache", "build", "."]).ok();
+    assert_eq!(relations_entry_count(&f), 1, "a code change must not add an index");
+    let renamed = f.trace(&["defines", "renamed_helper", "--json"]);
+    renamed.ok();
     assert_eq!(
-        architecture_entry_count(&f),
+        renamed.view()["definitions"].as_i64().unwrap(),
         1,
-        "code change + HEAD move must evict the prior entry, not accumulate"
+        "the index did not pick up the renamed declaration: {}",
+        renamed.stdout
+    );
+    let gone = f.trace(&["defines", "helper", "--json"]);
+    assert_eq!(
+        gone.code, 2,
+        "the index still serves the declaration that was renamed away: {}",
+        gone.stdout
     );
 
-    // A bare HEAD move (empty commit): rebuild and re-assert single entry.
-    f.write("src/extra.py", "x = 1\n");
+    // A new file + HEAD move: its declaration must be reachable.
+    f.write("src/extra.py", "def extra_fn():\n    return 1\n");
     f.commit("another head move");
     f.trace(&["cache", "build", "."]).ok();
+    assert_eq!(relations_entry_count(&f), 1, "a new file must not add an index");
+    let added = f.trace(&["defines", "extra_fn", "--json"]);
+    added.ok();
     assert_eq!(
-        architecture_entry_count(&f),
+        added.view()["definitions"].as_i64().unwrap(),
         1,
-        "a HEAD move must evict the prior entry — the namespace cannot grow \
-         without bound across builds"
-    );
-
-    // `cache stats` agrees with the on-disk count.
-    let v = f.trace(&["cache", "stats", "--json"]).json();
-    assert_eq!(
-        v["architecture"]["entries"].as_i64().unwrap(),
-        1,
-        "cache stats must report exactly one architecture entry after several \
-         fingerprint-rotating builds"
+        "the index did not pick up the new file's declaration: {}",
+        added.stdout
     );
 }
 
@@ -134,7 +127,7 @@ fn cache_stats_human_table_matches_json() {
     let human = f.trace(&["cache", "stats"]);
     human.ok();
     let table = parse_stats_table(&human.stdout);
-    let json = f.trace(&["cache", "stats", "--json"]).json();
+    let json = f.trace(&["cache", "stats", "--json"]).view();
     assert_eq!(
         table.get("file").copied().unwrap_or(0) as i64,
         json["file"]["entries"].as_i64().unwrap(),
@@ -152,20 +145,20 @@ fn cache_build_is_idempotent_and_warm_is_faster() {
     warm.ok();
     // Warm rebuild must not be dramatically slower than cold; mostly this
     // asserts idempotence (no crash, still reports a graph).
-    assert!(warm.stdout.contains("Architecture graph:"), "{}", warm.stdout);
+    assert!(warm.stdout.contains("Relations:"), "{}", warm.stdout);
 }
 
 #[test]
 fn cache_invalidates_on_content_change() {
     let f = standard_repo();
     f.trace(&["cache", "build", "."]).ok();
-    let before = f.trace(&["info", "src/util.py", "--json"]).json();
+    let before = f.trace(&["info", "src/util.py", "--json"]).view();
     // standard_repo()'s helper(v): base 1 + if(1) = 2, exactly.
     assert_eq!(
-        before["cyclomatic_complexity_total"].as_i64().unwrap(),
+        before["ccn_total"].as_i64().unwrap(),
         2,
         "baseline helper() CCN must be exactly 2: {}",
-        before["cyclomatic_complexity_total"]
+        before["ccn_total"]
     );
 
     // Add decision points; ccn must change on the next read (cache key is
@@ -177,34 +170,44 @@ fn cache_invalidates_on_content_change() {
         "def helper(v):\n    if v > 0:\n        if v > 10:\n            return v\n    \
          for i in range(v):\n        if i:\n            pass\n    return 0\n",
     );
-    let after = f.trace(&["info", "src/util.py", "--json"]).json();
+    let after = f.trace(&["info", "src/util.py", "--json"]).view();
     assert_eq!(
-        after["cyclomatic_complexity_total"].as_i64().unwrap(),
+        after["ccn_total"].as_i64().unwrap(),
         5,
         "post-edit helper() CCN must be exactly 5 (cache served a stale \
          entry if this is 2): {}",
-        after["cyclomatic_complexity_total"]
+        after["ccn_total"]
     );
 }
 
+/// `cache clear` empties `file/` and nothing else. `file/` and `sessions/`
+/// share one `.tracer-cache/`, so clearing derived facts must never take an
+/// agent's session log with it — only `--all` does that.
 #[test]
-fn cache_clear_scoped_to_one_namespace() {
+fn cache_clear_leaves_the_session_log() {
     let f = standard_repo();
+    f.write("Claude.md", "# project\n");
+    f.commit("add doc");
     f.trace(&["cache", "build", "."]).ok();
-    let r = f.trace(&["cache", "clear", "--namespace", "architecture"]);
-    r.ok();
-    let v = f.trace(&["cache", "stats", "--json"]).json();
-    assert_eq!(
-        v["architecture"]["entries"].as_i64().unwrap(),
-        0,
-        "architecture namespace not cleared"
+    let session = f.trace_env(
+        &["docs", "src/util.py"],
+        &[("CLAUDE_CODE_SESSION_ID", "cache-clear-scope")],
     );
-    // The scoped clear must leave the file namespace fully intact — all
-    // 8 entries for standard_repo() still present.
+    session.ok();
+    let sessions_dir = f.root.join(".tracer-cache/sessions/cache-clear-scope");
+    assert!(sessions_dir.is_dir(), "the fixture wrote no session log to protect");
+
+    let r = f.trace(&["cache", "clear"]);
+    r.ok();
+    let v = f.trace(&["cache", "stats", "--json"]).view();
     assert_eq!(
         v["file"]["entries"].as_i64().unwrap(),
-        8,
-        "scoped clear must leave exactly 8 file entries: {v}"
+        0,
+        "file namespace not cleared: {v}"
+    );
+    assert!(
+        sessions_dir.is_dir(),
+        "a scoped clear of file/ removed the session log too"
     );
 }
 
@@ -212,12 +215,20 @@ fn cache_clear_scoped_to_one_namespace() {
 fn cache_clear_all_removes_everything() {
     let f = standard_repo();
     f.trace(&["cache", "build", "."]).ok();
+    f.trace_env(
+        &["docs", "src/util.py"],
+        &[("CLAUDE_CODE_SESSION_ID", "cache-clear-all")],
+    )
+    .ok();
     let r = f.trace(&["cache", "clear", "--all"]);
     r.ok();
     assert!(r.stdout.contains("Removed"), "{}", r.stdout);
-    let v = f.trace(&["cache", "stats", "--json"]).json();
+    assert!(
+        !f.root.join(".tracer-cache").exists(),
+        "--all must remove the whole cache tree, sessions included"
+    );
+    let v = f.trace(&["cache", "stats", "--json"]).view();
     assert_eq!(v["file"]["entries"].as_i64().unwrap(), 0);
-    assert_eq!(v["architecture"]["entries"].as_i64().unwrap(), 0);
 }
 
 #[test]
@@ -226,16 +237,16 @@ fn ccn_backend_is_ast_and_cache_does_not_fork_on_env_value() {
 
     // Default build.
     f.trace(&["cache", "build", "."]).ok();
-    let default_entries = f.trace(&["cache", "stats", "--json"]).json()["file"]["entries"]
+    let default_entries = f.trace(&["cache", "stats", "--json"]).view()["file"]["entries"]
         .as_i64()
         .unwrap();
-    let default_info = f.trace(&["info", "src/app.py", "--json"]).json();
+    let default_info = f.trace(&["info", "src/app.py", "--json"]).view();
 
     // Building the same tree with TRACER_CCN_BACKEND set must not add a
     // second set of entries — there is one backend, one cache identity.
     f.trace_env(&["cache", "build", "."], &[("TRACER_CCN_BACKEND", "ast")])
         .ok();
-    let after_ast = f.trace(&["cache", "stats", "--json"]).json()["file"]["entries"]
+    let after_ast = f.trace(&["cache", "stats", "--json"]).view()["file"]["entries"]
         .as_i64()
         .unwrap();
     assert_eq!(
@@ -251,18 +262,17 @@ fn ccn_backend_is_ast_and_cache_does_not_fork_on_env_value() {
             &["info", "src/app.py", "--json"],
             &[("TRACER_CCN_BACKEND", "ast")],
         )
-        .json();
+        .view();
     // The FileFacts keys are not merely present — they carry the exact,
     // hand-verifiable values for src/app.py (main(): if + for + if over
     // base 1 = CCN 4; one function; rank low; Python). Asserting the
     // values, and that they are identical under both env settings, proves
     // the env value neither forks the cache nor shifts the computation.
     let expected = serde_json::json!({
-        "function_count": 1,
-        "cyclomatic_complexity_total": 4,
-        "cyclomatic_complexity_max": 4,
+        "functions": 1,
+        "ccn_total": 4,
+        "ccn_max_function": 4,
         "rank": "low",
-        "language": "python",
     });
     for (key, want) in expected.as_object().unwrap() {
         assert_eq!(
@@ -274,31 +284,40 @@ fn ccn_backend_is_ast_and_cache_does_not_fork_on_env_value() {
             "ast-env FileFacts `{key}` wrong for src/app.py"
         );
     }
+    // The language rides in the per-file context, keyed by the path the
+    // query echoes, so a row projection cannot take it away.
+    for info in [&default_info, &ast_info] {
+        let file = info["file"].as_str().unwrap();
+        assert_eq!(
+            info["files"][file]["language"], "python",
+            "FileFacts language wrong for src/app.py"
+        );
+    }
 }
 
 #[test]
 fn ccn_is_ast_derived_regardless_of_backend_env_value() {
     let f = standard_repo();
-    let default = f.trace(&["info", "src/app.py", "--json"]).json();
+    let default = f.trace(&["info", "src/app.py", "--json"]).view();
     let explicit_ast = f
         .trace_env(
             &["info", "src/app.py", "--json"],
             &[("TRACER_CCN_BACKEND", "ast")],
         )
-        .json();
+        .view();
     let bogus = f
         .trace_env(
             &["info", "src/app.py", "--json"],
             &[("TRACER_CCN_BACKEND", "definitely-not-a-backend")],
         )
-        .json();
+        .view();
     // One backend (AST): every env value yields the identical CCN.
     assert_eq!(
-        default["cyclomatic_complexity_total"], explicit_ast["cyclomatic_complexity_total"],
+        default["ccn_total"], explicit_ast["ccn_total"],
         "explicit ast value changed CCN — backend is not value-independent"
     );
     assert_eq!(
-        default["cyclomatic_complexity_total"], bogus["cyclomatic_complexity_total"],
+        default["ccn_total"], bogus["ccn_total"],
         "unknown TRACER_CCN_BACKEND value changed CCN — backend is not value-independent"
     );
 }
@@ -338,7 +357,7 @@ fn json_output_is_ascii_escaped_on_raw_bytes() {
     );
     // 3. The fixed separators (`": "` after a key, `", "` between items).
     assert!(
-        r.stdout.contains("\"match_count\": "),
+        r.stdout.contains("\"matches\": "),
         "key separator must be \": \": {}",
         r.stdout
     );
@@ -399,8 +418,9 @@ fn schema_version_bump_makes_prior_entries_unreachable() {
         "extraction": serde_json::Value::Null
     });
     let grep_ccn = |fx: &Fixture| -> i64 {
-        let v = fx.trace(&["grep", "helper", "--path", ".", "--json"]).json();
-        v["matches"][0]["file_complexity"]["ccn_total"]
+        let v = fx.trace(&["grep", "helper", "--path", ".", "--json"]).view();
+        let file = v["results"][0]["file"].as_str().expect("one match on u.py");
+        v["files"][file]["file_complexity"]["ccn_total"]
             .as_i64()
             .unwrap()
     };
@@ -480,10 +500,11 @@ fn schema_version_bump_makes_prior_entries_unreachable() {
 
 /// The canonical passive-context shoulder for one file.
 fn shoulder(f: &Fixture, rel: &str) -> String {
-    let v = f.trace(&["info", rel, "--json"]).json();
-    v["passive_context"]
+    let v = f.trace(&["info", rel, "--json"]).view();
+    let file = v["file"].as_str().expect("info echoes the file it read");
+    v["files"][file]["shoulder"]
         .as_str()
-        .unwrap_or_else(|| panic!("no passive_context for {rel}: {v}"))
+        .unwrap_or_else(|| panic!("no shoulder for {rel}: {v}"))
         .to_string()
 }
 

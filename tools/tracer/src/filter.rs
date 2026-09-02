@@ -13,6 +13,25 @@ use jaq_core::{data, unwrap_valr, Ctx, Vars};
 use jaq_json::{read, Val};
 use serde_json::Value;
 
+/// The longest a jq diagnostic may run before its embedded value is cut.
+/// jaq builds "cannot index <value> with <key>" by interpolating the whole
+/// offending value, so filtering a repository-sized document printed the
+/// document back as the error. The value's parts are private to jaq, so the
+/// rendered message is cut instead, with the same trim marker `read` uses.
+const DIAGNOSTIC_BUDGET_CHARS: usize = 400;
+
+fn diagnostic(e: impl std::fmt::Display) -> String {
+    let text = e.to_string();
+    if text.chars().count() <= DIAGNOSTIC_BUDGET_CHARS {
+        return text;
+    }
+    let kept: String = text.chars().take(DIAGNOSTIC_BUDGET_CHARS).collect();
+    format!(
+        "{kept} [trimmed at {DIAGNOSTIC_BUDGET_CHARS} of {} chars \u{00b7} the value is the document you filtered]",
+        text.chars().count()
+    )
+}
+
 /// Run `program` (jq syntax) over the command's document, already serialized
 /// as JSON, returning every produced value in stream order. A parse/compile/
 /// runtime error fails loud with the jq diagnostic — never a partial or
@@ -61,7 +80,7 @@ pub fn apply(json: &[u8], program: &str) -> Result<Vec<Value>> {
                 })?;
                 out.push(parsed);
             }
-            Err(e) => bail!("--filter: jq runtime error: {e:?}"),
+            Err(e) => bail!("--filter: jq runtime error: {}", diagnostic(e)),
         }
     }
     Ok(out)

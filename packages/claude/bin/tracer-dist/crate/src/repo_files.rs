@@ -66,14 +66,26 @@ pub fn tracked_files(repo_root: &Path, base: Option<&Path>) -> Option<Vec<String
         String::from_utf8_lossy(&out.stdout)
             .lines()
             .filter(|l| !l.is_empty())
+            .filter(|l| !is_tracer_cache(l))
             .filter(|l| repo_root.join(l).exists())
             .map(|l| l.to_string())
             .collect(),
     )
 }
 
+/// `.tracer-cache/` is tracer's own state, and `--others` reports it in any
+/// repo that has not gitignored it — so a search for `*.json` returned the
+/// cache entries the search itself had just written. The filesystem walk
+/// already prunes it through `skip_dirs`; this is the same rule on the git
+/// enumeration, so both universes agree.
+fn is_tracer_cache(relative: &str) -> bool {
+    relative
+        .split('/')
+        .any(|segment| segment == crate::cache::CACHE_DIR_NAME)
+}
+
 /// The same set as `tracked_files`, returned as absolute paths joined onto
-/// `repo_root` — the shape `find` / `glob` / the architecture graph need.
+/// `repo_root` — the shape `find` and the relations index need.
 /// Routes through `tracked_files` so the deletion policy lives in exactly
 /// one place. None when git is unavailable or `base` is outside `repo_root`.
 pub fn tracked_paths(repo_root: &Path, base: Option<&Path>) -> Option<Vec<PathBuf>> {

@@ -26,7 +26,7 @@ BINDING = {
 SOURCE = "inject_docs"
 PATH_TAKING = {
     "read", "info", "list", "tree", "structure", "grep",
-    "struct", "find", "glob", "blame", "history", "diff",
+    "pattern", "find", "blame", "history", "diff",
 }
 
 
@@ -54,8 +54,13 @@ def _trace_docs(target, triggering_tool, env, triggering_command=None):
 
 
 def _doc_count(response):
+    """Freshly surfaced docs, at `counts.docs` of the trace document.
+
+    This gates the emit: a wrong key here reads as zero for every response,
+    and the trace command then runs with no project docs and nothing says so.
+    """
     try:
-        return json.loads(response).get("doc_count", 0) or 0
+        return json.loads(response).get("counts", {}).get("docs", 0) or 0
     except Exception:
         return 0
 

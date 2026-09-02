@@ -13,17 +13,40 @@ Local code-intelligence command-line interface for Agents working in a repositor
 - Tree-sitter grammars are compiled into the binary.
 - Per-function complexity is computed by the in-process tree-sitter decision-node walker.
 - `.tracer-cache/` lives at the target repository root.
-- The cache namespaces are `file/`, `architecture/`, and `sessions/<session_id>/<agent_id>/`.
-- The `file/` namespace stores per-file facts, the bulk git-activity map, the deploy-presence map, and the mtime index.
+- The cache namespaces are `file/` and `sessions/<session_id>/<agent_id>/`.
+- The `file/` namespace stores per-file facts, the bulk git-activity map, the deploy-presence map, the mtime index, and the relations index.
 - A cache entry holds only what its key's inputs determine.
+- A repo-wide index reads through `cache::load_bytes` and deserializes straight into its own type, never into a `serde_json::Value` first.
+- `memo.rs` owns every per-repo memo, so an index or map is read and parsed at most once per invocation.
+- `repo_context::metrics` hands every caller one shared handle to the scc payload.
+- `cache clear` empties the `file/` namespace, and `--all` removes the whole tree.
+- Every repo-wide index sweeps its superseded keys with `cache::evict_prefixed` on write.
 - The per-file entry is keyed by contents and path, so it holds no git facts.
 - `git_activity` owns every git fact and keys its map by HEAD and the 30-day cutoff date.
 - `file_facts::with_git` joins the git facts onto per-file facts on every resolve.
-- The `architecture/` namespace stores the unified symbol graph, module graph, and doc-file graph.
+- `relations.rs` owns the two inversions and the on-demand resolver.
+- The inversions are `name -> {defined_in, used_in}` and `file -> [importer]`.
+- `file/relations_v2__schema<N>.json` is the index holding both inversions.
+- The index writes every path once into a table and references it by position.
+- In memory a path is one shared handle, and every list that names a file holds a clone of it.
+- The index is mutable and rewritten in place, so its key carries no fingerprint.
+- The index also records each file's content key and language.
+- `built_from` names the content key each file's rows were absorbed from, so only the files that moved are re-absorbed.
+- Reference edges are resolved per query from the files the index names, never stored.
+- `relations::use_sites` is the resolver, and it runs the mentioning files in parallel, a `RESOLVE_CHUNK` at a time.
+- Resolution is same-language only, and a member call is the sole ambiguous case.
+- A member call fans out to one row per same-named declaration, and `callers --limit` bounds what is returned.
+- `cache build` takes the repository to build, never a subdirectory of one.
+- `commands::reach` owns `usages` and `dependencies`, which are one walk read in either direction.
+- `file_facts::RESOLVE_CHUNK` is the one bound on how much of a repository is resident at a time.
+- Every caller that can span a whole repository walks its inputs through `RESOLVE_CHUNK`.
+- `file_facts::get_batch` is the only correct resolver for a command that touches more than one file.
+- Adding or removing a file rebuilds the index whole, because it moves module-path resolution for every file.
 - The `sessions/` namespace stores session-context events and the materialized session view.
 - `commands::session_log` is the single owner of session-context state.
 - Recognized project-doc files include `CLAUDE.md`, `Claude.md`, `AGENTS.md`, `Agents.md`, their `.local.md` peers, and `.claude/rules/*.md`.
-- `trace docs --graph` projects the doc-file graph from the `architecture/` namespace.
+- `docs_graph` builds the doc-file graph in memory per call and caches nothing.
+- `trace docs --graph` returns that graph.
 - `trace docs status` is the Agent-facing query for loaded docs and read coverage.
 - `trace docs reset` clears the current session's surfaced-docs view.
 - User-global `$HOME/.claude/rules/*.md` files are included in the `trace docs` walk.
@@ -37,8 +60,24 @@ Local code-intelligence command-line interface for Agents working in a repositor
 - The marker survives `--raw`.
 - `--all` returns the whole selection with no cap and no marker.
 - The `read` payload carries `truncated`, `shown_lines`, and `total_lines` on every read.
+- Every `--json` result is the one document `{query, context, results, counts}`, built by `output::document`.
+- Per-file enrichment lives at `context.files[<path>]`, never inside a result row.
 - `--filter` runs an in-process jq program through the `jaq` crates.
 - `--filter` requires `--json`.
+- A jq runtime error is cut at `DIAGNOSTIC_BUDGET_CHARS` with a trim marker, because jaq interpolates the whole offending value into its message.
+- `output::keeping_context` wraps the caller's jq program, so `context` survives every filter.
+- `lang.rs` is the one language table for `grep`, `pattern`, and `grep --at`.
+- A language name none of the three search backends knows exits 2 and names the accepted set.
+- `find` lists paths by glob; the command was named `glob`.
+- A truncated `find` says so: `counts.total`, `counts.truncated`, and a footer naming the `--limit` that returns everything.
+- `callers` truncates by the same contract, ordered by confidence, then file, then line.
+- `grep --at <ref>` searches a commit through `git grep` and filters by git pathspec.
+- `pattern` prefilters candidate files through ripgrep and reports a multi-line match at its anchor line.
+- `diff` reports the worktree by default and takes `--base <ref>`, which diffs against the merge base.
+- `diff` rows carry their changed lines, bounded by `DIFF_LINES_BUDGET` with a trim marker.
+- `history --commit <ref>` returns one commit's full body.
+- `history --contains` and `history --regex` find the commits that changed a string through `git log -G`.
+- `status` rows carry a staging word: `staged`, `unstaged`, or `partly staged`.
 - `jsonfmt` owns the stable JavaScript Object Notation byte format for command output and cache entries.
 - `setup.sh` builds the release binary and installs it to `~/.local/bin/trace`.
 - `packages/claude/bin/trace` is the plugin-distributed launcher.

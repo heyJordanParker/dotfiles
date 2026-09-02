@@ -172,33 +172,40 @@ def shoulder(trace_bin, path, env, offset=None, limit=None, record=True):
     return run_trace(trace_bin, args, env, on_timeout=UNAVAILABLE)
 
 
-def glob_matches(trace_bin, pattern, base, env):
-    """Matched files for a Glob, each prefixed with <base> so it resolves.
+def rows(raw):
+    """The `results` array of a trace document, or [] for anything else.
 
-    `trace glob` returns matches relative to <base>; prepend it so each path
-    resolves for the per-file `trace context` shoulder.
+    Every `--json` command answers the one `{query, context, results, counts}`
+    document, so one reader serves both match resolvers.
     """
-    raw = run_trace(trace_bin, ["glob", pattern, base, "--json"], env)
     if not raw:
         return []
     try:
-        matches = json.loads(raw).get("matches", []) or []
+        out = json.loads(raw).get("results")
     except Exception:
         return []
-    return [os.path.join(base, m) for m in matches if m]
+    return out if isinstance(out, list) else []
+
+
+def glob_matches(trace_bin, pattern, base, env):
+    """Matched files for a Glob, each prefixed with <base> so it resolves.
+
+    `trace find` answers full-path globs and returns paths relative to <base>;
+    prepend it so each one resolves for the per-file `trace context` shoulder.
+    """
+    raw = run_trace(trace_bin, ["find", pattern, base, "--json"], env)
+    return [
+        os.path.join(base, row["path"])
+        for row in rows(raw)
+        if isinstance(row, dict) and row.get("path")
+    ]
 
 
 def grep_matches(trace_bin, pattern, path, env):
     """Distinct files containing a Grep match, order preserved."""
     raw = run_trace(trace_bin, ["grep", pattern, "--path", path, "--json"], env)
-    if not raw:
-        return []
-    try:
-        hits = json.loads(raw).get("matches", []) or []
-    except Exception:
-        return []
     files, seen = [], set()
-    for hit in hits:
+    for hit in rows(raw):
         f = hit.get("file") if isinstance(hit, dict) else None
         if f and f not in seen:
             seen.add(f)

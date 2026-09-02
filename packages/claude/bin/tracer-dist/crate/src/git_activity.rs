@@ -13,16 +13,23 @@
 //! `git ls-tree -r --name-only <ref>` per deploy branch (the latter
 //! disk-cached, keyed by the branch tip commit ids).
 
-use crate::cache;
-use serde_json::{json, Value};
+use crate::{cache, memo};
+use serde::{Deserialize, Serialize};
+use serde_json::json;
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-#[derive(Debug, Clone, Default)]
+/// The stored map is `path -> GitActivity`, so the entry deserializes
+/// straight into this type. Reading it into a `serde_json::Value` first cost
+/// more memory than the map itself on a repository of any size, and
+/// `working_state` is deliberately absent from the entry — it is recomputed
+/// live on every read, so it defaults like every other missing field.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[serde(default)]
 pub struct GitActivity {
     pub last_modified: Option<String>,
     pub last_author: Option<String>,
@@ -35,6 +42,10 @@ pub struct GitActivity {
     /// likewise the oldest date within the cap, not the true first commit.
     pub commit_count_is_floor: bool,
     pub rename_from: Option<String>,
+    /// Never written to the entry: it is a fact about the working tree, which
+    /// moves independently of HEAD, so it is recomputed and overlaid on every
+    /// read.
+    #[serde(skip_serializing)]
     pub working_state: Option<String>,
     pub present_in: Vec<String>,
     pub last_subject: Option<String>,
@@ -81,8 +92,14 @@ const DEPLOY_BRANCHES: &[(&str, &str)] = &[
     ("main", "origin/master"),
 ];
 
-fn git_str(repo_root: &Path, args: &[&str], timeout_ok: bool) -> Option<String> {
-    let _ = timeout_ok;
+/// Run git in `repo_root` and return stdout with the trailing newline
+/// stripped, or `None` when git fails. Git terminates every command's output
+/// with a newline that is never part of the value, so `rev-parse HEAD` yields
+/// `"<sha>\n"`; stripping it here is what stops each caller having to
+/// remember. Only the tail is cut — a leading space is data in some git
+/// formats (the `XY` field of `status --porcelain`), and `porcelain_uncached`
+/// reads those raw bytes itself rather than through this.
+pub fn git_str(repo_root: &Path, args: &[&str]) -> Option<String> {
     let out = Command::new("git")
         .args(args)
         .current_dir(repo_root)
@@ -91,11 +108,11 @@ fn git_str(repo_root: &Path, args: &[&str], timeout_ok: bool) -> Option<String> 
     if !out.status.success() {
         return None;
     }
-    Some(String::from_utf8_lossy(&out.stdout).to_string())
+    Some(String::from_utf8_lossy(&out.stdout).trim_end().to_string())
 }
 
 pub fn head_sha(repo_root: &Path) -> Option<String> {
-    git_str(repo_root, &["rev-parse", "HEAD"], true).map(|s| s.trim().to_string())
+    git_str(repo_root, &["rev-parse", "HEAD"])
 }
 
 /// The commits a shallow clone grafted its history onto, read from
@@ -107,12 +124,12 @@ pub fn head_sha(repo_root: &Path) -> Option<String> {
 /// `references/codex` lists nine, and its oldest reachable commit is the
 /// third of them. Empty for a full clone.
 fn grafts(repo_root: &Path) -> HashSet<String> {
-    let shallow = git_str(repo_root, &["rev-parse", "--is-shallow-repository"], true);
-    if shallow.as_deref().map(str::trim) != Some("true") {
+    let shallow = git_str(repo_root, &["rev-parse", "--is-shallow-repository"]);
+    if shallow.as_deref() != Some("true") {
         return HashSet::new();
     }
-    let git_dir = match git_str(repo_root, &["rev-parse", "--git-dir"], true) {
-        Some(d) => PathBuf::from(d.trim()),
+    let git_dir = match git_str(repo_root, &["rev-parse", "--git-dir"]) {
+        Some(d) => PathBuf::from(d),
         None => return HashSet::new(),
     };
     let git_dir = if git_dir.is_absolute() {
@@ -198,16 +215,8 @@ pub fn bulk(repo_root: &Path) -> HashMap<String, GitActivity> {
 /// is held across the compute so concurrent callers serialize onto one build
 /// rather than racing the same git subprocesses.
 pub fn bulk_cached(repo_root: &Path) -> Arc<HashMap<String, GitActivity>> {
-    static MEMO: OnceLock<Mutex<HashMap<PathBuf, Arc<HashMap<String, GitActivity>>>>> =
-        OnceLock::new();
-    let memo = MEMO.get_or_init(|| Mutex::new(HashMap::new()));
-    let mut guard = memo.lock().unwrap();
-    if let Some(hit) = guard.get(repo_root) {
-        return Arc::clone(hit);
-    }
-    let computed = Arc::new(bulk_cached_uncached(repo_root));
-    guard.insert(repo_root.to_path_buf(), Arc::clone(&computed));
-    computed
+    static MEMO: memo::Memo<HashMap<String, GitActivity>> = OnceLock::new();
+    memo::get_or_build(&MEMO, repo_root, || bulk_cached_uncached(repo_root))
 }
 
 /// Disk-cached bulk map. Historical fields are cached under
@@ -223,11 +232,9 @@ fn bulk_cached_uncached(repo_root: &Path) -> HashMap<String, GitActivity> {
         None => return bulk(repo_root),
     };
     let key = format!("git_activity__{head}__{}", cutoff_30d());
-    if let Some(Value::Object(map)) = cache::load(cache::NAMESPACE_FILE, &key, repo_root) {
-        let mut history: HashMap<String, GitActivity> = HashMap::new();
-        for (path, fields) in &map {
-            history.insert(path.clone(), git_activity_from_json(fields));
-        }
+    if let Some(history) = cache::load_bytes(cache::NAMESPACE_FILE, &key, repo_root)
+        .and_then(|b| serde_json::from_slice::<HashMap<String, GitActivity>>(&b).ok())
+    {
         let working = working_tree_state(repo_root);
         if working.is_empty() {
             return history;
@@ -240,97 +247,13 @@ fn bulk_cached_uncached(repo_root: &Path) -> HashMap<String, GitActivity> {
         return out;
     }
     let history = bulk(repo_root);
-    // Persist without working_state — it is recomputed live, never cached.
-    let mut payload = serde_json::Map::new();
-    for (path, act) in &history {
-        payload.insert(path.clone(), git_activity_to_json(act));
+    // `working_state` is `skip_serializing`, so the entry holds only the
+    // HEAD-keyed facts the key actually determines.
+    if let Ok(payload) = serde_json::to_value(&history) {
+        let _ = cache::save(cache::NAMESPACE_FILE, &key, &payload, repo_root);
     }
-    let _ = cache::save(
-        cache::NAMESPACE_FILE,
-        &key,
-        &Value::Object(payload),
-        repo_root,
-    );
     cache::evict_prefixed(cache::NAMESPACE_FILE, "git_activity__", &key, repo_root);
     history
-}
-
-fn git_activity_to_json(a: &GitActivity) -> Value {
-    let mut m = serde_json::Map::new();
-    m.insert("last_modified".into(), opt_str(&a.last_modified));
-    m.insert("last_author".into(), opt_str(&a.last_author));
-    m.insert("commits_30d".into(), json!(a.commits_30d));
-    m.insert("first_seen".into(), opt_str(&a.first_seen));
-    m.insert("commit_count".into(), json!(a.commit_count));
-    m.insert("commit_count_is_floor".into(), json!(a.commit_count_is_floor));
-    m.insert("rename_from".into(), opt_str(&a.rename_from));
-    m.insert(
-        "present_in".into(),
-        json!(a.present_in.clone()),
-    );
-    m.insert("last_subject".into(), opt_str(&a.last_subject));
-    m.insert("top_author".into(), opt_str(&a.top_author));
-    m.insert(
-        "co_changed".into(),
-        Value::Array(
-            a.co_changed
-                .iter()
-                .map(|(p, c)| json!([p, c]))
-                .collect(),
-        ),
-    );
-    Value::Object(m)
-}
-
-fn git_activity_from_json(v: &Value) -> GitActivity {
-    let g = |k: &str| v.get(k).and_then(|x| x.as_str()).map(|s| s.to_string());
-    let n = |k: &str| v.get(k).and_then(|x| x.as_i64()).unwrap_or(0);
-    GitActivity {
-        last_modified: g("last_modified"),
-        last_author: g("last_author"),
-        commits_30d: n("commits_30d"),
-        first_seen: g("first_seen"),
-        commit_count: n("commit_count"),
-        commit_count_is_floor: v
-            .get("commit_count_is_floor")
-            .and_then(|x| x.as_bool())
-            .unwrap_or(false),
-        rename_from: g("rename_from"),
-        working_state: None,
-        present_in: v
-            .get("present_in")
-            .and_then(|x| x.as_array())
-            .map(|a| {
-                a.iter()
-                    .filter_map(|e| e.as_str().map(|s| s.to_string()))
-                    .collect()
-            })
-            .unwrap_or_default(),
-        last_subject: g("last_subject"),
-        top_author: g("top_author"),
-        co_changed: v
-            .get("co_changed")
-            .and_then(|x| x.as_array())
-            .map(|a| {
-                a.iter()
-                    .filter_map(|pair| {
-                        let arr = pair.as_array()?;
-                        Some((
-                            arr.first()?.as_str()?.to_string(),
-                            arr.get(1)?.as_i64()?,
-                        ))
-                    })
-                    .collect()
-            })
-            .unwrap_or_default(),
-    }
-}
-
-fn opt_str(o: &Option<String>) -> Value {
-    match o {
-        Some(s) => json!(s),
-        None => Value::Null,
-    }
 }
 
 #[derive(Default, Clone)]
@@ -374,7 +297,6 @@ fn walk_history(repo_root: &Path) -> History {
             "--pretty=format:COMMIT|%H|%ad|%an|%s",
             "--date=short",
         ],
-        true,
     ) {
         Some(s) => s,
         None => return History::default(),
@@ -611,19 +533,62 @@ fn unix_to_ymd(secs: i64) -> String {
 /// callers (parallel primer sections, file-facts working-state overlay)
 /// serialize onto one status run rather than racing `index.lock`.
 pub fn working_tree_state(repo_root: &Path) -> HashMap<String, String> {
-    static MEMO: OnceLock<Mutex<HashMap<PathBuf, HashMap<String, String>>>> =
-        OnceLock::new();
-    let memo = MEMO.get_or_init(|| Mutex::new(HashMap::new()));
-    let mut guard = memo.lock().unwrap();
-    if let Some(cached) = guard.get(repo_root) {
-        return cached.clone();
-    }
-    let computed = working_tree_state_uncached(repo_root);
-    guard.insert(repo_root.to_path_buf(), computed.clone());
-    computed
+    porcelain(repo_root)
+        .iter()
+        .map(|(path, (state, _))| (path.clone(), state.clone()))
+        .collect()
 }
 
-fn working_tree_state_uncached(repo_root: &Path) -> HashMap<String, String> {
+/// Where each changed file's change currently lives: `staged`, `unstaged`, or
+/// `partly staged`. Untracked files have nothing staged and are absent.
+///
+/// `git status` reports two letters per file — the index side and the
+/// worktree side — and which of them is set is the whole answer. An agent
+/// that reads "modified" and commits finds it committed nothing, or commits
+/// half of what it meant; the word is what prevents that.
+pub fn staging_state(repo_root: &Path) -> HashMap<String, String> {
+    porcelain(repo_root)
+        .iter()
+        .filter_map(|(path, (_, staging))| {
+            staging.as_ref().map(|s| (path.clone(), s.clone()))
+        })
+        .collect()
+}
+
+/// Per-file `(working-tree state, staging state)` via
+/// `git status --porcelain=v1 -z`.
+///
+/// Process-wide memo, keyed by repo root: the working tree does not change
+/// within a single CLI invocation, so the `git status` subprocess runs at
+/// most once per root. The lock is held across the compute so concurrent
+/// callers (parallel primer sections, file-facts working-state overlay)
+/// serialize onto one status run rather than racing `index.lock`.
+type Porcelain = HashMap<String, (String, Option<String>)>;
+
+fn porcelain(repo_root: &Path) -> Arc<Porcelain> {
+    static MEMO: memo::Memo<Porcelain> = OnceLock::new();
+    memo::get_or_build(&MEMO, repo_root, || porcelain_uncached(repo_root))
+}
+
+/// The staging word for one porcelain `XY` pair, or None when nothing is
+/// staged to describe (an untracked file).
+fn staging_word(x: char, y: char) -> Option<String> {
+    if x == '?' || y == '?' {
+        return None;
+    }
+    let indexed = x != ' ';
+    let in_worktree = y != ' ';
+    Some(
+        match (indexed, in_worktree) {
+            (true, true) => "partly staged",
+            (true, false) => "staged",
+            _ => "unstaged",
+        }
+        .to_string(),
+    )
+}
+
+fn porcelain_uncached(repo_root: &Path) -> Porcelain {
     let out = match Command::new("git")
         .args(["status", "--porcelain=v1", "-z"])
         .current_dir(repo_root)
@@ -632,7 +597,7 @@ fn working_tree_state_uncached(repo_root: &Path) -> HashMap<String, String> {
         Ok(o) if o.status.success() => o.stdout,
         _ => return HashMap::new(),
     };
-    let mut result: HashMap<String, String> = HashMap::new();
+    let mut result: Porcelain = HashMap::new();
     let parts: Vec<&[u8]> = out.split(|&b| b == 0).collect();
     let mut i = 0;
     while i < parts.len() {
@@ -651,7 +616,7 @@ fn working_tree_state_uncached(repo_root: &Path) -> HashMap<String, String> {
             } else {
                 i += 1;
             }
-            result.insert(path, "renamed".to_string());
+            result.insert(path, ("renamed".to_string(), staging_word(x, y)));
             continue;
         }
         let state = if x == '?' || y == '?' {
@@ -663,7 +628,7 @@ fn working_tree_state_uncached(repo_root: &Path) -> HashMap<String, String> {
         } else {
             "modified"
         };
-        result.insert(path, state.to_string());
+        result.insert(path, (state.to_string(), staging_word(x, y)));
         i += 1;
     }
     result
@@ -681,8 +646,7 @@ fn presence_by_path(repo_root: &Path) -> HashMap<String, Vec<String>> {
     let present: Vec<(&str, &str, String)> = DEPLOY_BRANCHES
         .iter()
         .filter_map(|(label, r#ref)| {
-            let tip = git_str(repo_root, &["rev-parse", r#ref], true)?;
-            Some((*label, *r#ref, tip.trim().to_string()))
+            Some((*label, *r#ref, git_str(repo_root, &["rev-parse", r#ref])?))
         })
         .collect();
 
@@ -703,33 +667,18 @@ fn presence_by_path(repo_root: &Path) -> HashMap<String, Vec<String>> {
         format!("git_presence__{}", hex::encode(hasher.finalize()))
     };
 
-    if let Some(Value::Object(map)) = cache::load(cache::NAMESPACE_FILE, &key, repo_root) {
-        return map
-            .into_iter()
-            .map(|(path, labels)| {
-                let labels = labels
-                    .as_array()
-                    .map(|a| {
-                        a.iter()
-                            .filter_map(|x| x.as_str().map(|s| s.to_string()))
-                            .collect()
-                    })
-                    .unwrap_or_default();
-                (path, labels)
-            })
-            .collect();
+    if let Some(cached) = cache::load_bytes(cache::NAMESPACE_FILE, &key, repo_root)
+        .and_then(|b| serde_json::from_slice::<HashMap<String, Vec<String>>>(&b).ok())
+    {
+        return cached;
     }
 
     let computed = compute_presence(repo_root, &present);
-
-    let mut payload = serde_json::Map::new();
-    for (path, labels) in &computed {
-        payload.insert(path.clone(), json!(labels));
-    }
+    let payload = json!(computed);
     let _ = cache::save(
         cache::NAMESPACE_FILE,
         &key,
-        &Value::Object(payload),
+        &payload,
         repo_root,
     );
     cache::evict_prefixed(cache::NAMESPACE_FILE, "git_presence__", &key, repo_root);
@@ -744,7 +693,7 @@ fn compute_presence(
     let mut labels_for: HashMap<String, Vec<String>> = HashMap::new();
     for (label, r#ref, _tip) in present {
         let stdout =
-            match git_str(repo_root, &["ls-tree", "-r", "--name-only", r#ref], true) {
+            match git_str(repo_root, &["ls-tree", "-r", "--name-only", r#ref]) {
                 Some(s) => s,
                 None => continue,
             };

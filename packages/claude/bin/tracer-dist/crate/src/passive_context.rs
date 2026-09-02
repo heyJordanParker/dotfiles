@@ -169,6 +169,13 @@ fn changed_together(facts: &FileFacts, max: usize) -> Option<String> {
     Some(format!("together: {}", names.join(", ")))
 }
 
+fn complexity(facts: &FileFacts) -> String {
+    format!(
+        "ccn: {} {}",
+        facts.cyclomatic_complexity_total, facts.rank
+    )
+}
+
 /// The single source of truth for the shoulder's field set. `graph` is the
 /// optional {"callers": int, "depended_on_by_modules": int} map. When
 /// `dense` is false the full field set is built; when true only the headline
@@ -182,10 +189,7 @@ fn parts(facts: &FileFacts, graph: Option<&Value>, dense: bool) -> Vec<String> {
     if dense {
         parts.push(churn(facts));
         parts.push(format!("loc: {}", facts.loc));
-        parts.push(format!(
-            "ccn: {} {}",
-            facts.cyclomatic_complexity_total, facts.rank
-        ));
+        parts.push(complexity(facts));
         return parts;
     }
     if !facts.present_in.is_empty() {
@@ -203,10 +207,7 @@ fn parts(facts: &FileFacts, graph: Option<&Value>, dense: bool) -> Vec<String> {
         parts.push(format!("callers: {callers} · dependents: {dep}"));
     }
     parts.push(format!("loc: {}", facts.loc));
-    parts.push(format!(
-        "ccn: {} {}",
-        facts.cyclomatic_complexity_total, facts.rank
-    ));
+    parts.push(complexity(facts));
     if let Some(t) = changed_together(facts, 3) {
         parts.push(t);
     }

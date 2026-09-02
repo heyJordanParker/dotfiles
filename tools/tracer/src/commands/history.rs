@@ -11,6 +11,7 @@
 
 use crate::{cache, git_activity};
 use anyhow::{bail, Result};
+use rayon::prelude::*;
 use serde_json::{json, Value};
 use std::path::Path;
 use std::process::Command;
@@ -339,12 +340,25 @@ struct PickaxeCommit {
     files: Vec<String>,
 }
 
-fn pickaxe_commits(pattern: &str, repo_root: &Path, n: i64) -> Result<Vec<PickaxeCommit>> {
+fn pickaxe_commits(
+    pattern: &str,
+    regex: bool,
+    repo_root: &Path,
+    n: i64,
+) -> Result<Vec<PickaxeCommit>> {
+    // `-S` counts occurrences of a literal string; `-G` matches the diff text
+    // against a regular expression. A pattern with a `\d` or a `.*` in it
+    // finds nothing under `-S`, which reads as "this never changed".
+    let needle = if regex {
+        format!("-G{pattern}")
+    } else {
+        format!("-S{pattern}")
+    };
     let out = Command::new("git")
         .args([
             "log",
             &format!("-{n}"),
-            &format!("-S{pattern}"),
+            &needle,
             "--name-only",
             "--pretty=format:%x00COMMIT%x00%H%x00%an%x00%ad%x00%s",
             "--date=short",
@@ -388,21 +402,23 @@ fn pickaxe_commits(pattern: &str, repo_root: &Path, n: i64) -> Result<Vec<Pickax
     Ok(commits)
 }
 
-fn commit_line_for_pattern(
-    commit_sha: &str,
-    path: &str,
-    pattern: &str,
-    repo_root: &Path,
-) -> Option<i64> {
+/// The file's bytes at a commit. One `git show` serves both the line lookup
+/// and the enclosing-symbol walk; asking twice doubled the process count of
+/// every pickaxe query.
+fn blob(commit_sha: &str, path: &str, repo_root: &Path) -> Option<Vec<u8>> {
     let out = Command::new("git")
         .args(["show", &format!("{commit_sha}:{path}")])
         .current_dir(repo_root)
         .output()
         .ok()?;
-    if !out.status.success() {
+    if !out.status.success() || out.stdout.is_empty() {
         return None;
     }
-    let text = String::from_utf8_lossy(&out.stdout);
+    Some(out.stdout)
+}
+
+fn commit_line_for_pattern(blob: &[u8], pattern: &str) -> Option<i64> {
+    let text = String::from_utf8_lossy(blob);
     for (idx, line) in text.split('\n').enumerate() {
         if line.contains(pattern) {
             return Some(idx as i64 + 1);
@@ -414,20 +430,7 @@ fn commit_line_for_pattern(
 /// universal-ctags on the file's blob at `commit_sha` to find the enclosing
 /// symbol for `line`. None when ctags can't resolve. Command-local ctags is
 /// allowed by the brief (the foundation does not cover blob-scoped ctags).
-fn enclosing_symbol(
-    commit_sha: &str,
-    path: &str,
-    line: i64,
-    repo_root: &Path,
-) -> Option<String> {
-    let show = Command::new("git")
-        .args(["show", &format!("{commit_sha}:{path}")])
-        .current_dir(repo_root)
-        .output()
-        .ok()?;
-    if !show.status.success() || show.stdout.is_empty() {
-        return None;
-    }
+fn enclosing_symbol(blob: &[u8], path: &str, line: i64) -> Option<String> {
     let suffix = Path::new(path)
         .extension()
         .and_then(|e| e.to_str())
@@ -438,7 +441,7 @@ fn enclosing_symbol(
         .tempfile()
         .ok()?;
     use std::io::Write;
-    tmp.write_all(&show.stdout).ok()?;
+    tmp.write_all(blob).ok()?;
     let tmp_path = tmp.path().to_path_buf();
 
     let ctags = Command::new("ctags")
@@ -480,23 +483,32 @@ fn enclosing_symbol(
     enclosing.map(|(_, n)| n)
 }
 
-fn pickaxe_payload(pattern: &str, repo_root: &Path) -> Result<Value> {
-    let commits = pickaxe_commits(pattern, repo_root, PICKAXE_COMMITS)?;
+fn pickaxe_payload(pattern: &str, regex: bool, repo_root: &Path) -> Result<Value> {
+    let commits = pickaxe_commits(pattern, regex, repo_root, PICKAXE_COMMITS)?;
     let mut annotated: Vec<Value> = Vec::new();
     for commit in &commits {
-        let mut entries: Vec<Value> = Vec::new();
-        for path in &commit.files {
-            let line = commit_line_for_pattern(&commit.sha, path, pattern, repo_root);
-            let symbol = match line {
-                Some(l) => enclosing_symbol(&commit.sha, path, l, repo_root),
-                None => None,
-            };
-            entries.push(json!({
-                "path": path,
-                "line": line,
-                "enclosing_symbol": symbol,
-            }));
-        }
+        // Every touched path in a commit is an independent `git show` plus a
+        // ctags run. Serially, a pickaxe over a wide commit spent its whole
+        // wall clock waiting on processes.
+        let entries: Vec<Value> = commit
+            .files
+            .par_iter()
+            .map(|path| {
+                let blob = blob(&commit.sha, path, repo_root);
+                let line = blob
+                    .as_deref()
+                    .and_then(|b| commit_line_for_pattern(b, pattern));
+                let symbol = match (blob.as_deref(), line) {
+                    (Some(b), Some(l)) => enclosing_symbol(b, path, l),
+                    _ => None,
+                };
+                json!({
+                    "path": path,
+                    "line": line,
+                    "enclosing_symbol": symbol,
+                })
+            })
+            .collect();
         annotated.push(json!({
             "sha": commit.short_sha,
             "date": commit.date,
@@ -548,25 +560,163 @@ fn render_pickaxe(p: &Value) {
     }
 }
 
+// ---------- one commit ----------
+
+/// One commit in full: its message body, author, parents, the files it
+/// touched, and the lines it changed.
+///
+/// `%s` is a subject, and a subject is the least of what a commit says. The
+/// body is where the reason lives — what was rejected, which invariant the
+/// change protects — which is why `git show -s --format=full` is the one raw
+/// git command the understand Process still prescribes. This answers it.
+fn commit_payload(reference: &str, repo_root: &Path) -> Result<Value> {
+    let meta = Command::new("git")
+        .args([
+            "show",
+            "-s",
+            "--pretty=format:%H%x00%h%x00%an%x00%ae%x00%ad%x00%P%x00%s%x00%b",
+            "--date=short",
+            reference,
+        ])
+        .current_dir(repo_root)
+        .output()?;
+    if !meta.status.success() {
+        let stderr = String::from_utf8_lossy(&meta.stderr).trim().to_string();
+        bail!("commit not found: {reference} ({stderr})");
+    }
+    let text = String::from_utf8_lossy(&meta.stdout);
+    let f: Vec<&str> = text.split('\u{0}').collect();
+    let field = |i: usize| f.get(i).unwrap_or(&"").to_string();
+
+    let files = Command::new("git")
+        .args(["show", "--name-status", "--pretty=format:", "-M", reference])
+        .current_dir(repo_root)
+        .output()?;
+    let changed: Vec<Value> = String::from_utf8_lossy(&files.stdout)
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .filter_map(|l| {
+            let tokens: Vec<&str> = l.split('\t').collect();
+            let kind = tokens.first()?.chars().next()?;
+            let path = tokens.last()?.to_string();
+            Some(json!({"status": status_label(kind), "path": path}))
+        })
+        .collect();
+
+    let patch = Command::new("git")
+        .args(["show", "--unified=3", "--no-color", "--pretty=format:", reference])
+        .current_dir(repo_root)
+        .output()?;
+    let lines = String::from_utf8_lossy(&patch.stdout).trim().to_string();
+
+    Ok(json!({
+        "sha": field(0),
+        "short_sha": field(1),
+        "author": field(2),
+        "author_email": field(3),
+        "date": field(4),
+        "parents": field(5).split_whitespace().map(String::from).collect::<Vec<_>>(),
+        "subject": field(6),
+        "body": field(7).trim(),
+        "files": changed,
+        "lines": lines,
+    }))
+}
+
+/// `git diff --name-status` codes → the words `diff` already uses, so one
+/// vocabulary describes a change wherever it is reported.
+fn status_label(kind: char) -> String {
+    crate::commands::diff::status_label(kind)
+}
+
+fn render_commit(p: &Value) {
+    println!(
+        "{} {}  {}  {}",
+        p["short_sha"].as_str().unwrap_or(""),
+        p["date"].as_str().unwrap_or(""),
+        p["author"].as_str().unwrap_or(""),
+        p["subject"].as_str().unwrap_or(""),
+    );
+    let parents: Vec<&str> = p["parents"]
+        .as_array()
+        .map(|a| a.iter().filter_map(|x| x.as_str()).collect())
+        .unwrap_or_default();
+    if !parents.is_empty() {
+        println!("parents: {}", parents.join(" "));
+    }
+    let body = p["body"].as_str().unwrap_or("");
+    if !body.is_empty() {
+        println!();
+        println!("{body}");
+    }
+    println!();
+    for file in p["files"].as_array().cloned().unwrap_or_default() {
+        println!(
+            "  {:<12} {}",
+            file["status"].as_str().unwrap_or(""),
+            file["path"].as_str().unwrap_or("")
+        );
+    }
+    if let Some(lines) = p["lines"].as_str() {
+        if !lines.is_empty() {
+            println!();
+            println!("{lines}");
+        }
+    }
+}
+
 // ---------- entry point ----------
 
 pub fn run(
     file: Option<&Path>,
     symbol: Option<&str>,
     contains: Option<&str>,
+    regex: bool,
+    commit: Option<&str>,
     as_json: bool,
 ) -> Result<Value> {
+    if let Some(reference) = commit {
+        if file.is_some() || symbol.is_some() || contains.is_some() {
+            bail!("--commit is mutually exclusive with <file>/<symbol>/--contains.");
+        }
+        let here = Path::new(".");
+        let repo_root = cache::worktree_root_for(here).unwrap_or_else(|| cache::display_root(here));
+        let payload = commit_payload(reference, &repo_root)?;
+        if !as_json {
+            render_commit(&payload);
+        }
+        return Ok(crate::output::document(
+            json!({"mode": "commit", "commit": reference}),
+            json!({
+                "sha": payload["sha"],
+                "author": payload["author"],
+                "author_email": payload["author_email"],
+                "date": payload["date"],
+                "parents": payload["parents"],
+                "subject": payload["subject"],
+                "body": payload["body"],
+                "lines": payload["lines"],
+            }),
+            payload["files"].clone(),
+            json!({"files": payload["files"].as_array().map(|a| a.len()).unwrap_or(0)}),
+        ));
+    }
     if let Some(pattern) = contains {
         if file.is_some() || symbol.is_some() {
             bail!("--contains is mutually exclusive with <file>/<symbol> arguments.");
         }
         let here = Path::new(".");
         let repo_root = cache::worktree_root_for(here).unwrap_or_else(|| cache::display_root(here));
-        let payload = pickaxe_payload(pattern, &repo_root)?;
+        let payload = pickaxe_payload(pattern, regex, &repo_root)?;
         if !as_json {
             render_pickaxe(&payload);
         }
-        return Ok(payload);
+        return Ok(crate::output::document(
+            json!({"mode": "contains", "pattern": pattern}),
+            json!({"repo_root": repo_root.to_string_lossy()}),
+            payload["commits"].clone(),
+            json!({"commits": payload["commit_count"]}),
+        ));
     }
 
     let file = match file {
@@ -592,12 +742,29 @@ pub fn run(
         if !as_json {
             render_function(&payload);
         }
-        return Ok(payload);
+        return Ok(crate::output::document(
+            json!({"mode": "function", "file": relative, "symbol": sym}),
+            json!({"repo_root": repo_root.to_string_lossy()}),
+            payload["commits"].clone(),
+            json!({"commits": payload["commits"].as_array().map(|a| a.len()).unwrap_or(0)}),
+        ));
     }
 
     let payload = whole_file_payload(&file_path, &repo_root);
     if !as_json {
         render_whole_file(&payload);
     }
-    Ok(payload)
+    let mut lifecycle = payload.clone();
+    if let Some(map) = lifecycle.as_object_mut() {
+        map.remove("mode");
+        map.remove("file");
+        map.remove("recent_commits");
+        map.remove("commit_count");
+    }
+    Ok(crate::output::document(
+        json!({"mode": "file", "file": payload["file"]}),
+        lifecycle,
+        payload["recent_commits"].clone(),
+        json!({"commits": payload["commit_count"], "commits_30d": payload["commits_30d"]}),
+    ))
 }

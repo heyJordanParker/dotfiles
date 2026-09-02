@@ -110,7 +110,7 @@ fn no_drift_when_predicted_equals_observed() {
     let observed_arg = observed_path.to_string_lossy().into_owned();
     let run = f.trace_env(
         &[
-            "context", "prime",
+            "docs", "prime",
             "--reason",
             "session_start",
             "--observed-from",
@@ -121,8 +121,8 @@ fn no_drift_when_predicted_equals_observed() {
     );
     run.ok();
 
-    let v = run.json();
-    assert_eq!(v["mirrored_count"], 1);
+    let v = run.view();
+    assert_eq!(v["mirrored"], 1);
     assert!(
         v.get("drift").is_none() || v["drift"].is_null(),
         "no drift means no drift block in output: {v}"
@@ -171,7 +171,7 @@ fn drift_records_event_and_reconciles_view() {
     let observed_arg = observed_file.to_string_lossy().into_owned();
     let run = f.trace_env(
         &[
-            "context", "prime",
+            "docs", "prime",
             "--reason",
             "session_start",
             "--observed-from",
@@ -182,7 +182,7 @@ fn drift_records_event_and_reconciles_view() {
     );
     run.ok();
 
-    let v = run.json();
+    let v = run.view();
     let drift = &v["drift"];
     assert_eq!(drift["source"], "context_prime_drift", "drift block in output: {v}");
     assert_eq!(drift["predicted_count"], 1);
@@ -260,7 +260,7 @@ fn malformed_observed_input_fails_loud_no_log_mutation() {
     let observed_arg = observed_file.to_string_lossy().into_owned();
     let run = f.trace_env(
         &[
-            "context", "prime",
+            "docs", "prime",
             "--reason",
             "session_start",
             "--observed-from",
@@ -305,7 +305,7 @@ fn empty_observed_input_skips_detection() {
     let observed_arg = observed_file.to_string_lossy().into_owned();
     let run = f.trace_env(
         &[
-            "context", "prime",
+            "docs", "prime",
             "--reason",
             "session_start",
             "--observed-from",
@@ -316,8 +316,8 @@ fn empty_observed_input_skips_detection() {
     );
     run.ok();
 
-    let v = run.json();
-    assert_eq!(v["mirrored_count"], 1);
+    let v = run.view();
+    assert_eq!(v["mirrored"], 1);
     assert!(
         v.get("drift").is_none() || v["drift"].is_null(),
         "empty input must not emit a drift block: {v}"
@@ -357,7 +357,7 @@ fn second_identical_drift_call_is_a_noop_on_view() {
     let home_str = home.to_string_lossy().into_owned();
     let observed_arg = observed_file.to_string_lossy().into_owned();
     let args = [
-        "context", "prime",
+        "docs", "prime",
         "--reason",
         "session_start",
         "--observed-from",

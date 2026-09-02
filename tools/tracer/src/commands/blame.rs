@@ -348,13 +348,22 @@ pub fn run(
     let facts = file_facts::get(&path, &repo_root);
     let display_file = cache::relative_to_root(&path, &repo_root);
 
-    let payload = json!({
-        "file": display_file,
-        "language": facts.as_ref().and_then(|f| f.language.clone()),
-        "scope": scope,
-        "symbol": symbol,
-        "line_range": line_range.map(|(s, e)| json!({"start": s, "end": e})),
-        "regions": regions.iter().map(|r| json!({
+    let payload = crate::output::document(
+        json!({
+            "file": display_file,
+            "scope": scope,
+            "symbol": symbol,
+            "line_range": line_range.map(|(s, e)| json!({"start": s, "end": e})),
+        }),
+        json!({
+            "files": {
+                display_file.clone(): {
+                    "language": facts.as_ref().and_then(|f| f.language.clone()),
+                    "shoulder": facts.as_ref().map(|f| crate::passive_context::render(f, None)),
+                }
+            },
+        }),
+        json!(regions.iter().map(|r| json!({
             "line_start": r.line_start,
             "line_end": r.line_end,
             "sha": short_sha(&r.sha),
@@ -362,10 +371,9 @@ pub fn run(
             "date": isoformat_date(r.author_time, &r.author_tz),
             "age": humanize_age(r.author_time),
             "subject": subject(r),
-        })).collect::<Vec<_>>(),
-        "region_count": regions.len(),
-        "line_count": blame_lines.len(),
-    });
+        })).collect::<Vec<_>>()),
+        json!({"regions": regions.len(), "lines": blame_lines.len()}),
+    );
 
     if as_json {
         return Ok(payload);

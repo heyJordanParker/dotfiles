@@ -2,20 +2,22 @@
 //!
 //! No-args: the eight-section session-start primer (environment, identity,
 //! tech stack, layout, common directories, git, rules, spine) plus the
-//! repo_context footer. First invocation warms the file + architecture
-//! caches. File-arg: single-file enrichment — one passive_context line.
+//! repo_context footer. First invocation warms the file cache and the
+//! relations index. File-arg: single-file enrichment — one passive_context
+//! line.
 //!
 //! CCN is AST-derived; the Layout per-path aggregation uses the real
 //! `file_facts::get` (no lite-facts shortcut).
 
 use super::{nested_memory, session_log};
+use crate::git_activity::git_str;
 use crate::{
-    architecture, cache, docs_graph, file_facts, git_activity, passive_context, repo_context,
+    cache, docs_graph, file_facts, git_activity, passive_context, relations, repo_context,
     repo_files,
 };
 use anyhow::Result;
 use rayon::prelude::*;
-use serde_json::{json, Value};
+use serde_json::Value;
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::Write as _;
 use std::path::Path;
@@ -105,31 +107,7 @@ const COMMON_KINDS: &[&str] = &[
 
 const DIRTY_STATES: &[&str] = &["untracked", "added", "modified", "renamed"];
 
-fn git_str(repo_root: &Path, args: &[&str]) -> Option<String> {
-    let out = Command::new("git")
-        .args(args)
-        .current_dir(repo_root)
-        .output()
-        .ok()?;
-    if !out.status.success() {
-        return None;
-    }
-    Some(String::from_utf8_lossy(&out.stdout).trim().to_string())
-}
-
 // --- File-enrichment helper --------------------------------------------
-
-/// Caller and dependency counts for a file from the cached graph, or None
-/// when the file has no module node.
-fn graph_counts(file_path: &Path, repo_root: &Path) -> Option<Value> {
-    let graph = architecture::load_cached(repo_root)?;
-    let relative = cache::relative_to_root(file_path, repo_root);
-    let module_id = graph.file_to_module_id.get(&relative)?;
-    Some(json!({
-        "callers": architecture::dependents_of(&graph, module_id).len(),
-        "depended_on_by_modules": architecture::dependencies_of(&graph, module_id).len(),
-    }))
-}
 
 /// Translate the read tool's `offset`/`limit` into the 1-based inclusive
 /// `(start, end)` span `record_read` accumulates, or `None` for a whole-file
@@ -169,7 +147,8 @@ fn file_mode(p: &Path, lines: Option<(usize, usize)>, record: bool) -> Result<()
         Some(f) => f,
         None => return Ok(()),
     };
-    let gc = graph_counts(p, &repo_root);
+    let relative = cache::relative_to_root(p, &repo_root);
+    let gc = relations::get(&repo_root).module_counts(&relative);
     let line = passive_context::render(&facts, gc.as_ref());
     if !line.is_empty() {
         println!("{line}");
@@ -206,7 +185,7 @@ fn symbols_line(path: &Path) -> String {
         Ok(v) => v,
         Err(_) => return String::new(),
     };
-    let by_kind = match value.get("symbols_by_kind").and_then(|v| v.as_object()) {
+    let by_kind = match value["results"]["symbols_by_kind"].as_object() {
         Some(m) if !m.is_empty() => m,
         _ => return String::new(),
     };
@@ -326,9 +305,8 @@ fn directory_files_line(directory: &Path) -> String {
         Err(_) => return String::new(),
     };
     let names_of = |key: &str| -> Vec<String> {
-        value
-            .get(key)
-            .and_then(|v| v.as_array())
+        value["results"][key]
+            .as_array()
             .map(|arr| {
                 arr.iter()
                     .filter_map(|e| e.get("name").and_then(|n| n.as_str()).map(String::from))
@@ -408,11 +386,12 @@ pub fn run(
 fn primer_mode() -> Result<()> {
     let here = Path::new(".");
     let repo_root = cache::worktree_root_for(here).unwrap_or_else(|| cache::display_root(here));
-    let _ = architecture::get(&repo_root);
+    // Warm the index once so every section below reads it from the memo.
+    let _ = relations::get(&repo_root);
     let tracked = repo_files::tracked_files(&repo_root, None).unwrap_or_default();
 
     // Each section is an independent, self-contained read of repo state —
-    // git subprocesses, the cached graph, scc facts. They share no mutable
+    // git subprocesses, the relations index, scc facts. They share no mutable
     // state, so they run concurrently; the per-section git-spawn cost is the
     // primer's whole budget, and running the sections in parallel collapses
     // the serial sum to the slowest single section. Output is assembled in
@@ -1100,7 +1079,7 @@ fn ahead_behind(repo_root: &Path, current: &str, base: Option<&str>) -> String {
 }
 
 fn render_dirty(repo_root: &Path, dirty: &HashMap<String, String>) -> Vec<String> {
-    let graph = architecture::load_cached(repo_root);
+    let index = relations::get(repo_root);
     // One batch resolve for every dirty file — a single mtime-index load plus
     // parallel extraction — instead of a per-file get() loop that reloaded
     // the whole mtime index for each dirty file (the dominant primer cost on
@@ -1113,12 +1092,7 @@ fn render_dirty(repo_root: &Path, dirty: &HashMap<String, String>) -> Vec<String
     let facts_map = file_facts::get_batch(&existing, repo_root);
     let mut scored: Vec<(i64, i64, String, String)> = Vec::new();
     for (path, state) in dirty {
-        let mut callers = 0i64;
-        if let Some(g) = &graph {
-            if let Some(module_id) = g.file_to_module_id.get(path) {
-                callers = architecture::dependents_of(g, module_id).len() as i64;
-            }
-        }
+        let callers = index.importers_of(path).len() as i64;
         let rel = cache::relative_to_root(&repo_root.join(path), repo_root);
         let ccn = facts_map
             .get(&rel)
@@ -1278,17 +1252,18 @@ fn rules_section(repo_root: &Path, tracked: &[String]) -> String {
 /// with the glob that matched, so the agent sees why the rule applies. Capped
 /// at `PRIMER_APPLICABLE_RULES_LIMIT`.
 ///
-/// The conditional rules and their globs come from the cached architecture
-/// graph's doc nodes (the docs-graph walk already parsed every rule's
-/// frontmatter); the dirty set from the working tree; the loaded set from the
-/// session log. The three join here at render time only.
+/// The conditional rules and their globs come from the doc graph's nodes
+/// (its walk already parsed every rule's frontmatter); the dirty set from the
+/// working tree; the loaded set from the session log. The three join here at
+/// render time only.
 fn applicable_unloaded_rules(repo_root: &Path) -> Vec<(String, String)> {
-    let graph = match architecture::load_cached(repo_root) {
-        Some(g) => g,
-        None => return vec![],
-    };
-    let conditional: Vec<&docs_graph::DocNode> = graph
-        .doc_nodes
+    // The doc graph is its own walk, independent of code relationships. It
+    // rode inside the architecture graph only because that entry was where
+    // a built structure got stored; built directly it costs one doc-tree
+    // walk instead of decoding every code relationship in the repository.
+    let docs = docs_graph::build(repo_root);
+    let conditional: Vec<&docs_graph::DocNode> = docs
+        .nodes
         .iter()
         .filter(|n| n.paths_globs.as_ref().map(|g| !g.is_empty()).unwrap_or(false))
         .collect();
@@ -1384,82 +1359,22 @@ fn collect_rules_dir(tracked: &[String]) -> Vec<String> {
 fn spine_section(repo_root: &Path) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "## Spine");
-    let graph = match architecture::load_cached(repo_root) {
-        Some(g) if !g.edges.is_empty() => g,
-        _ => {
-            let _ = writeln!(
-                out,
-                "  (architecture graph empty — run `trace cache build` if you expect data)"
-            );
-            return out;
-        }
-    };
-
-    // Rank by transitive dependent count — how many nodes ultimately depend
-    // on a node — not raw direct in-edges, so a node imported by one hub that
-    // everything else imports ranks as load-bearing rather than buried. Same
-    // two-stage shape as `downstream --path`: count direct import in-edges
-    // first, compute the transitive dependent set only for the top direct
-    // candidates (the BFS is the cost), then re-rank by `(transitive, direct)`
-    // descending. Reference edges are a separate dimension and stay out of
-    // module-level centrality, matching `downstream --path`.
-    let mut direct: HashMap<String, i64> = HashMap::new();
-    let mut order: Vec<String> = Vec::new();
-    for edge in &graph.edges {
-        if edge.relation != architecture::RELATION_IMPORTS {
-            continue;
-        }
-        if !direct.contains_key(&edge.target) {
-            order.push(edge.target.clone());
-        }
-        *direct.entry(edge.target.clone()).or_insert(0) += 1;
-    }
-    let mut by_direct: Vec<(usize, String, i64)> = order
-        .iter()
-        .enumerate()
-        .filter(|(_, t)| !t.starts_with("module::external::"))
-        .map(|(i, t)| (i, t.clone(), direct[t]))
-        .collect();
-    by_direct.sort_by(|a, b| b.2.cmp(&a.2).then(a.0.cmp(&b.0)));
-
-    // Compute transitive dependents for a candidate pool wider than the final
-    // cut (a node with few direct in-edges can still sit under a hub and reach
-    // a large transitive set), then take the most-depended-on after re-ranking.
-    let candidate_pool: Vec<String> = by_direct
-        .iter()
-        .take(PRIMER_SPINE_LIMIT * 3)
-        .map(|(_, id, _)| id.clone())
-        .collect();
-    let mut transitive: HashMap<String, i64> = HashMap::new();
-    for node_id in &candidate_pool {
-        transitive.insert(
-            node_id.clone(),
-            architecture::transitive_dependents(&graph, node_id, i64::MAX).len() as i64,
-        );
-    }
-    let first_seen: HashMap<&str, usize> = order
-        .iter()
-        .enumerate()
-        .map(|(i, id)| (id.as_str(), i))
-        .collect();
-    let mut ranked: Vec<String> = candidate_pool.clone();
-    ranked.sort_by(|a, b| {
-        let ta = *transitive.get(a).unwrap_or(&0);
-        let tb = *transitive.get(b).unwrap_or(&0);
-        let da = *direct.get(a).unwrap_or(&0);
-        let db = *direct.get(b).unwrap_or(&0);
-        // (transitive, direct) descending, ties broken by first-seen order so
-        // the output is fully deterministic.
-        (tb, db)
-            .cmp(&(ta, da))
-            .then(first_seen[a.as_str()].cmp(&first_seen[b.as_str()]))
-    });
-    ranked.truncate(PRIMER_SPINE_LIMIT);
-
+    // The same ranking `usages --path` answers with: transitive reach
+    // first, direct import edges as the tie-break. `relations` owns it.
+    let ranked = relations::ranked_by_reach(
+        i64::MAX,
+        PRIMER_SPINE_LIMIT,
+        relations::Reach::Importers,
+        repo_root,
+    );
     if ranked.is_empty() {
-        let _ = writeln!(out, "  (no internal nodes in the architecture graph)");
+        let _ = writeln!(
+            out,
+            "  (no imports found in this repository — run `trace cache build` if you expect data)"
+        );
         return out;
     }
+    let languages = relations::languages(repo_root);
 
     let _ = writeln!(out, "  Top {} most-depended-on nodes:", ranked.len());
     let _ = writeln!(
@@ -1467,27 +1382,24 @@ fn spine_section(repo_root: &Path) -> String {
         "    {:<3} {:>6} {:>10}  {:<10} symbol @ source",
         "#", "direct", "transitive", "kind"
     );
-    for (rank, node_id) in ranked.iter().enumerate() {
-        let node = match graph.nodes.get(node_id) {
-            Some(n) => n,
-            None => continue,
-        };
-        let location = match &node.source_file {
-            Some(sf) => match node.source_line {
-                Some(l) => format!("{sf}:{l}"),
-                None => sf.clone(),
-            },
-            None => "(no source)".into(),
+    for (rank, row) in ranked.iter().enumerate() {
+        let language = languages.get(&row.file).cloned().flatten();
+        let (label, kind) = match &row.symbol {
+            Some(symbol) => (symbol.clone(), "symbol"),
+            None => (
+                relations::file_to_module(&row.file, language.as_deref()),
+                "module",
+            ),
         };
         let _ = writeln!(
             out,
-            "    {:<3} {:>6} {:>10}  {:<10} {} @ {}",
+            "    {:<3} {:>6} {:>10}  {:<10} {} @ {}:1",
             rank + 1,
-            direct.get(node_id).copied().unwrap_or(0),
-            transitive.get(node_id).copied().unwrap_or(0),
-            node.kind,
-            node.label,
-            location,
+            row.direct,
+            row.transitive,
+            kind,
+            label,
+            row.file,
         );
     }
     out

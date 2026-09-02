@@ -27,17 +27,14 @@ fn cache_writes_land_at_the_worktree_root() {
         cache_dir.is_dir(),
         "cache dir must exist at the worktree root: {cache_dir:?}"
     );
-    // Both non-session namespaces present after build.
-    for ns in ["file", "architecture"] {
-        let ns_dir = cache_dir.join(ns);
-        assert!(
-            ns_dir.is_dir(),
-            "namespace `{ns}` must exist at the worktree root: {ns_dir:?}"
-        );
-    }
+    let ns_dir = cache_dir.join("file");
+    assert!(
+        ns_dir.is_dir(),
+        "namespace `file` must exist at the worktree root: {ns_dir:?}"
+    );
     // Belt-and-braces: cache stats reports a non-zero entry count from
     // the same directory the test inspected on disk.
-    let s = trace(&f.root, &["cache", "stats", "--json"]).ok().json();
+    let s = trace(&f.root, &["cache", "stats", "--json"]).ok().view();
     let file_entries = s["file"]["entries"].as_u64().unwrap_or(0);
     assert!(
         file_entries > 0,

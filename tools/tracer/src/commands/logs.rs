@@ -625,22 +625,23 @@ pub fn run(
     let entries: Vec<&Entry> = per_file.iter().flatten().map(|h| &h.entry).collect();
     let files_matched = per_file.len();
 
-    let payload = json!({
-        "query": pattern,
-        "path": path,
-        "file_glob": file_glob,
-        "since": since_stamp.as_ref().map(stamp_str),
-        "until": until_stamp.as_ref().map(stamp_str),
-        "entries": entries.iter().map(|e| json!({
+    let payload = crate::output::document(
+        json!({
+            "pattern": pattern,
+            "path": path,
+            "file_glob": file_glob,
+            "since": since_stamp.as_ref().map(stamp_str),
+            "until": until_stamp.as_ref().map(stamp_str),
+        }),
+        json!({"files_scanned": scanned}),
+        json!(entries.iter().map(|e| json!({
             "file": e.file,
             "line": e.line,
             "stamp": e.stamp.as_ref().map(stamp_str),
             "text": e.text,
-        })).collect::<Vec<_>>(),
-        "entry_count": entries.len(),
-        "files_matched": files_matched,
-        "files_scanned": scanned,
-    });
+        })).collect::<Vec<_>>()),
+        json!({"entries": entries.len(), "files": files_matched}),
+    );
 
     if !as_json {
         render_human(&entries, files_matched, scanned, since_stamp, until_stamp);

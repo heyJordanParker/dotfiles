@@ -1,8 +1,6 @@
 //! tracer — code-intelligence CLI. Binary name: `trace`.
 //! Per-function cyclomatic complexity is AST-derived (tree-sitter
 //! decision-node walker), the single CCN backend.
-
-mod architecture;
 mod cache;
 mod ccn;
 mod commands;
@@ -13,6 +11,9 @@ mod file_facts;
 mod filter;
 mod git_activity;
 mod jsonfmt;
+mod lang;
+mod memo;
+mod relations;
 mod output;
 mod passive_context;
 mod pathval;
@@ -52,7 +53,7 @@ enum Command {
     /// Verify required external binaries are installed.
     Doctor,
     /// Repo-wide language + LOC + complexity distribution.
-    Survey {
+    Stats {
         #[arg(default_value = ".")]
         path: PathBuf,
         #[arg(long)]
@@ -76,6 +77,9 @@ enum Command {
         lang: Option<String>,
         #[arg(long, default_value = ".")]
         path: String,
+        /// Search a commit instead of the working tree.
+        #[arg(long = "at")]
+        at: Option<String>,
         #[arg(long)]
         json: bool,
     },
@@ -107,7 +111,7 @@ enum Command {
         json: bool,
     },
     /// Structural (AST) search via ast-grep with per-match enrichment.
-    Struct {
+    Pattern {
         pattern: String,
         #[arg(short = 'l', long)]
         lang: String,
@@ -116,26 +120,22 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
-    /// All places a symbol is defined, via the architecture graph.
+    /// All places a symbol is declared.
     Defines {
         symbol: String,
         #[arg(long)]
         json: bool,
     },
-    /// Direct callers / importers of a symbol via the architecture graph.
+    /// Direct callers / importers of a symbol, resolved now.
     Callers {
         symbol: String,
-        #[arg(long)]
-        json: bool,
-    },
-    /// Module-level symbols of a file from the architecture graph.
-    Symbols {
-        file: PathBuf,
+        #[arg(long, default_value_t = 200)]
+        limit: usize,
         #[arg(long)]
         json: bool,
     },
     /// What a symbol depends on (transitive), or highest-coupling symbols in a path.
-    Upstream {
+    Dependencies {
         symbol: Option<String>,
         #[arg(long)]
         path: Option<PathBuf>,
@@ -146,8 +146,8 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
-    /// What depends on a symbol (transitive), or most-depended-on symbols in a path.
-    Downstream {
+    /// Where a symbol is used (transitive), or most-depended-on symbols in a path.
+    Usages {
         symbol: Option<String>,
         #[arg(long)]
         path: Option<PathBuf>,
@@ -200,20 +200,16 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
-    /// File-path pattern search, Claude Glob shape (`**` recursive).
-    Glob {
-        pattern: String,
-        #[arg(default_value = ".")]
-        base: String,
-        #[arg(long)]
-        details: bool,
-        #[arg(long)]
-        json: bool,
-    },
-    /// Files (or symbols) changed between HEAD and a base ref, load-bearing first.
+    /// What changed, as lines: staged, unstaged and untracked against HEAD by
+    /// default, or the committed difference from `--base <ref>`.
+    /// Load-bearing file first.
     Diff {
-        #[arg(long, default_value = commands::diff::DEFAULT_BASE)]
-        base: String,
+        /// Limit to one file or directory.
+        path: Option<String>,
+        /// Compare committed history against this ref instead of comparing
+        /// the working tree against HEAD.
+        #[arg(long)]
+        base: Option<String>,
         #[arg(long = "symbols")]
         symbol_mode: bool,
         #[arg(long)]
@@ -238,9 +234,8 @@ enum Command {
         /// Treat <path> as a directory even when it points at a file (path-mode only).
         #[arg(long = "directory")]
         directory: bool,
-        /// Whole-repo docs graph projected from the unified `architecture/`
-        /// cache entry, plus the available-but-not-loaded set. With this
-        /// flag, <path> is optional.
+        /// Whole-repo docs graph, built in memory per call, plus the
+        /// available-but-not-loaded set. With this flag, <path> is optional.
         #[arg(long = "graph")]
         graph: bool,
         /// Names the calling surface (e.g. `trace_inject_hook`, `agent_read`).
@@ -260,9 +255,7 @@ enum Command {
         #[command(subcommand)]
         command: Option<DocsCommand>,
     },
-    /// Session-start primer (no args / path arg) or `prime` sub-verb that
-    /// records the docs Claude Code's harness auto-loaded into the session log.
-    #[command(args_conflicts_with_subcommands = true)]
+    /// Session-start primer (no args) or the one-line file briefing.
     Context {
         path: Option<PathBuf>,
         #[arg(long = "directory")]
@@ -280,8 +273,6 @@ enum Command {
         /// read coverage.
         #[arg(long = "no-record")]
         no_record: bool,
-        #[command(subcommand)]
-        command: Option<ContextCommand>,
     },
     /// Cleaned read: whole file, method, line range, or anchor section; worktree or git ref.
     Read {
@@ -317,12 +308,20 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
-    /// Git archaeology: whole-file log, function-line history, or pickaxe.
+    /// Git archaeology: whole-file log, function-line history, pickaxe, or
+    /// one commit in full.
     History {
         file: Option<PathBuf>,
         symbol: Option<String>,
         #[arg(long)]
         contains: Option<String>,
+        /// Read `--contains` as a regular expression instead of literal text.
+        #[arg(long)]
+        regex: bool,
+        /// One commit in full: message, author, parents, changed files and
+        /// the changed lines.
+        #[arg(long = "commit")]
+        commit: Option<String>,
         #[arg(long)]
         json: bool,
     },
@@ -332,8 +331,9 @@ enum Command {
 enum DocsCommand {
     /// Hook entrypoint: thin alias forwarding to path-mode with the
     /// `--source` default flipped to `trace_docs_load`. Returns the same
-    /// `{ docs, doc_count, already_loaded? }` shape as `trace docs <path>`
-    /// so the calling hook reads one contract.
+    /// document as `trace docs <path>` — surfaced docs in `results`, the
+    /// dedupe-skipped set in `context.already_loaded`, the count in
+    /// `counts.docs` — so the calling hook reads one contract.
     Load {
         path: PathBuf,
         /// Names the calling surface (e.g. `trace_inject_hook`, `agent_read`).
@@ -373,10 +373,6 @@ enum DocsCommand {
         #[arg(long)]
         json: bool,
     },
-}
-
-#[derive(Subcommand)]
-enum ContextCommand {
     /// Record the harness's auto-loaded docs into the session log so
     /// subsequent tracer emissions skip docs the agent already has in
     /// context. Invoked by the SessionStart / post-compact hook.
@@ -384,7 +380,7 @@ enum ContextCommand {
         #[arg(long, value_parser = ["session_start", "post_compact"])]
         reason: String,
         /// Path to the observed-set JSON (or `-` for stdin). When set,
-        /// drift between the context primer's prediction and Claude Code's
+        /// drift between the docs primer's prediction and Claude Code's
         /// actual auto-load is detected and recorded into the session log.
         #[arg(long = "observed-from", value_name = "PATH")]
         observed_from: Option<String>,
@@ -400,16 +396,14 @@ enum CacheCommand {
         #[arg(default_value = ".")]
         path: PathBuf,
     },
-    /// Delete cache entries.
+    /// Delete cache entries. Clears the `file` namespace; session state
+    /// goes with `--all`.
     Clear {
-        /// Limit clear to one namespace; default clears both.
-        #[arg(long, value_parser = ["file", "architecture"])]
-        namespace: Option<String>,
         /// Remove .tracer-cache/ entirely.
         #[arg(long = "all")]
         clear_all: bool,
     },
-    /// Show cache size and entry count per namespace.
+    /// Show cache size and entry count.
     Stats {
         #[arg(long)]
         json: bool,
@@ -427,20 +421,17 @@ fn main() -> Result<()> {
             output::guard(false, filter)?;
             commands::doctor::run()
         }
-        Command::Survey { path, json } => {
-            output::run_value(json, filter, || commands::survey::run(&path, json))
+        Command::Stats { path, json } => {
+            output::run_value(json, filter, || commands::stats::run(&path, json))
         }
         Command::Cache { command } => match command {
             CacheCommand::Build { path } => {
                 output::guard(false, filter)?;
                 commands::cache::build(&path)
             }
-            CacheCommand::Clear {
-                namespace,
-                clear_all,
-            } => {
+            CacheCommand::Clear { clear_all } => {
                 output::guard(false, filter)?;
-                commands::cache::clear(Path::new("."), namespace.as_deref(), clear_all)
+                commands::cache::clear(Path::new("."), clear_all)
             }
             CacheCommand::Stats { json } => output::run_value(json, filter, || {
                 commands::cache::stats(Path::new("."), json)
@@ -453,9 +444,10 @@ fn main() -> Result<()> {
             pattern,
             lang,
             path,
+            at,
             json,
         } => output::run_streamed(json, filter, |sink| {
-            commands::grep::run(&pattern, lang.as_deref(), &path, json, sink)
+            commands::grep::run(&pattern, lang.as_deref(), &path, at.as_deref(), json, sink)
         }),
         Command::Logs {
             pattern,
@@ -478,40 +470,55 @@ fn main() -> Result<()> {
                 json,
             )
         }),
-        Command::Struct {
+        Command::Pattern {
             pattern,
             lang,
             path,
             json,
         } => output::run_streamed(json, filter, |sink| {
-            commands::struct_::run(&pattern, &lang, &path, json, sink)
+            commands::pattern::run(&pattern, &lang, &path, json, sink)
         }),
         Command::Defines { symbol, json } => {
             output::run_value(json, filter, || commands::defines::run(&symbol, json))
         }
-        Command::Callers { symbol, json } => {
-            output::run_value(json, filter, || commands::callers::run(&symbol, json))
-        }
-        Command::Symbols { file, json } => {
-            output::run_value(json, filter, || commands::symbols::run(&file, json))
-        }
-        Command::Upstream {
+        Command::Callers {
             symbol,
-            path,
-            depth,
             limit,
             json,
         } => output::run_value(json, filter, || {
-            commands::upstream::run(symbol.as_deref(), path.as_deref(), depth, limit, json)
+            commands::callers::run(&symbol, limit, json)
         }),
-        Command::Downstream {
+        Command::Dependencies {
             symbol,
             path,
             depth,
             limit,
             json,
         } => output::run_value(json, filter, || {
-            commands::downstream::run(symbol.as_deref(), path.as_deref(), depth, limit, json)
+            commands::reach::run(
+                commands::reach::Direction::Dependencies,
+                symbol.as_deref(),
+                path.as_deref(),
+                depth,
+                limit,
+                json,
+            )
+        }),
+        Command::Usages {
+            symbol,
+            path,
+            depth,
+            limit,
+            json,
+        } => output::run_value(json, filter, || {
+            commands::reach::run(
+                commands::reach::Direction::Dependents,
+                symbol.as_deref(),
+                path.as_deref(),
+                depth,
+                limit,
+                json,
+            )
         }),
         Command::List {
             path,
@@ -546,20 +553,13 @@ fn main() -> Result<()> {
                 json,
             )
         }),
-        Command::Glob {
-            pattern,
-            base,
-            details,
-            json,
-        } => output::run_value(json, filter, || {
-            commands::glob::run(&pattern, &base, details, json)
-        }),
         Command::Diff {
+            path,
             base,
             symbol_mode,
             json,
         } => output::run_value(json, filter, || {
-            commands::diff::run(&base, symbol_mode, json)
+            commands::diff::run(path.as_deref(), base.as_deref(), symbol_mode, json)
         }),
         Command::Status { json, state } => output::run_value(json, filter, || {
             commands::status::run(json, state.as_deref())
@@ -596,6 +596,14 @@ fn main() -> Result<()> {
             Some(DocsCommand::Reset { source, json }) => output::run_value(json, filter, || {
                 commands::docs::run_reset(&source, json)
             }),
+            Some(DocsCommand::Prime {
+                reason,
+                observed_from,
+                json,
+            }) => output::run_value(json, filter, || {
+                let parsed = commands::docs_prime::parse_reason(&reason)?;
+                commands::docs_prime::run(parsed, observed_from.as_deref(), json)
+            }),
             None if graph => output::run_value(json, filter, || {
                 commands::docs::run_graph(path.as_deref(), json)
             }),
@@ -620,21 +628,10 @@ fn main() -> Result<()> {
             offset,
             limit,
             no_record,
-            command,
-        } => match command {
-            Some(ContextCommand::Prime {
-                reason,
-                observed_from,
-                json,
-            }) => output::run_value(json, filter, || {
-                let parsed = commands::context_prime::parse_reason(&reason)?;
-                commands::context_prime::run(parsed, observed_from.as_deref(), json)
-            }),
-            None => {
-                output::guard(false, filter)?;
-                commands::context::run(path.as_deref(), force_directory, offset, limit, !no_record)
-            }
-        },
+        } => {
+            output::guard(false, filter)?;
+            commands::context::run(path.as_deref(), force_directory, offset, limit, !no_record)
+        }
         Command::Read {
             paths,
             method,
@@ -673,12 +670,16 @@ fn main() -> Result<()> {
             file,
             symbol,
             contains,
+            regex,
+            commit,
             json,
         } => output::run_value(json, filter, || {
             commands::history::run(
                 file.as_deref(),
                 symbol.as_deref(),
                 contains.as_deref(),
+                regex,
+                commit.as_deref(),
                 json,
             )
         }),

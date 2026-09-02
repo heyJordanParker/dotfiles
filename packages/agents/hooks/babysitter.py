@@ -227,7 +227,7 @@ def _read_log_status(cwd, env):
     if r.returncode != 0:
         return {}, set()
     try:
-        loaded = json.loads(r.stdout).get("loaded", []) or []
+        loaded = json.loads(r.stdout).get("results", {}).get("loaded", []) or []
     except Exception:
         return {}, set()
     coverage, opened = {}, set()
@@ -260,7 +260,11 @@ def _caller_files(file_path, cwd, env):
     """Repo-relative source files that directly call the edited file, via
     `trace info <file>` top_callers (up to ten direct callers). Reads the graph
     load-only, so the caller must `_warm_graph` first against a dirty tree. Empty
-    on any failure — the Rule then sees a file with no known callers."""
+    on any failure — the Rule then sees a file with no known callers.
+
+    Per-file enrichment lives at `context.files[<path>]`, keyed by the path as
+    trace echoes it. This asks for one file, so the sole entry is taken rather
+    than matched by key — the key spelling is trace's, not the caller's."""
     try:
         r = subprocess.run(["trace", "info", file_path, "--json"],
                            cwd=cwd, env=env, text=True, capture_output=True, timeout=10)
@@ -269,10 +273,11 @@ def _caller_files(file_path, cwd, env):
     if r.returncode != 0:
         return []
     try:
-        info = json.loads(r.stdout)
+        files = json.loads(r.stdout).get("context", {}).get("files", {})
+        entry = next(iter(files.values()), {})
     except Exception:
         return []
-    return [c["source_file"] for c in (info.get("top_callers") or [])
+    return [c["source_file"] for c in (entry.get("top_callers") or [])
             if isinstance(c, dict) and c.get("source_file")]
 
 

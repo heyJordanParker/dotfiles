@@ -19,7 +19,7 @@
 //!
 //! This module owns its parse. The cached extractor (`extraction/`) stays
 //! unchanged: signatures are a `structure`-only concern and do not enter the
-//! architecture graph or the per-file cache.
+//! relations index or the per-file cache.
 
 use serde_json::{json, Map, Value};
 use std::path::Path;
@@ -49,6 +49,7 @@ pub fn extract(source: &[u8], path: &Path) -> Vec<Signature> {
         "ts" | "js" => extract_ts(source, false),
         "tsx" | "jsx" => extract_ts(source, true),
         "py" => extract_py(source),
+        "go" => extract_go(source),
         _ => Vec::new(),
     }
 }
@@ -991,6 +992,125 @@ fn py_class_signature(n: Node, source: &[u8]) -> Value {
         }
     }
     Value::Object(m)
+}
+
+// ---------- Go ----------
+
+fn extract_go(source: &[u8]) -> Vec<Signature> {
+    let lang: tree_sitter::Language = tree_sitter_go::LANGUAGE.into();
+    let tree = match parse(source, lang) {
+        Some(t) => t,
+        None => return Vec::new(),
+    };
+    let mut out: Vec<Signature> = Vec::new();
+    let mut stack = vec![tree.root_node()];
+    while let Some(n) = stack.pop() {
+        let entry: Option<(&str, Value)> = match n.kind() {
+            "function_declaration" | "method_declaration" => {
+                Some(("function", go_function_signature(n, source)))
+            }
+            _ => None,
+        };
+        if let Some((kind, extra)) = entry {
+            if let Some(name_node) = n.child_by_field_name("name") {
+                out.push(Signature {
+                    name: text(name_node, source),
+                    kind: kind.to_string(),
+                    line: line(name_node),
+                    extra,
+                });
+            }
+        }
+        let mut c = n.walk();
+        for child in n.children(&mut c) {
+            stack.push(child);
+        }
+    }
+    out
+}
+
+fn go_function_signature(n: Node, source: &[u8]) -> Value {
+    let mut m = Map::new();
+    // A method's receiver is what binds it to its type, and it is the one
+    // part of a Go signature that ctags drops entirely.
+    if let Some(recv) = n.child_by_field_name("receiver") {
+        let params = go_parameters(recv, source);
+        if let Some(first) = params.into_iter().next() {
+            m.insert("receiver".into(), first);
+        }
+    }
+    if let Some(tp) = n.child_by_field_name("type_parameters") {
+        m.insert("type_parameters".into(), json!(text(tp, source)));
+    }
+    if let Some(params) = n.child_by_field_name("parameters") {
+        m.insert("parameters".into(), Value::Array(go_parameters(params, source)));
+    }
+    // `result` is a bare type for one return value and a `parameter_list`
+    // for several, so a multi-return function reads as `(T, error)`.
+    if let Some(result) = n.child_by_field_name("result") {
+        m.insert("return_type".into(), json!(text(result, source)));
+    }
+    // Go's export rule is the identifier's own case, not a keyword, so it is
+    // derived here rather than read off a modifier node.
+    if let Some(name_node) = n.child_by_field_name("name") {
+        let exported = text(name_node, source)
+            .chars()
+            .next()
+            .is_some_and(char::is_uppercase);
+        m.insert(
+            "visibility".into(),
+            json!(if exported { "public" } else { "private" }),
+        );
+    }
+    Value::Object(m)
+}
+
+/// Go declares several names against one type (`func f(a, b int)`), so a
+/// `parameter_declaration` can carry more than one name and each becomes its
+/// own row. A declaration with no name at all is a bare type, which is legal
+/// in Go and returned with the type only.
+fn go_parameters(params: Node, source: &[u8]) -> Vec<Value> {
+    let mut out = Vec::new();
+    let mut c = params.walk();
+    for child in params.children(&mut c) {
+        let variadic = child.kind() == "variadic_parameter_declaration";
+        if !variadic && child.kind() != "parameter_declaration" {
+            continue;
+        }
+        let type_text = child
+            .child_by_field_name("type")
+            .map(|t| text(t, source));
+        let mut names: Vec<String> = Vec::new();
+        let mut nc = child.walk();
+        for sub in child.children(&mut nc) {
+            if sub.kind() == "identifier" {
+                names.push(text(sub, source));
+            }
+        }
+        if names.is_empty() {
+            let mut m = Map::new();
+            if let Some(t) = &type_text {
+                m.insert("type".into(), json!(t));
+            }
+            if variadic {
+                m.insert("variadic".into(), json!(true));
+            }
+            out.push(Value::Object(m));
+            continue;
+        }
+        for name in names {
+            let mut m = Map::new();
+            m.insert("name".into(), json!(name));
+            if let Some(t) = &type_text {
+                m.insert("type".into(), json!(t));
+            }
+            if variadic {
+                m.insert("variadic".into(), json!(true));
+            }
+            out.push(Value::Object(m));
+        }
+    }
+    out
 }
 
 fn py_parameters(params: Node, source: &[u8]) -> Vec<Value> {

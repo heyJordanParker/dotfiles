@@ -88,16 +88,16 @@ fn empty_repo_records_no_events_and_succeeds() {
 
     let home_str = home.to_string_lossy().into_owned();
     let run = f.trace_env(
-        &["context", "prime", "--reason", "session_start", "--json"],
+        &["docs", "prime", "--reason", "session_start", "--json"],
         &env_pairs(&home_str, &sid),
     );
     run.ok();
 
-    let v = run.json();
+    let v = run.view();
     assert_eq!(v["reason"], "session_start");
     assert_eq!(v["source"], "context_prime_session_start");
     assert_eq!(
-        v["mirrored_count"], 0,
+        v["mirrored"], 0,
         "no docs exist, mirrored_count must be 0: {v}"
     );
     let events = read_events(&home, &sid);
@@ -117,17 +117,17 @@ fn single_project_claude_md_records_one_event() {
 
     let home_str = home.to_string_lossy().into_owned();
     let run = f.trace_env(
-        &["context", "prime", "--reason", "session_start", "--json"],
+        &["docs", "prime", "--reason", "session_start", "--json"],
         &env_pairs(&home_str, &sid),
     );
     run.ok();
 
-    let v = run.json();
+    let v = run.view();
     assert_eq!(
-        v["mirrored_count"], 1,
+        v["mirrored"], 1,
         "one CLAUDE.md should yield one mirrored doc: {v}"
     );
-    let mirrored = v["mirrored"].as_array().unwrap();
+    let mirrored = v["results"].as_array().unwrap();
     assert_eq!(mirrored[0]["kind"], "claude_md");
     assert_eq!(mirrored[0]["path"], "CLAUDE.md");
 
@@ -157,18 +157,18 @@ fn nested_at_imports_are_walked_recursively() {
 
     let home_str = home.to_string_lossy().into_owned();
     let run = f.trace_env(
-        &["context", "prime", "--reason", "session_start", "--json"],
+        &["docs", "prime", "--reason", "session_start", "--json"],
         &env_pairs(&home_str, &sid),
     );
     run.ok();
 
-    let v = run.json();
+    let v = run.view();
     // Root CLAUDE.md + one.md + two.md = 3 docs.
     assert_eq!(
-        v["mirrored_count"], 3,
+        v["mirrored"], 3,
         "include graph must be walked transitively, got {v}"
     );
-    let surfaced: BTreeSet<String> = v["mirrored"]
+    let surfaced: BTreeSet<String> = v["results"]
         .as_array()
         .unwrap()
         .iter()
@@ -205,19 +205,19 @@ fn cyclic_includes_terminate_at_depth_cap() {
 
     let home_str = home.to_string_lossy().into_owned();
     let run = f.trace_env(
-        &["context", "prime", "--reason", "session_start", "--json"],
+        &["docs", "prime", "--reason", "session_start", "--json"],
         &env_pairs(&home_str, &sid),
     );
     // The real assertion: the command terminates. Anything past here is
     // bonus correctness on the deduped set.
     run.ok();
 
-    let v = run.json();
+    let v = run.view();
     assert_eq!(
-        v["mirrored_count"], 4,
+        v["mirrored"], 4,
         "cycle must dedupe to the 4 distinct files, got {v}"
     );
-    let surfaced: BTreeSet<String> = v["mirrored"]
+    let surfaced: BTreeSet<String> = v["results"]
         .as_array()
         .unwrap()
         .iter()
@@ -279,24 +279,24 @@ fn project_memory_file_is_not_mirrored() {
 
     let home_str = home.to_string_lossy().into_owned();
     let run = f.trace_env(
-        &["context", "prime", "--reason", "post_compact", "--json"],
+        &["docs", "prime", "--reason", "post_compact", "--json"],
         &env_pairs(&home_str, &sid),
     );
     run.ok();
 
-    let v = run.json();
+    let v = run.view();
     assert_eq!(v["reason"], "post_compact");
     assert_eq!(v["source"], "context_prime_post_compact");
     // Exactly one mirrored doc — the CLAUDE.md. MEMORY.md is present on
     // disk at the canonical Claude Code path but out of tracer's scope,
     // so the primer skips it entirely.
     assert_eq!(
-        v["mirrored_count"], 1,
+        v["mirrored"], 1,
         "MEMORY.md must not enter the context primer: {v}"
     );
-    assert_eq!(v["mirrored"][0]["path"], "CLAUDE.md");
+    assert_eq!(v["results"][0]["path"], "CLAUDE.md");
 
-    let mirrored_paths: BTreeSet<String> = v["mirrored"]
+    let mirrored_paths: BTreeSet<String> = v["results"]
         .as_array()
         .unwrap()
         .iter()
@@ -334,17 +334,17 @@ fn agents_md_in_project_root_is_mirrored_with_agents_kind() {
 
     let home_str = home.to_string_lossy().into_owned();
     let run = f.trace_env(
-        &["context", "prime", "--reason", "session_start", "--json"],
+        &["docs", "prime", "--reason", "session_start", "--json"],
         &env_pairs(&home_str, &sid),
     );
     run.ok();
 
-    let v = run.json();
+    let v = run.view();
     assert_eq!(
-        v["mirrored_count"], 1,
+        v["mirrored"], 1,
         "AGENTS.md must surface like CLAUDE.md does: {v}"
     );
-    let m = &v["mirrored"][0];
+    let m = &v["results"][0];
     assert_eq!(m["path"], "AGENTS.md");
     assert_eq!(
         m["kind"], "agents_md",
@@ -368,18 +368,18 @@ fn agents_md_and_claude_md_both_surface_with_distinct_kinds() {
 
     let home_str = home.to_string_lossy().into_owned();
     let run = f.trace_env(
-        &["context", "prime", "--reason", "session_start", "--json"],
+        &["docs", "prime", "--reason", "session_start", "--json"],
         &env_pairs(&home_str, &sid),
     );
     run.ok();
 
-    let v = run.json();
+    let v = run.view();
     assert_eq!(
-        v["mirrored_count"], 2,
+        v["mirrored"], 2,
         "both rules files must surface: {v}"
     );
 
-    let by_path: std::collections::BTreeMap<String, String> = v["mirrored"]
+    let by_path: std::collections::BTreeMap<String, String> = v["results"]
         .as_array()
         .unwrap()
         .iter()
@@ -412,17 +412,17 @@ fn user_global_agents_md_is_mirrored_when_claude_md_absent() {
 
     let home_str = home.to_string_lossy().into_owned();
     let run = f.trace_env(
-        &["context", "prime", "--reason", "session_start", "--json"],
+        &["docs", "prime", "--reason", "session_start", "--json"],
         &env_pairs(&home_str, &sid),
     );
     run.ok();
 
-    let v = run.json();
+    let v = run.view();
     assert_eq!(
-        v["mirrored_count"], 1,
+        v["mirrored"], 1,
         "user-global AGENTS.md must surface in the absence of CLAUDE.md: {v}"
     );
-    let m = &v["mirrored"][0];
+    let m = &v["results"][0];
     assert_eq!(m["kind"], "agents_md");
     assert!(
         m["path"].as_str().unwrap().ends_with("AGENTS.md"),
@@ -442,24 +442,24 @@ fn lowercase_agents_md_casing_is_also_recognized() {
 
     let home_str = home.to_string_lossy().into_owned();
     let run = f.trace_env(
-        &["context", "prime", "--reason", "session_start", "--json"],
+        &["docs", "prime", "--reason", "session_start", "--json"],
         &env_pairs(&home_str, &sid),
     );
     run.ok();
 
-    let v = run.json();
+    let v = run.view();
     assert_eq!(
-        v["mirrored_count"], 1,
+        v["mirrored"], 1,
         "Agents.md (mixed casing) must surface: {v}"
     );
-    assert_eq!(v["mirrored"][0]["kind"], "agents_md");
+    assert_eq!(v["results"][0]["kind"], "agents_md");
     // On case-insensitive filesystems (macOS default) the canonical path
     // collapses to whichever physical form exists; either AGENTS.md or
     // Agents.md is fine.
-    let path = v["mirrored"][0]["path"].as_str().unwrap().to_lowercase();
+    let path = v["results"][0]["path"].as_str().unwrap().to_lowercase();
     assert!(
         path.ends_with("agents.md"),
         "mixed-case Agents.md must surface under an agents.md path: {}",
-        v["mirrored"][0]["path"]
+        v["results"][0]["path"]
     );
 }

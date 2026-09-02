@@ -32,7 +32,12 @@ use tracer_cli_tests::Fixture;
 // ---------------------------------------------------------------------------
 
 fn caller_rows(v: &serde_json::Value, def_node_id: &str) -> Vec<(String, i64, String)> {
-    v[def_node_id]["callers"]
+    v["results"]
+        .as_array()
+        .unwrap_or_else(|| panic!("results must be a row list: {v}"))
+        .iter()
+        .find(|row| row["node_id"].as_str() == Some(def_node_id))
+        .unwrap_or_else(|| panic!("no result row for {def_node_id}: {v}"))["callers"]
         .as_array()
         .unwrap()
         .iter()
@@ -46,8 +51,18 @@ fn caller_rows(v: &serde_json::Value, def_node_id: &str) -> Vec<(String, i64, St
         .collect()
 }
 
+/// The one result row for `node_id`.
+fn symbol<'a>(v: &'a serde_json::Value, node_id: &str) -> &'a serde_json::Value {
+    v["results"]
+        .as_array()
+        .unwrap_or_else(|| panic!("results must be a row list: {v}"))
+        .iter()
+        .find(|row| row["node_id"].as_str() == Some(node_id))
+        .unwrap_or_else(|| panic!("no result row for {node_id}: {v}"))
+}
+
 fn def_files(v: &serde_json::Value) -> Vec<(String, i64)> {
-    v["definitions"]
+    v["results"]
         .as_array()
         .unwrap()
         .iter()
@@ -78,8 +93,8 @@ fn python_defines_finds_non_exported_top_level() {
     f.trace(&["cache", "build", "."]).ok();
     let r = f.trace(&["defines", "_private_helper", "--json"]);
     r.ok();
-    let v = r.json();
-    assert_eq!(v["definition_count"].as_i64().unwrap(), 1);
+    let v = r.view();
+    assert_eq!(v["definitions"].as_i64().unwrap(), 1);
     let defs = def_files(&v);
     assert_eq!(defs, vec![("mod.py".to_string(), 1)]);
 }
@@ -95,8 +110,8 @@ fn python_defines_finds_method_on_class() {
     f.trace(&["cache", "build", "."]).ok();
     let r = f.trace(&["defines", "add_item", "--json"]);
     r.ok();
-    let v = r.json();
-    assert_eq!(v["definition_count"].as_i64().unwrap(), 1);
+    let v = r.view();
+    assert_eq!(v["definitions"].as_i64().unwrap(), 1);
     let defs = def_files(&v);
     assert_eq!(defs, vec![("shop.py".to_string(), 2)]);
 }
@@ -112,8 +127,8 @@ fn python_defines_finds_nested_function() {
     f.trace(&["cache", "build", "."]).ok();
     let r = f.trace(&["defines", "inner_helper", "--json"]);
     r.ok();
-    let v = r.json();
-    assert_eq!(v["definition_count"].as_i64().unwrap(), 1);
+    let v = r.view();
+    assert_eq!(v["definitions"].as_i64().unwrap(), 1);
     let defs = def_files(&v);
     assert_eq!(defs, vec![("nest.py".to_string(), 2)]);
 }
@@ -140,7 +155,7 @@ fn python_callers_returns_use_sites_not_just_modules() {
     f.trace(&["cache", "build", "."]).ok();
     let r = f.trace(&["callers", "helper", "--json"]);
     r.ok();
-    let v = r.json();
+    let v = r.view();
     let mut rows = caller_rows(&v, "util.py::helper");
     rows.sort();
     // Two call sites in app.py at lines 4 and 7; both EXTRACTED (the import
@@ -174,7 +189,7 @@ fn python_free_call_collision_resolves_to_nothing() {
     f.trace(&["cache", "build", "."]).ok();
     let r = f.trace(&["callers", "process", "--json"]);
     r.ok();
-    let v = r.json();
+    let v = r.view();
     let rows_a = caller_rows(&v, "a.py::process");
     let rows_b = caller_rows(&v, "b.py::process");
     assert!(
@@ -205,7 +220,7 @@ fn python_member_call_collision_is_the_only_ambiguity() {
     f.trace(&["cache", "build", "."]).ok();
     let r = f.trace(&["callers", "run", "--json"]);
     r.ok();
-    let v = r.json();
+    let v = r.view();
     let rows_job = caller_rows(&v, "job.py::run");
     let rows_task = caller_rows(&v, "task.py::run");
     let rows_free = caller_rows(&v, "free.py::run");
@@ -248,7 +263,7 @@ fn python_inferred_reference_resolves_without_target_module() {
     f.trace(&["cache", "build", "."]).ok();
     let r = f.trace(&["callers", "lone_unique_name", "--json"]);
     r.ok();
-    let v = r.json();
+    let v = r.view();
     let rows = caller_rows(&v, "tgt.py::lone_unique_name");
     assert!(
         rows.iter()
@@ -273,8 +288,8 @@ fn ts_defines_finds_non_exported_top_level() {
     f.trace(&["cache", "build", "."]).ok();
     let r = f.trace(&["defines", "privateOnly", "--json"]);
     r.ok();
-    let v = r.json();
-    assert_eq!(v["definition_count"].as_i64().unwrap(), 1);
+    let v = r.view();
+    assert_eq!(v["definitions"].as_i64().unwrap(), 1);
     let defs = def_files(&v);
     assert_eq!(defs, vec![("lib.ts".to_string(), 1)]);
 }
@@ -290,8 +305,8 @@ fn ts_defines_finds_method_on_class() {
     f.trace(&["cache", "build", "."]).ok();
     let r = f.trace(&["defines", "addItem", "--json"]);
     r.ok();
-    let v = r.json();
-    assert_eq!(v["definition_count"].as_i64().unwrap(), 1);
+    let v = r.view();
+    assert_eq!(v["definitions"].as_i64().unwrap(), 1);
     let defs = def_files(&v);
     assert_eq!(defs, vec![("cart.ts".to_string(), 2)]);
 }
@@ -307,8 +322,8 @@ fn ts_defines_finds_nested_function() {
     f.trace(&["cache", "build", "."]).ok();
     let r = f.trace(&["defines", "innerOnly", "--json"]);
     r.ok();
-    let v = r.json();
-    assert_eq!(v["definition_count"].as_i64().unwrap(), 1);
+    let v = r.view();
+    assert_eq!(v["definitions"].as_i64().unwrap(), 1);
     let defs = def_files(&v);
     assert_eq!(defs, vec![("nest.ts".to_string(), 2)]);
 }
@@ -331,7 +346,7 @@ fn ts_callers_returns_use_sites() {
     f.trace(&["cache", "build", "."]).ok();
     let r = f.trace(&["callers", "helper", "--json"]);
     r.ok();
-    let v = r.json();
+    let v = r.view();
     let rows = caller_rows(&v, "util.ts::helper");
     assert!(
         rows.iter()
@@ -364,7 +379,7 @@ fn ts_free_call_collision_resolves_to_nothing() {
     f.trace(&["cache", "build", "."]).ok();
     let r = f.trace(&["callers", "compute", "--json"]);
     r.ok();
-    let v = r.json();
+    let v = r.view();
     let rows_a = caller_rows(&v, "a.ts::compute");
     let rows_b = caller_rows(&v, "b.ts::compute");
     assert!(
@@ -403,7 +418,7 @@ fn ts_member_call_collision_is_the_only_ambiguity() {
     f.trace(&["cache", "build", "."]).ok();
     let r = f.trace(&["callers", "save", "--json"]);
     r.ok();
-    let v = r.json();
+    let v = r.view();
     let rows_user = caller_rows(&v, "user.ts::save");
     let rows_post = caller_rows(&v, "post.ts::save");
     let rows_free = caller_rows(&v, "helpers.ts::save");
@@ -443,7 +458,7 @@ fn ts_inferred_reference_resolves_without_target_module() {
     f.trace(&["cache", "build", "."]).ok();
     let r = f.trace(&["callers", "loneUniqueTsName", "--json"]);
     r.ok();
-    let v = r.json();
+    let v = r.view();
     let rows = caller_rows(&v, "tgt.ts::loneUniqueTsName");
     assert!(
         rows.iter()
@@ -471,8 +486,8 @@ fn php_defines_finds_non_exported_function() {
     f.trace(&["cache", "build", "."]).ok();
     let r = f.trace(&["defines", "internalHelper", "--json"]);
     r.ok();
-    let v = r.json();
-    assert_eq!(v["definition_count"].as_i64().unwrap(), 1);
+    let v = r.view();
+    assert_eq!(v["definitions"].as_i64().unwrap(), 1);
     let defs = def_files(&v);
     assert_eq!(defs, vec![("lib.php".to_string(), 2)]);
 }
@@ -488,8 +503,8 @@ fn php_defines_finds_method_on_class() {
     f.trace(&["cache", "build", "."]).ok();
     let r = f.trace(&["defines", "addItem", "--json"]);
     r.ok();
-    let v = r.json();
-    assert_eq!(v["definition_count"].as_i64().unwrap(), 1);
+    let v = r.view();
+    assert_eq!(v["definitions"].as_i64().unwrap(), 1);
     let defs = def_files(&v);
     assert_eq!(defs, vec![("cart.php".to_string(), 3)]);
 }
@@ -507,8 +522,8 @@ fn php_defines_finds_nested_function() {
     f.trace(&["cache", "build", "."]).ok();
     let r = f.trace(&["defines", "innerOnly", "--json"]);
     r.ok();
-    let v = r.json();
-    assert_eq!(v["definition_count"].as_i64().unwrap(), 1);
+    let v = r.view();
+    assert_eq!(v["definitions"].as_i64().unwrap(), 1);
     let defs = def_files(&v);
     assert_eq!(defs, vec![("nest.php".to_string(), 3)]);
 }
@@ -532,7 +547,7 @@ fn php_callers_returns_use_sites() {
     f.trace(&["cache", "build", "."]).ok();
     let r = f.trace(&["callers", "helper", "--json"]);
     r.ok();
-    let v = r.json();
+    let v = r.view();
     let rows = caller_rows(&v, "util.php::helper");
     // Two call sites at lines 2 and 3.
     assert!(
@@ -560,7 +575,7 @@ fn php_free_call_collision_resolves_to_nothing() {
     f.trace(&["cache", "build", "."]).ok();
     let r = f.trace(&["callers", "compute", "--json"]);
     r.ok();
-    let v = r.json();
+    let v = r.view();
     let rows_a = caller_rows(&v, "a.php::compute");
     let rows_b = caller_rows(&v, "b.php::compute");
     assert!(
@@ -599,7 +614,7 @@ fn php_member_call_collision_is_the_only_ambiguity() {
     f.trace(&["cache", "build", "."]).ok();
     let r = f.trace(&["callers", "handle", "--json"]);
     r.ok();
-    let v = r.json();
+    let v = r.view();
     let rows_first = caller_rows(&v, "first.php::handle");
     let rows_second = caller_rows(&v, "second.php::handle");
     let rows_free = caller_rows(&v, "free.php::handle");
@@ -639,7 +654,7 @@ fn php_inferred_reference_resolves_without_target_module() {
     f.trace(&["cache", "build", "."]).ok();
     let r = f.trace(&["callers", "lonePhpUniqueName", "--json"]);
     r.ok();
-    let v = r.json();
+    let v = r.view();
     let rows = caller_rows(&v, "tgt.php::lonePhpUniqueName");
     assert!(
         rows.iter()
@@ -674,7 +689,7 @@ fn cross_language_call_resolves_to_nothing() {
     f.trace(&["cache", "build", "."]).ok();
     let r = f.trace(&["callers", "process", "--json"]);
     r.ok();
-    let v = r.json();
+    let v = r.view();
     let rows_php = caller_rows(&v, "controller.php::process");
     assert!(
         !rows_php.iter().any(|(f, _, _)| f == "account.ts"),
@@ -698,7 +713,7 @@ fn python_free_call_resolves_to_class_construction() {
     f.trace(&["cache", "build", "."]).ok();
     let r = f.trace(&["callers", "Widget", "--json"]);
     r.ok();
-    let v = r.json();
+    let v = r.view();
     let rows = caller_rows(&v, "model.py::Widget");
     assert!(
         rows.iter().any(|(f, _, _)| f == "app.py"),
@@ -726,7 +741,7 @@ fn ts_free_call_does_not_resolve_to_class_but_new_does() {
     f.trace(&["cache", "build", "."]).ok();
     let r = f.trace(&["callers", "Widget", "--json"]);
     r.ok();
-    let v = r.json();
+    let v = r.view();
     let rows = caller_rows(&v, "model.ts::Widget");
     assert!(
         !rows.iter().any(|(f, _, _)| f == "free.ts"),
@@ -771,9 +786,9 @@ fn module_level_import_dependents_unchanged_by_reference_index() {
     // The path-mode centrality ranking is the most sensitive view of the
     // import graph; pinning it exactly catches any silent edge inflation
     // from the new reference index.
-    let r = f.trace(&["downstream", "--path", ".", "--json"]);
+    let r = f.trace(&["usages", "--path", ".", "--json"]);
     r.ok();
-    let v = r.json();
+    let v = r.view();
     let rows = v["results"].as_array().unwrap();
     let triples: Vec<(String, i64, i64)> = rows
         .iter()
@@ -825,8 +840,8 @@ fn callers_source_is_calling_function_not_module() {
     f.trace(&["cache", "build", "."]).ok();
     let r = f.trace(&["callers", "helper", "--json"]);
     r.ok();
-    let v = r.json();
-    let entry = &v["util.py::helper"];
+    let v = r.view();
+    let entry = &symbol(&v, "util.py::helper");
     let ids: Vec<String> = entry["callers"]
         .as_array()
         .unwrap()
@@ -874,8 +889,8 @@ fn callers_carry_calling_symbol_signature() {
     f.trace(&["cache", "build", "."]).ok();
     let r = f.trace(&["callers", "helper", "--json"]);
     r.ok();
-    let v = r.json();
-    let row = v["util.ts::helper"]["callers"]
+    let v = r.view();
+    let row = symbol(&v, "util.ts::helper")["callers"]
         .as_array()
         .unwrap()
         .iter()
@@ -932,12 +947,12 @@ fn callers_order_resolved_before_ambiguous() {
     f.trace(&["cache", "build", "."]).ok();
     let r = f.trace(&["callers", "save", "--json"]);
     r.ok();
-    let v = r.json();
+    let v = r.view();
     // Across both definition entries, every row is AMBIGUOUS and the
     // per-symbol counts agree. The ordering invariant: within any entry, no
     // resolved row appears after an ambiguous one.
     for key in ["user.ts::save", "post.ts::save"] {
-        let entry = &v[key];
+        let entry = symbol(&v, key);
         let rows = entry["callers"].as_array().unwrap();
         let ranks: Vec<u8> = rows
             .iter()
@@ -983,12 +998,12 @@ fn rust_defines_finds_function_and_method() {
     // Free function.
     let r = f.trace(&["defines", "free_helper", "--json"]);
     r.ok();
-    assert_eq!(r.json()["definition_count"].as_i64().unwrap(), 1);
+    assert_eq!(r.view()["definitions"].as_i64().unwrap(), 1);
     // Method on the impl — found by the full declaration index.
     let r = f.trace(&["defines", "add_item", "--json"]);
     r.ok();
-    let v = r.json();
-    assert_eq!(v["definition_count"].as_i64().unwrap(), 1);
+    let v = r.view();
+    assert_eq!(v["definitions"].as_i64().unwrap(), 1);
     assert_eq!(def_files(&v), vec![("lib.rs".to_string(), 4)]);
 }
 
@@ -1015,7 +1030,7 @@ fn rust_callers_resolve_to_calling_function() {
     f.trace(&["cache", "build", "."]).ok();
     let r = f.trace(&["callers", "helper", "--json"]);
     r.ok();
-    let v = r.json();
+    let v = r.view();
     let rows = caller_rows(&v, "util.rs::helper");
     assert!(
         rows.iter().any(|(file, l, _)| file == "app.rs" && *l == 3),
@@ -1027,7 +1042,7 @@ fn rust_callers_resolve_to_calling_function() {
         "second's call site at app.rs:6 must appear: {:?}",
         rows
     );
-    let ids: Vec<String> = v["util.rs::helper"]["callers"]
+    let ids: Vec<String> = symbol(&v, "util.rs::helper")["callers"]
         .as_array()
         .unwrap()
         .iter()
@@ -1060,8 +1075,8 @@ fn rust_struct_construction_resolves_to_type() {
     f.trace(&["cache", "build", "."]).ok();
     let r = f.trace(&["callers", "Cart", "--json"]);
     r.ok();
-    let v = r.json();
-    let ids: Vec<String> = v["model.rs::Cart"]["callers"]
+    let v = r.view();
+    let ids: Vec<String> = symbol(&v, "model.rs::Cart")["callers"]
         .as_array()
         .unwrap()
         .iter()
@@ -1090,13 +1105,13 @@ fn go_defines_function_method_and_type() {
     f.trace(&["cache", "build", "."]).ok();
     let r = f.trace(&["defines", "Helper", "--json"]);
     r.ok();
-    assert_eq!(r.json()["definition_count"].as_i64().unwrap(), 1);
+    assert_eq!(r.view()["definitions"].as_i64().unwrap(), 1);
     let r = f.trace(&["defines", "AddItem", "--json"]);
     r.ok();
-    assert_eq!(r.json()["definition_count"].as_i64().unwrap(), 1);
+    assert_eq!(r.view()["definitions"].as_i64().unwrap(), 1);
     let r = f.trace(&["defines", "Cart", "--json"]);
     r.ok();
-    assert_eq!(r.json()["definition_count"].as_i64().unwrap(), 1);
+    assert_eq!(r.view()["definitions"].as_i64().unwrap(), 1);
 }
 
 #[test]
@@ -1120,11 +1135,11 @@ fn go_callers_resolve_to_calling_function() {
     f.trace(&["cache", "build", "."]).ok();
     let r = f.trace(&["callers", "Helper", "--json"]);
     r.ok();
-    let v = r.json();
+    let v = r.view();
     // `util.Helper(1)` is a package-qualified call → Free shape (Go's
     // dominant cross-file edge); it resolves to the free function `Helper`,
     // sourced from the calling function `First` at the use site.
-    let ids: Vec<String> = v["util.go::Helper"]["callers"]
+    let ids: Vec<String> = symbol(&v, "util.go::Helper")["callers"]
         .as_array()
         .unwrap()
         .iter()
@@ -1154,11 +1169,11 @@ fn ruby_defines_method_and_class() {
     f.trace(&["cache", "build", "."]).ok();
     let r = f.trace(&["defines", "Cart", "--json"]);
     r.ok();
-    assert_eq!(r.json()["definition_count"].as_i64().unwrap(), 1);
+    assert_eq!(r.view()["definitions"].as_i64().unwrap(), 1);
     let r = f.trace(&["defines", "add_item", "--json"]);
     r.ok();
-    let v = r.json();
-    assert_eq!(v["definition_count"].as_i64().unwrap(), 1);
+    let v = r.view();
+    assert_eq!(v["definitions"].as_i64().unwrap(), 1);
     assert_eq!(def_files(&v), vec![("cart.rb".to_string(), 2)]);
 }
 
@@ -1177,7 +1192,7 @@ fn ruby_member_call_collision_is_ambiguous() {
     f.trace(&["cache", "build", "."]).ok();
     let r = f.trace(&["callers", "run", "--json"]);
     r.ok();
-    let v = r.json();
+    let v = r.view();
     let rows_job = caller_rows(&v, "job.rb::run");
     let rows_task = caller_rows(&v, "task.rb::run");
     assert!(
@@ -1211,11 +1226,11 @@ fn java_defines_class_and_method() {
     f.trace(&["cache", "build", "."]).ok();
     let r = f.trace(&["defines", "Cart", "--json"]);
     r.ok();
-    assert_eq!(r.json()["definition_count"].as_i64().unwrap(), 1);
+    assert_eq!(r.view()["definitions"].as_i64().unwrap(), 1);
     let r = f.trace(&["defines", "addItem", "--json"]);
     r.ok();
-    let v = r.json();
-    assert_eq!(v["definition_count"].as_i64().unwrap(), 1);
+    let v = r.view();
+    assert_eq!(v["definitions"].as_i64().unwrap(), 1);
     assert_eq!(def_files(&v), vec![("Cart.java".to_string(), 2)]);
 }
 
@@ -1240,7 +1255,7 @@ fn java_new_construction_resolves_to_type() {
     f.trace(&["cache", "build", "."]).ok();
     let r = f.trace(&["callers", "Cart", "--json"]);
     r.ok();
-    let v = r.json();
+    let v = r.view();
     let rows = caller_rows(&v, "Cart.java::Cart");
     assert!(
         rows.iter().any(|(file, _, _)| file == "Factory.java"),
@@ -1263,12 +1278,12 @@ fn c_defines_function_and_struct() {
     f.trace(&["cache", "build", "."]).ok();
     let r = f.trace(&["defines", "helper", "--json"]);
     r.ok();
-    let v = r.json();
-    assert_eq!(v["definition_count"].as_i64().unwrap(), 1);
+    let v = r.view();
+    assert_eq!(v["definitions"].as_i64().unwrap(), 1);
     assert_eq!(def_files(&v), vec![("lib.c".to_string(), 2)]);
     let r = f.trace(&["defines", "Point", "--json"]);
     r.ok();
-    assert_eq!(r.json()["definition_count"].as_i64().unwrap(), 1);
+    assert_eq!(r.view()["definitions"].as_i64().unwrap(), 1);
 }
 
 #[test]
@@ -1289,7 +1304,7 @@ fn c_free_call_collision_resolves_to_nothing() {
     f.trace(&["cache", "build", "."]).ok();
     let r = f.trace(&["callers", "compute", "--json"]);
     r.ok();
-    let v = r.json();
+    let v = r.view();
     let rows_a = caller_rows(&v, "a.c::compute");
     let rows_b = caller_rows(&v, "b.c::compute");
     assert!(
@@ -1322,8 +1337,8 @@ fn c_unique_free_call_resolves() {
     f.trace(&["cache", "build", "."]).ok();
     let r = f.trace(&["callers", "lone_unique_c", "--json"]);
     r.ok();
-    let v = r.json();
-    let ids: Vec<String> = v["util.c::lone_unique_c"]["callers"]
+    let v = r.view();
+    let ids: Vec<String> = symbol(&v, "util.c::lone_unique_c")["callers"]
         .as_array()
         .unwrap()
         .iter()
@@ -1360,7 +1375,7 @@ fn rust_call_does_not_resolve_onto_go_function() {
     f.trace(&["cache", "build", "."]).ok();
     let r = f.trace(&["callers", "process", "--json"]);
     r.ok();
-    let v = r.json();
+    let v = r.view();
     let rows_go = caller_rows(&v, "handler.go::process");
     assert!(
         !rows_go.iter().any(|(file, _, _)| file == "lib.rs"),

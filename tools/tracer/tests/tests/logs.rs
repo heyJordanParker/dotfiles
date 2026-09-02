@@ -43,7 +43,7 @@ fn log_repo() -> Fixture {
 }
 
 fn entries(v: &serde_json::Value) -> &Vec<serde_json::Value> {
-    v["entries"].as_array().expect("entries array")
+    v["results"].as_array().expect("entry rows")
 }
 
 /// The reproduction: `grep` cannot see a gitignored log at all, so the
@@ -54,7 +54,7 @@ fn a_gitignored_log_is_searchable() {
     let ignored = f.trace(&["grep", "reset-theme", "--path", "storage/logs", "--json"]);
     ignored.ok();
     assert_eq!(
-        ignored.json()["match_count"].as_i64().unwrap(),
+        ignored.json()["counts"]["matches"].as_i64().unwrap(),
         0,
         "grep is expected to be blind here — that is why logs exists"
     );
@@ -62,7 +62,7 @@ fn a_gitignored_log_is_searchable() {
     let r = f.trace(&["logs", "reset-theme", "--path", "storage/logs", "--json"]);
     r.ok();
     let v = r.json();
-    assert_eq!(v["entry_count"].as_i64().unwrap(), 2, "{v}");
+    assert_eq!(v["counts"]["entries"].as_i64().unwrap(), 2, "{v}");
 }
 
 #[test]

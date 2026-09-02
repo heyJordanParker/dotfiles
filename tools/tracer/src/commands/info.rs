@@ -2,7 +2,7 @@
 //! The per-function table is AST-derived; `nloc` is the line span.
 //! Emits a function complexity profile plus architecture context.
 
-use crate::{architecture, cache, ccn, file_facts, passive_context, repo_context};
+use crate::{cache, ccn, file_facts, passive_context, relations, repo_context};
 use anyhow::Result;
 use serde_json::{json, Value};
 use std::path::Path;
@@ -51,13 +51,12 @@ fn file_info(path: &Path) -> Value {
     let function_count = functions.len() as i64;
 
     let leading = leading_comment(path);
-    let mut callers: Vec<Value> = vec![];
-    let mut deps: Vec<Value> = vec![];
-    if let Some(graph) = architecture::load_cached(&repo_root) {
-        let relative = cache::relative_to_root(path, &repo_root);
-        callers = crate::digest::top_callers(&graph, &relative, Some(&repo_root), 10);
-        deps = crate::digest::immediate_dependencies(&graph, &relative, 15);
-    }
+    let relative = cache::relative_to_root(path, &repo_root);
+    let index = relations::get(&repo_root);
+    let languages = relations::languages(&repo_root);
+    let callers =
+        crate::digest::top_callers(&index, &relative, &languages, Some(&repo_root), 10);
+    let deps = crate::digest::immediate_dependencies(&index, &relative, &languages, 15);
 
     let loc = facts
         .as_ref()
@@ -188,7 +187,70 @@ pub fn run(path: &Path, as_json: bool, brief: bool) -> Result<Value> {
             ctx["total_files"].as_i64().unwrap_or(0),
         );
     }
-    Ok(info)
+    Ok(enveloped(info, p.is_file()))
+}
+
+/// Re-slot the internal flat value into the one document shape. The human
+/// renderers read the flat value, so this runs after them rather than
+/// forcing every renderer to walk one level deeper.
+fn enveloped(info: Value, is_file: bool) -> Value {
+    if is_file {
+        let file = info["file"].as_str().unwrap_or_default().to_string();
+        return crate::output::document(
+            json!({"file": info["file"]}),
+            json!({
+                "files": {
+                    file: {
+                        "language": info["language"],
+                        "nearest_doc": info["nearest_doc"],
+                        "shoulder": info["passive_context"],
+                        "leading_comment": info["leading_comment"],
+                        "top_callers": info["top_callers"],
+                        "dependencies": info["dependencies"],
+                    }
+                },
+                "repo": info["repo_context"],
+            }),
+            json!(info["functions"]),
+            json!({
+                "functions": info["function_count"],
+                "loc": info["loc"],
+                "ccn_total": info["cyclomatic_complexity_total"],
+                "ccn_max_function": info["cyclomatic_complexity_max"],
+                "rank": info["rank"],
+            }),
+        );
+    }
+    // Each file's shoulder is enrichment, so it leaves the row and sits in
+    // `context` under the same relative path the row names.
+    let mut shoulders = serde_json::Map::new();
+    let mut rows: Vec<Value> = Vec::new();
+    for row in info["files"].as_array().into_iter().flatten() {
+        let mut row = row.clone();
+        let shoulder = row
+            .as_object_mut()
+            .and_then(|o| o.remove("passive_context"))
+            .unwrap_or(Value::Null);
+        shoulders.insert(
+            row["file"].as_str().unwrap_or_default().to_string(),
+            json!({"shoulder": shoulder}),
+        );
+        rows.push(row);
+    }
+    crate::output::document(
+        json!({"directory": info["directory"]}),
+        json!({
+            "nearest_doc": info["nearest_doc"],
+            "repo": info["repo_context"],
+            "files": Value::Object(shoulders),
+        }),
+        json!(rows),
+        json!({
+            "files": info["file_count"],
+            "ccn_total": info["cyclomatic_complexity_total"],
+            "loc": info["loc_total"],
+        }),
+    )
 }
 
 fn emit_file_human(info: &Value, full: bool) {

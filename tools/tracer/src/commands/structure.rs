@@ -5,8 +5,8 @@
 //! by matching ctags symbol lines to the AST per-function list keyed by
 //! start_line, giving per-symbol complexity where a function starts there.
 
-use crate::commands::signatures;
-use crate::{cache, ccn, file_facts};
+use crate::commands::{enrich, signatures};
+use crate::{cache, ccn, file_facts, relations};
 use anyhow::Result;
 use serde_json::{json, Map, Value};
 use std::collections::{BTreeMap, HashSet};
@@ -42,6 +42,11 @@ struct Symbol {
     scope_kind: Option<String>,
     signature: Option<String>,
     cyclomatic_complexity: Option<i64>,
+    /// The relations index's id for this declaration, when the index
+    /// resolved one. It is what makes a row addressable by `callers`,
+    /// `usages`, and `dependencies` — the resolution the separate `symbols`
+    /// command used to be the only way to see.
+    node_id: Option<String>,
     /// Tree-sitter-extracted per-line signature info (visibility, return
     /// type, attributes/decorators, parameters, etc). Merged field-by-field
     /// into the JSON output. Built once per file in `run`, looked up here
@@ -114,6 +119,7 @@ fn ctags_symbols(path: &Path) -> Result<Vec<Symbol>> {
                 .and_then(|x| x.as_str())
                 .map(|s| s.to_string()),
             cyclomatic_complexity: None,
+            node_id: None,
             extra: None,
         });
     }
@@ -149,6 +155,10 @@ fn symbol_to_json(s: &Symbol) -> Value {
     if let Some(c) = s.cyclomatic_complexity {
         m.insert("cyclomatic_complexity".into(), json!(c));
     }
+    m.insert(
+        "node_id".into(),
+        s.node_id.as_ref().map(|x| json!(x)).unwrap_or(Value::Null),
+    );
     if let Some(extra) = &s.extra {
         if let Some(obj) = extra.as_object() {
             for (k, v) in obj {
@@ -172,7 +182,7 @@ pub fn run(path: &Path, as_json: bool) -> Result<Value> {
     // universal-ctags doesn't know `.tsx`/`.jsx` and returns zero entries
     // on those files even when the file holds populated declarations.
     // Backfill from the cached tree-sitter declaration index so structure
-    // matches what the architecture graph already sees for the file.
+    // matches what the relations index already sees for the file.
     if symbols.is_empty() {
         if let Some(f) = &facts {
             if let Some(ex) = &f.extraction {
@@ -185,6 +195,7 @@ pub fn run(path: &Path, as_json: bool) -> Result<Value> {
                         scope_kind: None,
                         signature: None,
                         cyclomatic_complexity: None,
+                        node_id: None,
                         extra: None,
                     });
                 }
@@ -244,11 +255,25 @@ pub fn run(path: &Path, as_json: bool) -> Result<Value> {
             scope_kind: None,
             signature: None,
             cyclomatic_complexity: ccn,
+            node_id: None,
             extra: Some(sig.extra.clone()),
         });
     }
     // Keep deterministic source order across all symbols after the backfill.
     symbols.sort_by(|a, b| a.line.unwrap_or(0).cmp(&b.line.unwrap_or(0)));
+
+    // The id under which this declaration is addressable by `callers` /
+    // `usages` / `dependencies`. It is `<file>::<name>`, so it is formatted
+    // rather than looked up; the index says only whether the name is one
+    // this file declares, which is what makes the row addressable at all.
+    let relative = cache::relative_to_root(&p, &repo_root);
+    let index = relations::get(&repo_root);
+    for s in &mut symbols {
+        if index.defined_in(&s.name).any(|f| f == relative) {
+            s.node_id = Some(relations::symbol_id(&relative, &s.name));
+        }
+    }
+    let shoulder = enrich::file_shoulders(&[relative.clone()], &repo_root).remove(&relative);
 
     // Imports/exports from cached tree-sitter extraction.
     let mut imports: Vec<Value> = vec![];
@@ -297,20 +322,30 @@ pub fn run(path: &Path, as_json: bool) -> Result<Value> {
             Value::Array(by_kind[k].iter().map(symbol_to_json).collect()),
         );
     }
-    let out = json!({
-        "file": p.to_string_lossy(),
-        "language": language.clone(),
-        "imports": imports.clone(),
-        "exports": exports.clone(),
-        "symbols_by_kind": Value::Object(kinds_json),
-        "symbol_count": symbols.len(),
-    });
+    let file = p.to_string_lossy().to_string();
+    let out = crate::output::document(
+        json!({"file": file}),
+        json!({"files": {file.clone(): {"shoulder": shoulder, "language": language.clone()}}}),
+        json!({
+            "imports": imports.clone(),
+            "exports": exports.clone(),
+            "symbols_by_kind": Value::Object(kinds_json),
+        }),
+        json!({
+            "symbols": symbols.len(),
+            "imports": imports.len(),
+            "exports": exports.len(),
+        }),
+    );
 
     if as_json {
         return Ok(out);
     }
 
     println!("File: {}", p.to_string_lossy());
+    if let Some(s) = &shoulder {
+        println!("{s}");
+    }
     println!(
         "Language: {}",
         language.as_deref().unwrap_or("(unknown)")

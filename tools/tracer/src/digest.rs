@@ -1,8 +1,9 @@
 //! File digest helpers.
 //! leading_comment, top_callers, immediate_dependencies, nearest_doc.
 
-use crate::architecture::{self, Graph};
+use crate::relations;
 use serde_json::{json, Value};
+use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
@@ -201,36 +202,26 @@ pub fn leading_comment(path: &Path, max_lines: usize) -> Option<String> {
     None
 }
 
-/// Up to `limit` top callers of the module owning `relative_file`.
+/// Up to `limit` files that import `relative_file`, each with the first line
+/// of its leading comment so the reader sees why it depends on this.
 pub fn top_callers(
-    graph: &Graph,
+    index: &relations::Relations,
     relative_file: &str,
+    languages: &HashMap<String, Option<String>>,
     repo_root: Option<&Path>,
     limit: usize,
 ) -> Vec<Value> {
-    let module_id = match graph.file_to_module_id.get(relative_file) {
-        Some(m) => m.clone(),
-        None => return vec![],
-    };
     let mut out = Vec::new();
-    let mut seen: Vec<String> = Vec::new();
-    for edge in architecture::dependents_of(graph, &module_id) {
-        if seen.contains(&edge.source) {
+    let mut seen: Vec<&str> = Vec::new();
+    for importer in index.importers_of(relative_file) {
+        if seen.contains(&&*importer.file) {
             continue;
         }
-        seen.push(edge.source.clone());
-        let node = match graph.nodes.get(&edge.source) {
-            Some(n) => n,
-            None => continue,
-        };
-        let meaningful_line = if node.kind != "module" {
-            node.source_line
-        } else {
-            None
-        };
+        seen.push(&importer.file);
+        let language = languages.get(&*importer.file).cloned().flatten();
         let mut summary: Option<String> = None;
-        if let (Some(root), Some(sf)) = (repo_root, &node.source_file) {
-            let caller_path = root.join(sf);
+        if let Some(root) = repo_root {
+            let caller_path = root.join(&*importer.file);
             if caller_path.is_file() {
                 if let Some(c) = leading_comment(&caller_path, 15) {
                     if let Some(first) = c.lines().next() {
@@ -243,10 +234,10 @@ pub fn top_callers(
             }
         }
         out.push(json!({
-            "source_file": node.source_file,
-            "source_line": meaningful_line,
-            "label": node.label,
-            "kind": node.kind,
+            "source_file": &*importer.file,
+            "source_line": Value::Null,
+            "label": relations::file_to_module(&importer.file, language.as_deref()),
+            "kind": "module",
             "summary": summary,
         }));
         if out.len() >= limit {
@@ -256,29 +247,26 @@ pub fn top_callers(
     out
 }
 
-/// Immediate (one-hop) dependencies of the module owning a file.
+/// Immediate (one-hop) dependencies of a file. The stored map is the
+/// inversion, so this reads the edges whose importer is this file.
 pub fn immediate_dependencies(
-    graph: &Graph,
+    index: &relations::Relations,
     relative_file: &str,
+    languages: &HashMap<String, Option<String>>,
     limit: usize,
 ) -> Vec<Value> {
-    let module_id = match graph.file_to_module_id.get(relative_file) {
-        Some(m) => m.clone(),
-        None => return vec![],
-    };
     let mut out = Vec::new();
-    let mut seen: Vec<String> = Vec::new();
-    for edge in architecture::dependencies_of(graph, &module_id) {
-        if seen.contains(&edge.target) {
+    let mut seen: Vec<&str> = Vec::new();
+    for (target, importer) in index.import_edges() {
+        if &*importer.file != relative_file || seen.contains(&target) {
             continue;
         }
-        seen.push(edge.target.clone());
-        let label = graph
-            .nodes
-            .get(&edge.target)
-            .map(|n| n.label.clone())
-            .unwrap_or_else(|| edge.target.clone());
-        out.push(json!({"module": label, "confidence": edge.confidence}));
+        seen.push(target);
+        let language = languages.get(target).cloned().flatten();
+        out.push(json!({
+            "module": relations::file_to_module(target, language.as_deref()),
+            "confidence": importer.confidence,
+        }));
         if out.len() >= limit {
             break;
         }

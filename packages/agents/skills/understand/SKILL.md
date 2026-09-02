@@ -13,7 +13,7 @@ description: Deep research of the systems behind a change — name the systems, 
 ## 1. Name the systems
 
 ### List each system before reading any implementation
-From the tree itself — `trace survey`, `trace tree`, the entry points — list each system the task touches: its owner module, its one-sentence job, the modules it calls, and the modules that call it. A system you cannot describe this way is not yet safe to read deeply.
+From the tree itself — `trace stats`, `trace tree`, the entry points — list each system the task touches: its owner module, its one-sentence job, the modules it calls, and the modules that call it. A system you cannot describe this way is not yet safe to read deeply.
 Never: opening the file the task names and reading outward from it.
 
 ### Verify the task's premise
@@ -24,7 +24,7 @@ When code and documentation disagree, the code is authoritative. Architecture.md
 
 ## 2. Show the architecture
 
-For each named system, show its shape: the public surface (`trace structure`, `trace symbols`), what depends on it (`trace downstream`), what it depends on (`trace upstream`), and where its boundary with each neighbor sits.
+For each named system, show its shape: the public surface (`trace structure`), what depends on it (`trace usages`), what it depends on (`trace dependencies`), and where its boundary with each neighbor sits.
 
 ### Show each system as an annotated file tree
 One tree per system, per /show-me: each file with a role note under nine words, contracts and boundaries named in the notes.
@@ -46,11 +46,11 @@ Template:
   ```
 
 ### 3.2 Read those commits' bodies
-Read the full body of each design-changing commit alone. The subject says what changed; the body says why, what was rejected, and which invariant the change protects. The body is the primary source of intent. No trace command returns a body, so this is the one direct git command in the Process.
+Read the full body of each design-changing commit alone. The subject says what changed; the body says why, what was rejected, and which invariant the change protects. The body is the primary source of intent.
 
 Template:
   ```bash
-  git show -s --format=full <commit>
+  trace history --commit <commit>
   ```
 
 ### 3.3 Build the decision timeline

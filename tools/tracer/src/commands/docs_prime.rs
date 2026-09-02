@@ -1,4 +1,4 @@
-//! `trace context prime --reason session_start|post_compact` — record the
+//! `trace docs prime --reason session_start|post_compact` — record the
 //! docs Claude Code's harness auto-loads at the named lifecycle moment into
 //! the session log, so subsequent tracer emissions (Read enrichment,
 //! `trace docs`, …) skip what the agent already has in context.
@@ -24,7 +24,10 @@
 //! anchored to their own tree.
 //!
 //! Emission runs through `session_log::record_emission` with
-//! `source = "context_prime_session_start" | "context_prime_post_compact"`,
+//! `source = "context_prime_session_start" | "context_prime_post_compact"`
+//! — the recorded source names outlive the command's own name, because a
+//! session log written by one binary is read by the next, and renaming the
+//! stored vocabulary would make every in-flight session re-inject its docs —
 //! sharing the flock'd append + materialize the log already owns. No-op when
 //! the session id is absent — standalone tracer use stays valid.
 
@@ -113,22 +116,12 @@ pub fn run(reason: Reason, observed_from: Option<&str>, as_json: bool) -> Result
         None => None,
     };
 
-    let mut out = json!({
-        "reason": reason.label(),
-        "source": reason.source(),
+    let mut context = json!({
         "cwd": cwd.to_string_lossy(),
         "repo_root": repo_root.to_string_lossy(),
-        "mirrored": memories.iter().map(|m| json!({
-            "path": m.relative_path,
-            "kind": m.kind,
-            "size": m.size,
-            "large": m.large,
-        })).collect::<Vec<_>>(),
-        "mirrored_count": memories.len(),
     });
-
     if let Some(report) = &drift_report {
-        out["drift"] = json!({
+        context["drift"] = json!({
             "source": "context_prime_drift",
             "missing": report.missing,
             "extra": report.extra,
@@ -136,13 +129,24 @@ pub fn run(reason: Reason, observed_from: Option<&str>, as_json: bool) -> Result
             "observed_count": report.observed.len(),
         });
     }
+    let out = crate::output::document(
+        json!({"reason": reason.label(), "source": reason.source()}),
+        context,
+        json!(memories.iter().map(|m| json!({
+            "path": m.relative_path,
+            "kind": m.kind,
+            "size": m.size,
+            "large": m.large,
+        })).collect::<Vec<_>>()),
+        json!({"mirrored": memories.len()}),
+    );
 
     if as_json {
         return Ok(out);
     }
 
     println!(
-        "context prime · {} · mirrored {} doc(s) into session log",
+        "docs prime · {} · mirrored {} doc(s) into session log",
         reason.label(),
         memories.len()
     );

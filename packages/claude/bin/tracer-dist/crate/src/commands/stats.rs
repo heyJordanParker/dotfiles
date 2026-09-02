@@ -1,4 +1,4 @@
-//! `trace survey` — repo-wide complexity distribution via scc.
+//! `trace stats` — repo-wide complexity distribution via scc.
 //! One `scc --format json --by-file <path>` sweep → per-language
 //! LOC/complexity aggregates, a per-file complexity distribution
 //! (median/p75/p90/p95/max), and the top-10 most-complex files.
@@ -137,9 +137,15 @@ pub fn run(path: &Path, as_json: bool) -> Result<Value> {
     let resolved = abs.canonicalize().unwrap_or(abs);
     let by_file = scc_by_file(&resolved);
     let s = summary(&by_file);
+    let out = crate::output::document(
+        json!({"path": resolved.to_string_lossy()}),
+        json!({"distribution": s["distribution"]}),
+        json!({"languages": s["languages"], "top_complex": s["top_complex"]}),
+        json!({"files": s["total_files"]}),
+    );
 
     if as_json {
-        return Ok(s);
+        return Ok(out);
     }
 
     println!(
@@ -193,5 +199,5 @@ pub fn run(path: &Path, as_json: bool) -> Result<Value> {
             );
         }
     }
-    Ok(s)
+    Ok(out)
 }

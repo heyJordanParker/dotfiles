@@ -5,26 +5,13 @@
 //! {ccn, loc, language} map, and per-language aggregate rows. Disk-cached
 //! under `repo_context_v3_{head}` in the file namespace.
 
-use crate::cache;
+use crate::{cache, git_activity, memo};
 use serde_json::{json, Value};
-use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Command;
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, OnceLock};
 
 const CACHE_KEY_PREFIX: &str = "repo_context_v3_";
-
-fn git_head(repo_root: &Path) -> Option<String> {
-    let out = Command::new("git")
-        .args(["rev-parse", "HEAD"])
-        .current_dir(repo_root)
-        .output()
-        .ok()?;
-    if !out.status.success() {
-        return None;
-    }
-    Some(String::from_utf8_lossy(&out.stdout).trim().to_string())
-}
 
 fn empty_payload() -> Value {
     json!({
@@ -131,26 +118,48 @@ fn median_int(sorted: &[i64]) -> i64 {
 /// most once per root — `language_summary`, `per_file_metrics`, and
 /// `repo_context` all share it. The lock is held across the compute so a
 /// cold cache runs `scc` exactly once even when parallel callers race.
-fn load_or_compute(repo_root: &Path) -> Value {
-    static MEMO: OnceLock<Mutex<HashMap<PathBuf, Value>>> = OnceLock::new();
-    let memo = MEMO.get_or_init(|| Mutex::new(HashMap::new()));
-    let mut guard = memo.lock().unwrap();
-    if let Some(cached) = guard.get(repo_root) {
-        return cached.clone();
+fn load_or_compute(repo_root: &Path) -> Arc<Payload> {
+    static MEMO: memo::Memo<Payload> = OnceLock::new();
+    memo::get_or_build(&MEMO, repo_root, || {
+        Payload::from(load_or_compute_uncached(repo_root))
+    })
+}
+
+/// The scc payload, split once into the three things callers ask for. It is
+/// shared by handle: on next.js the per-file map is 22,702 entries, and
+/// handing every caller its own copy meant a deep clone of the whole map per
+/// call — `get_batch` alone asks once per chunk.
+pub struct Payload {
+    pub summary: Value,
+    /// relpath -> {ccn, loc, language}
+    pub per_file: Value,
+    pub languages: Vec<Value>,
+}
+
+impl From<Value> for Payload {
+    fn from(mut value: Value) -> Self {
+        let take = |v: &mut Value, key: &str| {
+            v.get_mut(key).map(Value::take).unwrap_or(Value::Null)
+        };
+        Payload {
+            summary: take(&mut value, "summary"),
+            per_file: take(&mut value, "per_file"),
+            languages: match take(&mut value, "languages") {
+                Value::Array(a) => a,
+                _ => Vec::new(),
+            },
+        }
     }
-    let computed = load_or_compute_uncached(repo_root);
-    guard.insert(repo_root.to_path_buf(), computed.clone());
-    computed
 }
 
 fn load_or_compute_uncached(repo_root: &Path) -> Value {
-    // Same worktree gate as the architecture graph: `cache::save` writes only
+    // Same worktree gate as every other cache write: `cache::save` writes only
     // where `repo_root/.git` is, so outside a worktree the scc pass and its
     // per-file map are recomputed on every call and never persist.
     if !repo_root.join(".git").exists() {
         return empty_payload();
     }
-    match git_head(repo_root) {
+    match git_activity::head_sha(repo_root) {
         None => compute(repo_root),
         Some(head) => {
             let key = format!("{CACHE_KEY_PREFIX}{head}");
@@ -172,27 +181,21 @@ fn load_or_compute_uncached(repo_root: &Path) -> Value {
 /// The repo-context summary object.
 pub fn repo_context(path: &Path) -> Value {
     let root = cache::worktree_root_for(path).unwrap_or_else(|| cache::display_root(path));
-    load_or_compute(&root)
-        .get("summary")
-        .cloned()
-        .unwrap_or_else(|| json!({}))
+    let summary = load_or_compute(&root).summary.clone();
+    if summary.is_null() {
+        json!({})
+    } else {
+        summary
+    }
 }
 
-/// Per-file scc metrics: relpath -> {ccn, loc, language}.
-pub fn per_file_metrics(repo_root: &Path) -> HashMap<String, Value> {
-    let payload = load_or_compute(repo_root);
-    payload
-        .get("per_file")
-        .and_then(|v| v.as_object())
-        .map(|m| m.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
-        .unwrap_or_default()
+/// The shared scc payload. `per_file` is the relpath -> {ccn, loc, language}
+/// map every multi-file resolve reads.
+pub fn metrics(repo_root: &Path) -> Arc<Payload> {
+    load_or_compute(repo_root)
 }
 
 /// Per-language summary rows: [{Name, Count, Code, Complexity}].
 pub fn language_summary(repo_root: &Path) -> Vec<Value> {
-    load_or_compute(repo_root)
-        .get("languages")
-        .and_then(|v| v.as_array())
-        .cloned()
-        .unwrap_or_default()
+    load_or_compute(repo_root).languages.clone()
 }

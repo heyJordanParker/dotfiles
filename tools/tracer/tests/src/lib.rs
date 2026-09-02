@@ -72,6 +72,42 @@ impl Run {
         })
     }
 
+    /// The document's four slots flattened into one object, so an assertion
+    /// names the fact rather than the slot holding it.
+    ///
+    /// Every `--json` result carries `query`, `context`, `results`, `counts`.
+    /// Which slot a given fact sits in is the document's business, not each
+    /// test's: `view()` merges `query`, `context`, and `counts` at the top
+    /// level, and merges `results` too when it is an object (a command whose
+    /// result is named sections rather than a row list). A row list stays
+    /// under `results`.
+    pub fn view(&self) -> serde_json::Value {
+        let document = self.json();
+        let mut merged = serde_json::Map::new();
+        // Counts merge before context and results, so where a count shares a
+        // name with a section the section wins and the count stays reachable
+        // as `json()["counts"][name]`.
+        for slot in ["query", "counts", "context"] {
+            if let Some(object) = document.get(slot).and_then(|v| v.as_object()) {
+                for (key, value) in object {
+                    merged.insert(key.clone(), value.clone());
+                }
+            }
+        }
+        match document.get("results") {
+            Some(serde_json::Value::Object(sections)) => {
+                for (key, value) in sections {
+                    merged.insert(key.clone(), value.clone());
+                }
+            }
+            Some(rows) => {
+                merged.insert("results".to_string(), rows.clone());
+            }
+            None => {}
+        }
+        serde_json::Value::Object(merged)
+    }
+
     /// Assert the run finished within `budget`; panic with the measured time
     /// otherwise. Thresholds are deliberately generous (see suite README) so
     /// they catch gross regressions without flaking on a loaded CI box.

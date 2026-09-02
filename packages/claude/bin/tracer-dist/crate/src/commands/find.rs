@@ -1,8 +1,13 @@
-//! `trace find` — filename-pattern search with code-intelligence enrichment.
-//! Replaces `find <dir> -type f -name "*.ext"` with one enriched call:
-//! matching paths annotated with complexity rank + the lifecycle shoulder.
-//! Respects .gitignore inside a git repo (git ls-files), SKIP_DIRS walk
-//! otherwise.
+//! `trace find` — name- and path-pattern search with code-intelligence
+//! enrichment. Replaces `find <dir> -type f -name "*.ext"` and the
+//! `**/dir/*.ext` path-shape search with one enriched call: matching paths
+//! annotated with complexity rank + the lifecycle shoulder. Respects
+//! .gitignore inside a git repo (git ls-files), SKIP_DIRS walk otherwise.
+//!
+//! One pattern argument answers both questions, split by `path_matcher`: a
+//! pattern carrying `/` or `**` is a path pattern, anything else is a
+//! basename pattern. Every result carries its context — there is no
+//! bare-path mode to fall into.
 
 use super::glob_match::fnmatch;
 use crate::{cache, file_facts, passive_context};
@@ -87,20 +92,58 @@ fn list_files(repo_root: &Path, base: &Path, include_dirs: bool) -> Vec<PathBuf>
     }
 }
 
-/// True when a path's basename matches `pattern`, passes `path_filter`,
-/// and is not excluded.
+/// A pattern that names a path — it carries a `/` or a `**` — is matched
+/// against the base-relative path; anything else is matched against the
+/// basename. That is the one rule that lets `find` answer both the `find
+/// -name "*.php"` question and the `**/Jobs/*.php` path-shape question that
+/// was its own command.
+///
+/// Path patterns compile through `globset`, the pure-Rust matcher ripgrep
+/// uses (single-static-binary preserved). `literal_separator(true)` keeps
+/// `*`, `?`, and `[...]` inside one segment and gives `**` its
+/// zero-or-more-directories meaning.
+fn path_matcher(pattern: &str) -> Option<globset::GlobMatcher> {
+    if !pattern.contains('/') && !pattern.contains("**") {
+        return None;
+    }
+    let segments: Vec<&str> = pattern.split('/').filter(|s| !s.is_empty()).collect();
+    if segments.is_empty() {
+        return None;
+    }
+    globset::GlobBuilder::new(&segments.join("/"))
+        .literal_separator(true)
+        .backslash_escape(true)
+        .build()
+        .ok()
+        .map(|g| g.compile_matcher())
+}
+
+/// True when a path matches `pattern` (by path or by basename, per
+/// `path_matcher`), passes `path_filter`, and is not excluded.
 fn matches(
     path: &Path,
     pattern: &str,
+    by_path: Option<&globset::GlobMatcher>,
+    base: &Path,
     path_filter: Option<&str>,
     excludes: &[String],
 ) -> bool {
-    let name = path
-        .file_name()
-        .map(|n| n.to_string_lossy().to_string())
-        .unwrap_or_default();
-    if !fnmatch(&name, pattern) {
-        return false;
+    match by_path {
+        Some(matcher) => {
+            let relative = path.strip_prefix(base).unwrap_or(path);
+            if !matcher.is_match(relative) {
+                return false;
+            }
+        }
+        None => {
+            let name = path
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_default();
+            if !fnmatch(&name, pattern) {
+                return false;
+            }
+        }
     }
     let full = path.to_string_lossy();
     if let Some(pf) = path_filter {
@@ -132,6 +175,10 @@ pub fn run(
         eprintln!("Error: {base} does not exist");
         std::process::exit(2);
     }
+    if !abs.is_dir() {
+        eprintln!("Error: {base} is not a directory");
+        std::process::exit(2);
+    }
     // Canonicalized base path, printed verbatim in output.
     let base_abs = abs.canonicalize().unwrap_or(abs);
     let base_path = base_abs.clone();
@@ -144,9 +191,19 @@ pub fn run(
         .filter(|p| if include_dirs { p.is_dir() } else { p.is_file() })
         .collect();
 
+    let by_path = path_matcher(pattern);
     let matched: Vec<PathBuf> = candidates
         .into_iter()
-        .filter(|p| matches(p, pattern, path_filter.as_deref(), &excludes))
+        .filter(|p| {
+            matches(
+                p,
+                pattern,
+                by_path.as_ref(),
+                &base_abs,
+                path_filter.as_deref(),
+                &excludes,
+            )
+        })
         .collect();
 
     let root_resolved = repo_root
@@ -240,32 +297,30 @@ pub fn run(
         _ => entries.sort_by(|a, b| a.path.cmp(&b.path)),
     }
 
-    let truncated = entries.len() > limit;
+    // The pre-cap total is the number the agent needs: "3 matches, truncated"
+    // does not say whether the answer was 4 or 4,000, so it cannot choose a
+    // `--limit` and cannot tell a narrow result from a hidden one. `list`
+    // already reports its pre-cap total; `find` reports it the same way.
+    let total = entries.len();
+    let truncated = total > limit;
     entries.truncate(limit);
 
+    // The shoulder is per-file enrichment: it sits in `context` under the
+    // same path the row carries, out of reach of a row projection.
+    let mut shoulders = serde_json::Map::new();
     let json_entries: Vec<_> = entries
         .iter()
         .map(|e| {
+            shoulders.insert(e.path.clone(), json!({"shoulder": e.shoulder}));
             json!({
                 "path": e.path,
                 "kind": e.kind,
                 "ccn_total": e.ccn_total,
                 "ccn_rank": e.ccn_rank,
-                "shoulder": e.shoulder,
                 "last_modified": e.last_modified,
             })
         })
         .collect();
-    let mut value = json!({
-        "pattern": pattern,
-        "base": base_path.to_string_lossy(),
-        "path_filter": path_filter,
-        "excludes": excludes,
-        "type": type_filter,
-        "match_count": json_entries.len(),
-        "truncated": truncated,
-        "entries": json_entries,
-    });
     // An empty result over a base that contains nested checkouts is a scope
     // fact, not an absence fact — name them so the next call is scoped inside.
     let nested = if entries.is_empty() {
@@ -273,9 +328,20 @@ pub fn run(
     } else {
         Vec::new()
     };
-    if !nested.is_empty() {
-        value["nested_repos"] = json!(nested);
-    }
+    let value = crate::output::document(
+        json!({
+            "pattern": pattern,
+            "base": base_path.to_string_lossy(),
+            "path_filter": path_filter,
+            "excludes": excludes,
+            "type": type_filter,
+            "limit": limit,
+            "sort": sort,
+        }),
+        json!({"nested_repos": nested, "files": Value::Object(shoulders)}),
+        json!(json_entries),
+        json!({"matches": json_entries.len(), "total": total, "truncated": truncated}),
+    );
 
     if as_json {
         return Ok(value);
@@ -289,11 +355,20 @@ pub fn run(
         return Ok(value);
     }
 
-    println!(
-        "{} matches under {}:",
-        entries.len(),
-        base_path.to_string_lossy()
-    );
+    if truncated {
+        println!(
+            "{} matches under {}, showing {}:",
+            total,
+            base_path.to_string_lossy(),
+            entries.len()
+        );
+    } else {
+        println!(
+            "{} matches under {}:",
+            total,
+            base_path.to_string_lossy()
+        );
+    }
     for e in &entries {
         if e.kind == "directory" {
             println!("  📁 {}/", e.path);
@@ -308,7 +383,7 @@ pub fn run(
         );
     }
     if truncated {
-        println!("... truncated to {limit} entries (raise with --limit)");
+        println!("... {} more (see all: --limit {total})", total - entries.len());
     }
     Ok(value)
 }

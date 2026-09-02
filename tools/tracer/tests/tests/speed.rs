@@ -82,7 +82,7 @@ fn architecture_query_warm_is_fast() {
     let f = standard_repo();
     f.trace(&["cache", "build", "."]).ok();
     f.trace(&["callers", "helper"]).ok().within(FAST);
-    f.trace(&["downstream", "--path", ".", "--json"])
+    f.trace(&["usages", "--path", ".", "--json"])
         .ok()
         .within(FAST);
 }
@@ -91,7 +91,7 @@ fn architecture_query_warm_is_fast() {
 fn search_commands_within_budget() {
     let f = standard_repo();
     f.trace(&["grep", "helper", "--path", "."]).ok().within(SLOW);
-    f.trace(&["glob", "**/*.py", "."]).ok().within(SLOW);
+    f.trace(&["find", "**/*.py", "."]).ok().within(SLOW);
     f.trace(&["find", "*.py", "."]).ok().within(SLOW);
 }
 
@@ -131,10 +131,10 @@ fn warm_whole_repo_is_far_faster_than_cold_on_a_large_repo() {
     // documents the fixture size and fails loudly if the generator or the
     // directory walk ever drops files.
     assert_eq!(
-        cold.json()["file_count"].as_i64().unwrap(),
+        cold.json()["counts"]["files"].as_i64().unwrap(),
         360,
         "large_repo() must yield exactly 360 analyzed files: {} files",
-        cold.json()["file_count"]
+        cold.json()["counts"]["files"]
     );
 
     let warm = f.trace(&["info", ".", "--json"]);

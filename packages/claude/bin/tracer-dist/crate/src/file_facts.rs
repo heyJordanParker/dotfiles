@@ -21,13 +21,14 @@ use crate::cache;
 use crate::ccn;
 use crate::extraction::{self, ExtractionResult};
 use crate::git_activity::{self, GitActivity};
-use crate::repo_context;
+use crate::{memo, repo_context};
 use rayon::prelude::*;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, OnceLock};
 
 #[derive(Debug, Clone)]
 pub struct FileFacts {
@@ -53,6 +54,18 @@ pub struct FileFacts {
     pub mtime_ns: i64,
     pub size_bytes: i64,
 }
+
+/// Files resolved per `get_batch` call. The bulk resolver returns every
+/// input's whole `FileFacts` — extraction included — in one map, so a caller
+/// spanning thousands of files would hold every declaration and reference in
+/// all of them at once. Chunking bounds that to the chunk; the maps the
+/// resolver hoists are memoized per repo root, so the only per-chunk cost is
+/// re-reading the mtime index.
+///
+/// This is the one bound on how much of a repository is resident at a time.
+/// Every caller that can span a whole repository — search enrichment and the
+/// relations index build — walks its inputs through it.
+pub const RESOLVE_CHUNK: usize = 512;
 
 fn opt(o: &Option<String>) -> Value {
     match o {
@@ -342,14 +355,109 @@ fn mtime_ns_of(md: &fs::Metadata) -> i64 {
         .unwrap_or(0)
 }
 
+/// The stat fields the fast path trusts in place of hashing the bytes.
+///
+/// `mtime_ns` and `size` alone can all stay identical across a real content
+/// change: `touch -r`, a timestamp-preserving copy, and two writes inside one
+/// clock tick each produce a same-size file with a restored mtime, and the
+/// index then serves the previous content's facts forever. `ctime_ns` closes
+/// that — the kernel sets it on every inode write and no userland tool can
+/// put it back — and `inode` closes the replace-by-rename case where a new
+/// file takes the old path with a copied timestamp. All four come from the
+/// one `stat` the caller already makes.
+#[derive(Clone, Copy, PartialEq)]
+struct Stamp {
+    mtime_ns: i64,
+    size: i64,
+    ctime_ns: i64,
+    inode: i64,
+}
+
+#[cfg(unix)]
+fn stamp_of(md: &fs::Metadata) -> Stamp {
+    use std::os::unix::fs::MetadataExt;
+    Stamp {
+        mtime_ns: mtime_ns_of(md),
+        size: md.len() as i64,
+        ctime_ns: md.ctime() as i64 * 1_000_000_000 + md.ctime_nsec() as i64,
+        inode: md.ino() as i64,
+    }
+}
+
+#[cfg(not(unix))]
+fn stamp_of(md: &fs::Metadata) -> Stamp {
+    Stamp {
+        mtime_ns: mtime_ns_of(md),
+        size: md.len() as i64,
+        ctime_ns: md
+            .created()
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_nanos() as i64)
+            .unwrap_or(0),
+        inode: 0,
+    }
+}
+
+/// One index row: the stamp plus the content key it was written for.
+///
+/// Typed rather than a `serde_json::Value`, for the reason the relations
+/// index and the git-activity map are: every row read as a `Value` is five
+/// boxed nodes, so a 22,702-file index cost more to hold than the file it
+/// came from. A missing field defaults to `-1` so a row written by an older
+/// binary, which carries no `ctime_ns` or `inode`, can never match a real
+/// stamp.
+#[derive(Clone, Serialize, Deserialize)]
+struct IndexEntry {
+    #[serde(default = "absent")]
+    mtime_ns: i64,
+    #[serde(default = "absent")]
+    size: i64,
+    #[serde(default = "absent")]
+    ctime_ns: i64,
+    #[serde(default = "absent")]
+    inode: i64,
+    #[serde(default)]
+    key: String,
+}
+
+fn absent() -> i64 {
+    -1
+}
+
+fn stamp_entry(s: &Stamp, key: &str) -> IndexEntry {
+    IndexEntry {
+        mtime_ns: s.mtime_ns,
+        size: s.size,
+        ctime_ns: s.ctime_ns,
+        inode: s.inode,
+        key: key.to_string(),
+    }
+}
+
+/// The entry's cache key when every stamp field matches, else None — the one
+/// predicate all three read paths share, so none of them can drift into
+/// comparing fewer fields than the others.
+fn stamp_matches<'a>(entry: &'a IndexEntry, s: &Stamp) -> Option<&'a str> {
+    if entry.mtime_ns == s.mtime_ns
+        && entry.size == s.size
+        && entry.ctime_ns == s.ctime_ns
+        && entry.inode == s.inode
+        && !entry.key.is_empty()
+    {
+        return Some(&entry.key);
+    }
+    None
+}
+
 fn mtime_index_key() -> String {
     // Includes SCHEMA_VERSION so a binary upgrade that bumps the schema
     // also rotates this index — the per-file hashes the index serves are
     // schema-namespaced, so an index from the previous schema would point
-    // at unreachable cache entries (or worse, key the architecture
-    // fingerprint off old hashes and serve a stale graph).
+    // at unreachable cache entries (or worse, hand the relations index a
+    // stale content key and have it skip a file that really moved).
     format!(
-        "mtime_index_v1__schema{}__{}",
+        "mtime_index_v2__schema{}__{}",
         cache::SCHEMA_VERSION,
         cache::active_ccn_backend()
     )
@@ -369,23 +477,16 @@ fn mtime_index_key() -> String {
 /// Writes go through `mtime_index_record` and `mtime_index_store`, which
 /// update the memo in the same lock they write under, so a later read in the
 /// same process never serves a superseded index.
-fn mtime_index_memo() -> &'static Mutex<HashMap<PathBuf, Arc<Map<String, Value>>>> {
-    static MEMO: OnceLock<Mutex<HashMap<PathBuf, Arc<Map<String, Value>>>>> = OnceLock::new();
-    MEMO.get_or_init(|| Mutex::new(HashMap::new()))
-}
+type MtimeIndex = HashMap<String, IndexEntry>;
 
-fn mtime_index_load(repo_root: &Path) -> Arc<Map<String, Value>> {
-    let mut guard = mtime_index_memo().lock().unwrap();
-    if let Some(hit) = guard.get(repo_root) {
-        return Arc::clone(hit);
-    }
-    let loaded = Arc::new(
-        cache::load(cache::NAMESPACE_FILE, &mtime_index_key(), repo_root)
-            .and_then(|v| v.as_object().cloned())
-            .unwrap_or_default(),
-    );
-    guard.insert(repo_root.to_path_buf(), Arc::clone(&loaded));
-    loaded
+static MTIME_MEMO: memo::Memo<MtimeIndex> = OnceLock::new();
+
+fn mtime_index_load(repo_root: &Path) -> Arc<MtimeIndex> {
+    memo::get_or_build(&MTIME_MEMO, repo_root, || {
+        cache::load_bytes(cache::NAMESPACE_FILE, &mtime_index_key(), repo_root)
+            .and_then(|b| serde_json::from_slice::<MtimeIndex>(&b).ok())
+            .unwrap_or_default()
+    })
 }
 
 /// Persist `index` and make it the memo's current value under the same lock,
@@ -394,88 +495,31 @@ fn mtime_index_load(repo_root: &Path) -> Arc<Map<String, Value>> {
 /// The index is wrapped for the save and unwrapped for the memo rather than
 /// cloned for one of them: on a repo with thousands of entries this runs on
 /// every single-file cache miss.
-fn mtime_index_store(repo_root: &Path, index: Map<String, Value>) {
-    let mut guard = mtime_index_memo().lock().unwrap();
-    let document = Value::Object(index);
-    let _ = cache::save(
-        cache::NAMESPACE_FILE,
-        &mtime_index_key(),
-        &document,
-        repo_root,
-    );
-    if let Value::Object(index) = document {
-        guard.insert(repo_root.to_path_buf(), Arc::new(index));
+fn mtime_index_store(repo_root: &Path, index: MtimeIndex) {
+    let key = mtime_index_key();
+    if let Ok(document) = serde_json::to_value(&index) {
+        let _ = cache::save(cache::NAMESPACE_FILE, &key, &document, repo_root);
     }
+    // Same sweep the relations index and the git-activity map run: the key
+    // carries a schema and a backend, so a bump rotates it and leaves the
+    // superseded index in the namespace forever. next.js was carrying a
+    // 4.4 MB orphan beside its live 5.7 MB index.
+    cache::evict_prefixed(cache::NAMESPACE_FILE, "mtime_index_", &key, repo_root);
+    memo::replace(&MTIME_MEMO, repo_root, index);
 }
 
-fn mtime_index_record(
-    repo_root: &Path,
-    rel: &str,
-    mtime_ns: i64,
-    size: i64,
-    key: &str,
-) {
-    let mut idx = (*mtime_index_load(repo_root)).clone();
-    idx.insert(
-        rel.to_string(),
-        json!({"mtime_ns": mtime_ns, "size": size, "key": key}),
-    );
-    mtime_index_store(repo_root, idx);
-}
-
-/// Facts for one file. NO lite-facts: always real extraction on a miss.
+/// Facts for one file — a batch of one.
+///
+/// The three-step resolve (stat fast path, content-hash entry, fresh
+/// extraction) lives once, in `get_batch`. This path only differs in that its
+/// caller hands over a path a person typed, so it canonicalizes first;
+/// `get_batch`'s own inputs are already tracked paths under the root.
 pub fn get(path: &Path, repo_root: &Path) -> Option<FileFacts> {
     let p = path.canonicalize().ok()?;
     if !p.is_file() {
         return None;
     }
-    let md = fs::metadata(&p).ok()?;
-    let stat_mtime = mtime_ns_of(&md);
-    let stat_size = md.len() as i64;
-    let rel = cache::relative_to_root(&p, repo_root);
-    // Memoized per repo root, so the per-file callers (`glob`, `diff`,
-    // `blame`, `structure`) build it once for the whole run.
-    let git_map = git_activity::bulk_cached(repo_root);
-
-    // 1. mtime fast path.
-    let idx = mtime_index_load(repo_root);
-    if let Some(entry) = idx.get(&rel) {
-        let im = entry.get("mtime_ns").and_then(|x| x.as_i64());
-        let is = entry.get("size").and_then(|x| x.as_i64());
-        if im == Some(stat_mtime) && is == Some(stat_size) {
-            if let Some(k) = entry.get("key").and_then(|x| x.as_str()) {
-                if let Some(cv) = cache::load(cache::NAMESPACE_FILE, k, repo_root) {
-                    if let Some(f) = FileFacts::from_json(&cv) {
-                        return Some(with_git(f, &rel, &git_map));
-                    }
-                }
-            }
-        }
-    }
-
-    // 2. content-hash cache entry.
-    let data = fs::read(&p).ok()?;
-    let key = cache::file_hash_from_bytes(&data, &p, repo_root);
-    if let Some(cv) = cache::load(cache::NAMESPACE_FILE, &key, repo_root) {
-        if let Some(f) = FileFacts::from_json(&cv) {
-            mtime_index_record(repo_root, &rel, stat_mtime, stat_size, &key);
-            return Some(with_git(f, &rel, &git_map));
-        }
-    }
-
-    // 3. fresh real extraction.
-    let git = git_map.get(&rel).cloned().unwrap_or_else(GitActivity::empty);
-    let scc_map = repo_context::per_file_metrics(repo_root);
-    let scc_data = scc_map.get(&rel).cloned().unwrap_or_else(|| json!({}));
-    let facts = extract_facts(&p, repo_root, &git, &scc_data, &data);
-    let _ = cache::save(
-        cache::NAMESPACE_FILE,
-        &key,
-        &facts.to_json(),
-        repo_root,
-    );
-    mtime_index_record(repo_root, &rel, stat_mtime, stat_size, &key);
-    Some(facts)
+    get_batch(&[p], repo_root).into_values().next()
 }
 
 /// Bulk resolver — the ONLY correct path for directory/repo-wide commands
@@ -500,15 +544,14 @@ pub fn get_batch(
     repo_root: &Path,
 ) -> HashMap<String, FileFacts> {
     let git_map = git_activity::bulk_cached(repo_root);
-    let scc_map = repo_context::per_file_metrics(repo_root);
+    let scc = repo_context::metrics(repo_root);
     let index = mtime_index_load(repo_root);
 
     #[derive(Clone)]
     struct Job {
         abs: PathBuf,
         rel: String,
-        mtime_ns: i64,
-        size: i64,
+        stamp: Stamp,
     }
     let mut jobs: Vec<Job> = Vec::with_capacity(paths.len());
     for p in paths {
@@ -526,8 +569,7 @@ pub fn get_batch(
         };
         jobs.push(Job {
             rel,
-            mtime_ns: mtime_ns_of(&md),
-            size: md.len() as i64,
+            stamp: stamp_of(&md),
             abs,
         });
     }
@@ -535,32 +577,24 @@ pub fn get_batch(
     // Parallel resolve. Each job yields (rel, FileFacts, Option<new index
     // entry>). Index entries are merged single-threaded afterward and the
     // index is persisted exactly once.
-    let resolved: Vec<(String, FileFacts, Option<(String, i64, i64, String)>)> =
+    let resolved: Vec<(String, FileFacts, Option<(String, Stamp, String)>)> =
         jobs
             .par_iter()
             .filter_map(|j| {
-                // (1) in-memory mtime fast-path — no I/O beyond the cached
-                // entry load when (mtime,size) match the once-loaded index.
-                if let Some(entry) = index.get(&j.rel) {
-                    let im = entry.get("mtime_ns").and_then(|x| x.as_i64());
-                    let is = entry.get("size").and_then(|x| x.as_i64());
-                    if im == Some(j.mtime_ns) && is == Some(j.size) {
-                        if let Some(k) =
-                            entry.get("key").and_then(|x| x.as_str())
-                        {
-                            if let Some(cv) = cache::load(
-                                cache::NAMESPACE_FILE,
-                                k,
-                                repo_root,
-                            ) {
-                                if let Some(f) = FileFacts::from_json(&cv) {
-                                    return Some((
-                                        j.rel.clone(),
-                                        with_git(f, &j.rel, &git_map),
-                                        None,
-                                    ));
-                                }
-                            }
+                // (1) in-memory stat fast-path — no I/O beyond the cached
+                // entry load when the stamp matches the once-loaded index.
+                if let Some(k) =
+                    index.get(&j.rel).and_then(|e| stamp_matches(e, &j.stamp))
+                {
+                    if let Some(cv) =
+                        cache::load(cache::NAMESPACE_FILE, k, repo_root)
+                    {
+                        if let Some(f) = FileFacts::from_json(&cv) {
+                            return Some((
+                                j.rel.clone(),
+                                with_git(f, &j.rel, &git_map),
+                                None,
+                            ));
                         }
                     }
                 }
@@ -575,12 +609,7 @@ pub fn get_batch(
                         return Some((
                             j.rel.clone(),
                             with_git(f, &j.rel, &git_map),
-                            Some((
-                                j.rel.clone(),
-                                j.mtime_ns,
-                                j.size,
-                                key,
-                            )),
+                            Some((j.rel.clone(), j.stamp, key)),
                         ));
                     }
                 }
@@ -589,7 +618,8 @@ pub fn get_batch(
                     .get(&j.rel)
                     .cloned()
                     .unwrap_or_else(GitActivity::empty);
-                let scc_data = scc_map
+                let scc_data = scc
+                    .per_file
                     .get(&j.rel)
                     .cloned()
                     .unwrap_or_else(|| json!({}));
@@ -605,7 +635,7 @@ pub fn get_batch(
                 Some((
                     j.rel.clone(),
                     facts,
-                    Some((j.rel.clone(), j.mtime_ns, j.size, key)),
+                    Some((j.rel.clone(), j.stamp, key)),
                 ))
             })
             .collect();
@@ -615,11 +645,8 @@ pub fn get_batch(
     let mut out = HashMap::with_capacity(resolved.len());
     let mut dirty = false;
     for (rel, facts, upd) in resolved {
-        if let Some((r, mt, sz, key)) = upd {
-            new_index.insert(
-                r,
-                json!({"mtime_ns": mt, "size": sz, "key": key}),
-            );
+        if let Some((r, stamp, key)) = upd {
+            new_index.insert(r, stamp_entry(&stamp, &key));
             dirty = true;
         }
         out.insert(rel, facts);
@@ -628,21 +655,6 @@ pub fn get_batch(
         mtime_index_store(repo_root, new_index);
     }
     out
-}
-
-/// Facts for many files in input order, via the batch resolver (single
-/// index write, in-memory fast-path).
-pub fn get_many(paths: &[PathBuf], repo_root: &Path) -> Vec<FileFacts> {
-    let mut map = get_batch(paths, repo_root);
-    // Preserve input order for callers that relied on it. The rel key is the
-    // same lexical resolution `get_batch` keyed the map by — no canonicalize.
-    paths
-        .iter()
-        .filter_map(|p| {
-            let (_, rel) = resolve_under_root(p, repo_root);
-            map.remove(&rel)
-        })
-        .collect()
 }
 
 /// Resolve a batch input path to `(absolute, repo-relative)` lexically — no
@@ -677,29 +689,20 @@ pub fn file_hashes_for(
     let mut out = std::collections::BTreeMap::new();
     let mut misses: Vec<(PathBuf, String)> = Vec::new();
     for p in paths {
-        if !p.is_file() {
-            continue;
-        }
-        let abs = match p.canonicalize() {
-            Ok(a) => a,
-            Err(_) => continue,
-        };
-        let rel = cache::relative_to_root(&abs, repo_root);
+        // One stat per path, the way `get_batch` resolves: `is_file()` and
+        // `canonicalize()` were two further syscalls per file, and
+        // `canonicalize` walks every path component. Over a 3,198-file
+        // repository that cost more than the answer, and every caller of this
+        // function pays it on every call — it is the freshness check.
+        let (abs, rel) = resolve_under_root(p, repo_root);
         let md = match fs::metadata(&abs) {
-            Ok(m) => m,
-            Err(_) => continue,
+            Ok(m) if m.is_file() => m,
+            _ => continue,
         };
-        let mt = mtime_ns_of(&md);
-        let sz = md.len() as i64;
-        if let Some(entry) = idx.get(&rel) {
-            if entry.get("mtime_ns").and_then(|x| x.as_i64()) == Some(mt)
-                && entry.get("size").and_then(|x| x.as_i64()) == Some(sz)
-            {
-                if let Some(k) = entry.get("key").and_then(|x| x.as_str()) {
-                    out.insert(rel, k.to_string());
-                    continue;
-                }
-            }
+        let stamp = stamp_of(&md);
+        if let Some(k) = idx.get(&rel).and_then(|e| stamp_matches(e, &stamp)) {
+            out.insert(rel, k.to_string());
+            continue;
         }
         misses.push((abs, rel));
     }

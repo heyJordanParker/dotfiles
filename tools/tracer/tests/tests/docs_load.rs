@@ -77,18 +77,18 @@ fn first_load_surfaces_full_chain_with_no_already_loaded_key() {
         &env,
     );
     r.ok();
-    let v = r.json();
+    let v = r.view();
 
-    let docs = v["docs"].as_array().expect("docs must be an array");
+    let docs = v["results"].as_array().expect("docs must be an array");
     assert_eq!(
         docs.len(),
         2,
         "first load must surface both Claude.md ancestors (root + sub): {v}"
     );
-    assert_eq!(v["doc_count"].as_i64().unwrap(), 2);
+    assert_eq!(v["docs"].as_i64().unwrap(), 2);
     assert!(
-        v.get("already_loaded").is_none(),
-        "first load against an empty log must omit `already_loaded` entirely: {v}"
+        v["already_loaded"].as_array().expect("always present").is_empty(),
+        "first load against an empty log must carry an empty `already_loaded`: {v}"
     );
     assert_eq!(v["source"].as_str().unwrap(), "trace_inject_hook");
 
@@ -125,9 +125,9 @@ fn second_load_returns_full_chain_in_already_loaded_with_empty_docs() {
         &env,
     );
     r.ok();
-    let v = r.json();
+    let v = r.view();
 
-    let docs = v["docs"].as_array().expect("docs must be an array");
+    let docs = v["results"].as_array().expect("docs must be an array");
     let already_loaded = v["already_loaded"]
         .as_array()
         .expect("already_loaded must be present when non-empty");
@@ -136,7 +136,7 @@ fn second_load_returns_full_chain_in_already_loaded_with_empty_docs() {
         docs.is_empty(),
         "second load must surface nothing new — chain is in the log: {v}"
     );
-    assert_eq!(v["doc_count"].as_i64().unwrap(), 0);
+    assert_eq!(v["docs"].as_i64().unwrap(), 0);
     assert_eq!(
         already_loaded.len(),
         2,
@@ -286,7 +286,7 @@ fn docs_loaded_by_path_mode_appear_in_already_loaded_with_path_mode_source() {
         &env,
     );
     r.ok();
-    let v = r.json();
+    let v = r.view();
 
     let already_loaded = v["already_loaded"]
         .as_array()
@@ -323,23 +323,23 @@ fn path_mode_returns_the_same_shape_as_load_alias() {
 
     let r_path = f.trace_env(&["docs", "sub/util.py", "--json"], &env_path);
     r_path.ok();
-    let v_path = r_path.json();
+    let v_path = r_path.view();
 
     let r_load = f.trace_env(&["docs", "load", "sub/util.py", "--json"], &env_load);
     r_load.ok();
-    let v_load = r_load.json();
+    let v_load = r_load.view();
 
-    assert!(v_path["docs"].is_array(), "path-mode must carry the `docs` key: {v_path}");
-    assert!(v_load["docs"].is_array(), "load alias must carry the `docs` key: {v_load}");
-    assert_eq!(v_path["doc_count"].as_i64().unwrap(), 2);
-    assert_eq!(v_load["doc_count"].as_i64().unwrap(), 2);
+    assert!(v_path["results"].is_array(), "path-mode must carry the `docs` key: {v_path}");
+    assert!(v_load["results"].is_array(), "load alias must carry the `docs` key: {v_load}");
+    assert_eq!(v_path["docs"].as_i64().unwrap(), 2);
+    assert_eq!(v_load["docs"].as_i64().unwrap(), 2);
     assert!(
-        v_path.get("already_loaded").is_none(),
-        "fresh path-mode call must omit already_loaded: {v_path}"
+        v_path["already_loaded"].as_array().expect("always present").is_empty(),
+        "fresh path-mode call must carry an empty already_loaded: {v_path}"
     );
     assert!(
-        v_load.get("already_loaded").is_none(),
-        "fresh load alias call must omit already_loaded: {v_load}"
+        v_load["already_loaded"].as_array().expect("always present").is_empty(),
+        "fresh load alias call must carry an empty already_loaded: {v_load}"
     );
 
     // Default sources differ.
@@ -356,10 +356,10 @@ fn graph_flag_returns_graph_document() {
     let f = docs_repo();
     let r = f.trace(&["docs", "--graph", "--json"]);
     r.ok();
-    let v = r.json();
-    assert!(v["graph"].is_object(), "graph mode must return a graph object: {v}");
+    let v = r.view();
+    assert!(v["nodes"].is_array(), "graph mode must return the doc nodes: {v}");
     assert!(
-        v["node_count"].as_i64().unwrap() >= 2,
+        r.json()["counts"]["nodes"].as_i64().unwrap() >= 2,
         "graph must surface at least the two Claude.md nodes: {v}"
     );
 }
@@ -396,7 +396,7 @@ fn default_source_when_flag_omitted() {
 
     let r = f.trace_env(&["docs", "load", "sub/util.py", "--json"], &env);
     r.ok();
-    let v = r.json();
+    let v = r.view();
     let default_source = v["source"].as_str().unwrap();
     assert_eq!(
         default_source, "trace_docs_load",
@@ -441,10 +441,10 @@ fn no_session_id_means_load_still_returns_shape_and_writes_no_log() {
         serde_json::from_str(&stdout).expect("standalone load must still return JSON");
     // Without a session id the log no-ops, so EVERY doc
     // surfaces as new on each call; nothing is "already loaded".
-    assert_eq!(v["doc_count"].as_i64().unwrap(), 2);
+    assert_eq!(v["counts"]["docs"].as_i64().unwrap(), 2);
     assert!(
-        v.get("already_loaded").is_none(),
-        "no session id ⇒ no priors ⇒ already_loaded omitted: {v}"
+        v["context"]["already_loaded"].as_array().expect("always present").is_empty(),
+        "no session id ⇒ no priors ⇒ already_loaded empty: {v}"
     );
 }
 
@@ -467,8 +467,8 @@ fn agents_md_surfaces_in_per_file_doc_walk_with_agents_md_kind() {
 
     let r = f.trace_env(&["docs", "load", "sub/util.py", "--json"], &env);
     r.ok();
-    let v = r.json();
-    let docs = v["docs"].as_array().expect("docs must be an array");
+    let v = r.view();
+    let docs = v["results"].as_array().expect("docs must be an array");
     assert_eq!(
         docs.len(),
         2,
@@ -502,8 +502,8 @@ fn agents_local_md_surfaces_with_agents_local_md_kind() {
 
     let r = f.trace_env(&["docs", "load", "util.py", "--json"], &env);
     r.ok();
-    let v = r.json();
-    let kinds: std::collections::BTreeSet<String> = v["docs"]
+    let v = r.view();
+    let kinds: std::collections::BTreeSet<String> = v["results"]
         .as_array()
         .unwrap()
         .iter()
@@ -534,8 +534,8 @@ fn claude_md_and_agents_md_coexist_in_per_file_walk() {
 
     let r = f.trace_env(&["docs", "load", "util.py", "--json"], &env);
     r.ok();
-    let v = r.json();
-    let by_path: std::collections::BTreeMap<String, String> = v["docs"]
+    let v = r.view();
+    let by_path: std::collections::BTreeMap<String, String> = v["results"]
         .as_array()
         .unwrap()
         .iter()
@@ -595,7 +595,7 @@ impl Drop for UserHome {
 /// absolute path when HOME is a symlink (macOS `/var` → `/private/var`), so
 /// matching on the trailing segment is robust to that canonicalization axis.
 fn any_doc_ends_with(v: &serde_json::Value, suffix: &str) -> bool {
-    v["docs"]
+    v["results"]
         .as_array()
         .expect("docs must be an array")
         .iter()
@@ -632,7 +632,7 @@ fn unconditional_user_rules_reach_session_start_conditional_reach_file_touch() {
     let repo_root = f.root.to_string_lossy().into_owned();
     let start = f.trace_env(&["docs", &repo_root, "--json"], &env);
     start.ok();
-    let start_v = start.json();
+    let start_v = start.view();
     assert!(
         any_doc_ends_with(&start_v, ".claude/rules/global.md"),
         "unconditional user-global rule must surface at session start: {start_v}"
@@ -645,7 +645,7 @@ fn unconditional_user_rules_reach_session_start_conditional_reach_file_touch() {
     // File touch: `trace docs sub/util.py` — file mode, same session.
     let touch = f.trace_env(&["docs", "sub/util.py", "--json"], &env);
     touch.ok();
-    let touch_v = touch.json();
+    let touch_v = touch.view();
     assert!(
         any_doc_ends_with(&touch_v, ".claude/rules/pyonly.md"),
         "conditional user-global rule must surface on a matching file touch: {touch_v}"
@@ -659,7 +659,7 @@ fn unconditional_user_rules_reach_session_start_conditional_reach_file_touch() {
     // delivered twice.
     let again = f.trace_env(&["docs", &repo_root, "--json"], &env);
     again.ok();
-    let again_v = again.json();
+    let again_v = again.view();
     assert!(
         !any_doc_ends_with(&again_v, ".claude/rules/global.md"),
         "unconditional user-global rule must not be delivered twice in one session: {again_v}"

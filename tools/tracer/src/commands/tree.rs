@@ -115,6 +115,10 @@ pub fn run(path: &Path, depth: usize, as_json: bool) -> Result<Value> {
     let entries = walk(&base, depth);
     let ctx = repo_context::repo_context(&base);
 
+    // The shoulder is per-file enrichment, so it sits in `context` keyed by
+    // the same path the row carries. A `--filter` that projects rows cannot
+    // take it with them.
+    let mut shoulders = serde_json::Map::new();
     let files: Vec<Value> = entries
         .iter()
         .map(|e| {
@@ -125,21 +129,22 @@ pub fn run(path: &Path, depth: usize, as_json: bool) -> Result<Value> {
                 .strip_prefix(&base_abs)
                 .map(|p| p.to_string_lossy().to_string())
                 .unwrap_or_else(|_| e.full.to_string_lossy().to_string());
+            shoulders.insert(rel.clone(), json!({"shoulder": e.passive_context}));
             json!({
                 "path": rel,
                 "ccn_total": e.ccn_total,
                 "ccn_max_function": e.ccn_max_function,
                 "loc": e.loc,
                 "rank": e.rank,
-                "passive_context": e.passive_context,
             })
         })
         .collect();
-    let value = json!({
-        "root": base.to_string_lossy(),
-        "files": files,
-        "repo_context": ctx.clone(),
-    });
+    let value = crate::output::document(
+        json!({"root": base.to_string_lossy(), "depth": depth}),
+        json!({"repo": ctx.clone(), "files": Value::Object(shoulders)}),
+        json!(files),
+        json!({"files": files.len()}),
+    );
 
     if as_json {
         return Ok(value);

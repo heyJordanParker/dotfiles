@@ -52,8 +52,13 @@ def _trace_docs(target, triggering_tool, env):
 
 
 def _doc_count(response):
+    """Freshly surfaced docs, at `counts.docs` of the trace document.
+
+    This gates the whole hook: a wrong key here reads as zero for every
+    response and leaves a codex session with no rules at all.
+    """
     try:
-        return json.loads(response).get("doc_count", 0) or 0
+        return json.loads(response).get("counts", {}).get("docs", 0) or 0
     except Exception:
         return 0
 

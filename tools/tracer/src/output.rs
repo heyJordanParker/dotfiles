@@ -29,6 +29,24 @@ use anyhow::{bail, Result};
 use serde_json::Value;
 use std::io::Write;
 
+/// The one document shape. Every `--json` result carries the same four
+/// slots, so an agent learns one shape instead of nine names for "the rows"
+/// and ten for "how many", and a `--filter` that projects rows can never
+/// reach the enrichment — it lives outside them.
+///
+///   query    what was asked
+///   context  the enrichment, keyed so a row projection cannot take it
+///   results  the rows
+///   counts   how many
+pub fn document(query: Value, context: Value, results: Value, counts: Value) -> Value {
+    serde_json::json!({
+        "query": query,
+        "context": context,
+        "results": results,
+        "counts": counts,
+    })
+}
+
 /// Validate the `--filter`/`--json` combination before the command runs.
 /// `--filter` operates on JSON, so it requires `--json`.
 pub fn guard(as_json: bool, filter: Option<&str>) -> Result<()> {
@@ -63,6 +81,26 @@ pub fn run_value(
     run_streamed(as_json, filter, |sink| sink.emit(&command()?))
 }
 
+/// Wrap the agent's jq program so its output arrives beside the document's
+/// `context` slot instead of in place of it.
+///
+/// The whole point of tracer is that a repository fact never reaches an agent
+/// stripped of its context, and `--filter '.results'` is the one flag that
+/// could strip it: in the recorded transcripts, 598 of 632 `grep --filter`
+/// expressions projected rows and dropped the enrichment with them. Composing
+/// the program instead of post-processing its output keeps this to one jaq
+/// parse of the document, which on a 60,000-match search is the run's
+/// dominant cost.
+fn keeping_context(program: &str) -> String {
+    // A jq program is a stream, so its outputs are collected into one array.
+    // A program that produced exactly one value is unwrapped again, so
+    // `--filter '.results'` reads as the rows themselves rather than a list
+    // holding the rows, while `--filter '.results[]'` still reads as a list.
+    format!(
+        "{{\"context\": .context, \"results\": ([{program}] | if length == 1 then .[0] else . end)}}"
+    )
+}
+
 pub struct Sink<'a> {
     as_json: bool,
     filter: Option<&'a str>,
@@ -89,7 +127,7 @@ impl Sink<'_> {
         // allocation in the run.
         let mut json = Vec::new();
         crate::jsonfmt::write_pretty(&mut json, document)?;
-        let results = crate::filter::apply(&json, program)?;
+        let results = crate::filter::apply(&json, &keeping_context(program))?;
         drop(json);
         for result in results {
             crate::jsonfmt::write_pretty(&mut w, &result)?;

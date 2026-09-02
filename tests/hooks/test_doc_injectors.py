@@ -76,6 +76,11 @@ def _context(stdout):
     return re.sub(r"^<\w+_agent>\n(.*)\n</\w+_agent>$", r"\1", ctx, flags=re.S)
 
 
+def _docs_surfaced(ctx):
+    """Freshly surfaced doc count, at `counts.docs` of the trace document."""
+    return json.loads(ctx).get("counts", {}).get("docs", 0) or 0
+
+
 def _event_name(stdout):
     return json.loads(stdout)["hookSpecificOutput"]["hookEventName"]
 
@@ -92,7 +97,7 @@ def test_docs_emits_for_path_taking_trace_command():
     assert rc == 0
     ctx = _context(out)
     assert ctx, "expected injected docs for a path-taking trace command"
-    assert json.loads(ctx).get("doc_count", 0) > 0
+    assert _docs_surfaced(ctx) > 0
 
 
 def test_docs_blocks_when_trace_docs_fails(tmp_path):
@@ -140,7 +145,7 @@ def test_rules_emits_on_session_start():
     assert rc == 0
     ctx = _context(out)
     assert ctx, "expected repo-root rules on SessionStart"
-    assert json.loads(ctx).get("doc_count", 0) > 0
+    assert _docs_surfaced(ctx) > 0
     assert _event_name(out) == "SessionStart"
 
 

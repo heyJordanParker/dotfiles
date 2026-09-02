@@ -1,6 +1,6 @@
-//! Architecture-graph commands: callers, defines, symbols, upstream,
-//! downstream (both symbol and `--path` modes). These read only the
-//! `architecture/` cache namespace.
+//! Architecture-graph commands: callers, defines, structure, dependencies,
+//! usages (both symbol and `--path` modes). These read the relations index
+//! in the `file/` cache namespace.
 //!
 //! The contract these tests pin is not "the expected node appears" — a graph
 //! that links everything to everything would pass that. They pin:
@@ -55,6 +55,25 @@ fn chain_repo() -> Fixture {
     f
 }
 
+/// The one result row for `node_id`. The graph commands return a row list,
+/// so a test that means "the entry for this symbol" says so.
+fn symbol<'a>(v: &'a serde_json::Value, node_id: &str) -> &'a serde_json::Value {
+    v["results"]
+        .as_array()
+        .unwrap_or_else(|| panic!("results must be a row list: {v}"))
+        .iter()
+        .find(|row| row["node_id"].as_str() == Some(node_id))
+        .unwrap_or_else(|| panic!("no result row for {node_id}: {v}"))
+}
+
+/// The file-state shoulder the document carries for `path`, out of the
+/// `context` slot where every command keeps its enrichment.
+fn shoulder_of<'a>(v: &'a serde_json::Value, path: &str) -> &'a str {
+    v["files"][path]["shoulder"]
+        .as_str()
+        .unwrap_or_else(|| panic!("no shoulder for {path}: {v}"))
+}
+
 /// Helper: collect `node_id`s from a dependency/dependent array.
 fn node_ids(arr: &serde_json::Value) -> Vec<String> {
     arr.as_array()
@@ -74,9 +93,9 @@ fn callers_resolves_cross_file_importer() {
     f.trace(&["cache", "build", "."]).ok();
     let r = f.trace(&["callers", "helper", "--json"]);
     r.ok();
-    let v = r.json();
+    let v = r.view();
     // helper is defined in src/util.py and imported by src/app.py.
-    let entry = &v["src/util.py::helper"];
+    let entry = &symbol(&v, "src/util.py::helper");
     assert_eq!(entry["symbol"], "helper");
     let callers = entry["callers"].as_array().unwrap();
     assert!(
@@ -97,8 +116,8 @@ fn callers_excludes_unrelated_symbol() {
     f.trace(&["cache", "build", "."]).ok();
     let r = f.trace(&["callers", "lone_fn", "--json"]);
     r.ok();
-    let v = r.json();
-    let callers = v["lone.py::lone_fn"]["callers"].as_array().unwrap();
+    let v = r.view();
+    let callers = symbol(&v, "lone.py::lone_fn")["callers"].as_array().unwrap();
     assert!(
         callers.is_empty(),
         "lone_fn has no referencer; callers must be empty, got {:?}",
@@ -112,9 +131,9 @@ fn callers_excludes_unrelated_symbol() {
     // over-connected graph and a regression back to module granularity.
     let r = f.trace(&["callers", "d_fn", "--json"]);
     r.ok();
-    let v = r.json();
-    let callers = v["pkg/d.py::d_fn"]["callers"].as_array().unwrap();
-    let ids = node_ids(&v["pkg/d.py::d_fn"]["callers"]);
+    let v = r.view();
+    let callers = symbol(&v, "pkg/d.py::d_fn")["callers"].as_array().unwrap();
+    let ids = node_ids(&symbol(&v, "pkg/d.py::d_fn")["callers"]);
     assert_eq!(
         ids,
         vec!["pkg/c.py::c_fn".to_string()],
@@ -142,9 +161,9 @@ fn callers_excludes_unrelated_symbol() {
     assert_eq!(row["source_line"].as_i64(), Some(4));
     assert_eq!(row["relation"].as_str(), Some("references"));
     assert_eq!(row["label"].as_str(), Some("c_fn"));
-    assert_eq!(v["pkg/d.py::d_fn"]["caller_count"].as_i64(), Some(1));
-    assert_eq!(v["pkg/d.py::d_fn"]["resolved_count"].as_i64(), Some(1));
-    assert_eq!(v["pkg/d.py::d_fn"]["ambiguous_count"].as_i64(), Some(0));
+    assert_eq!(symbol(&v, "pkg/d.py::d_fn")["caller_count"].as_i64(), Some(1));
+    assert_eq!(symbol(&v, "pkg/d.py::d_fn")["resolved_count"].as_i64(), Some(1));
+    assert_eq!(symbol(&v, "pkg/d.py::d_fn")["ambiguous_count"].as_i64(), Some(0));
 }
 
 #[test]
@@ -159,16 +178,15 @@ fn caller_row_carries_use_site_file_shoulder() {
     f.trace(&["cache", "build", "."]).ok();
     let r = f.trace(&["callers", "d_fn", "--json"]);
     r.ok();
-    let v = r.json();
-    let row = v["pkg/d.py::d_fn"]["callers"]
+    let v = r.view();
+    let row = symbol(&v, "pkg/d.py::d_fn")["callers"]
         .as_array()
         .unwrap()
         .iter()
         .find(|c| c["source_file"].as_str() == Some("pkg/c.py"))
         .expect("missing pkg/c.py use site");
-    let shoulder = row["shoulder"]
-        .as_str()
-        .expect("caller row must carry a non-null shoulder for an in-repo use-site file");
+    let _ = row;
+    let shoulder = shoulder_of(&v, "pkg/c.py");
     assert!(
         shoulder.starts_with("[git: new (1 commit) \u{00b7} age:"),
         "caller-row shoulder must be the canonical bracketed file-state shoulder: {shoulder:?}"
@@ -181,24 +199,23 @@ fn caller_row_carries_use_site_file_shoulder() {
 }
 
 #[test]
-fn downstream_dependent_row_carries_file_shoulder() {
+fn usages_dependent_row_carries_file_shoulder() {
     // A downstream result row carries the canonical shoulder of the
     // dependent file. In the a→b→c→d chain, d_fn's transitive dependents are
     // the modules pkg.a/pkg.b/pkg.c; each row's shoulder is that dependent
     // file's canonical file-state shoulder.
     let f = chain_repo();
     f.trace(&["cache", "build", "."]).ok();
-    let r = f.trace(&["downstream", "d_fn", "--json"]);
+    let r = f.trace(&["usages", "d_fn", "--json"]);
     r.ok();
-    let v = r.json();
-    let deps = v["pkg/d.py::d_fn"]["dependents"].as_array().unwrap();
+    let v = r.view();
+    let deps = symbol(&v, "pkg/d.py::d_fn")["dependents"].as_array().unwrap();
     let row = deps
         .iter()
         .find(|d| d["source_file"].as_str() == Some("pkg/c.py"))
         .expect("pkg/c.py must be a dependent of d_fn");
-    let shoulder = row["shoulder"]
-        .as_str()
-        .expect("downstream row must carry a non-null shoulder for an in-repo dependent file");
+    let _ = row;
+    let shoulder = shoulder_of(&v, "pkg/c.py");
     assert!(
         shoulder.starts_with("[git: new (1 commit) \u{00b7} age:")
             && shoulder.contains("\u{00b7} churn: 1 commit, 1/30d \u{00b7}"),
@@ -216,16 +233,15 @@ fn defines_row_carries_definition_file_shoulder() {
     f.trace(&["cache", "build", "."]).ok();
     let r = f.trace(&["defines", "d_fn", "--json"]);
     r.ok();
-    let v = r.json();
-    let row = v["definitions"]
+    let v = r.view();
+    let row = v["results"]
         .as_array()
         .unwrap()
         .iter()
         .find(|d| d["source_file"].as_str() == Some("pkg/d.py"))
         .expect("d_fn must be defined in pkg/d.py");
-    let shoulder = row["shoulder"]
-        .as_str()
-        .expect("defines row must carry a non-null shoulder for an in-repo definition file");
+    let _ = row;
+    let shoulder = shoulder_of(&v, "pkg/d.py");
     assert!(
         shoulder.starts_with("[git: new (1 commit) \u{00b7} age:")
             && shoulder.contains("\u{00b7} churn: 1 commit, 1/30d \u{00b7}")
@@ -235,23 +251,94 @@ fn defines_row_carries_definition_file_shoulder() {
 }
 
 #[test]
-fn symbols_command_carries_file_shoulder() {
-    // `trace symbols <file>` carries the canonical passive-context shoulder of
-    // the file at the top level, so listing a file's module-level symbols also
+fn structure_carries_file_shoulder() {
+    // `trace structure <file>` carries the canonical passive-context shoulder
+    // of the file at the top level, so listing what a file declares also
     // surfaces that file's state. pkg/d.py is a settled single-commit file.
     let f = chain_repo();
     f.trace(&["cache", "build", "."]).ok();
-    let r = f.trace(&["symbols", "pkg/d.py", "--json"]);
+    let r = f.trace(&["structure", "pkg/d.py", "--json"]);
     r.ok();
-    let v = r.json();
-    let shoulder = v["shoulder"]
+    let v = r.view();
+    let file = v["file"].as_str().expect("structure echoes the file it read");
+    let shoulder = v["files"][file]["shoulder"]
         .as_str()
-        .expect("symbols must carry a non-null shoulder for an in-repo file");
+        .expect("structure must carry a non-null shoulder for an in-repo file");
     assert!(
         shoulder.starts_with("[git: new (1 commit) \u{00b7} age:")
             && shoulder.contains("\u{00b7} churn: 1 commit, 1/30d \u{00b7}")
             && shoulder.contains("\u{00b7} presence: local-only \u{00b7}"),
-        "symbols shoulder must be the canonical file-state shoulder: {shoulder:?}"
+        "structure shoulder must be the canonical file-state shoulder: {shoulder:?}"
+    );
+}
+
+/// `callers` bounds its rows the way every other row command does: a
+/// `--limit` with the `find` truncation contract, and nothing silently
+/// dropped.
+///
+/// A member call fans out to one row per same-named candidate, so a common
+/// method name multiplies: `get` in laravel-framework is declared 112 times
+/// and its 2,055 call sites produce 224,908 rows. The cut must say how many
+/// there were, say that it cut, and give the whole set back on request —
+/// never decide for the caller that some of them do not exist.
+#[test]
+fn callers_truncates_by_limit_and_says_what_it_held_back() {
+    let f = Fixture::new();
+    for n in 0..11 {
+        f.write(
+            &format!("src/C{n}.php"),
+            &format!("<?php\nclass C{n}\n{{\n    public function get()\n    {{\n        return {n};\n    }}\n}}\n"),
+        );
+    }
+    // Three call sites × eleven candidates = 33 ambiguous rows.
+    f.write(
+        "src/call.php",
+        "<?php\nfunction run($x)\n{\n    $x->get();\n    $x->get();\n    return $x->get();\n}\n",
+    );
+    f.commit("eleven methods named get");
+
+    let whole = f.trace(&["callers", "get", "--limit", "1000", "--json"]);
+    whole.ok();
+    let v = whole.view();
+    assert_eq!(
+        v["total"].as_i64().unwrap(),
+        33,
+        "every candidate of every site is a row: {}",
+        whole.stdout
+    );
+    assert_eq!(
+        v["truncated"], false,
+        "a limit above the total must not truncate: {}",
+        whole.stdout
+    );
+
+    let cut = f.trace(&["callers", "get", "--limit", "5", "--json"]);
+    cut.ok();
+    let c = cut.view();
+    assert_eq!(
+        c["total"].as_i64().unwrap(),
+        33,
+        "the total must survive the cut: {}",
+        cut.stdout
+    );
+    assert_eq!(
+        c["truncated"], true,
+        "a limit below the total must say it cut: {}",
+        cut.stdout
+    );
+    assert_eq!(
+        c["callers"].as_i64().unwrap(),
+        5,
+        "exactly `limit` rows survive: {}",
+        cut.stdout
+    );
+    // The human render names the flag that returns the rest.
+    let human = f.trace(&["callers", "get", "--limit", "5"]);
+    human.ok();
+    assert!(
+        human.stdout.contains("see all: --limit 33"),
+        "the cut must name the command that undoes it:\n{}",
+        human.stdout
     );
 }
 
@@ -261,7 +348,11 @@ fn callers_unknown_symbol_exits_2() {
     f.trace(&["cache", "build", "."]).ok();
     let r = f.trace(&["callers", "NoSuchSymbol_zzz"]);
     r.code_is(2);
-    assert!(r.combined().contains("not found"), "{}", r.combined());
+    assert!(
+        r.combined().contains("not declared anywhere in this repository"),
+        "a miss must name the symbol and say it is not declared here: {}",
+        r.combined()
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -274,18 +365,18 @@ fn defines_locates_symbol_definition() {
     f.trace(&["cache", "build", "."]).ok();
     let r = f.trace(&["defines", "helper", "--json"]);
     r.ok();
-    let v = r.json();
+    let v = r.view();
     assert_eq!(v["symbol"], "helper");
     // helper is defined in exactly one fixture file (src/util.py); the
     // absence assertion below proves no other file defines it, so the
     // count is exactly 1.
     assert_eq!(
-        v["definition_count"].as_i64().unwrap(),
+        v["definitions"].as_i64().unwrap(),
         1,
         "helper is defined exactly once in the fixture: {}",
         v
     );
-    let defs = v["definitions"].as_array().unwrap();
+    let defs = v["results"].as_array().unwrap();
     assert!(
         defs.iter()
             .any(|d| d["source_file"].as_str() == Some("src/util.py")),
@@ -311,39 +402,32 @@ fn defines_unknown_symbol_exits_2() {
 }
 
 // ---------------------------------------------------------------------------
-// symbols
+// structure — the graph resolution per declaration
 // ---------------------------------------------------------------------------
 
 #[test]
-fn symbols_lists_module_level_symbols_of_a_file() {
+fn structure_resolves_each_declaration_to_its_graph_node() {
+    // The row-level `node_id` is what makes a declaration addressable by
+    // `callers` / `usages` / `dependencies`, and it is the resolution the
+    // separate `symbols` command used to be the only way to see.
     let f = standard_repo();
     f.trace(&["cache", "build", "."]).ok();
-    let r = f.trace(&["symbols", "src/util.py", "--json"]);
+    let r = f.trace(&["structure", "src/util.py", "--json"]);
     r.ok();
-    let v = r.json();
-    assert_eq!(v["file"], "src/util.py");
-    let names: Vec<&str> = v["symbols"]
-        .as_array()
+    let v = r.view();
+    let ids: Vec<String> = v["symbols_by_kind"]
+        .as_object()
         .unwrap()
-        .iter()
-        .map(|s| s["label"].as_str().unwrap())
+        .values()
+        .flat_map(|rows| rows.as_array().unwrap().iter())
+        .filter_map(|s| s["node_id"].as_str().map(|x| x.to_string()))
         .collect();
-    // src/util.py defines exactly one module-level symbol, `helper`; the
-    // exact set is pinned (this also subsumes the cross-file absence
-    // check, kept below as an explicit guard against a regression that
-    // would add foreign symbols).
+    // src/util.py declares exactly one graph-resolved symbol, `helper`. The
+    // exact set also proves no foreign file's symbols leak into the rows.
     assert_eq!(
-        names,
-        vec!["helper"],
-        "src/util.py symbols must be exactly [helper]: {:?}",
-        names
-    );
-    // Absence: a symbol that lives in a different file must not be listed
-    // for src/util.py.
-    assert!(
-        !names.contains(&"main") && !names.contains(&"render"),
-        "src/util.py must not list symbols from other files: {:?}",
-        names
+        ids,
+        vec!["src/util.py::helper".to_string()],
+        "src/util.py must resolve exactly [src/util.py::helper]: {ids:?}"
     );
 }
 
@@ -352,13 +436,13 @@ fn symbols_lists_module_level_symbols_of_a_file() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn upstream_symbol_mode_returns_dependencies() {
+fn dependencies_symbol_mode_returns_dependencies() {
     let f = standard_repo();
     f.trace(&["cache", "build", "."]).ok();
-    let r = f.trace(&["upstream", "main", "--json"]);
+    let r = f.trace(&["dependencies", "main", "--json"]);
     r.ok();
-    let v = r.json();
-    let deps = v["src/app.py::main"]["dependencies"].as_array().unwrap();
+    let v = r.view();
+    let deps = symbol(&v, "src/app.py::main")["dependencies"].as_array().unwrap();
     assert!(
         deps.iter()
             .any(|d| d["node_id"].as_str() == Some("src/util.py::helper")),
@@ -368,17 +452,17 @@ fn upstream_symbol_mode_returns_dependencies() {
 }
 
 #[test]
-fn upstream_transitive_reach_is_exact_per_depth() {
+fn dependencies_transitive_reach_is_exact_per_depth() {
     // a_fn → b_fn → c_fn → d_fn. Forward edges resolve to symbol nodes.
     // depth N must include exactly the first N hops — no more, no fewer.
     let f = chain_repo();
     f.trace(&["cache", "build", "."]).ok();
 
     let at = |depth: &str| -> Vec<String> {
-        let r = f.trace(&["upstream", "a_fn", "--depth", depth, "--json"]);
+        let r = f.trace(&["dependencies", "a_fn", "--depth", depth, "--json"]);
         r.ok();
-        let v = r.json();
-        let mut ids = node_ids(&v["pkg/a.py::a_fn"]["dependencies"]);
+        let v = r.view();
+        let mut ids = node_ids(&symbol(&v, "pkg/a.py::a_fn")["dependencies"]);
         ids.sort();
         ids
     };
@@ -415,9 +499,9 @@ fn upstream_transitive_reach_is_exact_per_depth() {
 }
 
 #[test]
-fn upstream_missing_arg_exits_2() {
+fn dependencies_missing_arg_exits_2() {
     let f = standard_repo();
-    let r = f.trace(&["upstream"]);
+    let r = f.trace(&["dependencies"]);
     r.code_is(2);
     assert!(r.combined().contains("SYMBOL or --path"), "{}", r.combined());
 }
@@ -427,13 +511,13 @@ fn upstream_missing_arg_exits_2() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn downstream_symbol_mode_returns_dependents() {
+fn usages_symbol_mode_returns_dependents() {
     let f = standard_repo();
     f.trace(&["cache", "build", "."]).ok();
-    let r = f.trace(&["downstream", "helper", "--json"]);
+    let r = f.trace(&["usages", "helper", "--json"]);
     r.ok();
-    let v = r.json();
-    let dependents = v["src/util.py::helper"]["dependents"].as_array().unwrap();
+    let v = r.view();
+    let dependents = symbol(&v, "src/util.py::helper")["dependents"].as_array().unwrap();
     assert!(
         !dependents.is_empty(),
         "helper has a dependent (app.py imports it): {:?}",
@@ -442,7 +526,7 @@ fn downstream_symbol_mode_returns_dependents() {
 }
 
 #[test]
-fn downstream_transitive_reach_is_exact_per_depth() {
+fn usages_transitive_reach_is_exact_per_depth() {
     // d_fn ← pkg.c ← pkg.b ← pkg.a. Reverse edges resolve to module nodes.
     // This is the case that exposed the dead-end-after-one-hop defect:
     // before the fix, depth 2/3/9 all returned only `module::pkg.c`.
@@ -450,10 +534,10 @@ fn downstream_transitive_reach_is_exact_per_depth() {
     f.trace(&["cache", "build", "."]).ok();
 
     let at = |depth: &str| -> Vec<String> {
-        let r = f.trace(&["downstream", "d_fn", "--depth", depth, "--json"]);
+        let r = f.trace(&["usages", "d_fn", "--depth", depth, "--json"]);
         r.ok();
-        let v = r.json();
-        let mut ids = node_ids(&v["pkg/d.py::d_fn"]["dependents"]);
+        let v = r.view();
+        let mut ids = node_ids(&symbol(&v, "pkg/d.py::d_fn")["dependents"]);
         ids.sort();
         ids
     };
@@ -485,14 +569,14 @@ fn downstream_transitive_reach_is_exact_per_depth() {
 }
 
 #[test]
-fn downstream_excludes_unrelated_symbol() {
+fn usages_excludes_unrelated_symbol() {
     // Absence: the island has no dependents at any depth.
     let f = chain_repo();
     f.trace(&["cache", "build", "."]).ok();
-    let r = f.trace(&["downstream", "lone_fn", "--depth", "9", "--json"]);
+    let r = f.trace(&["usages", "lone_fn", "--depth", "9", "--json"]);
     r.ok();
-    let v = r.json();
-    let dependents = v["lone.py::lone_fn"]["dependents"].as_array().unwrap();
+    let v = r.view();
+    let dependents = symbol(&v, "lone.py::lone_fn")["dependents"].as_array().unwrap();
     assert!(
         dependents.is_empty(),
         "lone_fn is imported by nobody; dependents must be empty: {:?}",
@@ -501,9 +585,9 @@ fn downstream_excludes_unrelated_symbol() {
 }
 
 #[test]
-fn downstream_missing_arg_exits_2() {
+fn usages_missing_arg_exits_2() {
     let f = standard_repo();
-    let r = f.trace(&["downstream"]);
+    let r = f.trace(&["usages"]);
     r.code_is(2);
     assert!(r.combined().contains("SYMBOL or --path"), "{}", r.combined());
 }
@@ -535,10 +619,10 @@ fn reverse_query_returns_complete_dependent_set() {
     f.commit("fan-in repo");
     f.trace(&["cache", "build", "."]).ok();
 
-    let r = f.trace(&["downstream", "core_fn", "--depth", "1", "--json"]);
+    let r = f.trace(&["usages", "core_fn", "--depth", "1", "--json"]);
     r.ok();
-    let v = r.json();
-    let mut dependents = node_ids(&v["pkg/core.py::core_fn"]["dependents"]);
+    let v = r.view();
+    let mut dependents = node_ids(&symbol(&v, "pkg/core.py::core_fn")["dependents"]);
     dependents.sort();
     let mut expected = vec![
         "module::pkg.one".to_string(),
@@ -558,8 +642,8 @@ fn reverse_query_returns_complete_dependent_set() {
     // and never the island.
     let cr = f.trace(&["callers", "core_fn", "--json"]);
     cr.ok();
-    let cv = cr.json();
-    let callers = cv["pkg/core.py::core_fn"]["callers"]
+    let cv = cr.view();
+    let callers = symbol(&cv, "pkg/core.py::core_fn")["callers"]
         .as_array()
         .expect("core_fn callers array must exist");
     let caller_files: std::collections::BTreeSet<&str> = callers
@@ -608,8 +692,8 @@ fn callers_reports_confidence_classes() {
 
     let r = f.trace(&["callers", "only_here", "--json"]);
     r.ok();
-    let v = r.json();
-    let callers = v["uniq.py::only_here"]["callers"].as_array().unwrap();
+    let v = r.view();
+    let callers = symbol(&v, "uniq.py::only_here")["callers"].as_array().unwrap();
     assert_eq!(callers.len(), 1, "only_here has one caller: {:?}", callers);
     assert_eq!(
         callers[0]["confidence"].as_str(),
@@ -620,8 +704,8 @@ fn callers_reports_confidence_classes() {
 
     let r = f.trace(&["callers", "rare_unique_name", "--json"]);
     r.ok();
-    let v = r.json();
-    let callers = v["target.py::rare_unique_name"]["callers"]
+    let v = r.view();
+    let callers = symbol(&v, "target.py::rare_unique_name")["callers"]
         .as_array()
         .unwrap();
     assert_eq!(callers.len(), 1, "rare has one caller: {:?}", callers);
@@ -638,16 +722,16 @@ fn callers_reports_confidence_classes() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn downstream_path_mode_ranks_central_nodes_exactly() {
+fn usages_path_mode_ranks_central_nodes_exactly() {
     // In the chain a→b→c→d, the most-depended-on symbol is d_fn (3 transitive
     // dependents), then c_fn (2), then b_fn (1). a_fn has 0 dependents and
     // must not rank. Exact ordering — not "is an array".
     let f = chain_repo();
     f.trace(&["cache", "build", "."]).ok();
-    let r = f.trace(&["downstream", "--path", ".", "--json"]);
+    let r = f.trace(&["usages", "--path", ".", "--json"]);
     r.ok();
-    let v = r.json();
-    assert_eq!(v["mode"], "downstream");
+    let v = r.view();
+    assert_eq!(v["mode"], "path");
     let rows = v["results"].as_array().unwrap();
 
     let triples: Vec<(String, i64, i64)> = rows
@@ -681,15 +765,15 @@ fn downstream_path_mode_ranks_central_nodes_exactly() {
 }
 
 #[test]
-fn upstream_path_mode_ranks_high_coupling_nodes_exactly() {
+fn dependencies_path_mode_ranks_high_coupling_nodes_exactly() {
     // Highest fan-out (transitive dependencies): pkg.a (3) > pkg.b (2) >
     // pkg.c (1). pkg.d depends on nothing internal and must not rank.
     let f = chain_repo();
     f.trace(&["cache", "build", "."]).ok();
-    let r = f.trace(&["upstream", "--path", ".", "--json"]);
+    let r = f.trace(&["dependencies", "--path", ".", "--json"]);
     r.ok();
-    let v = r.json();
-    assert_eq!(v["mode"], "upstream");
+    let v = r.view();
+    assert_eq!(v["mode"], "path");
     let rows = v["results"].as_array().unwrap();
 
     let triples: Vec<(String, i64, i64)> = rows
@@ -722,12 +806,12 @@ fn upstream_path_mode_ranks_high_coupling_nodes_exactly() {
 }
 
 #[test]
-fn downstream_path_mode_respects_limit() {
+fn usages_path_mode_respects_limit() {
     let f = chain_repo();
     f.trace(&["cache", "build", "."]).ok();
-    let r = f.trace(&["downstream", "--path", ".", "--limit", "1", "--json"]);
+    let r = f.trace(&["usages", "--path", ".", "--limit", "1", "--json"]);
     r.ok();
-    let v = r.json();
+    let v = r.view();
     let rows = v["results"].as_array().unwrap();
     assert_eq!(rows.len(), 1, "--limit 1 must cap results: {:?}", rows);
     // The single survivor must be the top-ranked one (d_fn), not an

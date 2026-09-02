@@ -1,41 +1,16 @@
-//! Edge cases the suite pins down: missing path, path outside any repo,
-//! empty directory, non-source / binary file, a very large file.
+//! The promise: the numbers about a file are exact, and an input that is not
+//! ordinary source still gets an answer.
+//!
+//! `stats`, `info`, `list`, `read` and `logs` are what an agent asks when it
+//! wants facts about files rather than relationships between them. Every
+//! count here is asserted as an exact value on a fixture whose right answer
+//! is known by construction — a presence-only check passes even when every
+//! number is wrong. The degenerate inputs (no repo, empty directory, binary
+//! bytes, prose, a 3,000-function file) are here because each one used to
+//! crash or return a wrong number.
 
 use std::fs;
 use tracer_cli_tests::{trace, Fixture};
-
-#[test]
-fn missing_file_read_exits_2() {
-    let f = Fixture::new();
-    f.write("real.py", "pass\n");
-    f.commit("c");
-    let r = f.trace(&["read", f.path("does_not_exist.py").as_str()]);
-    r.code_is(2);
-    assert!(r.combined().contains("file not found"), "{}", r.combined());
-}
-
-#[test]
-fn missing_file_history_fails_with_clear_error() {
-    let f = Fixture::new();
-    f.write("real.py", "pass\n");
-    f.commit("c");
-    // history's <file> is optional (file / file+symbol / --contains modes),
-    // so a missing file is an explicit runtime not-found: non-zero exit with
-    // a clear stderr message, not the pathval exit-2 path that required-arg
-    // commands like `read` use.
-    let r = f.trace(&["history", f.path("ghost.py").as_str()]);
-    assert_ne!(r.code, 0, "expected non-zero exit:\n{}", r.combined());
-    assert!(r.combined().contains("file not found"), "{}", r.combined());
-}
-
-#[test]
-fn missing_symbol_callers_exits_2() {
-    let f = Fixture::new();
-    f.write("a.py", "def a():\n    return 1\n");
-    f.commit("c");
-    f.trace(&["cache", "build", "."]).ok();
-    f.trace(&["callers", "totally_absent_symbol"]).code_is(2);
-}
 
 #[test]
 fn path_outside_any_repo_still_works() {
@@ -51,15 +26,15 @@ fn path_outside_any_repo_still_works() {
     fs::create_dir_all(&tmp).unwrap();
     fs::write(tmp.join("lone.py"), "def f(x):\n    return x\n").unwrap();
 
-    let survey = trace(&tmp, ["survey", ".", "--json"]);
+    let survey = trace(&tmp, ["stats", ".", "--json"]);
     survey.ok();
-    let v = survey.json();
+    let v = survey.view();
     // No git, scc still classifies the one lone.py: exactly one Python
     // file, 2 loc, 0 file-level complexity. (total_files and distribution
     // are likewise fixed; top_complex carries an absolute temp path that
     // varies per run, so only the deterministic facets are pinned.)
     assert_eq!(
-        v["total_files"].as_i64().unwrap(),
+        v["files"].as_i64().unwrap(),
         1,
         "survey outside a repo must count exactly the one file: {v}"
     );
@@ -78,19 +53,19 @@ fn path_outside_any_repo_still_works() {
 
     let info = trace(&tmp, ["info", &tmp.join("lone.py").to_string_lossy(), "--json"]);
     info.ok();
-    let iv = info.json();
+    let iv = info.view();
     // `def f(x): return x` — no branches: exactly one function, CCN 1.
     assert_eq!(
-        iv["function_count"].as_i64().unwrap(),
+        iv["functions"].as_i64().unwrap(),
         1,
         "info failed to analyze a file outside any repo"
     );
     assert_eq!(
-        iv["cyclomatic_complexity_total"].as_i64().unwrap(),
+        iv["ccn_total"].as_i64().unwrap(),
         1,
         "branchless f() must have CCN exactly 1 outside a repo"
     );
-    assert_eq!(iv["cyclomatic_complexity_max"].as_i64().unwrap(), 1);
+    assert_eq!(iv["ccn_max_function"].as_i64().unwrap(), 1);
 
     fs::remove_dir_all(&tmp).ok();
 }
@@ -100,19 +75,19 @@ fn path_outside_any_repo_still_works() {
 /// two `if`-bearing (scc complexity 1 each) and one branchless (0). A
 /// presence-only check would pass even if every number were wrong.
 #[test]
-fn survey_reports_exact_numbers_on_known_fixture() {
+fn stats_reports_exact_numbers_on_known_fixture() {
     let f = Fixture::new();
     f.write("src/a.py", "def a(x):\n    if x:\n        return 1\n    return 0\n");
     f.write("src/b.py", "def b(x):\n    if x:\n        return 1\n    return 0\n");
     f.write("src/c.py", "def c():\n    return 1\n");
     f.commit("three known python files");
 
-    let r = f.trace(&["survey", ".", "--json"]);
+    let r = f.trace(&["stats", ".", "--json"]);
     r.ok();
-    let v = r.json();
+    let v = r.view();
 
     assert_eq!(
-        v["total_files"].as_i64().unwrap(),
+        v["files"].as_i64().unwrap(),
         3,
         "exactly three source files: {}",
         r.stdout
@@ -174,9 +149,8 @@ fn empty_directory_info_does_not_crash() {
     fs::create_dir_all(f.root.join("hollow")).unwrap();
     let r = f.trace(&["info", "hollow", "--json"]);
     r.ok();
-    let v = r.json();
     assert_eq!(
-        v["file_count"].as_i64().unwrap(),
+        r.json()["counts"]["files"].as_i64().unwrap(),
         0,
         "empty dir should report zero files: {}",
         r.stdout
@@ -191,7 +165,7 @@ fn empty_directory_list_is_clean() {
     fs::create_dir_all(f.root.join("hollow")).unwrap();
     let r = f.trace(&["list", "hollow", "--json"]);
     r.ok();
-    let v = r.json();
+    let v = r.view();
     assert!(v["files"].as_array().unwrap().is_empty());
     assert!(v["directories"].as_array().unwrap().is_empty());
 }
@@ -215,9 +189,9 @@ fn non_source_file_info_yields_zero_complexity() {
     f.commit("docs");
     let r = f.trace(&["info", "notes.md", "--json"]);
     r.ok();
-    let v = r.json();
+    let v = r.view();
     assert_eq!(
-        v["function_count"].as_i64().unwrap(),
+        v["functions"].as_i64().unwrap(),
         0,
         "markdown has no functions: {}",
         r.stdout
@@ -237,26 +211,26 @@ fn very_large_file_is_analyzed_correctly() {
     f.commit("huge file");
     let r = f.trace(&["info", "huge.py", "--json"]);
     r.ok();
-    let v = r.json();
+    let v = r.view();
     assert_eq!(
-        v["function_count"].as_i64().unwrap(),
+        v["functions"].as_i64().unwrap(),
         3000,
         "large-file function count wrong: {}",
-        v["function_count"]
+        v["functions"]
     );
     // Each fn: base 1 + if(1) + short-circuit `and`(1) = 3. The exact
     // aggregate is 3000 * 3 = 9000 — a lower bound would pass even if
     // the `and` were silently dropped (which would give 6000).
     assert_eq!(
-        v["cyclomatic_complexity_max"].as_i64().unwrap(),
+        v["ccn_max_function"].as_i64().unwrap(),
         3,
         "each fn must be exactly 3 (if + `and` over base 1): {}",
-        v["cyclomatic_complexity_max"]
+        v["ccn_max_function"]
     );
     assert_eq!(
-        v["cyclomatic_complexity_total"].as_i64().unwrap(),
+        v["ccn_total"].as_i64().unwrap(),
         9000,
         "large-file ccn aggregate must be exactly 3000*3: {}",
-        v["cyclomatic_complexity_total"]
+        v["ccn_total"]
     );
 }

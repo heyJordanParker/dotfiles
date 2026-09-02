@@ -5,19 +5,30 @@
 use std::fs;
 use tracer_cli_tests::Fixture;
 
+/// The one result row for `node_id`. The graph commands return a row list,
+/// so a test that means "the entry for this symbol" says so.
+fn symbol<'a>(v: &'a serde_json::Value, node_id: &str) -> &'a serde_json::Value {
+    v["results"]
+        .as_array()
+        .unwrap_or_else(|| panic!("results must be a row list: {v}"))
+        .iter()
+        .find(|row| row["node_id"].as_str() == Some(node_id))
+        .unwrap_or_else(|| panic!("no result row for {node_id}: {v}"))
+}
+
 // ---------------------------------------------------------------------------
-// Contradiction 1 — stale architecture cache after a schema-shape change
+// Contradiction 1 — stale relations index after a schema-shape change
 // ---------------------------------------------------------------------------
 //
 // Simulates "binary upgrade against a repo with a pre-existing
 // `.tracer-cache/`": we plant cache entries whose per-file hashes use an
-// older SCHEMA_VERSION token, plus a matching mtime index. The new binary
-// must NOT honour those stale per-file hashes (which would otherwise
-// produce a stale architecture fingerprint hit) — the first query has to
-// rebuild from current schema and serve the new graph.
+// older SCHEMA_VERSION token, plus a matching mtime index and a prior
+// schema's relations index. The new binary must NOT honour those stale
+// per-file hashes — the first query has to re-absorb under the current
+// schema — and the superseded index must be swept, not left to accumulate.
 
 #[test]
-fn architecture_cache_rebuilds_after_schema_shape_change() {
+fn the_relations_index_rebuilds_after_schema_shape_change() {
     let f = Fixture::new();
     f.write(
         "pkg/a.py",
@@ -33,9 +44,7 @@ fn architecture_cache_rebuilds_after_schema_shape_change() {
     // unreachable on upgrade.
     let cache_root = f.root.join(".tracer-cache");
     let file_ns = cache_root.join("file");
-    let arch_ns = cache_root.join("architecture");
     fs::create_dir_all(&file_ns).unwrap();
-    fs::create_dir_all(&arch_ns).unwrap();
 
     // Stale per-file entry — body shaped like a real FileFacts JSON but
     // missing `references`, mimicking an older extraction shape.
@@ -89,48 +98,54 @@ fn architecture_cache_rebuilds_after_schema_shape_change() {
     )
     .unwrap();
 
-    // Stale architecture entry at a fabricated fingerprint. The graph entry
-    // is a bincode `.bin` file (decoded straight into the struct); its bytes
-    // here are deliberately junk because the recovery is structural, not a
-    // decode: the rebuild's fingerprint differs from this fabricated one, so
-    // a fresh graph is built — and eviction then deletes every superseded
-    // `.bin`, including this stale sibling.
-    let stale_entry =
-        arch_ns.join("stalefp00000000000000000000000000000000000000000000000000000000.bin");
-    fs::write(&stale_entry, b"stale-bincode-bytes-never-decoded").unwrap();
+    // A prior schema's relations index, holding an answer that contradicts
+    // the tree: it claims nothing declares b_fn. The current binary keys its
+    // index by the current schema, so this one is unreachable, and the
+    // eviction sweep must then delete it.
+    let stale_index = file_ns.join("relations_v1__schema1.json");
+    let stale_relations = serde_json::json!({
+        "symbols": {},
+        "importers": {},
+        "built_from": {"pkg/a.py": stale_file_key, "pkg/b.py": stale_file_key},
+    });
+    fs::write(&stale_index, serde_json::to_string(&stale_relations).unwrap()).unwrap();
 
     // First query after the "upgrade". No manual cache clear.
     let r = f.trace(&["callers", "b_fn", "--json"]);
     r.ok();
-    let v = r.json();
-    let callers = v["pkg/b.py::b_fn"]["callers"]
+    let v = r.view();
+    let callers = symbol(&v, "pkg/b.py::b_fn")["callers"]
         .as_array()
         .expect("b_fn callers array must exist after schema-bump rebuild");
     assert!(
         !callers.is_empty(),
         "b_fn must have at least one caller after a schema-shape upgrade — \
-         stale per-file hashes are keeping the architecture cache stale; got {:?}",
+         stale per-file hashes are keeping the relations index stale; got {:?}",
         v
     );
 
-    // Eviction: the fabricated-fingerprint stale entry must be gone after the
-    // rebuild, and the architecture namespace must hold exactly one entry.
+    // Eviction: the prior schema's index is gone, and the namespace holds
+    // exactly one relations index.
     assert!(
-        !stale_entry.exists(),
-        "stale architecture entry survived the rebuild — eviction did not \
-         delete the superseded fingerprint"
+        !stale_index.exists(),
+        "the prior schema's relations index survived the rebuild — a schema \
+         bump would leave one behind on every upgrade"
     );
-    let bins: Vec<_> = fs::read_dir(&arch_ns)
+    let indexes: Vec<_> = fs::read_dir(&file_ns)
         .unwrap()
         .flatten()
         .map(|e| e.path())
-        .filter(|p| p.extension().and_then(|x| x.to_str()) == Some("bin"))
+        .filter(|p| {
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.starts_with("relations_"))
+        })
         .collect();
     assert_eq!(
-        bins.len(),
+        indexes.len(),
         1,
-        "architecture namespace must hold exactly one entry after rebuild; \
-         got {bins:?}"
+        "the file namespace must hold exactly one relations index after the \
+         rebuild; got {indexes:?}"
     );
 }
 
@@ -167,8 +182,8 @@ fn php_callers_captures_class_use_idioms() {
 
     let r = f.trace(&["callers", "User", "--json"]);
     r.ok();
-    let v = r.json();
-    let callers = v["app/Models/User.php::User"]["callers"]
+    let v = r.view();
+    let callers = symbol(&v, "app/Models/User.php::User")["callers"]
         .as_array()
         .expect("User callers array must exist");
 
@@ -214,8 +229,8 @@ fn php_callers_fallback_to_module_importers_when_no_references() {
 
     let r = f.trace(&["callers", "Lonely", "--json"]);
     r.ok();
-    let v = r.json();
-    let entry = &v["app/Models/Lonely.php::Lonely"];
+    let v = r.view();
+    let entry = symbol(&v, "app/Models/Lonely.php::Lonely");
     let callers = entry["callers"]
         .as_array()
         .expect("Lonely callers must exist");
@@ -252,8 +267,8 @@ fn typescript_module_caller_is_extracted_when_import_resolves() {
 
     let r = f.trace(&["callers", "helpers", "--json"]);
     r.ok();
-    let v = r.json();
-    let entry = &v["module::src/helpers"];
+    let v = r.view();
+    let entry = symbol(&v, "module::src/helpers");
     let callers = entry["callers"]
         .as_array()
         .expect("helpers callers array must exist");
@@ -274,7 +289,7 @@ fn typescript_module_caller_is_extracted_when_import_resolves() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn downstream_path_mode_returns_results_when_upstream_does() {
+fn usages_path_mode_returns_results_when_dependencies_does() {
     // A path inside the repo on which `upstream --path` returns results
     // must give `downstream --path` matching coverage — not the empty
     // "(no nodes in the architecture graph — cache may be empty)" verdict.
@@ -300,14 +315,14 @@ fn downstream_path_mode_returns_results_when_upstream_does() {
     // downstream side while the upstream side still found the importer.
     let pkg_file = f.path("pkg/a.py");
 
-    let up = f.trace(&["upstream", "--path", &pkg_file, "--json"]);
+    let up = f.trace(&["dependencies", "--path", &pkg_file, "--json"]);
     up.ok();
     let up_rows = up.json()["results"]
         .as_array()
         .expect("upstream rows must be an array")
         .len();
 
-    let dn = f.trace(&["downstream", "--path", &pkg_file, "--json"]);
+    let dn = f.trace(&["usages", "--path", &pkg_file, "--json"]);
     dn.ok();
     let dn_value = dn.json();
     let dn_rows = dn_value["results"]
@@ -343,8 +358,8 @@ fn self_recursive_call_is_not_a_caller_of_itself() {
     f.trace(&["cache", "build", "."]).ok();
     let r = f.trace(&["callers", "fact", "--json"]);
     r.ok();
-    let v = r.json();
-    let callers = v["rec.py::fact"]["callers"]
+    let v = r.view();
+    let callers = symbol(&v, "rec.py::fact")["callers"]
         .as_array()
         .expect("fact callers must exist");
     assert!(
@@ -375,8 +390,8 @@ fn structure_reports_nonzero_symbols_for_tsx_file_with_declarations() {
     f.trace(&["cache", "build", "."]).ok();
     let r = f.trace(&["structure", "src/comp.tsx", "--json"]);
     r.ok();
-    let v = r.json();
-    let count = v["symbol_count"].as_i64().unwrap_or(0);
+    let v = r.view();
+    let count = v["symbols"].as_i64().unwrap_or(0);
     assert!(
         count > 0,
         "structure must report a non-zero symbol_count for a TSX file with \

@@ -8,6 +8,7 @@ description: Code intelligence for the local codebase — search, callers, defin
 - `trace` returns code intelligence: matches plus per-file complexity, callers, callees, nearest project docs, git activity, and deploy-branch presence.
 - Use `trace` instead of raw grep, find, and file reads when working inside the local codebase.
 - Every value command accepts `--json` and the global `--filter '<jq expression>'` for in-process filtering.
+- Every `--json` result is one document: `{query, context, results, counts}`. Rows are in `results`, per-file enrichment is in `context.files`, and totals are in `counts`.
 
 ## 1. Respect the execution Rules
 
@@ -38,12 +39,12 @@ IF a trace command reports missing dependencies:
 ## 2. Orient before deep reads
 
 ### Start broad, then narrow
-Run `trace context` first. Then use `trace survey`, `trace list`, `trace tree`, `trace info`, or `trace structure` before reading code deeply.
+Run `trace context` first. Then use `trace stats`, `trace list`, `trace tree`, `trace info`, or `trace structure` before reading code deeply.
 
 Template:
   ```bash
   trace context
-  trace survey
+  trace stats
   trace list packages/agents/skills
   trace info packages/agents/skills/trace/SKILL.md --brief
   trace structure tools/tracer/src/main.rs
@@ -52,26 +53,28 @@ Template:
 ## 3. Choose the smallest matching command
 
 ### Use relationship commands for symbols
-Use `defines`, `callers`, `upstream`, and `downstream` when the question is about a symbol or dependency direction.
+Use `defines`, `callers`, `dependencies`, and `usages` when the question is about a symbol or dependency direction.
 
 Template:
   ```bash
   trace defines <symbol>
   trace callers <symbol>
-  trace upstream <symbol|--path P>
-  trace downstream <symbol|--path P>
+  trace dependencies <symbol|--path P>
+  trace usages <symbol|--path P>
   ```
 
 ### Use search commands for unknown names
-Use `trace grep` for text in code, `trace logs` for text in a log file, `trace struct` for structural search, `trace find` for basenames, and `trace glob` for full paths.
+Use `trace grep` for text in code, `trace logs` for text in a log file, `trace pattern` for structural search, and `trace find` for basenames and full paths.
 
 Template:
   ```bash
-  trace grep <pattern> [-l lang] [--path P]
-  trace struct <pattern> -l lang [--path P]
+  trace grep <pattern> [-l lang] [--path P] [--at <ref>]
+  trace pattern <pattern> -l lang [--path P]
   trace find <pattern> [base]
-  trace glob <pattern> [base]
   ```
+
+### Search a commit with `trace grep --at <ref>`
+`--at` searches that commit instead of the working tree, which is what `git grep <pattern> <ref>` would answer.
 
 IF a search result names a `nested repository (its own search scope)`:
 ### Re-run the search with the base inside the nested repository
@@ -86,8 +89,14 @@ Template:
   trace diff [--base ref] [--symbols]
   trace status
   trace history [<file>] [<symbol>]
+  trace history --contains <pattern> [--regex]
+  trace history --commit <ref>
   trace blame <file> [<symbol>] [--lines L1:L2]
   ```
+
+### Read a commit's full body with `trace history --commit`
+The subject says what changed and the body says why. `--commit <ref>` returns the message, author, parents, changed files, and changed lines in one call.
+Never: `git show` for a commit message.
 
 ## 4. Read with trace
 
@@ -111,7 +120,7 @@ Every listing row, search match, and shoulder carries `loc:`. `trace read` trims
 Never: `--all` to skim a large file. It returns every line and takes the whole cost.
 
 ### Calibrate read depth by complexity
-Use `trace survey` to find the complexity distribution. Full-read files past the repository p95. Skim uniformly-low files only when the task does not need every line.
+Use `trace stats` to find the complexity distribution. Full-read files past the repository p95. Skim uniformly-low files only when the task does not need every line.
 
 IF reading or searching a log file:
 ### Use `trace logs`
@@ -139,14 +148,14 @@ Before recommending modify or stack, read the nearest `Claude.md` or `Agents.md`
 
 ## 6. Keep dependency direction straight
 
-### Upstream is what a thing depends on
-If A imports B, B is upstream of A.
+### `dependencies` is what a thing depends on
+If A imports B, B is a dependency of A.
 
-### Downstream is what depends on a thing
-If A imports B, A is downstream of B.
+### `usages` is what depends on a thing
+If A imports B, A is a usage of B.
 
 ### Path mode ranks by file centrality
-`trace downstream --path P` returns the most-depended-on files in `P`. `trace upstream --path P` returns the highest fan-out files in `P`.
+`trace usages --path P` returns the most-depended-on files in `P`. `trace dependencies --path P` returns the highest fan-out files in `P`.
 
 ## References
 

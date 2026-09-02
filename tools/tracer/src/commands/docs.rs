@@ -15,10 +15,9 @@
 //!   default to `trace_docs` / `None` / `None` so direct CLI calls keep
 //!   working without them.
 //!
-//! - `--graph`: the whole-repo docs graph projected out of the unified
-//!   `architecture/` cache entry (doc-file nodes + `@include` edges), plus
-//!   the "available but not loaded" set computed against the session
-//!   log when one is active.
+//! - `--graph`: the whole-repo docs graph (doc-file nodes + `@include`
+//!   edges), built in memory per call, plus the "available but not loaded"
+//!   set computed against the session log when one is active.
 //! - `load`: thin alias forwarding to the default implementation with the
 //!   `--source` default flipped to `trace_docs_load`. Same shape, same
 //!   behavior; preserved as an explicit CLI verb for hook callers.
@@ -33,7 +32,7 @@
 //!   Append-only history is preserved — only the view is cleared.
 
 use super::{nested_memory, session_log};
-use crate::{architecture, cache, docs_graph};
+use crate::{cache, docs_graph};
 use anyhow::Result;
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
@@ -98,26 +97,24 @@ pub fn run(
 
     let display = cache::relative_to_root(&target, &repo_root);
 
-    let mut out = json!({
-        "path": display,
-        "directory_scoped": scope_dir,
-        "source": source,
-        "triggering_tool": triggering_tool,
-        "triggering_command": triggering_command,
-        "docs": new_docs.iter().map(|m| json!({
+    let out = crate::output::document(
+        json!({
+            "path": display,
+            "directory_scoped": scope_dir,
+            "source": source,
+            "triggering_tool": triggering_tool,
+            "triggering_command": triggering_command,
+        }),
+        json!({"already_loaded": already_loaded.clone()}),
+        json!(new_docs.iter().map(|m| json!({
             "path": m.relative_path,
             "kind": m.kind,
             "size": m.size,
             "large": m.large,
             "content": m.content,
-        })).collect::<Vec<_>>(),
-        "doc_count": new_docs.len(),
-    });
-    if !already_loaded.is_empty() {
-        out.as_object_mut()
-            .expect("response is an object")
-            .insert("already_loaded".to_string(), Value::Array(already_loaded.clone()));
-    }
+        })).collect::<Vec<_>>()),
+        json!({"docs": new_docs.len(), "skipped": already_loaded.len()}),
+    );
 
     if as_json {
         return Ok(out);
@@ -170,13 +167,14 @@ fn run_status_session(
         .collect();
 
     let by_source = group_by_source(loaded_entries);
-    let out = json!({
-        "scope": "session",
-        "session_active": session_active,
-        "loaded": loaded_json,
-        "loaded_count": loaded_entries.len(),
-        "by_source": by_source,
-    });
+    let out = crate::output::document(
+        json!({"scope": "session"}),
+        json!({"session_active": session_active, "by_source": by_source}),
+        // Named the same way path-mode names its rows, so `loaded` reads as
+        // the same thing in both modes of one command.
+        json!({"loaded": loaded_json}),
+        json!({"loaded": loaded_entries.len()}),
+    );
 
     if as_json {
         return Ok(out);
@@ -230,16 +228,16 @@ fn run_status_path(
         .collect();
 
     let display = cache::relative_to_root(&target, &repo_root);
-    let out = json!({
-        "scope": "path",
-        "path": display,
-        "session_active": session_active,
-        "loaded": loaded_json,
-        "not_loaded": not_loaded_json,
-        "loaded_count": loaded_chain.len(),
-        "not_loaded_count": not_loaded_chain.len(),
-        "chain_size": chain.len(),
-    });
+    let out = crate::output::document(
+        json!({"scope": "path", "path": display}),
+        json!({"session_active": session_active}),
+        json!({"loaded": loaded_json, "not_loaded": not_loaded_json}),
+        json!({
+            "loaded": loaded_chain.len(),
+            "not_loaded": not_loaded_chain.len(),
+            "chain": chain.len(),
+        }),
+    );
 
     if as_json {
         return Ok(out);
@@ -256,12 +254,12 @@ pub fn run_reset(source: &str, as_json: bool) -> Result<Value> {
     let session_active = session_log::session_active();
     let cleared = session_log::record_context_reset(source);
 
-    let out = json!({
-        "scope": "reset",
-        "session_active": session_active,
-        "source": source,
-        "cleared_count": cleared,
-    });
+    let out = crate::output::document(
+        json!({"scope": "reset", "source": source}),
+        json!({"session_active": session_active}),
+        Value::Array(vec![]),
+        json!({"cleared": cleared}),
+    );
 
     if as_json {
         return Ok(out);
@@ -275,10 +273,9 @@ pub fn run_reset(source: &str, as_json: bool) -> Result<Value> {
 }
 
 /// Graph-mode: whole-repo docs graph + the available-but-not-loaded slice.
-/// Invoked via the `--graph` flag on `trace docs`. Reads the doc subset
-/// out of the unified architecture-graph cache entry — same data, same
-/// invalidation contract as before, just sharing the cache file with the
-/// symbol/module graph.
+/// Invoked via the `--graph` flag on `trace docs`. The graph is built in
+/// memory from the doc files themselves and cached nowhere, so it is always
+/// current with the bytes on disk.
 pub fn run_graph(path: Option<&Path>, as_json: bool) -> Result<Value> {
     let here = Path::new(".");
     let resolve_root = |p: &Path| -> PathBuf {
@@ -288,14 +285,10 @@ pub fn run_graph(path: Option<&Path>, as_json: bool) -> Result<Value> {
         Some(p) => resolve_root(p),
         None => resolve_root(here),
     };
-    let arch = architecture::get(&repo_root);
-    let docs = docs_graph::DocsGraph {
-        head: arch.docs_head.clone(),
-        mtime_aggregate: arch.docs_mtime_aggregate.clone(),
-        built_at_ms: arch.docs_built_at_ms,
-        nodes: arch.doc_nodes.clone(),
-        edges: arch.doc_edges.clone(),
-    };
+    // The doc graph is built directly. It used to be unpacked out of the
+    // architecture entry, which meant `trace docs --graph` resolved every
+    // code relationship in the repository to read a doc-tree walk.
+    let docs = docs_graph::build(&repo_root);
     let graph_json = docs.to_json();
 
     // Diff against the session log to surface "available but
@@ -315,12 +308,12 @@ pub fn run_graph(path: Option<&Path>, as_json: bool) -> Result<Value> {
         }
     }
 
-    let out = json!({
-        "graph": graph_json,
-        "available_not_loaded": not_loaded,
-        "node_count": docs.nodes.len(),
-        "edge_count": docs.edges.len(),
-    });
+    let out = crate::output::document(
+        json!({"scope": "graph", "path": repo_root.to_string_lossy()}),
+        json!({"available_not_loaded": not_loaded}),
+        graph_json,
+        json!({"nodes": docs.nodes.len(), "edges": docs.edges.len()}),
+    );
 
     if as_json {
         return Ok(out);

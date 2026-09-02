@@ -3,7 +3,7 @@
 //! caller count, deploy-branch presence, and the lifecycle shoulder,
 //! ordered by blast radius. CCN is AST-derived.
 
-use crate::{architecture, cache, file_facts, git_activity, passive_context};
+use crate::{cache, file_facts, git_activity, passive_context, relations};
 use anyhow::Result;
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -16,21 +16,10 @@ fn state_rank(state: &str) -> usize {
     STATE_ORDER.iter().position(|s| *s == state).unwrap_or(STATE_ORDER.len())
 }
 
-/// Caller/dependency counts for a file from the graph. None when the file
-/// has no graph node.
-fn graph_counts(relative: &str, graph: Option<&architecture::Graph>) -> Option<Value> {
-    let graph = graph?;
-    let module_id = graph.file_to_module_id.get(relative)?;
-    Some(json!({
-        "callers": architecture::dependents_of(graph, module_id).len(),
-        "depended_on_by_modules": architecture::dependencies_of(graph, module_id).len(),
-    }))
-}
-
 fn entries_for_state(
     repo_root: &Path,
     states: &[(String, String)],
-    graph: Option<&architecture::Graph>,
+    index: &relations::Relations,
 ) -> Vec<Value> {
     // One batch resolve for every existing dirty file — a single mtime-index
     // load plus parallel extraction — instead of a per-file get() loop that
@@ -43,6 +32,10 @@ fn entries_for_state(
         .collect();
     let facts_map: HashMap<String, file_facts::FileFacts> =
         file_facts::get_batch(&existing, repo_root);
+
+    // Staging is one more fact per file, from the same `git status` read the
+    // states came from. Nothing groups by it.
+    let staging = git_activity::staging_state(repo_root);
 
     let mut entries = Vec::new();
     for (relative, state) in states {
@@ -57,7 +50,7 @@ fn entries_for_state(
             None
         };
         let gc = if facts.is_some() {
-            graph_counts(relative, graph)
+            index.module_counts(relative)
         } else {
             None
         };
@@ -67,6 +60,7 @@ fn entries_for_state(
         entries.push(json!({
             "path": relative,
             "state": state,
+            "staging": staging.get(relative),
             "shoulder": shoulder,
             "callers": gc.as_ref().and_then(|g| g["callers"].as_i64()).unwrap_or(0),
             "depended_on_by_modules":
@@ -109,19 +103,20 @@ pub fn run(as_json: bool, state_filter: Option<&str>) -> Result<Value> {
     // ties by path.
     states.sort();
 
-    // Build (not just load) the graph: `status` runs precisely when the
-    // tree is dirty, and any dirty file changes the architecture
-    // fingerprint, so a load-only path would miss the cache every time
-    // and collapse every blast-radius count to zero.
-    let graph = architecture::get(&repo_root);
-    let mut entries = entries_for_state(&repo_root, &states, Some(&graph));
+    // `status` runs precisely when the tree is dirty. Under the old graph a
+    // dirty file rotated the whole fingerprint, so a load-only path missed
+    // every time and collapsed the blast-radius counts to zero; the index
+    // updates the files that moved and keeps the rest, so there is one path.
+    let index = relations::get(&repo_root);
+    let mut entries = entries_for_state(&repo_root, &states, &index);
     entries.sort_by(|a, b| sort_key(a).cmp(&sort_key(b)));
 
-    let value = json!({
-        "repo_root": repo_root.to_string_lossy(),
-        "count": entries.len(),
-        "entries": entries.clone(),
-    });
+    let value = crate::output::document(
+        json!({"repo_root": repo_root.to_string_lossy(), "state": state_filter}),
+        json!({"repo_root": repo_root.to_string_lossy()}),
+        json!(entries.clone()),
+        json!({"files": entries.len()}),
+    );
 
     if as_json {
         return Ok(value);
@@ -144,8 +139,12 @@ pub fn run(as_json: bool, state_filter: Option<&str>) -> Result<Value> {
         let callers = entry["callers"].as_i64().unwrap_or(0);
         let ccn = entry["ccn_total"].as_i64().unwrap_or(0);
         let rank = entry["ccn_rank"].as_str().unwrap_or("");
+        let staged = entry["staging"]
+            .as_str()
+            .map(|s| format!(" \u{00b7} {s}"))
+            .unwrap_or_default();
         println!(
-            "  {}  (callers={callers}, ccn={ccn} {rank})",
+            "  {}{staged}  (callers={callers}, ccn={ccn} {rank})",
             entry["path"].as_str().unwrap_or("")
         );
         if let Some(shoulder) = entry["shoulder"].as_str() {

@@ -20,8 +20,8 @@ IF a side is one squashed commit:
 Never: asking the Architect which branch owns a subsystem.
 
 ### Judge whether the two sides can reach each other before you dispatch anything
-Each side's changed files come from `git diff --name-only <base>..<tip>`, and `trace downstream`
-and `trace upstream` show what reaches what. Two sides that never change the same code, and never
+Each side's changed files come from `git diff --name-only <base>..<tip>`, and `trace usages`
+and `trace dependencies` show what reaches what. Two sides that never change the same code, and never
 change code that reaches the same code, have nothing to compose: merge, run the test suite, and
 record in the report that no claim audit ran and what showed it. The graph carries no style or
 template coupling, so judge that from the files themselves.

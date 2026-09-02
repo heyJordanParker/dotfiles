@@ -25,24 +25,24 @@ fn history_whole_file_json_shape() {
     let f = repo_with_history();
     let r = f.trace(&["history", "mod.py", "--json"]);
     r.ok();
-    let v = r.json();
+    let v = r.view();
     assert_eq!(v["mode"], "file");
     assert_eq!(v["file"], "mod.py");
     // repo_with_history() commits mod.py exactly twice; both are recent.
-    assert_eq!(v["commit_count"].as_i64().unwrap(), 2, "exactly two commits: {}", v);
+    assert_eq!(v["commits"].as_i64().unwrap(), 2, "exactly two commits: {}", v);
     assert_eq!(v["commits_30d"].as_i64().unwrap(), 2, "both commits are recent: {}", v);
     assert_eq!(v["last_author"], "Tracer Test");
     assert_eq!(v["last_subject"], "bump alpha, add beta");
     assert_eq!(v["top_author"], "Tracer Test");
     // Newest commit first, then the original.
-    let subjects: Vec<&str> = v["recent_commits"]
+    let subjects: Vec<&str> = v["results"]
         .as_array()
         .unwrap()
         .iter()
         .map(|c| c["subject"].as_str().unwrap())
         .collect();
     assert_eq!(subjects, vec!["bump alpha, add beta", "add alpha"], "recent_commits: {}", v);
-    for c in v["recent_commits"].as_array().unwrap() {
+    for c in v["results"].as_array().unwrap() {
         assert_eq!(c["author"], "Tracer Test");
     }
     // The fixture's sole author owns all 6 lines of the final file.
@@ -57,13 +57,13 @@ fn history_function_mode_returns_symbol_line_history() {
     let f = repo_with_history();
     let r = f.trace(&["history", "mod.py", "alpha", "--json"]);
     r.ok();
-    let v = r.json();
+    let v = r.view();
     assert_eq!(v["mode"], "function");
     assert_eq!(v["symbol"], "alpha");
     // alpha() was introduced in "add alpha" and its body changed in
     // "bump alpha, add beta": git log -L on alpha sees exactly both,
     // newest first.
-    let subjects: Vec<&str> = v["commits"]
+    let subjects: Vec<&str> = v["results"]
         .as_array()
         .unwrap()
         .iter()
@@ -82,14 +82,14 @@ fn history_pickaxe_mode_finds_string_introduction() {
     let f = repo_with_history();
     let r = f.trace(&["history", "--contains", "beta", "--json"]);
     r.ok();
-    let v = r.json();
+    let v = r.view();
     assert_eq!(v["mode"], "contains");
     assert_eq!(v["pattern"], "beta");
     // "beta" enters the repo in exactly one commit: the second one. The
     // pickaxe must report that single commit and point at the line + the
     // enclosing symbol where the token appears.
-    assert_eq!(v["commit_count"].as_i64().unwrap(), 1, "beta added in one commit: {}", v);
-    let commits = v["commits"].as_array().unwrap();
+    assert_eq!(v["commits"].as_i64().unwrap(), 1, "beta added in one commit: {}", v);
+    let commits = v["results"].as_array().unwrap();
     assert_eq!(commits.len(), 1, "exactly one pickaxe commit: {}", v);
     assert_eq!(commits[0]["subject"], "bump alpha, add beta");
     assert_eq!(commits[0]["author"], "Tracer Test");
@@ -124,7 +124,7 @@ fn blame_whole_file_json_regions() {
     let f = repo_with_history();
     let r = f.trace(&["blame", "mod.py", "--json"]);
     r.ok();
-    let v = r.json();
+    let v = r.view();
     assert_eq!(v["file"], "mod.py");
     assert_eq!(v["scope"], "file");
     // mod.py's final 6 lines blame to exactly two commits: line 1
@@ -133,9 +133,9 @@ fn blame_whole_file_json_regions() {
     // a commit made near a UTC day boundary renders a different local
     // calendar date than `git log` does, so the date is environment-
     // dependent; the region partition, authorship and subjects are not.
-    assert_eq!(v["region_count"].as_i64().unwrap(), 2, "two blame regions: {}", v);
-    assert_eq!(v["line_count"].as_i64().unwrap(), 6, "6 lines: {}", v);
-    let regions = v["regions"].as_array().unwrap();
+    assert_eq!(v["regions"].as_i64().unwrap(), 2, "two blame regions: {}", v);
+    assert_eq!(v["lines"].as_i64().unwrap(), 6, "6 lines: {}", v);
+    let regions = v["results"].as_array().unwrap();
     let shape: Vec<(i64, i64, &str, &str)> = regions
         .iter()
         .map(|r| {
@@ -163,7 +163,7 @@ fn blame_symbol_scope_narrows_to_function() {
     let f = repo_with_history();
     let r = f.trace(&["blame", "mod.py", "beta", "--json"]);
     r.ok();
-    let v = r.json();
+    let v = r.view();
     assert_eq!(v["scope"], "symbol");
     assert_eq!(v["symbol"], "beta");
     // beta() occupies lines 5-6 of the final file and was wholly
@@ -172,9 +172,9 @@ fn blame_symbol_scope_narrows_to_function() {
     // blame_whole_file_json_regions — so it is not pinned.)
     assert_eq!(v["line_range"]["start"].as_i64().unwrap(), 5, "beta starts at L5: {}", v);
     assert_eq!(v["line_range"]["end"].as_i64().unwrap(), 6, "beta ends at L6: {}", v);
-    assert_eq!(v["region_count"].as_i64().unwrap(), 1, "one region: {}", v);
-    assert_eq!(v["line_count"].as_i64().unwrap(), 2, "beta is 2 lines: {}", v);
-    let r = &v["regions"][0];
+    assert_eq!(v["regions"].as_i64().unwrap(), 1, "one region: {}", v);
+    assert_eq!(v["lines"].as_i64().unwrap(), 2, "beta is 2 lines: {}", v);
+    let r = &v["results"][0];
     assert_eq!(r["line_start"].as_i64().unwrap(), 5);
     assert_eq!(r["line_end"].as_i64().unwrap(), 6);
     assert_eq!(r["author"], "Tracer Test");
@@ -186,16 +186,16 @@ fn blame_lines_scope() {
     let f = repo_with_history();
     let r = f.trace(&["blame", "mod.py", "--lines", "1:2", "--json"]);
     r.ok();
-    let v = r.json();
+    let v = r.view();
     assert_eq!(v["scope"], "lines");
     assert_eq!(v["line_range"]["start"], 1);
     assert_eq!(v["line_range"]["end"], 2);
     // Lines 1-2 straddle the two commits: L1 from "add alpha", L2 from
     // "bump alpha, add beta" — two single-line regions. (Date is
     // environment-dependent, see blame_whole_file_json_regions.)
-    assert_eq!(v["region_count"].as_i64().unwrap(), 2, "two regions across L1:2: {}", v);
-    assert_eq!(v["line_count"].as_i64().unwrap(), 2);
-    let shape: Vec<(i64, i64, &str, &str)> = v["regions"]
+    assert_eq!(v["regions"].as_i64().unwrap(), 2, "two regions across L1:2: {}", v);
+    assert_eq!(v["lines"].as_i64().unwrap(), 2);
+    let shape: Vec<(i64, i64, &str, &str)> = v["results"]
         .as_array()
         .unwrap()
         .iter()
@@ -249,9 +249,9 @@ fn diff_file_mode_against_base_ref() {
     f.commit("diverge");
     let r = f.trace(&["diff", "--base", "base-ref", "--json"]);
     r.ok();
-    let v = r.json();
+    let v = r.view();
     assert_eq!(v["granularity"], "file");
-    let paths: Vec<&str> = v["files"]
+    let paths: Vec<&str> = v["results"]
         .as_array()
         .unwrap()
         .iter()
@@ -280,9 +280,9 @@ fn diff_symbol_mode_reports_symbol_states() {
     f.commit("add symbol");
     let r = f.trace(&["diff", "--base", "base-ref", "--symbols", "--json"]);
     r.ok();
-    let v = r.json();
+    let v = r.view();
     assert_eq!(v["granularity"], "symbol");
-    let symbols: Vec<serde_json::Value> = v["symbols"]
+    let symbols: Vec<serde_json::Value> = v["results"]
         .as_array()
         .unwrap()
         .iter()
@@ -294,7 +294,7 @@ fn diff_symbol_mode_reports_symbol_states() {
         serde_json::Value::Array(symbols),
         serde_json::json!([{"name": "added", "state": "added"}]),
         "symbol-mode diff must report exactly the one added symbol: {}",
-        v["symbols"]
+        v["results"]
     );
 }
 
@@ -306,55 +306,99 @@ fn diff_unknown_base_ref_exits_2() {
     assert!(r.combined().contains("not found"), "{}", r.combined());
 }
 
-// --- Default-base mode -------------------------------------------------
+// --- The working tree, which is the default -----------------------------
 //
-// `trace diff` with no --base falls back to the hardcoded
-// remote-development ref. That ref never exists in a hermetic fixture, so
-// the contract being pinned here is the *absence* path: exit 2, an
-// explicit stderr error that names the unresolved ref and tells the
-// caller to pass --base. This is the only place the default-base code
-// path is exercised at all.
+// `trace diff` with no --base answers "what have I changed": staged,
+// unstaged, and untracked, against HEAD. Plain `git diff` shows unstaged
+// only, `--cached` staged only, and `git diff HEAD` both but no new files —
+// so an agent asking this question with git gets a third of the answer and
+// no sign that the rest exists.
 
 #[test]
-fn diff_default_base_unresolvable_exits_2_with_named_ref() {
+fn diff_default_scope_is_the_whole_working_tree_with_lines() {
     let f = standard_repo();
-    let r = f.trace(&["diff"]);
-    r.code_is(2);
-    let out = r.combined();
-    // The hardcoded default is the remote-development ref; the message
-    // must name the exact ref it tried and could not resolve, and must
-    // not be a generic failure.
-    assert!(
-        out.contains("origin/development"),
-        "default-base error must name the unresolved ref:\n{out}"
+    f.write("src/util.py", "def helper(v):\n    return v + 99\n");
+    f.git(&["add", "src/util.py"]);
+    f.write("src/app.py", "import os\n\n\ndef main(x):\n    return 1\n");
+    f.write("brand_new.py", "NEW = 1\n");
+
+    let r = f.trace(&["diff", "--json"]);
+    r.ok();
+    let v = r.view();
+    let by_path: std::collections::BTreeMap<&str, &serde_json::Value> = v["results"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| (row["path"].as_str().unwrap(), row))
+        .collect();
+    assert_eq!(
+        by_path.keys().copied().collect::<Vec<_>>(),
+        vec!["brand_new.py", "src/app.py", "src/util.py"],
+        "staged, unstaged and untracked must all be in one answer: {}",
+        r.stdout
     );
+
+    // The staged edit's own lines, not just its name.
+    let staged = by_path["src/util.py"]["lines"].as_str().unwrap();
     assert!(
-        out.contains("not found"),
-        "default-base error must state the ref was not found:\n{out}"
+        staged.contains("-        return v + 1") && staged.contains("+    return v + 99"),
+        "the staged file's changed lines must be reported: {staged:?}"
     );
+    // An untracked file's whole content is the change.
+    let fresh = by_path["brand_new.py"]["lines"].as_str().unwrap();
     assert!(
-        out.contains("--base"),
-        "default-base error must tell the caller how to recover:\n{out}"
+        fresh.contains("+NEW = 1"),
+        "an untracked file's content must be reported as added lines: {fresh:?}"
+    );
+    assert_eq!(by_path["brand_new.py"]["status"], "added");
+}
+
+#[test]
+fn diff_path_argument_scopes_to_one_file() {
+    let f = standard_repo();
+    f.write("src/util.py", "def helper(v):\n    return 0\n");
+    f.write("src/app.py", "X = 1\n");
+
+    let r = f.trace(&["diff", "src/util.py", "--json"]);
+    r.ok();
+    let v = r.view();
+    let paths: Vec<&str> = v["results"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| row["path"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        paths,
+        vec!["src/util.py"],
+        "a path argument must scope the answer to that file: {}",
+        r.stdout
     );
 }
 
 #[test]
-fn diff_default_base_unresolvable_in_json_mode_still_exits_2() {
-    // --json must not change the unresolvable-default contract: the verify
-    // gate runs before any value is produced, so the exit code and the
-    // stderr message are identical with or without --json, and stdout
-    // carries no partial JSON document.
+fn diff_base_ref_still_compares_committed_history() {
+    // With --base the question is the review question — what this branch
+    // changed against that ref — and the working tree is not part of it.
     let f = standard_repo();
-    let r = f.trace(&["diff", "--json"]);
-    r.code_is(2);
-    assert!(
-        r.combined().contains("origin/development"),
-        "{}",
-        r.combined()
-    );
-    assert!(
-        r.stdout.trim().is_empty(),
-        "no JSON should be emitted when the default base is unresolvable: {:?}",
+    f.git(&["checkout", "-q", "-b", "feature"]);
+    f.write("src/util.py", "def helper(v):\n    return 7\n");
+    f.commit("committed on the branch");
+    f.write("src/app.py", "UNCOMMITTED = 1\n");
+
+    let r = f.trace(&["diff", "--base", "master", "--json"]);
+    r.ok();
+    let v = r.view();
+    let paths: Vec<&str> = v["results"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| row["path"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        paths,
+        vec!["src/util.py"],
+        "--base compares commits, so the uncommitted file stays out: {}",
         r.stdout
     );
 }
@@ -415,9 +459,9 @@ fn diff_file_mode_orders_load_bearing_first_exactly() {
     f.trace(&["cache", "build", "."]).ok();
     let r = f.trace(&["diff", "--base", "base-ref", "--json"]);
     r.ok();
-    let v = r.json();
+    let v = r.view();
     assert_eq!(v["granularity"], "file");
-    let rows = v["files"].as_array().unwrap();
+    let rows = v["results"].as_array().unwrap();
 
     // Pull the three files of interest in emitted order.
     let order: Vec<&str> = rows
@@ -488,9 +532,9 @@ fn diff_symbol_mode_orders_load_bearing_first_exactly() {
     f.trace(&["cache", "build", "."]).ok();
     let r = f.trace(&["diff", "--base", "base-ref", "--symbols", "--json"]);
     r.ok();
-    let v = r.json();
+    let v = r.view();
     assert_eq!(v["granularity"], "symbol");
-    let rows = v["symbols"].as_array().unwrap();
+    let rows = v["results"].as_array().unwrap();
 
     let order: Vec<(&str, &str, i64)> = rows
         .iter()
@@ -559,8 +603,8 @@ fn status_orders_by_blast_radius_exactly() {
 
     let r = f.trace(&["status", "--json"]);
     r.ok();
-    let v = r.json();
-    let entries = v["entries"].as_array().unwrap();
+    let v = r.view();
+    let entries = v["results"].as_array().unwrap();
     let order: Vec<(&str, i64)> = entries
         .iter()
         .filter(|e| matches!(e["path"].as_str().unwrap(), "hub.py" | "mid.py" | "solo.py"))
@@ -609,8 +653,8 @@ fn diff_reports_rename_with_prior_path() {
     f.trace(&["cache", "build", "."]).ok();
     let r = f.trace(&["diff", "--base", "base-ref", "--json"]);
     r.ok();
-    let v = r.json();
-    let row = v["files"]
+    let v = r.view();
+    let row = v["results"]
         .as_array()
         .unwrap()
         .iter()
@@ -628,7 +672,7 @@ fn history_follows_content_across_rename() {
     let f = repo_renamed_file();
     let r = f.trace(&["history", "new_name.py", "--json"]);
     r.ok();
-    let v = r.json();
+    let v = r.view();
     assert_eq!(v["file"], "new_name.py");
     let chain: Vec<&str> = v["rename_chain"]
         .as_array()
@@ -647,7 +691,7 @@ fn history_follows_content_across_rename() {
     // pre-rename "add old_name" and the "rename" commit: exactly 2, not a
     // lower bound. last_subject/top_author are equally hand-determinable.
     assert_eq!(
-        v["commit_count"].as_i64().unwrap(),
+        v["commits"].as_i64().unwrap(),
         2,
         "history must count exactly the two commits (incl. pre-rename): {}",
         v
@@ -666,13 +710,16 @@ fn rename_lifecycle_shoulder_reflects_renamed_state() {
     // the file as renamed-from the old path, never as a fresh/new file.
     let r = f.trace(&["diff", "--base", "base-ref", "--json"]);
     r.ok();
-    let v = r.json();
-    let row = v["files"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|x| x["path"] == "new_name.py")
-        .unwrap();
+    let v = r.view();
+    assert!(
+        v["results"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|x| x["path"] == "new_name.py"),
+        "the renamed file must be in the changed set: {}",
+        r.stdout
+    );
     // The settled diff-row shoulder is fully deterministic for this
     // hermetic fixture: renamed-from the prior path, local-only, churn of
     // two commits (both within 30 days of the hermetic commit time), the
@@ -682,10 +729,10 @@ fn rename_lifecycle_shoulder_reflects_renamed_state() {
     // normalized; the rest is pinned exactly — including the churn and
     // changed-together fields the canonical shoulder now carries.
     assert_eq!(
-        normalize_age(row["passive_context"].as_str().unwrap()),
+        normalize_age(v["files"]["new_name.py"]["shoulder"].as_str().unwrap()),
         "[git: renamed-from old_name.py \u{00b7} age: <AGE> \u{00b7} presence: local-only \u{00b7} churn: 2 commits, 2/30d \u{00b7} loc: 4 \u{00b7} ccn: 2 low \u{00b7} together: caller.py \u{00b7} owner: Tracer Test \u{00b7} last: rename old_name -> new_name]",
         "settled rename shoulder must be exact: {}",
-        row["passive_context"]
+        v["files"]["new_name.py"]["shoulder"]
     );
 
     // Dirty state: a renamed-but-uncommitted move surfaces as the
@@ -693,8 +740,8 @@ fn rename_lifecycle_shoulder_reflects_renamed_state() {
     f.git(&["mv", "new_name.py", "third_name.py"]);
     let rs = f.trace(&["status", "--json"]);
     rs.ok();
-    let sv = rs.json();
-    let renamed_entry = sv["entries"]
+    let sv = rs.view();
+    let renamed_entry = sv["results"]
         .as_array()
         .unwrap()
         .iter()
@@ -718,9 +765,9 @@ fn status_clean_tree_reports_clean() {
     let f = standard_repo();
     let r = f.trace(&["status", "--json"]);
     r.ok();
-    let v = r.json();
-    assert_eq!(v["count"], 0);
-    assert!(v["entries"].as_array().unwrap().is_empty());
+    let v = r.view();
+    assert_eq!(v["files"], 0);
+    assert!(v["results"].as_array().unwrap().is_empty());
 }
 
 #[test]
@@ -731,19 +778,19 @@ fn status_lists_dirty_files_with_intelligence() {
     f.write("newfile.py", "Z = 0\n");
     let r = f.trace(&["status", "--json"]);
     r.ok();
-    let v = r.json();
+    let v = r.view();
     // The dirty set is exactly three, hand-verifiable: src/util.py
     // (modified), newfile.py (untracked), and the .tracer-cache/ directory
     // the preceding `cache build` wrote (untracked). status orders by
     // blast radius, so util.py (1 caller) leads, then the two zero-impact
     // untracked entries in their stable order.
     assert_eq!(
-        v["count"].as_i64().unwrap(),
+        v["files"].as_i64().unwrap(),
         3,
         "dirty set must be exactly util.py + newfile.py + .tracer-cache/: {}",
         r.stdout
     );
-    let paths: Vec<&str> = v["entries"]
+    let paths: Vec<&str> = v["results"]
         .as_array()
         .unwrap()
         .iter()
@@ -755,7 +802,7 @@ fn status_lists_dirty_files_with_intelligence() {
         "status entry order must be blast-radius then stable: {:?}",
         paths
     );
-    let entries = v["entries"].as_array().unwrap();
+    let entries = v["results"].as_array().unwrap();
     let modified = entries
         .iter()
         .find(|e| e["path"] == "src/util.py")
@@ -776,8 +823,172 @@ fn status_state_filter() {
     f.write("untracked_only.py", "pass\n");
     let r = f.trace(&["status", "--state", "untracked", "--json"]);
     r.ok();
-    let v = r.json();
-    for e in v["entries"].as_array().unwrap() {
+    let v = r.view();
+    for e in v["results"].as_array().unwrap() {
         assert_eq!(e["state"], "untracked", "state filter leaked: {e}");
     }
+}
+
+/// Staging is one more word per file. An agent that reads "modified" and
+/// commits finds it committed nothing, or half of what it meant.
+#[test]
+fn status_carries_the_staging_word_per_file() {
+    let f = standard_repo();
+    f.write("src/util.py", "def helper(v):\n    return 1\n");
+    f.git(&["add", "src/util.py"]);
+    f.write("src/app.py", "X = 1\n");
+    f.write("lib/widget.php", "<?php\n$half = 1;\n");
+    f.git(&["add", "lib/widget.php"]);
+    f.write("lib/widget.php", "<?php\n$half = 2;\n");
+    f.write("fresh.py", "pass\n");
+
+    let r = f.trace(&["status", "--json"]);
+    r.ok();
+    let v = r.view();
+    let staging: std::collections::BTreeMap<&str, Option<&str>> = v["results"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| (e["path"].as_str().unwrap(), e["staging"].as_str()))
+        .collect();
+    assert_eq!(staging["src/util.py"], Some("staged"));
+    assert_eq!(staging["src/app.py"], Some("unstaged"));
+    assert_eq!(
+        staging["lib/widget.php"],
+        Some("partly staged"),
+        "a file staged and then edited again is partly staged: {}",
+        r.stdout
+    );
+    assert_eq!(
+        staging["fresh.py"], None,
+        "an untracked file has nothing staged to describe: {}",
+        r.stdout
+    );
+
+    let h = f.trace(&["status"]);
+    h.ok();
+    assert!(
+        h.stdout.contains("src/util.py \u{00b7} staged"),
+        "the human line must carry the staging word:\n{}",
+        h.stdout
+    );
+}
+
+/// `history --commit <ref>` answers what `git show -s --format=full` was
+/// reached for: the body, not just the subject.
+#[test]
+fn history_commit_mode_returns_the_whole_commit() {
+    let f = Fixture::new();
+    f.write("mod.py", "def alpha():\n    return 1\n");
+    f.commit("first");
+    f.write("mod.py", "def alpha():\n    return 2\n");
+    f.write("added.py", "B = 1\n");
+    f.git(&["add", "-A"]);
+    f.git(&[
+        "commit",
+        "--quiet",
+        "-m",
+        "bump alpha\n\nThe body says why: the old value was wrong.",
+    ]);
+
+    let r = f.trace(&["history", "--commit", "HEAD", "--json"]);
+    r.ok();
+    let v = r.view();
+    assert_eq!(v["mode"], "commit");
+    assert_eq!(v["subject"], "bump alpha");
+    assert_eq!(
+        v["body"], "The body says why: the old value was wrong.",
+        "the body is the reason a subject cannot carry: {}",
+        r.stdout
+    );
+    assert_eq!(v["author"], "Tracer Test");
+    assert_eq!(
+        v["parents"].as_array().unwrap().len(),
+        1,
+        "a non-merge commit has exactly one parent: {}",
+        r.stdout
+    );
+    let files: std::collections::BTreeMap<&str, &str> = v["results"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| (row["path"].as_str().unwrap(), row["status"].as_str().unwrap()))
+        .collect();
+    assert_eq!(files["mod.py"], "modified");
+    assert_eq!(files["added.py"], "added");
+    let lines = v["lines"].as_str().unwrap();
+    assert!(
+        lines.contains("-    return 1") && lines.contains("+    return 2"),
+        "the commit's changed lines must be reported: {lines}"
+    );
+
+    let unknown = f.trace(&["history", "--commit", "no_such_ref_zzz"]);
+    assert_ne!(unknown.code, 0, "an unknown ref must fail loud");
+    assert!(
+        unknown.combined().contains("commit not found"),
+        "{}",
+        unknown.combined()
+    );
+}
+
+/// `--contains` is literal. A pattern with regex syntax in it finds nothing
+/// under `-S`, which reads as "this never changed" — `--regex` runs `-G`.
+#[test]
+fn history_regex_searches_past_changes_by_pattern() {
+    let f = Fixture::new();
+    f.write("conf.py", "TIMEOUT = 30\n");
+    f.commit("add timeout");
+    f.write("conf.py", "TIMEOUT = 45\n");
+    f.commit("raise timeout");
+
+    let literal = f.trace(&["history", "--contains", "TIMEOUT = [0-9]+", "--json"]);
+    literal.ok();
+    assert_eq!(
+        literal.view()["commits"].as_i64().unwrap(),
+        0,
+        "a literal search for regex syntax finds nothing: {}",
+        literal.stdout
+    );
+
+    let regex = f.trace(&["history", "--contains", "TIMEOUT = [0-9]+", "--regex", "--json"]);
+    regex.ok();
+    assert_eq!(
+        regex.view()["commits"].as_i64().unwrap(),
+        2,
+        "--regex must match both commits that touched the value: {}",
+        regex.stdout
+    );
+}
+
+/// `grep --at <ref>` searches a commit. ripgrep reads the disk, so the past
+/// was reachable only by `git show <ref>:<path>` — 40,433 times in the
+/// census.
+#[test]
+fn grep_at_ref_searches_a_commit_not_the_worktree() {
+    let f = Fixture::new();
+    f.write("app.py", "SECRET_TOKEN = 'old'\n");
+    f.commit("with the token");
+    f.write("app.py", "SECRET_TOKEN = None\n");
+    f.commit("token removed");
+
+    let now = f.trace(&["grep", "'old'", "--path", ".", "--json"]);
+    now.ok();
+    assert_eq!(
+        now.view()["matches"].as_i64().unwrap(),
+        0,
+        "the worktree no longer holds it: {}",
+        now.stdout
+    );
+
+    let past = f.trace(&["grep", "'old'", "--path", ".", "--at", "HEAD~1", "--json"]);
+    past.ok();
+    let v = past.view();
+    assert_eq!(v["matches"].as_i64().unwrap(), 1, "{}", past.stdout);
+    assert_eq!(v["results"][0]["file"], "app.py");
+    assert_eq!(v["results"][0]["line"].as_i64().unwrap(), 1);
+    assert!(
+        v["results"][0]["snippet"].as_str().unwrap().contains("SECRET_TOKEN"),
+        "{}",
+        past.stdout
+    );
 }

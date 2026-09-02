@@ -43,15 +43,14 @@ trace docs load <path> [--source <s>] [--triggering-tool <t>] [--triggering-comm
 trace docs <path> --graph          Whole-repo docs graph (every CLAUDE.md / Claude.md / .claude/rules/*.md with @include edges + conditional-path frontmatter), plus the "available but not loaded" set. `<path>` is optional under `--graph`.
 trace docs reset [--source <s>]    Clear the current session's surfaced-docs state so a subsequent `trace docs <path>` re-surfaces docs as new (drives the Codex compaction/clear hook). Preserves append-only history; clears only the materialized view. No-op when no session is active
 trace list <dir>                   One-level annotated ls: files + sub-directories with complexity and recency
-trace survey <path>                Repo-wide language + LOC + complexity distribution
+trace stats <path>                 Repo-wide language + LOC + complexity distribution
 trace tree <path>                  Annotated file tree with complexity ranks (recursive)
 trace info <path>                  Complexity structure + architectural overview of a file or directory
 trace structure <file>             Methods, properties, variables, imports, exports
 trace grep <pattern>               Text search with per-match enrichment
 trace logs [<pattern>] [--path <p>] [--file <glob>] [--since <when>] [--until <when>] [--around N] [--limit N]   Timestamped entries from log files, ignore rules never consulted. One line is one entry; an untimestamped line attaches to the entry above it, so a stack trace comes back whole. Reads `.gz` rotations, spans dated filenames across a window, and streams, so a rotated 80 MB directory costs the window and not the files
-trace struct <pattern> -l <lang>   Structural AST search via ast-grep with per-match enrichment
-trace glob <pattern> [<base>]      Full-path pattern search (** recursive, gitignore-respecting); bare paths, --details adds ccn + rank + lifecycle
-trace find <pattern> [<base>]      Filename-pattern search with complexity rank + lifecycle shoulder
+trace pattern <pattern> -l <lang>  Structural AST search via ast-grep with per-match enrichment
+trace find <pattern> [<base>]      Filename or full-path pattern search (** recursive, gitignore-respecting) with complexity rank + lifecycle shoulder
 trace history <file> | --contains <p>   Whole-file log, function-line history, or pickaxe
 trace blame <file> [<symbol>]      Symbol-aware blame; collapsed regions with commit subjects
 trace diff [--base <ref>] [--symbols]    Files or module-level symbols changed vs a base ref, load-bearing first
@@ -61,22 +60,21 @@ trace context [<path>] [--offset N] [--limit N] [--no-record]   Session-start pr
 
 `read`, `list`, `tree`, and `info` annotate each file with a one-line passive-context shoulder showing lifecycle state (new / renamed / modified / settled), age, and complexity rank — letting an AI agent calibrate its conclusions about how settled a file is before drawing them.
 
-**Architecture** (cached under `.tracer-cache/architecture/`):
+**Architecture** (served by the relations index in `.tracer-cache/file/`):
 ```
-trace defines <symbol>                  Where a symbol is defined
-trace callers <symbol>                  Direct callers via the architecture graph
-trace downstream <symbol> [--depth N]   Transitive dependents (BFS over reverse edges)
-trace downstream --path <p> [--limit N] Top-N most-depended-on symbols in a path
-trace upstream <symbol> [--depth N]     Transitive dependencies (BFS over forward edges)
-trace upstream --path <p> [--limit N]   Top-N highest-coupling symbols in a path
-trace symbols <file>                    Module-level symbols of a file
+trace defines <symbol>                    Where a symbol is declared
+trace callers <symbol>                    Direct callers, resolved per query
+trace usages <symbol> [--depth N]         Transitive dependents
+trace usages --path <p> [--limit N]       Top-N most-depended-on symbols in a path
+trace dependencies <symbol> [--depth N]   Transitive dependencies
+trace dependencies --path <p> [--limit N] Top-N highest-coupling symbols in a path
 ```
 
 **Cache management**:
 ```
-trace cache build [<path>]         Prebuild per-file facts + architecture graph
-trace cache stats                  Show entries and size per namespace
-trace cache clear [--namespace file|architecture] [--all]   Invalidate cache entries
+trace cache build [<path>]         Prebuild per-file facts + the relations index
+trace cache stats                  Show entries and size of the file namespace
+trace cache clear [--all]          Empty the file namespace; --all removes the whole tree
 ```
 
 All commands accept `--json` for machine-parseable output. For partial
@@ -87,10 +85,13 @@ no `jq` is shelled out.
 
 ## Disk cache
 
-`.tracer-cache/` at the repo root, two namespaces that never cross-read:
+`.tracer-cache/` at the repo root, two namespaces that never cross-read — `file/` and `sessions/`:
 
-- `file/{hash}.json` — per-file facts (complexity, imports list, exports list, git activity). One entry per file, keyed by SHA-256 of file contents + path + cache schema version.
-- `architecture/{hash}.json` — the cross-file architecture graph (symbols, modules, import edges with confidence labels). One entry per repo state, keyed by the fingerprint of all current per-file cache hashes. Rebuilds automatically when any file changes.
+- `file/{hash}.json` — per-file facts (complexity, imports list, exports list). One entry per file, keyed by SHA-256 of file contents + path + cache schema version.
+- `file/relations_v2__schema{N}.json` — the relations index: `name -> {defined_in, used_in}` and `file -> [importer]` for the whole repo. Rewritten in place, and only the files whose contents moved are re-absorbed. Reference edges are resolved per query, never stored.
+- `sessions/{session}/{agent}/` — the per-session, per-Agent docs context log.
+
+The git-activity map, the deploy-presence map, and the mtime index also live under `file/`, keyed by HEAD and the 30-day cutoff date.
 
 Add `.tracer-cache/` to your project's `.gitignore`. Use `trace cache clear` to invalidate manually.
 
@@ -100,7 +101,7 @@ Per-file and per-function cyclomatic complexity is computed by an in-process tre
 
 ## Status
 
-All 25 commands implemented. Architecture extraction supports Python, TypeScript / TSX / JSX, and PHP — extensions without an extractor still get per-file facts (complexity, git activity) but no architecture-graph entry.
+All 22 commands implemented. Relations extraction supports C, Go, Java, PHP, Python, Ruby, Rust, and TypeScript / TSX / JSX — extensions without an extractor still get per-file facts (complexity, git activity) but no entry in the relations index.
 
 ## License
 

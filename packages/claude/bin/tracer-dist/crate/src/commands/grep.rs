@@ -9,13 +9,11 @@
 //! through `output::Sink`, so the result never exists as a `serde_json::Value`
 //! tree on the way out.
 
-use crate::commands::enrich::{self, EnrichedMatch, Match};
+use crate::commands::enrich::{self, Match};
 use crate::output::Sink;
 use crate::{cache, repo_context};
 use anyhow::Result;
-use serde::ser::{SerializeMap, Serializer};
-use serde::Serialize;
-use serde_json::Value;
+use serde_json::{json, Value};
 use std::io::BufRead;
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -100,48 +98,67 @@ fn ripgrep(pattern: &str, path: &str, lang: Option<&str>) -> Vec<Match> {
     matches
 }
 
-/// The emitted document, serialized from borrowed structures. The key order
-/// is the order the result has always carried.
-struct Document<'a> {
-    query: &'a str,
-    lang_filter: Option<&'a str>,
-    matches: &'a [EnrichedMatch<'a>],
-    files_matched: usize,
-    repo_context: &'a Value,
-    /// An empty result over a base that contains nested checkouts is a scope
-    /// fact, not an absence fact — named so the next call is scoped inside.
-    /// Absent from the document when there are none, as before.
-    nested_repos: &'a [String],
-}
-
-impl Serialize for Document<'_> {
-    fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
-        let extra = usize::from(!self.nested_repos.is_empty());
-        let mut map = s.serialize_map(Some(6 + extra))?;
-        map.serialize_entry("query", self.query)?;
-        map.serialize_entry("lang_filter", &self.lang_filter)?;
-        map.serialize_entry("matches", self.matches)?;
-        map.serialize_entry("match_count", &self.matches.len())?;
-        map.serialize_entry("files_matched", &self.files_matched)?;
-        map.serialize_entry("repo_context", self.repo_context)?;
-        if !self.nested_repos.is_empty() {
-            map.serialize_entry("nested_repos", self.nested_repos)?;
+/// Search a commit rather than the working tree. ripgrep reads files on
+/// disk, so the tool for a past state is `git grep`, which reads the tree
+/// object directly — no checkout, no temp files.
+fn git_grep(pattern: &str, at: &str, path: &str, exts: &[&str]) -> Vec<Match> {
+    let mut cmd = Command::new("git");
+    cmd.args(["grep", "-n", "--no-color", "-e", pattern, at, "--"]);
+    if exts.is_empty() {
+        cmd.arg(path);
+    } else {
+        for ext in exts {
+            cmd.arg(format!("{}/*.{ext}", path.trim_end_matches('/')));
         }
-        map.end()
     }
+    let out = match cmd.stderr(Stdio::null()).output() {
+        Ok(o) => o,
+        Err(_) => return vec![],
+    };
+    String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .filter_map(|line| {
+            // `<ref>:<path>:<line>:<text>`
+            let rest = line.strip_prefix(at)?.strip_prefix(':')?;
+            let (file, rest) = rest.split_once(':')?;
+            let (number, text) = rest.split_once(':')?;
+            Some(Match {
+                file: file.to_string(),
+                line: number.parse().ok()?,
+                snippet: window_snippet(text, text.find(pattern).unwrap_or(0)),
+            })
+        })
+        .collect()
 }
 
 pub fn run(
     pattern: &str,
     lang: Option<&str>,
     path: &str,
+    at: Option<&str>,
     as_json: bool,
     sink: &Sink,
 ) -> Result<()> {
-    let matches = ripgrep(pattern, path, lang);
+    // A language name is resolved before the search runs: an unknown one
+    // must fail by name, never as an empty result the agent reads as
+    // "this does not exist".
+    let row = match lang {
+        None => None,
+        Some(l) => match crate::lang::resolve(l) {
+            Some(row) => Some(row),
+            None => {
+                eprintln!("Error: unknown language {l:?}. Accepted: {}", crate::lang::accepted());
+                std::process::exit(2);
+            }
+        },
+    };
+    let matches = match at {
+        Some(r) => git_grep(pattern, r, path, row.map(|l| l.exts).unwrap_or(&[])),
+        None => ripgrep(pattern, path, row.map(|l| l.rg)),
+    };
     let abs = cache::absolutize(Path::new(path));
     let search_root = cache::worktree_root_for(&abs).unwrap_or_else(|| cache::display_root(&abs));
-    let (enriched, files_matched) = enrich::enrich(&matches, &search_root);
+    let (enriched, files) = enrich::enrich(&matches, &search_root);
     let repo_ctx = repo_context::repo_context(&abs);
 
     let nested = if enriched.is_empty() && abs.is_dir() {
@@ -150,19 +167,23 @@ pub fn run(
         Vec::new()
     };
 
+    let signpost = enrich::signpost(enrich::searched_name(pattern), &search_root);
+
     if !as_json {
-        enrich::render_human(&enriched, files_matched, &repo_ctx);
+        enrich::render_human(&enriched, &files, &repo_ctx, signpost.as_deref());
         for r in &nested {
             println!("nested repository (its own search scope): {r}");
         }
     }
 
-    sink.emit(&Document {
-        query: pattern,
-        lang_filter: lang,
-        matches: &enriched,
-        files_matched,
-        repo_context: &repo_ctx,
+    sink.emit(&enrich::SearchDocument {
+        query: json!({"pattern": pattern, "lang": lang, "path": path, "at": at}),
+        context: enrich::SearchContext {
+            files: &files,
+            repo: &repo_ctx,
+            signpost,
+        },
+        results: &enriched,
         nested_repos: &nested,
     })
 }

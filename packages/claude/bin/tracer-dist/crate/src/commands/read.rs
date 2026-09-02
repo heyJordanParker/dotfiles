@@ -4,7 +4,7 @@
 //! stripping, ref loading, line/anchor scoping, and nested-memory loading.
 
 use super::{nested_memory, session_log};
-use crate::{architecture, cache, ccn, extraction, file_facts, passive_context};
+use crate::{cache, ccn, extraction, file_facts, passive_context, relations};
 use anyhow::Result;
 use regex::Regex;
 use serde_json::{json, Value};
@@ -614,22 +614,6 @@ fn clip(subject: &str, max_chars: usize) -> String {
     format!("{}\u{2026}", truncated.trim_end())
 }
 
-fn graph_counts(file_path: &Path, repo_root: &Path) -> Option<Value> {
-    let graph = architecture::load_cached(repo_root)?;
-    let relative = match file_path
-        .canonicalize()
-        .ok()
-        .and_then(|p| p.strip_prefix(repo_root.canonicalize().ok()?).ok().map(|r| r.to_path_buf()))
-    {
-        Some(r) => r.to_string_lossy().to_string(),
-        None => return None,
-    };
-    let module_id = graph.file_to_module_id.get(&relative)?;
-    let callers = architecture::dependents_of(&graph, module_id).len();
-    let deps = architecture::dependencies_of(&graph, module_id).len();
-    Some(json!({"callers": callers, "depended_on_by_modules": deps}))
-}
-
 #[allow(clippy::too_many_arguments)]
 fn render_one(
     file_arg: &str,
@@ -774,7 +758,8 @@ fn render_one(
         None
     };
     let graph = if facts.is_some() {
-        graph_counts(&file_path, &repo_root)
+        relations::get(&repo_root)
+            .module_counts(&cache::relative_to_root(&file_path, &repo_root))
     } else {
         None
     };
@@ -969,13 +954,49 @@ pub fn run(
         results.push(rendered);
     }
 
-    let value = if results.len() == 1 {
-        results[0].0.clone()
-    } else {
+    // One shape for one file and for many: the rows are what was read, the
+    // per-file context sits beside them keyed by path. `emit_human` still
+    // reads each flat payload, so the split happens here rather than pushing
+    // a second level into every renderer.
+    let mut rows: Vec<Value> = Vec::with_capacity(results.len());
+    let mut context = serde_json::Map::new();
+    for (payload, _) in &results {
+        let file = payload["file"].as_str().unwrap_or("").to_string();
+        rows.push(json!({
+            "file": payload["file"],
+            "source": payload["source"],
+            "content": payload["content"],
+            "truncated": payload["truncated"],
+            "shown_lines": payload["shown_lines"],
+            "total_lines": payload["total_lines"],
+            "between_resolved_lines": payload["between_resolved_lines"],
+        }));
+        context.insert(
+            file,
+            json!({
+                "shoulder": payload["passive_context"],
+                "graph": payload["graph"],
+                "ref_resolved": payload["ref_resolved"],
+                "symbol_diff": payload["symbol_diff"],
+                "nested_memories": payload["nested_memories"],
+            }),
+        );
+    }
+    let value = crate::output::document(
         json!({
-            "files": results.iter().map(|(p, _): &(Value, Vec<nested_memory::LoadedMemory>)| p.clone()).collect::<Vec<_>>()
-        })
-    };
+            "paths": files,
+            "method": method,
+            "lines": line_range.map(|(a, b)| vec![a, b]),
+            "between": between.as_ref().map(|(a, b)| vec![a.clone(), b.clone()]),
+            "ref": ref_,
+            "raw": raw,
+            "all": all,
+            "diff": as_diff,
+        }),
+        json!({"files": Value::Object(context)}),
+        json!(rows),
+        json!({"files": rows.len()}),
+    );
 
     if as_json {
         return Ok(value);

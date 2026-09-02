@@ -1,7 +1,7 @@
 //! Per-language extraction.
 //!
 //! Each extractor returns an `ExtractionResult` of module-level imports and
-//! exports via fixed tree-sitter query strings. The architecture graph and
+//! exports via fixed tree-sitter query strings. The relations index and
 //! `structure` command consume this. Per-function CCN is a separate
 //! concern — see `crate::ccn`.
 

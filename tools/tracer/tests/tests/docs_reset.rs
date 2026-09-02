@@ -86,14 +86,14 @@ fn surfacing_after_reset_returns_docs_as_new_again() {
     // 1. First surfacing: the full chain is new.
     let first = f.trace_env(&["docs", "sub/util.py", "--json"], &env);
     first.ok();
-    assert_eq!(first.json()["doc_count"].as_i64().unwrap(), 2);
+    assert_eq!(first.view()["docs"].as_i64().unwrap(), 2);
 
     // 2. Second surfacing without a reset: nothing new, both already_loaded.
     let pre_reset = f.trace_env(&["docs", "sub/util.py", "--json"], &env);
     pre_reset.ok();
-    let v = pre_reset.json();
+    let v = pre_reset.view();
     assert_eq!(
-        v["doc_count"].as_i64().unwrap(),
+        v["docs"].as_i64().unwrap(),
         0,
         "without a reset the chain is already in the log: {v}"
     );
@@ -102,11 +102,11 @@ fn surfacing_after_reset_returns_docs_as_new_again() {
     // 3. Reset.
     let reset = f.trace_env(&["docs", "reset", "--json"], &env);
     reset.ok();
-    let rv = reset.json();
+    let rv = reset.view();
     assert_eq!(rv["scope"].as_str().unwrap(), "reset", "{rv}");
     assert_eq!(rv["session_active"].as_bool().unwrap(), true, "{rv}");
     assert_eq!(
-        rv["cleared_count"].as_i64().unwrap(),
+        rv["cleared"].as_i64().unwrap(),
         2,
         "reset must report the two surfaced docs it cleared: {rv}"
     );
@@ -116,14 +116,14 @@ fn surfacing_after_reset_returns_docs_as_new_again() {
     //    skipped as already_loaded.
     let after = f.trace_env(&["docs", "sub/util.py", "--json"], &env);
     after.ok();
-    let av = after.json();
+    let av = after.view();
     assert_eq!(
-        av["doc_count"].as_i64().unwrap(),
+        av["docs"].as_i64().unwrap(),
         2,
         "after a reset the chain must re-surface as new: {av}"
     );
     assert!(
-        av.get("already_loaded").is_none(),
+        av["already_loaded"].as_array().unwrap().is_empty(),
         "after a reset nothing must be reported already_loaded: {av}"
     );
 }
@@ -143,9 +143,9 @@ fn custom_source_lands_on_the_reset_response() {
         &env,
     );
     r.ok();
-    let v = r.json();
+    let v = r.view();
     assert_eq!(v["source"].as_str().unwrap(), "codex_compact_hook", "{v}");
-    assert_eq!(v["cleared_count"].as_i64().unwrap(), 2, "{v}");
+    assert_eq!(v["cleared"].as_i64().unwrap(), 2, "{v}");
 }
 
 // --- no-op when no session is active --------------------------------------
@@ -173,14 +173,14 @@ fn reset_is_a_clean_noop_when_no_session_is_active() {
     let stdout = String::from_utf8_lossy(&r.stdout);
     let v: serde_json::Value =
         serde_json::from_str(&stdout).expect("standalone reset must still return JSON");
-    assert_eq!(v["scope"].as_str().unwrap(), "reset", "{v}");
+    assert_eq!(v["query"]["scope"].as_str().unwrap(), "reset", "{v}");
     assert_eq!(
-        v["session_active"].as_bool().unwrap(),
+        v["context"]["session_active"].as_bool().unwrap(),
         false,
         "no session id ⇒ session_active false: {v}"
     );
     assert_eq!(
-        v["cleared_count"].as_i64().unwrap(),
+        v["counts"]["cleared"].as_i64().unwrap(),
         0,
         "no session id ⇒ nothing cleared: {v}"
     );
@@ -201,10 +201,10 @@ fn reset_before_anything_surfaces_clears_nothing() {
 
     let r = f.trace_env(&["docs", "reset", "--json"], &env);
     r.ok();
-    let v = r.json();
+    let v = r.view();
     assert_eq!(v["session_active"].as_bool().unwrap(), true, "{v}");
     assert_eq!(
-        v["cleared_count"].as_i64().unwrap(),
+        v["cleared"].as_i64().unwrap(),
         0,
         "an empty log clears nothing: {v}"
     );

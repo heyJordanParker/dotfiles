@@ -7,9 +7,6 @@ Use this Reference when a trace command is slow, stale, missing dependencies, or
 ### `file/` stores per-file facts
 It stores complexity, lines of code, language, imports, exports, and git activity. It invalidates per file when content changes.
 
-### `architecture/` stores the cross-file graph
-It stores symbol and module nodes for code, doc-file nodes for `Claude.md`, `CLAUDE.md`, `Agents.md`, `AGENTS.md`, their `.local.md` peers, and `.claude/rules/*.md`, plus `@include` edges and conditional `paths:` frontmatter. It invalidates when any per-file SHA changes, git HEAD moves, or a tracked doc-file mtime changes.
-
 ### `sessions/<session_id>/<agent_id>/` stores Context logs
 It stores `events.jsonl` and `view.json` for the per-session, per-Agent docs Context log. It no-ops without a session id.
 
@@ -26,13 +23,12 @@ Template:
 ## 3. Inspect or clear cache state
 
 ### Use cache verbs instead of deleting files
-`trace cache stats` reports entries and bytes per namespace. `trace cache clear` clears the chosen namespace.
+`trace cache stats` reports entries and bytes. `trace cache clear` empties the `file/` namespace, and `--all` removes the whole tree including session logs.
 
 Template:
   ```bash
   trace cache stats
-  trace cache clear --namespace file
-  trace cache clear --namespace architecture
+  trace cache clear
   trace cache clear --all
   ```
 

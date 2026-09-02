@@ -30,23 +30,23 @@ use tracer_cli_tests::Fixture;
 fn info(f: &Fixture, rel: &str) -> Value {
     let r = f.trace(&["info", rel, "--json"]);
     r.ok();
-    r.json()
+    r.view()
 }
 
 /// Assert the exact file-level complexity scalars.
 fn assert_totals(v: &Value, total: i64, max: i64, count: i64) {
     assert_eq!(
-        v["cyclomatic_complexity_total"].as_i64().unwrap(),
+        v["ccn_total"].as_i64().unwrap(),
         total,
         "cyclomatic_complexity_total mismatch: {v:#}"
     );
     assert_eq!(
-        v["cyclomatic_complexity_max"].as_i64().unwrap(),
+        v["ccn_max_function"].as_i64().unwrap(),
         max,
         "cyclomatic_complexity_max mismatch: {v:#}"
     );
     assert_eq!(
-        v["function_count"].as_i64().unwrap(),
+        v["functions"].as_i64().unwrap(),
         count,
         "function_count mismatch: {v:#}"
     );
@@ -54,7 +54,7 @@ fn assert_totals(v: &Value, total: i64, max: i64, count: i64) {
 
 /// Assert one function's exact CCN by name.
 fn assert_fn(v: &Value, name: &str, ccn: i64) {
-    let funcs = v["functions"].as_array().unwrap();
+    let funcs = v["results"].as_array().unwrap();
     let found = funcs
         .iter()
         .find(|f| f["name"].as_str() == Some(name))
@@ -337,7 +337,7 @@ fn ruby_exact_complexity() {
     assert_totals(&v, 8, 3, 3);
     // Both `do` blocks are named `outer.<block>`; assert the multiset of
     // block CCNs is exactly {2, 3}.
-    let mut blocks: Vec<i64> = v["functions"]
+    let mut blocks: Vec<i64> = v["results"]
         .as_array()
         .unwrap()
         .iter()
@@ -422,7 +422,7 @@ fn c_exact_complexity() {
     // `name` field, so the walker labels both `<anonymous>`; the CCN
     // values are exact and that is what this test pins. Assert the
     // multiset of per-function CCNs is exactly {2, 6}.
-    let mut ccns: Vec<i64> = v["functions"]
+    let mut ccns: Vec<i64> = v["results"]
         .as_array()
         .unwrap()
         .iter()
@@ -439,7 +439,7 @@ fn c_exact_complexity() {
 fn structure(f: &Fixture, rel: &str) -> Value {
     let r = f.trace(&["structure", rel, "--json"]);
     r.ok();
-    r.json()
+    r.view()
 }
 
 /// `(module, symbol-or-empty, line)` triples for every import, in order.

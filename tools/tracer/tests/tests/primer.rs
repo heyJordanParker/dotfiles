@@ -116,19 +116,15 @@ fn primer_warms_cache_as_side_effect() {
     let f = standard_repo();
     // Cache starts empty; the primer's first invocation builds it.
     f.trace(&["context"]).ok();
-    let v = f.trace(&["cache", "stats", "--json"]).json();
+    let v = f.trace(&["cache", "stats", "--json"]).view();
     // The primer warms the file cache over standard_repo()'s fixed tree:
-    // exactly 8 file/ entries, 1 architecture/ entry. A primer that
-    // stopped warming, or warmed a different file set, fails this.
+    // exactly 9 entries — six per-file entries, the mtime index, the
+    // git-activity map, and the relations index. A primer that stopped
+    // warming, or warmed a different file set, fails this.
     assert_eq!(
         v["file"]["entries"].as_i64().unwrap(),
-        8,
-        "primer must warm exactly 8 file-cache entries: {v}"
-    );
-    assert_eq!(
-        v["architecture"]["entries"].as_i64().unwrap(),
-        1,
-        "primer must warm exactly 1 architecture-cache entry: {v}"
+        9,
+        "primer must warm exactly 9 file-cache entries: {v}"
     );
 }
 

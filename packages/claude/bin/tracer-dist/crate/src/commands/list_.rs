@@ -305,7 +305,7 @@ pub fn run(
     match &worktree {
         Some(root) => {
             let git_map = git_activity::bulk_cached(root);
-            let scc_map = crate::repo_context::per_file_metrics(root);
+            let scc = crate::repo_context::metrics(root);
             let tracked =
                 repo_files::tracked_files(root, Some(&base)).unwrap_or_default();
             let by_subdir = partition_under_base(root, &base, &tracked);
@@ -326,7 +326,7 @@ pub fn run(
                 .collect();
             for (name, _, _) in &rendered {
                 let rel = rel_of(name);
-                if is_source_ext(name) || scc_map.contains_key(&rel) {
+                if is_source_ext(name) || scc.per_file.get(&rel).is_some() {
                     batch.push(base.join(name));
                 }
             }
@@ -413,14 +413,15 @@ pub fn run(
             })
         })
         .collect();
-    let value = json!({
-        "path": base.to_string_lossy(),
-        "directories": dirs_json,
-        "files": files_json,
-        "entries": entries_total,
-        "limited": limit.map(|n| entries_total > n).unwrap_or(false),
-        "nested_repos": nested_repos,
-    });
+    let value = crate::output::document(
+        json!({"path": base.to_string_lossy(), "limit": limit}),
+        json!({"nested_repos": nested_repos}),
+        json!({"directories": dirs_json, "files": files_json}),
+        json!({
+            "entries": entries_total,
+            "limited": limit.map(|n| entries_total > n).unwrap_or(false),
+        }),
+    );
 
     if as_json {
         return Ok(value);

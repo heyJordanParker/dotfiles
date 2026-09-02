@@ -13,12 +13,18 @@ from conftest import PY_HOOKS
 
 PY = os.path.join(PY_HOOKS, "enrich_on_read.py")
 
+# Answers in the one `{query, context, results, counts}` document every trace
+# command emits, so a hook that reads the wrong key fails here instead of
+# silently enriching nothing in a live session.
 _TRACE_STUB = r'''#!/usr/bin/env python3
 import json, os, sys
 
 args = sys.argv[1:]
-if args and args[0] == "glob":
-    print(json.dumps({"matches": json.loads(os.environ.get("STUB_TRACE_MATCHES", "[]"))}))
+matches = json.loads(os.environ.get("STUB_TRACE_MATCHES", "[]"))
+if args and args[0] == "find":
+    print(json.dumps({"results": [{"path": m, "kind": "file"} for m in matches]}))
+elif args and args[0] == "grep":
+    print(json.dumps({"results": [{"file": m, "line": 1} for m in matches]}))
 elif args and args[0] == "context":
     print("[git: stub shoulder]")
 '''
@@ -91,13 +97,28 @@ def test_glob_enriches_each_matched_file(monkeypatch, tmp_path):
     assert _shoulder_count(context) == len(expected)
 
 
+def test_grep_enriches_each_matched_file(monkeypatch, tmp_path):
+    matches = ["/repo/event.py", "/repo/feedback.py", "/repo/event.py"]
+    _stub_trace(monkeypatch, tmp_path, matches)
+    return_code, context, _ = _enrich({
+        "tool_name": "Grep",
+        "tool_input": {"pattern": "def ", "path": str(tmp_path)},
+        "session_id": "grep",
+        "agent_id": "a",
+    })
+    assert return_code == 0
+    assert _enriched_files(context) == {"/repo/event.py", "/repo/feedback.py"}
+    assert _shoulder_count(context) == 2
+
+
 def test_a_file_whose_enrichment_times_out_is_still_accounted_for(monkeypatch, capfd):
     deadlines = []
 
     def timing_out_context(argv, **kwargs):
-        if argv[1] == "glob":
+        if argv[1] == "find":
             return subprocess.CompletedProcess(
-                argv, 0, '{"matches": ["event.py", "feedback.py"]}', "")
+                argv, 0,
+                '{"results": [{"path": "event.py"}, {"path": "feedback.py"}]}', "")
         deadlines.append(kwargs.get("timeout"))
         raise subprocess.TimeoutExpired(argv, kwargs.get("timeout"))
 

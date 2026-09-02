@@ -52,8 +52,8 @@ fn shoulder_carries_first_seen_range_and_changed_together() {
 
     let r = f.trace(&["read", "core.py", "--json"]);
     r.ok();
-    let v = r.json();
-    let shoulder = v["passive_context"].as_str().unwrap();
+    let v = r.view();
+    let shoulder = v["files"]["core.py"]["shoulder"].as_str().unwrap();
     // first_seen drives the left side of the age range: an old created bucket
     // joined by `→` to the fresh modified bucket. The exact old bucket is
     // time-relative (≈1y); assert the structural range form and that the
@@ -94,8 +94,8 @@ fn shoulder_churn_velocity_diverges_from_lifetime_total() {
 
     let r = f.trace(&["read", "svc.py", "--json"]);
     r.ok();
-    let v = r.json();
-    let shoulder = v["passive_context"].as_str().unwrap();
+    let v = r.view();
+    let shoulder = v["files"]["svc.py"]["shoulder"].as_str().unwrap();
     assert!(
         shoulder.contains("\u{00b7} churn: 3 commits, 1/30d \u{00b7}"),
         "churn must carry lifetime total 3 and recent velocity 1 (they diverge): {shoulder:?}"
@@ -136,29 +136,32 @@ fn read_json_shape_is_stable() {
     let f = standard_repo();
     let r = f.trace(&["read", "src/util.py", "--json"]);
     r.ok();
-    let v = r.json();
-    assert_eq!(v["file"], "src/util.py");
-    assert_eq!(v["source"], "worktree");
+    let v = r.view();
+    assert_eq!(v["results"][0]["file"], "src/util.py");
+    assert_eq!(v["results"][0]["source"], "worktree");
     // src/util.py is a known four-line file; `read` line-numbers it as
     // L1..L4. The passive_context shoulder is the settled single-commit
     // hermetic string: new (1 commit), local-only, churn of one commit (in
     // the last 30 days), CCN 2 (one `if`), the three files committed in the
     // same "init standard repo" commit as the top changed-together set
     // (co_changed surfacing in the shoulder), the fixed author, the init
-    // subject. The age component is normalized; the rest is pinned exactly.
+    // subject. The reach counts come from the relations index, which is
+    // built on demand, so `read` carries them with no prior `cache build`:
+    // src/app.py calls helper(), and util.py imports nothing.
+    // The age component is normalized; the rest is pinned exactly.
     assert_eq!(
-        v["content"].as_str().unwrap(),
+        v["results"][0]["content"].as_str().unwrap(),
         "L1: def helper(v):\nL2:     if v > 0:\nL3:         return v + 1\nL4:     return 0\n",
         "read content must be the exact line-numbered fixture file: {}",
-        v["content"]
+        v["results"][0]["content"]
     );
     assert_eq!(
-        normalize_age(v["passive_context"].as_str().unwrap()),
-        "[git: new (1 commit) \u{00b7} age: <AGE> \u{00b7} presence: local-only \u{00b7} churn: 1 commit, 1/30d \u{00b7} loc: 4 \u{00b7} ccn: 2 low \u{00b7} together: readme.md, widget.php, pyproject.toml \u{00b7} owner: Tracer Test \u{00b7} last: init standard repo]",
-        "read passive_context must be the exact settled shoulder: {}",
-        v["passive_context"]
+        normalize_age(v["files"]["src/util.py"]["shoulder"].as_str().unwrap()),
+        "[git: new (1 commit) \u{00b7} age: <AGE> \u{00b7} presence: local-only \u{00b7} churn: 1 commit, 1/30d \u{00b7} callers: 1 \u{00b7} dependents: 0 \u{00b7} loc: 4 \u{00b7} ccn: 2 low \u{00b7} together: readme.md, widget.php, pyproject.toml \u{00b7} owner: Tracer Test \u{00b7} last: init standard repo]",
+        "read shoulder must be the exact settled shoulder: {}",
+        v["files"]["src/util.py"]["shoulder"]
     );
-    assert!(v.get("nested_memories").is_none());
+    assert!(v["files"]["src/util.py"]["nested_memories"].is_null());
 }
 
 /// A file whose rendered read runs far past the size budget. No comments,
@@ -186,13 +189,13 @@ fn read_over_budget_trims_at_a_line_and_marks_the_cut() {
 
     let r = f.trace(&["read", "big.py", "--json"]);
     r.ok();
-    let v = r.json();
-    assert_eq!(v["truncated"], true);
-    assert_eq!(v["total_lines"], 2000);
-    let last_shown = v["shown_lines"][1].as_i64().unwrap();
+    let v = r.view();
+    assert_eq!(v["results"][0]["truncated"], true);
+    assert_eq!(v["results"][0]["total_lines"], 2000);
+    let last_shown = v["results"][0]["shown_lines"][1].as_i64().unwrap();
     assert!(last_shown > 0 && last_shown < 2000, "expected a partial window, got {last_shown}");
 
-    let content = v["content"].as_str().unwrap();
+    let content = v["results"][0]["content"].as_str().unwrap();
     let marker = trim_marker_of(content).unwrap_or_else(|| panic!("no trim marker in:\n{content}"));
     assert!(
         marker.contains(&format!("[trimmed at L{last_shown} of 2000 ")),
@@ -215,9 +218,9 @@ fn read_trim_marker_command_returns_the_next_window() {
 
     let first = f.trace(&["read", "big.py", "--json"]);
     first.ok();
-    let v = first.json();
-    let last_shown = v["shown_lines"][1].as_i64().unwrap();
-    let marker = trim_marker_of(v["content"].as_str().unwrap()).expect("trim marker");
+    let v = first.view();
+    let last_shown = v["results"][0]["shown_lines"][1].as_i64().unwrap();
+    let marker = trim_marker_of(v["results"][0]["content"].as_str().unwrap()).expect("trim marker");
 
     let command = marker
         .split_once("continue: ")
@@ -231,9 +234,9 @@ fn read_trim_marker_command_returns_the_next_window() {
     args.push("--json");
     let next = f.trace(&args);
     next.ok();
-    let v2 = next.json();
+    let v2 = next.view();
     assert_eq!(
-        v2["shown_lines"][0].as_i64().unwrap(),
+        v2["results"][0]["shown_lines"][0].as_i64().unwrap(),
         last_shown + 1,
         "the suggested command must resume on the line after the cut"
     );
@@ -244,11 +247,11 @@ fn read_under_budget_carries_no_marker() {
     let f = standard_repo();
     let r = f.trace(&["read", "src/util.py", "--json"]);
     r.ok();
-    let v = r.json();
-    assert_eq!(v["truncated"], false);
-    assert_eq!(v["total_lines"], 4);
-    assert_eq!(v["shown_lines"], serde_json::json!([1, 4]));
-    assert!(trim_marker_of(v["content"].as_str().unwrap()).is_none());
+    let v = r.view();
+    assert_eq!(v["results"][0]["truncated"], false);
+    assert_eq!(v["results"][0]["total_lines"], 4);
+    assert_eq!(v["results"][0]["shown_lines"], serde_json::json!([1, 4]));
+    assert!(trim_marker_of(v["results"][0]["content"].as_str().unwrap()).is_none());
 }
 
 #[test]
@@ -259,10 +262,10 @@ fn read_all_flag_returns_the_whole_file() {
 
     let r = f.trace(&["read", "big.py", "--all", "--json"]);
     r.ok();
-    let v = r.json();
-    assert_eq!(v["truncated"], false);
-    assert_eq!(v["shown_lines"], serde_json::json!([1, 2000]));
-    let content = v["content"].as_str().unwrap();
+    let v = r.view();
+    assert_eq!(v["results"][0]["truncated"], false);
+    assert_eq!(v["results"][0]["shown_lines"], serde_json::json!([1, 2000]));
+    let content = v["results"][0]["content"].as_str().unwrap();
     assert!(trim_marker_of(content).is_none(), "--all must not mark a trim");
     assert!(content.contains("value_2000 = "), "--all must return the last line");
 }
@@ -277,15 +280,15 @@ fn read_raw_over_budget_is_trimmed_and_marked() {
 
     let r = f.trace(&["read", "big.py", "--raw", "--json"]);
     r.ok();
-    let v = r.json();
-    assert_eq!(v["truncated"], true);
-    let marker = trim_marker_of(v["content"].as_str().unwrap()).expect("trim marker under --raw");
+    let v = r.view();
+    assert_eq!(v["results"][0]["truncated"], true);
+    let marker = trim_marker_of(v["results"][0]["content"].as_str().unwrap()).expect("trim marker under --raw");
     assert!(marker.ends_with("--raw]"), "the continue command must keep --raw: {marker}");
 
-    let last_shown = v["shown_lines"][1].as_i64().unwrap();
+    let last_shown = v["results"][0]["shown_lines"][1].as_i64().unwrap();
     let next = f.trace(&["read", "big.py", "--lines", &format!("{}:2000", last_shown + 1), "--raw", "--json"]);
     next.ok();
-    assert_eq!(next.json()["shown_lines"][0].as_i64().unwrap(), last_shown + 1);
+    assert_eq!(next.view()["results"][0]["shown_lines"][0].as_i64().unwrap(), last_shown + 1);
 }
 
 #[test]
@@ -301,10 +304,10 @@ fn read_single_line_past_the_budget_is_whole_and_unmarked() {
 
     let r = f.trace(&["read", "bundle.js", "--json"]);
     r.ok();
-    let v = r.json();
-    assert_eq!(v["truncated"], false);
-    assert_eq!(v["total_lines"], 1);
-    let content = v["content"].as_str().unwrap();
+    let v = r.view();
+    assert_eq!(v["results"][0]["truncated"], false);
+    assert_eq!(v["results"][0]["total_lines"], 1);
+    let content = v["results"][0]["content"].as_str().unwrap();
     assert!(trim_marker_of(content).is_none(), "untrimmed content must carry no marker");
     assert!(content.contains(&"y".repeat(40_000)), "the whole line must survive");
 }
@@ -320,8 +323,8 @@ fn read_trim_marker_echoes_the_path_the_caller_used() {
 
     let r = f.trace(&["read", "./big.py", "--json"]);
     r.ok();
-    let v = r.json();
-    let marker = trim_marker_of(v["content"].as_str().unwrap()).expect("trim marker");
+    let v = r.view();
+    let marker = trim_marker_of(v["results"][0]["content"].as_str().unwrap()).expect("trim marker");
     assert!(
         marker.contains("trace read ./big.py --lines"),
         "the marker must repeat the caller's path: {marker}"
@@ -336,8 +339,8 @@ fn read_trim_marker_quotes_a_path_with_whitespace() {
 
     let r = f.trace(&["read", "spaced name.py", "--json"]);
     r.ok();
-    let v = r.json();
-    let marker = trim_marker_of(v["content"].as_str().unwrap()).expect("trim marker");
+    let v = r.view();
+    let marker = trim_marker_of(v["results"][0]["content"].as_str().unwrap()).expect("trim marker");
     assert!(
         marker.contains("trace read 'spaced name.py' --lines"),
         "a path with whitespace must be shell-quoted: {marker}"
@@ -354,11 +357,11 @@ fn read_between_over_budget_continues_inside_the_anchor_section() {
 
     let r = f.trace(&["read", "big.py", "--between", "value_100 ", "value_1900 ", "--json"]);
     r.ok();
-    let v = r.json();
-    assert_eq!(v["truncated"], true);
-    assert_eq!(v["between_resolved_lines"], serde_json::json!([100, 1900]));
-    let last_shown = v["shown_lines"][1].as_i64().unwrap();
-    let marker = trim_marker_of(v["content"].as_str().unwrap()).expect("trim marker");
+    let v = r.view();
+    assert_eq!(v["results"][0]["truncated"], true);
+    assert_eq!(v["results"][0]["between_resolved_lines"], serde_json::json!([100, 1900]));
+    let last_shown = v["results"][0]["shown_lines"][1].as_i64().unwrap();
+    let marker = trim_marker_of(v["results"][0]["content"].as_str().unwrap()).expect("trim marker");
     assert!(
         marker.contains(&format!("--lines {}:1900]", last_shown + 1)),
         "the continue window must end at the anchor, not at the file end: {marker}"
@@ -373,9 +376,9 @@ fn read_at_ref_over_budget_keeps_the_ref_in_the_continue_command() {
 
     let r = f.trace(&["read", "big.py", "--at", "HEAD", "--json"]);
     r.ok();
-    let v = r.json();
-    assert_eq!(v["truncated"], true);
-    let marker = trim_marker_of(v["content"].as_str().unwrap()).expect("trim marker");
+    let v = r.view();
+    assert_eq!(v["results"][0]["truncated"], true);
+    let marker = trim_marker_of(v["results"][0]["content"].as_str().unwrap()).expect("trim marker");
     assert!(marker.ends_with("--at HEAD]"), "the continue command must stay on the ref: {marker}");
 }
 
@@ -384,10 +387,10 @@ fn read_empty_selection_reports_no_window() {
     let f = standard_repo();
     let r = f.trace(&["read", "src/util.py", "--lines", "500:600", "--json"]);
     r.ok();
-    let v = r.json();
-    assert_eq!(v["truncated"], false);
-    assert!(v["shown_lines"].is_null());
-    assert_eq!(v["total_lines"], 4);
+    let v = r.view();
+    assert_eq!(v["results"][0]["truncated"], false);
+    assert!(v["results"][0]["shown_lines"].is_null());
+    assert_eq!(v["results"][0]["total_lines"], 4);
 }
 
 #[test]
@@ -399,8 +402,8 @@ fn read_multi_file_caps_each_file_separately() {
 
     let r = f.trace(&["read", "big.py", "src/util.py", "--lines", "1:5000", "--json"]);
     r.ok();
-    let v = r.json();
-    let files = v["files"].as_array().unwrap();
+    let v = r.view();
+    let files = v["results"].as_array().unwrap();
     assert_eq!(files.len(), 2);
     assert_eq!(files[0]["truncated"], true);
     assert_eq!(files[1]["truncated"], false);
@@ -415,9 +418,9 @@ fn read_method_scopes_to_one_function() {
     let f = standard_repo();
     let r = f.trace(&["read", "src/app.py", "main", "--json"]);
     r.ok();
-    let v = r.json();
+    let v = r.view();
     assert_eq!(v["method"], "main");
-    let body = v["content"].as_str().unwrap();
+    let body = v["results"][0]["content"].as_str().unwrap();
     assert_eq!(
         body,
         concat!(
@@ -457,10 +460,10 @@ fn read_method_at_ref_extracts_committed_body() {
     );
     let r = f.trace(&["read", "m.py", "target", "--at", "HEAD", "--json"]);
     r.ok();
-    let v = r.json();
-    assert_eq!(v["source"], "ref");
+    let v = r.view();
+    assert_eq!(v["results"][0]["source"], "ref");
     assert_eq!(v["method"], "target");
-    let body = v["content"].as_str().unwrap();
+    let body = v["results"][0]["content"].as_str().unwrap();
     assert_eq!(
         body,
         concat!(
@@ -479,8 +482,8 @@ fn read_method_at_ref_extracts_committed_body() {
 
 #[test]
 fn read_multi_file_returns_one_payload_per_file() {
-    // Two positional files with a shared scope (--lines) must come back
-    // under a `files` array, one payload each, in argument order, each
+    // Two positional files with a shared scope (--lines) must come back as
+    // the `results` rows, one payload each, in argument order, each
     // carrying that file's own clamped content.
     let f = Fixture::new();
     f.write("a.py", "AONE = 1\nATWO = 2\nATHREE = 3\n");
@@ -488,10 +491,10 @@ fn read_multi_file_returns_one_payload_per_file() {
     f.commit("two files");
     let r = f.trace(&["read", "a.py", "b.py", "--lines", "1:2", "--json"]);
     r.ok();
-    let v = r.json();
-    let files = v["files"]
+    let v = r.view();
+    let files = v["results"]
         .as_array()
-        .expect("multi-file read must nest payloads under `files`");
+        .expect("multi-file read must carry one row per file");
     assert_eq!(files.len(), 2, "expected exactly two file payloads: {v}");
     assert_eq!(files[0]["file"], "a.py");
     assert_eq!(files[1]["file"], "b.py");
@@ -519,10 +522,10 @@ fn read_line_range_in_range_returns_exact_lines() {
     let f = standard_repo();
     let r = f.trace(&["read", "src/util.py", "--lines", "2:3", "--json"]);
     r.ok();
-    let v = r.json();
+    let v = r.view();
     assert_eq!(v["lines"][0], 2);
     assert_eq!(v["lines"][1], 3);
-    let content = v["content"].as_str().unwrap();
+    let content = v["results"][0]["content"].as_str().unwrap();
     // Exactly lines 2 and 3, line-numbered, nothing else.
     assert_eq!(
         content, "L2:     if v > 0:\nL3:         return v + 1\n",
@@ -537,10 +540,10 @@ fn read_line_range_clamps_out_of_range_upper_bound() {
     let f = standard_repo();
     let r = f.trace(&["read", "src/util.py", "--lines", "3:99", "--json"]);
     r.ok();
-    let v = r.json();
+    let v = r.view();
     assert_eq!(v["lines"][0], 3);
     assert_eq!(v["lines"][1], 99);
-    let content = v["content"].as_str().unwrap();
+    let content = v["results"][0]["content"].as_str().unwrap();
     assert_eq!(
         content, "L3:         return v + 1\nL4:     return 0\n",
         "out-of-range upper bound did not clamp to EOF:\n{content:?}"
@@ -554,14 +557,14 @@ fn read_line_range_entirely_past_eof_is_empty() {
     let f = standard_repo();
     let r = f.trace(&["read", "src/util.py", "--lines", "10:20", "--json"]);
     r.ok();
-    let v = r.json();
+    let v = r.view();
     assert_eq!(v["lines"][0], 10);
     assert_eq!(v["lines"][1], 20);
     assert_eq!(
-        v["content"].as_str().unwrap(),
+        v["results"][0]["content"].as_str().unwrap(),
         "",
         "a range entirely past EOF must yield empty content, got:\n{}",
-        v["content"]
+        v["results"][0]["content"]
     );
 }
 
@@ -612,12 +615,12 @@ fn read_at_ref_reads_committed_content() {
     f.write("v.py", "VALUE = 2\n");
     let r = f.trace(&["read", "v.py", "--at", "HEAD", "--json"]);
     r.ok();
-    let v = r.json();
-    assert_eq!(v["source"], "ref");
+    let v = r.view();
+    assert_eq!(v["results"][0]["source"], "ref");
     assert!(
-        v["content"].as_str().unwrap().contains("VALUE = 1"),
+        v["results"][0]["content"].as_str().unwrap().contains("VALUE = 1"),
         "ref read returned worktree content:\n{}",
-        v["content"]
+        v["results"][0]["content"]
     );
 }
 
@@ -668,8 +671,8 @@ fn read_symbol_diff_partitions_added_removed_changed() {
     );
     let r = f.trace(&["read", "mod.py", "--at", "HEAD", "--diff", "--json"]);
     r.ok();
-    let v = r.json();
-    let d = &v["symbol_diff"];
+    let v = r.view();
+    let d = &v["files"]["mod.py"]["symbol_diff"];
     assert!(!d.is_null(), "symbol_diff missing on a supported file:\n{v}");
 
     let names = |arr: &serde_json::Value| -> Vec<String> {
@@ -748,18 +751,18 @@ fn read_between_anchors_returns_exact_section_and_resolved_lines() {
         "read", "block.py", "--between", "region start", "region end", "--json",
     ]);
     r.ok();
-    let v = r.json();
+    let v = r.view();
     assert_eq!(v["between"][0], "region start");
     assert_eq!(v["between"][1], "region end");
     assert_eq!(
-        v["between_resolved_lines"][0], 2,
+        v["results"][0]["between_resolved_lines"][0], 2,
         "section must start at the start-anchor line: {v}"
     );
     assert_eq!(
-        v["between_resolved_lines"][1], 5,
+        v["results"][0]["between_resolved_lines"][1], 5,
         "section must end at the end-anchor line (inclusive): {v}"
     );
-    let content = v["content"].as_str().unwrap();
+    let content = v["results"][0]["content"].as_str().unwrap();
     assert_eq!(
         content,
         concat!(
@@ -777,19 +780,19 @@ fn info_file_json_reports_complexity_and_graph_fields() {
     let f = standard_repo();
     let r = f.trace(&["info", "src/app.py", "--json"]);
     r.ok();
-    let v = r.json();
+    let v = r.view();
     assert_eq!(v["file"].as_str().unwrap().ends_with("src/app.py"), true);
     // standard_repo()'s main(x): base 1 + if(1) + for(1) + if(1) = 4,
     // exactly one function. Hand-verifiable McCabe — no lower bound.
-    assert_eq!(v["function_count"].as_i64().unwrap(), 1);
+    assert_eq!(v["functions"].as_i64().unwrap(), 1);
     assert_eq!(
-        v["cyclomatic_complexity_total"].as_i64().unwrap(),
+        v["ccn_total"].as_i64().unwrap(),
         4,
         "main(): if + for + if over base 1 = 4: {}",
-        v["cyclomatic_complexity_total"]
+        v["ccn_total"]
     );
-    assert_eq!(v["cyclomatic_complexity_max"].as_i64().unwrap(), 4);
-    let main_fn = v["functions"]
+    assert_eq!(v["ccn_max_function"].as_i64().unwrap(), 4);
+    let main_fn = v["results"]
         .as_array()
         .unwrap()
         .iter()
@@ -798,10 +801,10 @@ fn info_file_json_reports_complexity_and_graph_fields() {
     assert_eq!(main_fn["cyclomatic_complexity"].as_i64().unwrap(), 4);
     // repo_context over the fixed 8-entry fixture tree is deterministic.
     assert_eq!(
-        v["repo_context"],
+        v["repo"],
         serde_json::json!({"total_files": 8, "median_file_ccn": 0, "complexity_p95": 1}),
-        "info file repo_context must be exact for the known fixture: {}",
-        v["repo_context"]
+        "info file repo context must be exact for the known fixture: {}",
+        v["repo"]
     );
 }
 
@@ -810,38 +813,42 @@ fn info_directory_aggregates_files() {
     let f = standard_repo();
     let r = f.trace(&["info", "src", "--json"]);
     r.ok();
-    let v = r.json();
+    let v = r.view();
     assert!(v["directory"].as_str().unwrap().ends_with("src"));
-    // src holds exactly app.py, util.py, front.tsx, consts.ts.
+    // src holds exactly app.py, util.py, front.tsx, consts.ts. The row count
+    // reads from `counts`, because `context` owns the `files` name in the
+    // flattened view.
+    let counts = &r.json()["counts"];
     assert_eq!(
-        v["file_count"].as_i64().unwrap(),
+        counts["files"].as_i64().unwrap(),
         4,
         "src has app.py, util.py, front.tsx, consts.ts: {}",
-        v["file_count"]
+        counts["files"]
     );
     // Exact aggregate: app.py 4 + util.py 2 + front.tsx 2 + consts.ts 0.
     assert_eq!(
-        v["cyclomatic_complexity_total"].as_i64().unwrap(),
+        v["ccn_total"].as_i64().unwrap(),
         8,
         "src aggregate CCN (4+2+2+0): {}",
-        v["cyclomatic_complexity_total"]
+        v["ccn_total"]
     );
     // Each files[] entry also carries `abs_path` — the fixture's temp
     // directory path, which varies per run; the rest of every entry is
     // fully determinable. Pin the exact deterministic projection (all
     // fields except abs_path) plus the deterministic repo_context.
-    let files_proj: Vec<serde_json::Value> = v["files"]
+    let files_proj: Vec<serde_json::Value> = v["results"]
         .as_array()
         .unwrap()
         .iter()
         .map(|e| {
+            let file = e["file"].as_str().unwrap();
             serde_json::json!({
                 "file": e["file"],
                 "loc": e["loc"],
                 "cyclomatic_complexity_total": e["cyclomatic_complexity_total"],
                 "function_count": e["function_count"],
                 "rank": e["rank"],
-                "passive_context": normalize_age(e["passive_context"].as_str().unwrap()),
+                "passive_context": normalize_age(v["files"][file]["shoulder"].as_str().unwrap()),
             })
         })
         .collect();
@@ -853,13 +860,13 @@ fn info_directory_aggregates_files() {
             {"file": "front.tsx","loc": 3, "cyclomatic_complexity_total": 2, "function_count": 1, "rank": "low", "passive_context": "[git: new (1 commit) \u{00b7} age: <AGE> \u{00b7} churn: 1 commit, 1/30d \u{00b7} loc: 3 \u{00b7} ccn: 2 low]"},
             {"file": "util.py",  "loc": 4, "cyclomatic_complexity_total": 2, "function_count": 1, "rank": "low", "passive_context": "[git: new (1 commit) \u{00b7} age: <AGE> \u{00b7} churn: 1 commit, 1/30d \u{00b7} loc: 4 \u{00b7} ccn: 2 low]"}
         ]),
-        "info directory files[] (minus the per-run abs_path) must be exact: {}",
-        v["files"]
+        "info directory rows (minus the per-run abs_path) must be exact: {}",
+        v["results"]
     );
     // exempt-(a): every entry's abs_path is the fixture temp dir, distinct
     // per run; the tightest stable invariant is that it ends with the
     // base-relative file path.
-    for e in v["files"].as_array().unwrap() {
+    for e in v["results"].as_array().unwrap() {
         let abs = e["abs_path"].as_str().unwrap();
         let file = e["file"].as_str().unwrap();
         assert!(
@@ -868,10 +875,10 @@ fn info_directory_aggregates_files() {
         );
     }
     assert_eq!(
-        v["repo_context"],
+        v["repo"],
         serde_json::json!({"total_files": 8, "median_file_ccn": 0, "complexity_p95": 1}),
-        "info directory repo_context must be exact: {}",
-        v["repo_context"]
+        "info directory repo context must be exact: {}",
+        v["repo"]
     );
 }
 
@@ -908,7 +915,7 @@ fn structure_lists_imports_and_symbols_json() {
     let f = standard_repo();
     let r = f.trace(&["structure", "src/app.py", "--json"]);
     r.ok();
-    let v = r.json();
+    let v = r.view();
     // app.py's imports are exactly `import os` (L1) and
     // `from src.util import helper` (L2) — a full (module, symbol, line)
     // tuple set, in source order, nothing else.
@@ -953,7 +960,7 @@ fn structure_lists_imports_and_symbols_json() {
         "app.py exports exactly main() at L5: {:?}",
         v["exports"]
     );
-    assert_eq!(v["symbol_count"].as_i64().unwrap(), 1, "app.py has one symbol: {}", v);
+    assert_eq!(v["symbols"].as_i64().unwrap(), 1, "app.py has one symbol: {}", v);
 }
 
 #[test]
@@ -981,7 +988,7 @@ fn structure_exports_are_the_exact_module_level_set() {
     f.commit("api");
     let r = f.trace(&["structure", "api.py", "--json"]);
     r.ok();
-    let v = r.json();
+    let v = r.view();
     let mut exports: Vec<(String, String, i64)> = v["exports"]
         .as_array()
         .expect("exports must be an array")
@@ -1036,7 +1043,7 @@ fn structure_falls_back_to_ctags_for_non_ast_language() {
     f.commit("bash file");
     let r = f.trace(&["structure", "util.sh", "--json"]);
     r.ok();
-    let v = r.json();
+    let v = r.view();
     assert_eq!(
         v["exports"].as_array().unwrap().len(),
         0,
@@ -1070,9 +1077,9 @@ fn structure_falls_back_to_ctags_for_non_ast_language() {
         v
     );
     assert_eq!(
-        v["symbol_count"].as_i64().unwrap(),
+        v["symbols"].as_i64().unwrap(),
         2,
-        "symbol_count must be exactly the two ctags symbols: {}",
+        "the symbol count must be exactly the two ctags symbols: {}",
         v
     );
 }
@@ -1082,7 +1089,7 @@ fn tree_json_carries_repo_context_and_ranks() {
     let f = standard_repo();
     let r = f.trace(&["tree", "src", "--json"]);
     r.ok();
-    let v = r.json();
+    let v = r.view();
     // standard_repo()'s src/ holds exactly four files; every field below is
     // hand-verifiable from the fixture source. tree's files[] carries no
     // absolute path (unlike `info` directory mode), so the whole array is
@@ -1090,18 +1097,19 @@ fn tree_json_carries_repo_context_and_ranks() {
     // single-commit hermetic shoulder "new (1 commit) · <age>"; the age
     // token is normalized via normalize_age (the one exempt-(a) axis) and
     // everything else is exact.
-    let files_norm: Vec<serde_json::Value> = v["files"]
+    let files_norm: Vec<serde_json::Value> = v["results"]
         .as_array()
         .unwrap()
         .iter()
         .map(|e| {
+            let path = e["path"].as_str().unwrap();
             serde_json::json!({
                 "path": e["path"],
                 "ccn_total": e["ccn_total"],
                 "ccn_max_function": e["ccn_max_function"],
                 "loc": e["loc"],
                 "rank": e["rank"],
-                "passive_context": normalize_age(e["passive_context"].as_str().unwrap()),
+                "passive_context": normalize_age(v["files"][path]["shoulder"].as_str().unwrap()),
             })
         })
         .collect();
@@ -1113,16 +1121,16 @@ fn tree_json_carries_repo_context_and_ranks() {
             {"path": "front.tsx","ccn_total": 2, "ccn_max_function": 2, "loc": 3, "rank": "low", "passive_context": "[git: new (1 commit) \u{00b7} age: <AGE> \u{00b7} churn: 1 commit, 1/30d \u{00b7} loc: 3 \u{00b7} ccn: 2 low]"},
             {"path": "util.py",  "ccn_total": 2, "ccn_max_function": 2, "loc": 4, "rank": "low", "passive_context": "[git: new (1 commit) \u{00b7} age: <AGE> \u{00b7} churn: 1 commit, 1/30d \u{00b7} loc: 4 \u{00b7} ccn: 2 low]"}
         ]),
-        "tree files[] must be the exact four-file fixture set: {}",
-        v["files"]
+        "tree rows must be the exact four-file fixture set: {}",
+        v["results"]
     );
-    // repo_context over the whole 8-entry fixture tree: median CCN 0,
+    // The repo context over the whole 8-entry fixture tree: median CCN 0,
     // p95 1 — deterministic for this fixed source.
     assert_eq!(
-        v["repo_context"],
+        v["repo"],
         serde_json::json!({"total_files": 8, "median_file_ccn": 0, "complexity_p95": 1}),
-        "tree repo_context must be exact for the known fixture: {}",
-        v["repo_context"]
+        "tree repo context must be exact for the known fixture: {}",
+        v["repo"]
     );
 }
 
@@ -1147,8 +1155,8 @@ fn tree_recurses_into_nested_directories() {
     f.commit("nested tree");
     let r = f.trace(&["tree", "proj", "--json"]);
     r.ok();
-    let v = r.json();
-    let mut paths: Vec<String> = v["files"]
+    let v = r.view();
+    let mut paths: Vec<String> = v["results"]
         .as_array()
         .unwrap()
         .iter()
@@ -1163,7 +1171,7 @@ fn tree_recurses_into_nested_directories() {
             "top.py".to_string(),
         ],
         "tree must recurse through every nested directory: {:?}",
-        v["files"]
+        v["results"]
     );
 }
 
@@ -1172,7 +1180,7 @@ fn list_directory_json_separates_dirs_and_files() {
     let f = standard_repo();
     let r = f.trace(&["list", ".", "--json"]);
     r.ok();
-    let v = r.json();
+    let v = r.view();
     // standard_repo()'s root has exactly three sub-directories (docs, lib,
     // src) and one top-level file (pyproject.toml). Every field is
     // hand-verifiable: child_count is the disk's direct-children number,
@@ -1262,7 +1270,7 @@ fn list_shows_gitignored_artifact_files_stat_only() {
 
     let r = f.trace(&["list", "runs", "--json"]);
     r.ok();
-    let v = r.json();
+    let v = r.view();
     let names: Vec<&str> = v["files"]
         .as_array()
         .unwrap()
@@ -1302,7 +1310,7 @@ fn list_recent_orders_by_mtime_and_limit_keeps_total() {
 
     let r = f.trace(&["list", "runs", "--recent", "--limit", "1", "--json"]);
     r.ok();
-    let v = r.json();
+    let v = r.view();
     let names: Vec<&str> = v["files"]
         .as_array()
         .unwrap()
@@ -1337,7 +1345,7 @@ fn list_names_nested_checkout_as_scope() {
 
     let r = f.trace(&["list", ".", "--json"]);
     r.ok();
-    let v = r.json();
+    let v = r.view();
     let dir_names: Vec<&str> = v["directories"]
         .as_array()
         .unwrap()
@@ -1378,7 +1386,7 @@ fn list_is_strictly_one_level_deep() {
     f.commit("nested for list");
     let r = f.trace(&["list", ".", "--json"]);
     r.ok();
-    let v = r.json();
+    let v = r.view();
 
     let file_names: Vec<&str> = v["files"]
         .as_array()
@@ -1419,14 +1427,14 @@ fn list_is_strictly_one_level_deep() {
 }
 
 #[test]
-fn survey_json_has_distribution_and_languages() {
+fn stats_json_has_distribution_and_languages() {
     let f = standard_repo();
-    let r = f.trace(&["survey", ".", "--json"]);
+    let r = f.trace(&["stats", ".", "--json"]);
     r.ok();
-    let v = r.json();
+    let v = r.view();
     // standard_repo() commits exactly 7 files; scc's per-language counts,
     // loc and complexity over that fixed tree are deterministic.
-    assert_eq!(v["total_files"].as_i64().unwrap(), 7, "standard_repo has 7 files: {}", v);
+    assert_eq!(v["files"].as_i64().unwrap(), 7, "standard_repo has 7 files: {}", v);
     let lang = |name: &str, files: i64, loc: i64, cx: i64, v: &serde_json::Value| {
         let l = &v["languages"][name];
         assert_eq!(l["files"].as_i64().unwrap(), files, "{name} files: {}", v);
@@ -1554,11 +1562,11 @@ fn docs_command_json_shape() {
     let f = docs_repo();
     let r = f.trace(&["docs", "sub/util.py", "--json"]);
     r.ok();
-    let v = r.json();
+    let v = r.view();
     assert_eq!(v["path"], "sub/util.py");
     assert_eq!(v["directory_scoped"], false);
-    assert_eq!(v["doc_count"], 2);
-    let docs = v["docs"].as_array().unwrap();
+    assert_eq!(v["docs"], 2);
+    let docs = v["results"].as_array().unwrap();
     assert!(docs.iter().any(|d| d["content"]
         .as_str()
         .unwrap()
@@ -1570,17 +1578,17 @@ fn docs_command_directory_scoped() {
     let f = docs_repo();
     let r = f.trace(&["docs", "sub", "--directory", "--json"]);
     r.ok();
-    let v = r.json();
+    let v = r.view();
     assert_eq!(v["directory_scoped"], true);
     // docs_repo() plants exactly two ancestor Claude.md docs (root + sub/);
     // directory-scoped `docs sub` resolves both, so the count is exactly 2.
     assert_eq!(
-        v["doc_count"].as_i64().unwrap(),
+        v["docs"].as_i64().unwrap(),
         2,
         "directory-scoped docs over sub/ must resolve exactly Claude.md + sub/Claude.md: {}",
         v
     );
-    let paths: Vec<&str> = v["docs"]
+    let paths: Vec<&str> = v["results"]
         .as_array()
         .unwrap()
         .iter()
@@ -1625,8 +1633,8 @@ fn read_default_json_omits_nested_memories() {
     let def = f.trace(&["read", "sub/util.py", "--json"]);
     def.ok();
     assert!(
-        def.json().get("nested_memories").is_none(),
-        "default read --json must not surface a nested_memories field:\n{}",
+        def.view()["files"]["sub/util.py"]["nested_memories"].is_null(),
+        "default read --json must not surface nested memories:\n{}",
         def.stdout
     );
     let on = f.trace(&["read", "sub/util.py", "--docs", "--json"]);
@@ -1639,8 +1647,8 @@ fn read_default_json_omits_nested_memories() {
     // body), so pinning it again here would duplicate that contract; the
     // key-presence half is what this test uniquely covers.
     assert!(
-        on.json().get("nested_memories").is_some(),
-        "--docs --json must include nested_memories:\n{}",
+        on.view()["files"]["sub/util.py"]["nested_memories"].is_array(),
+        "--docs --json must include nested memories:\n{}",
         on.stdout
     );
 }
@@ -1903,7 +1911,7 @@ fn structure_php_class_carries_attributes_extends_implements() {
     f.commit("php class");
     let r = f.trace(&["structure", "src/Funnel.php", "--json"]);
     r.ok();
-    let v = r.json();
+    let v = r.view();
     let cls = find_symbol(&v, "Funnel");
     assert_eq!(cls["kind"].as_str().unwrap(), "class", "{}", cls);
     assert_eq!(cls["extends"].as_str().unwrap(), "Model", "{}", cls);
@@ -1934,7 +1942,7 @@ fn structure_php_method_carries_visibility_return_type_attributes_and_typed_para
     f.commit("php method");
     let r = f.trace(&["structure", "src/M.php", "--json"]);
     r.ok();
-    let v = r.json();
+    let v = r.view();
     let m = find_symbol(&v, "validateSlug");
     assert_eq!(m["visibility"].as_str().unwrap(), "public", "{}", m);
     assert_eq!(m["return_type"].as_str().unwrap(), "?string", "{}", m);
@@ -1982,7 +1990,7 @@ fn structure_php_84_hooked_property_surfaces_with_attribute_and_accessors() {
     f.commit("php hooks");
     let r = f.trace(&["structure", "src/H.php", "--json"]);
     r.ok();
-    let v = r.json();
+    let v = r.view();
     let prop = find_symbol(&v, "name");
     assert_eq!(prop["kind"].as_str().unwrap(), "property", "{}", prop);
     assert_eq!(prop["visibility"].as_str().unwrap(), "public", "{}", prop);
@@ -2014,7 +2022,7 @@ fn structure_ts_class_carries_decorators_generics_and_implements() {
     f.commit("ts class");
     let r = f.trace(&["structure", "src/svc.ts", "--json"]);
     r.ok();
-    let v = r.json();
+    let v = r.view();
     let cls = find_symbol(&v, "Svc");
     assert_eq!(cls["type_parameters"].as_str().unwrap(), "<T extends Foo>", "{}", cls);
     let imps: Vec<&str> = cls["implements"]
@@ -2075,7 +2083,7 @@ fn structure_ts_interface_carries_extends_generics_and_field_types() {
     f.commit("ts iface");
     let r = f.trace(&["structure", "src/iface.ts", "--json"]);
     r.ok();
-    let v = r.json();
+    let v = r.view();
     let iface = find_symbol(&v, "User");
     assert_eq!(iface["kind"].as_str().unwrap(), "interface", "{}", iface);
     assert_eq!(iface["type_parameters"].as_str().unwrap(), "<T>", "{}", iface);
@@ -2123,7 +2131,7 @@ fn structure_python_function_carries_decorators_annotations_and_defaults() {
     f.commit("py module");
     let r = f.trace(&["structure", "api.py", "--json"]);
     r.ok();
-    let v = r.json();
+    let v = r.view();
 
     let cls = find_symbol(&v, "User");
     let bases: Vec<&str> = cls["bases"]
@@ -2181,7 +2189,7 @@ fn structure_existing_fields_remain_with_their_existing_shapes() {
     let f = standard_repo();
     let r = f.trace(&["structure", "src/app.py", "--json"]);
     r.ok();
-    let v = r.json();
+    let v = r.view();
     let main = find_symbol(&v, "main");
     assert!(main.get("name").is_some(), "name: {}", main);
     assert!(main.get("kind").is_some(), "kind: {}", main);
@@ -2221,7 +2229,7 @@ fn listing_commands_exclude_files_deleted_from_disk_but_kept_in_index() {
     // git's index still carries all three — the condition under test.
     let r = f.trace(&["list", "hooks", "--json"]);
     r.ok();
-    let v = r.json();
+    let v = r.view();
 
     let files: Vec<&str> = v["files"]
         .as_array()
@@ -2250,8 +2258,8 @@ fn listing_commands_exclude_files_deleted_from_disk_but_kept_in_index() {
     // tree routes through the same enumerator — same survivor set.
     let rt = f.trace(&["tree", "hooks", "--json"]);
     rt.ok();
-    let vt = rt.json();
-    let tree_files: Vec<&str> = vt["files"]
+    let vt = rt.view();
+    let tree_files: Vec<&str> = vt["results"]
         .as_array()
         .unwrap()
         .iter()
@@ -2261,14 +2269,14 @@ fn listing_commands_exclude_files_deleted_from_disk_but_kept_in_index() {
         tree_files,
         vec!["kept.sh"],
         "tree must agree with the working tree, not the stale index: {}",
-        vt["files"]
+        vt["results"]
     );
 
     // find was already correct and must stay correct.
     let rf = f.trace(&["find", "*.sh", "hooks", "--json"]);
     rf.ok();
-    let vf = rf.json();
-    let found: Vec<&str> = vf["entries"]
+    let vf = rf.view();
+    let found: Vec<&str> = vf["results"]
         .as_array()
         .unwrap()
         .iter()
@@ -2278,7 +2286,7 @@ fn listing_commands_exclude_files_deleted_from_disk_but_kept_in_index() {
         found,
         vec!["hooks/kept.sh"],
         "find must return only the on-disk match: {}",
-        vf["entries"]
+        vf["results"]
     );
 }
 
@@ -2301,7 +2309,7 @@ fn co_change_ignores_a_commit_over_the_file_cap() {
 
     let r = f.trace(&["read", "pair_a.py", "--json"]);
     r.ok();
-    let shoulder = r.json()["passive_context"].as_str().unwrap().to_string();
+    let shoulder = r.view()["files"]["pair_a.py"]["shoulder"].as_str().unwrap().to_string();
     assert!(
         shoulder.contains("\u{00b7} together: pair_b.py \u{00b7}"),
         "the two-file coupling must survive the sweep: {shoulder:?}"
@@ -2340,7 +2348,7 @@ fn shallow_clone_graft_commit_leaves_no_history() {
 
     let r = tracer_cli_tests::trace(&clone, ["read", "core.py", "--json"]);
     r.ok();
-    let shoulder = r.json()["passive_context"].as_str().unwrap().to_string();
+    let shoulder = r.view()["files"]["core.py"]["shoulder"].as_str().unwrap().to_string();
     assert!(
         shoulder.contains("git: no-history"),
         "a graft commit must leave no history: {shoulder:?}"
