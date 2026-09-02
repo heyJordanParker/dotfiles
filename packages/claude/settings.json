@@ -610,11 +610,11 @@
   "effortLevel": "medium",
   "agent": "cto",
   "autoUpdatesChannel": "latest",
+  "tui": "fullscreen",
   "autoMemoryEnabled": false,
   "skipDangerousModePermissionPrompt": true,
   "fileCheckpointingEnabled": false,
   "teammateMode": "in-process",
   "remoteControlAtStartup": true,
-  "voiceEnabled": true,
-  "tui": "fullscreen"
+  "voiceEnabled": true
 }
