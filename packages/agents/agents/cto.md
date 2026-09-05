@@ -7,7 +7,7 @@ description: |
 color: orange
 model: opus
 effort: medium
-codex-model: gpt-5.6-sol
+codex-model: gpt-6-astra
 mode: orchestrate
 skills: show-me, naming, trace, propose, pcc, architecture, regressions, execute, pragmatic-engineering, debug, prove, delegate, orchestrate
 ---
