@@ -1,0 +1,59 @@
+[terminal]
+active = "default"
+title_mode = "combined"
+
+[launch]
+tag = ""
+hints = ""
+notes = ""
+subagent_timeout = 30
+auto_subscribe = "collision"
+auto_trust_workspace = true
+
+[launch.claude]
+args = "--dangerously-skip-permissions --teammate-mode in-process --agent cto --model fable --effort medium --autocompact 700k"
+
+[launch.gemini]
+args = ""
+system_prompt = ""
+
+[launch.codex]
+args = ""
+sandbox_mode = "danger-full-access"
+system_prompt = ""
+
+[launch.opencode]
+args = ""
+
+[launch.kilo]
+args = ""
+
+[launch.pi]
+args = ""
+
+[launch.omp]
+args = ""
+
+[launch.cursor]
+args = ""
+
+[launch.kimi]
+args = ""
+
+[launch.copilot]
+args = ""
+
+[relay]
+url = ""
+id = ""
+token = ""
+psk = ""
+enabled = false
+
+[preferences]
+timeout = 86400
+auto_approve = false
+name_export = ""
+# hcom configuration
+# Help: hcom config --help
+# Docs: hcom run docs

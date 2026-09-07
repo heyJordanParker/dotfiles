@@ -68,6 +68,24 @@ def test_unmanaged_claude_hook_survives_generation(tmp_path):
     assert json.loads(settings.read_text())["hooks"]["Stop"] == [{"hooks": [unmanaged]}]
 
 
+def test_foreign_codex_trust_entry_survives_generation():
+    """Pins the loss of another tool's hooks.state trust entry on regeneration."""
+    foreign = (
+        '[hooks.state."/Users/jordan/.codex/hooks.json:session_start:0:0"]\n'
+        'trusted_hash = "sha256:abc"\n'
+        "enabled = true\n"
+    )
+    stale = '[hooks.state."/Users/jordan/.codex/config.toml:stop:0:0"]\ntrusted_hash = "sha256:old"\n'
+    rendered = hooks.render_codex(
+        "[[hooks.old]]\n\n[hooks.state]\n\n" + stale + "\n" + foreign + "\n[desktop]\n",
+        {"guard": {"events": {"PreToolUse": ["*"]}, "harness": "codex"}},
+    )
+
+    assert foreign in rendered
+    assert stale not in rendered
+    assert rendered.endswith("\n[desktop]\n")
+
+
 def test_unsupported_codex_event_fails_without_writing_dead_wiring(tmp_path):
     """Pins silent dead wiring when a BINDING names an event codex cannot fire."""
     hooks_dir = tmp_path / "hooks"

@@ -21,6 +21,7 @@ TARGETS = {
     "ssh": f"{HOME}/.ssh",
     "bin": f"{HOME}/.local/bin",
     "starship": f"{HOME}/.config",
+    "hcom": f"{HOME}/.hcom",
 }
 
 # packages that each land in their own ~/.config/<pkg> directory

@@ -31,7 +31,7 @@ brew "m-cli"
 # Dev
 brew "oven-sh/bun/bun"
 brew "hcloud"
-brew "opencode"
+brew "anomalyco/tap/opencode"
 brew "rust"
 brew "rustup"                   # needed for wasm32-wasip1 target (zellij plugin build)
 brew "zig"                      # linux cross toolchain for the tracer plugin prebuilts

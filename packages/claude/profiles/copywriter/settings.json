@@ -1,11 +1,85 @@
 {
-  "fileSuggestion": {
-    "type": "command",
-    "command": "~/.claude/file-suggestion.sh"
+  "autoMemoryEnabled": false,
+  "effortLevel": "medium",
+  "env": {
+    "HCOM": "hcom"
   },
-  "model": "opus",
+  "fileSuggestion": {
+    "command": "~/.claude/file-suggestion.sh",
+    "type": "command"
+  },
   "hooks": {
+    "Notification": [
+      {
+        "hooks": [
+          {
+            "command": "cmd=${HCOM:-hcom}; command -v \"${cmd%% *}\" >/dev/null 2>&1 && exec $cmd notify || exit 0",
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "PermissionDenied": [
+      {
+        "hooks": [
+          {
+            "command": "cmd=${HCOM:-hcom}; command -v \"${cmd%% *}\" >/dev/null 2>&1 && exec $cmd permission-denied || exit 0",
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "command": "cmd=${HCOM:-hcom}; command -v \"${cmd%% *}\" >/dev/null 2>&1 && exec $cmd permission-request || exit 0",
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "command": "cmd=${HCOM:-hcom}; command -v \"${cmd%% *}\" >/dev/null 2>&1 && exec $cmd post || exit 0",
+            "timeout": 86400,
+            "type": "command"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash|Write|Edit|MultiEdit|Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ~/.agents/hooks/remember_tool_use.py",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "hooks": [
+          {
+            "command": "cmd=${HCOM:-hcom}; command -v \"${cmd%% *}\" >/dev/null 2>&1 && exec $cmd post-failure || exit 0",
+            "type": "command"
+          }
+        ]
+      }
+    ],
     "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "command": "cmd=${HCOM:-hcom}; command -v \"${cmd%% *}\" >/dev/null 2>&1 && exec $cmd pre || exit 0",
+            "type": "command"
+          }
+        ],
+        "matcher": "Bash|PowerShell|Agent|Task|Write|Edit"
+      },
       {
         "matcher": "Bash",
         "hooks": [
@@ -62,7 +136,45 @@
         ]
       }
     ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "command": "cmd=${HCOM:-hcom}; command -v \"${cmd%% *}\" >/dev/null 2>&1 && exec $cmd sessionend || exit 0",
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "command": "cmd=${HCOM:-hcom}; command -v \"${cmd%% *}\" >/dev/null 2>&1 && exec $cmd sessionstart || exit 0",
+            "type": "command"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ~/.agents/hooks/inject_honcho_memory.py",
+            "timeout": 20
+          }
+        ]
+      }
+    ],
     "Stop": [
+      {
+        "hooks": [
+          {
+            "command": "cmd=${HCOM:-hcom}; command -v \"${cmd%% *}\" >/dev/null 2>&1 && exec $cmd poll || exit 0",
+            "timeout": 86400,
+            "type": "command"
+          }
+        ]
+      },
       {
         "hooks": [
           {
@@ -78,7 +190,36 @@
         ]
       }
     ],
+    "StopFailure": [
+      {
+        "hooks": [
+          {
+            "command": "cmd=${HCOM:-hcom}; command -v \"${cmd%% *}\" >/dev/null 2>&1 && exec $cmd stop-failure || exit 0",
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "command": "cmd=${HCOM:-hcom}; command -v \"${cmd%% *}\" >/dev/null 2>&1 && exec $cmd subagent-start || exit 0",
+            "type": "command"
+          }
+        ]
+      }
+    ],
     "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "command": "cmd=${HCOM:-hcom}; command -v \"${cmd%% *}\" >/dev/null 2>&1 && exec $cmd subagent-stop || exit 0",
+            "timeout": 86400,
+            "type": "command"
+          }
+        ]
+      },
       {
         "hooks": [
           {
@@ -98,6 +239,14 @@
       {
         "hooks": [
           {
+            "command": "cmd=${HCOM:-hcom}; command -v \"${cmd%% *}\" >/dev/null 2>&1 && exec $cmd userpromptsubmit || exit 0",
+            "type": "command"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
             "type": "command",
             "command": "python3 ~/.agents/hooks/inject_honcho_memory.py",
             "timeout": 20
@@ -109,42 +258,18 @@
           }
         ]
       }
-    ],
-    "SessionStart": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 ~/.agents/hooks/inject_honcho_memory.py",
-            "timeout": 20
-          }
-        ]
-      }
-    ],
-    "PostToolUse": [
-      {
-        "matcher": "Bash|Write|Edit|MultiEdit|Agent",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 ~/.agents/hooks/remember_tool_use.py",
-            "timeout": 10
-          }
-        ]
-      }
     ]
   },
+  "model": "opus",
+  "skipDangerousModePermissionPrompt": true,
   "statusLine": {
-    "type": "command",
-    "command": "bash ~/.claude/statusline-command.sh"
+    "command": "bash ~/.claude/statusline-command.sh",
+    "type": "command"
   },
-  "effortLevel": "medium",
+  "theme": "dark",
   "voice": {
     "enabled": true,
     "mode": "hold"
   },
-  "autoMemoryEnabled": false,
-  "skipDangerousModePermissionPrompt": true,
-  "theme": "dark",
   "voiceEnabled": true
 }

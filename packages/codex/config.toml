@@ -45,8 +45,8 @@ NODE_REPL_INSTRUCTIONS_USE_CASE_BROWSER = ""
 NODE_REPL_INSTRUCTIONS_USE_CASE_CHROME = ""
 NODE_REPL_INSTRUCTIONS_USE_CASE_COMPUTER_USE = ""
 BROWSER_USE_CODEX_APP_BUILD_FLAVOR = "prod"
-BROWSER_USE_CODEX_APP_VERSION = "26.901.31953"
-NODE_REPL_TRUSTED_SERVICES = '{"browser":"/Users/jordan/.codex/plugins/cache/openai-bundled/browser/26.901.31953/scripts/browser-service.mjs","sky":"@oai/sky/service"}'
+BROWSER_USE_CODEX_APP_VERSION = "26.901.41600"
+NODE_REPL_TRUSTED_SERVICES = '{"browser":"/Users/jordan/.codex/plugins/cache/openai-bundled/browser/26.901.41600/scripts/browser-service.mjs","sky":"@oai/sky/service"}'
 SKY_CUA_SERVICE_PATH = "/Users/jordan/.codex/computer-use/Codex Computer Use.app"
 CODEX_CLI_PATH = "/Applications/ChatGPT.app/Contents/Resources/codex"
 
@@ -378,6 +378,36 @@ trusted_hash = "sha256:9fd861ab781a06111feec719b794dca410db13f94bed117b08cc9e338
 [hooks.state."/Users/jordan/.codex/config.toml:user_prompt_submit:0:4"]
 trusted_hash = "sha256:5b174570b5364bbe2e1aaf0ec4155796a5287011fee39ad25e50c4448bfd3ab9"
 
+[hooks.state."/Users/jordan/.codex/hooks.json:pre_tool_use:0:0"]
+trusted_hash = "sha256:804232e05467ffbbff62fb52017d8c737cb8c9b83fdab2b67d1a8ece730f01ec"
+enabled = true
+hcom_codex_cli_version = "0.153.4"
+hcom_hook_definition_hash = "sha256:b3cdfa5447fb8d22b356378e75d552d522978c16427175a0d1d4519b033b0f44"
+
+[hooks.state."/Users/jordan/.codex/hooks.json:post_tool_use:0:0"]
+trusted_hash = "sha256:ac76088d337914720d1ec12850cb53faa2f7e0cb26b4b9ddd6293eb0b3aaf09c"
+enabled = true
+hcom_codex_cli_version = "0.153.4"
+hcom_hook_definition_hash = "sha256:44b56c388abfc71f113df805f5cfe47c35e7e6386377872c59a8369c975b2d06"
+
+[hooks.state."/Users/jordan/.codex/hooks.json:session_start:1:0"]
+trusted_hash = "sha256:6db80d9e846b72464980b4ce5d0e9c5e29116d58a4f171739e19ad1360285883"
+enabled = true
+hcom_codex_cli_version = "0.153.4"
+hcom_hook_definition_hash = "sha256:b16b3aa33ee3e342b8704277f291d4504247c1a62909bf27d2f45b816a089c65"
+
+[hooks.state."/Users/jordan/.codex/hooks.json:user_prompt_submit:0:0"]
+trusted_hash = "sha256:4e787e8c0f88872b800236a13aa4c05372b5c6d94c1c9d22f66a6de1d902c8a4"
+enabled = true
+hcom_codex_cli_version = "0.153.4"
+hcom_hook_definition_hash = "sha256:99cd694359c1fab08a033f19efae7fd9b211603411b80f2b7b4d0a5ec3eba655"
+
+[hooks.state."/Users/jordan/.codex/hooks.json:stop:0:0"]
+trusted_hash = "sha256:b2f7416dca1191a23b512c4d2030ed5e5d963ddfe981e1e63d2ea537923a15a1"
+enabled = true
+hcom_codex_cli_version = "0.153.4"
+hcom_hook_definition_hash = "sha256:4756f680bdbf8c08ffd60ab4e8f14032dad7300f8a7f8907d69df279511823bf"
+
 [marketplaces.openai-bundled]
 source_type = "local"
 source = "/Users/jordan/.codex/.tmp/bundled-marketplaces/openai-bundled"
@@ -570,6 +600,9 @@ trust_level = "trusted"
 trust_level = "trusted"
 
 [projects."/Users/jordan/Documents/Codex/2026-09-05/research-the-funnel-placement-domain-contract"]
+trust_level = "trusted"
+
+[projects."/Users/jordan/Documents/Codex/2026-09-05/research-and-propose-jordan-s-interactive"]
 trust_level = "trusted"
 
 [desktop]

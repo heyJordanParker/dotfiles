@@ -15,6 +15,7 @@ Reproducible macOS environment setup and Claude Code plugin distribution from a 
 - Plugin packaging dereferences `packages/claude` symlinks into real files in the plugin cache.
 - Plugin consumers get Skills, Commands, and the five shell Hooks, not Rules, settings, or Agents.
 - `packages/codex/Agents.md` points at `.claude/Claude.md`, so Codex loads the same user-global Claude.md as Claude Code after stow.
+- `setup.sh` builds `hcom` from the `heyJordanParker/hcom` fork at the tag it names; `packages/hcom` stows hcom's config to `~/.hcom`, and hcom's Claude, Codex, and OpenCode hook entries are committed in their packages.
 - `~/Developer/references` holds repositories cloned to read and delete when done.
 - `~/Developer/services` holds repositories cloned and run by `setup.sh`.
 - The `drawbridge` service is the live Excalidraw diagram server behind `/diagram`.

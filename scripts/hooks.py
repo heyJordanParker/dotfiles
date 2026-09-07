@@ -318,14 +318,29 @@ def _replace_codex_hook_region(text, generated):
 
     The region is [first [[hooks. block .. end of [hooks.state] table]. The
     [hooks.state] table ends at the next top-level [section] that is not a
-    hooks.state subtable, or end of file.
+    hooks.state subtable, or end of file. Trust entries another tool wrote
+    into that table (hcom keys its hooks.json handlers there) ride along
+    verbatim after ours; only entries keyed on config.toml are regenerated.
     """
     begin = _CODEX_BEGIN.search(text)
     state = _CODEX_STATE.search(text)
     if begin is None or state is None:
         raise ValueError("config.toml has no [[hooks.*]] / [hooks.state] region to regenerate")
     end = _state_region_end(text, state.end())
-    return text[: begin.start()] + generated + "\n\n" + text[end:]
+    foreign = _foreign_state_entries(text[state.end():end])
+    return text[: begin.start()] + "\n\n".join([generated, *foreign]) + "\n\n" + text[end:]
+
+
+_STATE_ENTRY = re.compile(r'^\[hooks\.state\."([^"]+)"\]\n(?:(?!\[).*\n?)*', re.M)
+
+
+def _foreign_state_entries(state_text):
+    """Every [hooks.state."<key>"] entry not keyed on config.toml, text intact."""
+    return [
+        match.group(0).rstrip("\n")
+        for match in _STATE_ENTRY.finditer(state_text)
+        if not match.group(1).startswith("/Users/jordan/.codex/config.toml:")
+    ]
 
 
 def _state_region_end(text, search_from):

@@ -68,6 +68,12 @@ echo "==> Installing prompt-reviewer (local prompt-review CLI)..."
 (cd "$DOTFILES_DIR/tools/prompt-reviewer" && cargo build --release)
 install -m 755 "$DOTFILES_DIR/tools/prompt-reviewer/target/release/review-prompt" "$HOME/.local/bin/review-prompt"
 
+echo "==> Installing hcom (agent messaging) from the fork..."
+# Built from our own fork, never the upstream release binary. The `dotfiles`
+# branch tag drops the daily version check against upstream; bump the tag here
+# and refresh packages/opencode/plugins/hcom.ts from the same tag together.
+cargo install --git https://github.com/heyJordanParker/hcom.git --tag v0.7.25-jp --locked --root "$HOME/.local" hcom
+
 echo "==> Setting up services..."
 if [ ! -d "$SERVICES_DIR/drawbridge" ]; then
   git clone https://github.com/heyJordanParker/drawbridge.git "$SERVICES_DIR/drawbridge"

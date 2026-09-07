@@ -11,6 +11,7 @@
     "CLAUDE_CODE_MAX_SUBAGENTS_PER_SESSION": "1000000",
     "CLAUDE_CODE_NO_FLICKER": "1",
     "EDITOR": "prompt-editor",
+    "HCOM": "hcom",
     "USER_TYPE": "ant"
   },
   "includeCoAuthoredBy": false,
@@ -38,7 +39,27 @@
       "mcp__pencil",
       "Bash(stow:*)",
       "Bash(codex-run:*)",
-      "Bash(codex:*)"
+      "Bash(codex:*)",
+      "Bash(hcom send:*)",
+      "Bash(hcom start:*)",
+      "Bash(hcom help:*)",
+      "Bash(hcom --help)",
+      "Bash(hcom -h)",
+      "Bash(hcom list:*)",
+      "Bash(hcom events:*)",
+      "Bash(hcom listen:*)",
+      "Bash(hcom relay:*)",
+      "Bash(hcom config:*)",
+      "Bash(hcom transcript:*)",
+      "Bash(hcom archive:*)",
+      "Bash(hcom bundle:*)",
+      "Bash(hcom status:*)",
+      "Bash(hcom term:*)",
+      "Bash(hcom hooks:*)",
+      "Bash(hcom --version)",
+      "Bash(hcom -v)",
+      "Bash(hcom --new-terminal)",
+      "Bash(export HCOM_CLAUDE_ACTOR=* HCOM_CLAUDE_ACTOR_SESSION=*)"
     ],
     "deny": [
       "EnterWorktree",
@@ -46,7 +67,7 @@
     ],
     "defaultMode": "bypassPermissions"
   },
-  "model": "claude-fable-5-1[1m]",
+  "model": "opus",
   "hooks": {
     "Notification": [
       {
@@ -55,6 +76,24 @@
           {
             "type": "command",
             "command": "if [ \"$(tmux display-message -t \"$TMUX_PANE\" -p '#{window_active}')\" = \"0\" ]; then touch /tmp/claude-waiting-$TMUX_PANE; fi"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cmd=${HCOM:-hcom}; command -v \"${cmd%% *}\" >/dev/null 2>&1 && exec $cmd notify || exit 0"
+          }
+        ]
+      }
+    ],
+    "PermissionDenied": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cmd=${HCOM:-hcom}; command -v \"${cmd%% *}\" >/dev/null 2>&1 && exec $cmd permission-denied || exit 0"
           }
         ]
       }
@@ -80,6 +119,14 @@
         ]
       },
       {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cmd=${HCOM:-hcom}; command -v \"${cmd%% *}\" >/dev/null 2>&1 && exec $cmd permission-request || exit 0"
+          }
+        ]
+      },
+      {
         "matcher": "Read|Glob|Grep|Write|Edit|NotebookEdit|Bash",
         "hooks": [
           {
@@ -96,6 +143,15 @@
           {
             "type": "command",
             "command": "[ -n \"$SUPERSET_HOME_DIR\" ] && [ -x \"$SUPERSET_HOME_DIR/hooks/notify.sh\" ] && SUPERSET_AGENT_ID=claude \"$SUPERSET_HOME_DIR/hooks/notify.sh\" || true"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cmd=${HCOM:-hcom}; command -v \"${cmd%% *}\" >/dev/null 2>&1 && exec $cmd post || exit 0",
+            "timeout": 86400
           }
         ]
       },
@@ -139,6 +195,14 @@
             "command": "[ -n \"$SUPERSET_HOME_DIR\" ] && [ -x \"$SUPERSET_HOME_DIR/hooks/notify.sh\" ] && SUPERSET_AGENT_ID=claude \"$SUPERSET_HOME_DIR/hooks/notify.sh\" || true"
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cmd=${HCOM:-hcom}; command -v \"${cmd%% *}\" >/dev/null 2>&1 && exec $cmd post-failure || exit 0"
+          }
+        ]
       }
     ],
     "PreToolUse": [
@@ -149,6 +213,15 @@
             "type": "command",
             "command": "bash '/Users/jordan/.claude/hooks/herdr-agent-state.sh' working",
             "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "Bash|PowerShell|Agent|Task|Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cmd=${HCOM:-hcom}; command -v \"${cmd%% *}\" >/dev/null 2>&1 && exec $cmd pre || exit 0"
           }
         ]
       },
@@ -377,6 +450,14 @@
         "hooks": [
           {
             "type": "command",
+            "command": "cmd=${HCOM:-hcom}; command -v \"${cmd%% *}\" >/dev/null 2>&1 && exec $cmd sessionend || exit 0"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
             "command": "python3 ~/.agents/hooks/end_codex_jobs.py",
             "timeout": 1
           }
@@ -415,6 +496,14 @@
             "type": "command",
             "command": "bash '/Users/jordan/.claude/hooks/herdr-agent-state.sh' idle",
             "timeout": 10
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cmd=${HCOM:-hcom}; command -v \"${cmd%% *}\" >/dev/null 2>&1 && exec $cmd sessionstart || exit 0"
           }
         ]
       },
@@ -487,6 +576,15 @@
         "hooks": [
           {
             "type": "command",
+            "command": "cmd=${HCOM:-hcom}; command -v \"${cmd%% *}\" >/dev/null 2>&1 && exec $cmd poll || exit 0",
+            "timeout": 86400
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
             "command": "python3 ~/.agents/hooks/babysitter.py",
             "timeout": 90
           },
@@ -494,6 +592,56 @@
             "type": "command",
             "command": "python3 ~/.agents/hooks/block_silent_stop.py"
           },
+          {
+            "type": "command",
+            "command": "python3 ~/.agents/hooks/close_abandoned_browsers.py",
+            "timeout": 60
+          },
+          {
+            "type": "command",
+            "command": "python3 ~/.agents/hooks/remember_agent_message.py",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "python3 ~/.agents/hooks/rewake_codex_failure.py",
+            "asyncRewake": true
+          }
+        ]
+      }
+    ],
+    "StopFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cmd=${HCOM:-hcom}; command -v \"${cmd%% *}\" >/dev/null 2>&1 && exec $cmd stop-failure || exit 0"
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cmd=${HCOM:-hcom}; command -v \"${cmd%% *}\" >/dev/null 2>&1 && exec $cmd subagent-start || exit 0"
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cmd=${HCOM:-hcom}; command -v \"${cmd%% *}\" >/dev/null 2>&1 && exec $cmd subagent-stop || exit 0",
+            "timeout": 86400
+          }
+        ]
+      },
+      {
+        "hooks": [
           {
             "type": "command",
             "command": "python3 ~/.agents/hooks/close_abandoned_browsers.py",
@@ -543,6 +691,14 @@
         "hooks": [
           {
             "type": "command",
+            "command": "cmd=${HCOM:-hcom}; command -v \"${cmd%% *}\" >/dev/null 2>&1 && exec $cmd userpromptsubmit || exit 0"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
             "command": "python3 ~/.agents/hooks/classify_intent.py",
             "timeout": 60
           },
@@ -568,27 +724,6 @@
             "type": "command",
             "command": "python3 ~/.agents/hooks/update_goal.py",
             "timeout": 70
-          }
-        ]
-      }
-    ],
-    "SubagentStop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 ~/.agents/hooks/close_abandoned_browsers.py",
-            "timeout": 60
-          },
-          {
-            "type": "command",
-            "command": "python3 ~/.agents/hooks/remember_agent_message.py",
-            "timeout": 10
-          },
-          {
-            "type": "command",
-            "command": "python3 ~/.agents/hooks/rewake_codex_failure.py",
-            "asyncRewake": true
           }
         ]
       }
