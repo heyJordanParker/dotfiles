@@ -316,9 +316,7 @@ fn walk_rules(
                 visited_dirs,
                 results,
             );
-        } else if entry.is_file()
-            && entry.extension().and_then(|e| e.to_str()) == Some("md")
-        {
+        } else if entry.is_file() && entry.extension().and_then(|e| e.to_str()) == Some("md") {
             let preview = match fs::read_to_string(&entry) {
                 Ok(c) => c,
                 Err(_) => continue,
@@ -341,13 +339,7 @@ fn walk_rules(
                     "rules_unconditional"
                 }
             };
-            if let Some(mem) = try_load(
-                &entry,
-                repo_root,
-                kind,
-                pass_dedupe,
-                session_dedupe,
-            ) {
+            if let Some(mem) = try_load(&entry, repo_root, kind, pass_dedupe, session_dedupe) {
                 results.push(mem);
             }
         }
@@ -386,7 +378,9 @@ pub(crate) fn extract_paths_frontmatter(content: &str) -> Option<Vec<String>> {
         if let Some(rest) = parse_paths_key(lstripped) {
             let rest = rest.trim();
             if !rest.is_empty() {
-                return Some(vec![rest.trim_matches(|c| c == '"' || c == '\'').to_string()]);
+                return Some(vec![rest
+                    .trim_matches(|c| c == '"' || c == '\'')
+                    .to_string()]);
             }
             capturing_list = true;
             continue;
@@ -394,7 +388,11 @@ pub(crate) fn extract_paths_frontmatter(content: &str) -> Option<Vec<String>> {
         if capturing_list {
             let ls = ln.trim_start();
             if let Some(item) = ls.strip_prefix("- ") {
-                paths.push(item.trim().trim_matches(|c| c == '"' || c == '\'').to_string());
+                paths.push(
+                    item.trim()
+                        .trim_matches(|c| c == '"' || c == '\'')
+                        .to_string(),
+                );
             } else if ls.starts_with('#') {
                 continue;
             } else {
@@ -449,13 +447,9 @@ pub fn load_includes(
             if included.strip_prefix(repo_root).is_err() {
                 continue;
             }
-            if let Some(mem) = try_load(
-                &included,
-                repo_root,
-                "include",
-                pass_dedupe,
-                session_dedupe,
-            ) {
+            if let Some(mem) =
+                try_load(&included, repo_root, "include", pass_dedupe, session_dedupe)
+            {
                 let inc = load_includes(
                     &included,
                     &mem.content,

@@ -6,14 +6,16 @@
 use crate::{cache, file_facts, git_activity, passive_context, relations};
 use anyhow::Result;
 use serde_json::{json, Value};
-use std::collections::HashMap;
 use std::path::Path;
 
 /// Human-output grouping order; also the tertiary sort key.
 const STATE_ORDER: &[&str] = &["added", "renamed", "modified", "deleted", "untracked"];
 
 fn state_rank(state: &str) -> usize {
-    STATE_ORDER.iter().position(|s| *s == state).unwrap_or(STATE_ORDER.len())
+    STATE_ORDER
+        .iter()
+        .position(|s| *s == state)
+        .unwrap_or(STATE_ORDER.len())
 }
 
 fn entries_for_state(
@@ -21,59 +23,54 @@ fn entries_for_state(
     states: &[(String, String)],
     index: &relations::Relations,
 ) -> Vec<Value> {
-    // One batch resolve for every existing dirty file — a single mtime-index
-    // load plus parallel extraction — instead of a per-file get() loop that
-    // reloaded the whole mtime index for each dirty file (the dominant cost
-    // on a repo with many uncommitted files).
-    let existing: Vec<std::path::PathBuf> = states
-        .iter()
-        .map(|(relative, _)| repo_root.join(relative))
-        .filter(|abs| abs.exists())
-        .collect();
-    let facts_map: HashMap<String, file_facts::FileFacts> =
-        file_facts::get_batch(&existing, repo_root);
-
     // Staging is one more fact per file, from the same `git status` read the
     // states came from. Nothing groups by it.
     let staging = git_activity::staging_state(repo_root);
 
-    let mut entries = Vec::new();
-    for (relative, state) in states {
-        let abs_path = repo_root.join(relative);
-        let facts = if abs_path.exists() {
-            abs_path
-                .canonicalize()
-                .ok()
-                .map(|abs| cache::relative_to_root(&abs, repo_root))
-                .and_then(|rel| facts_map.get(&rel).cloned())
-        } else {
-            None
-        };
-        let gc = if facts.is_some() {
-            index.module_counts(relative)
-        } else {
-            None
-        };
-        let shoulder = facts
-            .as_ref()
-            .map(|f| passive_context::render(f, gc.as_ref()));
-        entries.push(json!({
-            "path": relative,
-            "state": state,
-            "staging": staging.get(relative),
-            "shoulder": shoulder,
-            "callers": gc.as_ref().and_then(|g| g["callers"].as_i64()).unwrap_or(0),
-            "depended_on_by_modules":
-                gc.as_ref().and_then(|g| g["depended_on_by_modules"].as_i64()).unwrap_or(0),
-            "ccn_total":
-                facts.as_ref().map(|f| f.cyclomatic_complexity_total).unwrap_or(0),
-            "ccn_rank":
-                facts.as_ref().map(|f| f.rank.clone()).unwrap_or_else(|| "unknown".into()),
-            "present_in":
-                facts.as_ref().map(|f| f.present_in.clone()).unwrap_or_default(),
-            "last_subject": facts.as_ref().and_then(|f| f.last_subject.clone()),
-            "top_author": facts.as_ref().and_then(|f| f.top_author.clone()),
-        }));
+    let mut entries = Vec::with_capacity(states.len());
+    for chunk in states.chunks(file_facts::RESOLVE_CHUNK) {
+        // Project each bounded resolve into owned output rows before resolving
+        // the next chunk, so whole FileFacts never accumulate repo-wide.
+        let existing: Vec<std::path::PathBuf> = chunk
+            .iter()
+            .map(|(relative, _)| repo_root.join(relative))
+            .filter(|abs| abs.exists())
+            .collect();
+        let facts_map = file_facts::get_batch(&existing, repo_root);
+
+        for (relative, state) in chunk {
+            let abs_path = repo_root.join(relative);
+            let facts = if abs_path.exists() {
+                abs_path
+                    .canonicalize()
+                    .ok()
+                    .map(|abs| cache::relative_to_root(&abs, repo_root))
+                    .and_then(|rel| facts_map.get(&rel))
+            } else {
+                None
+            };
+            let gc = if facts.is_some() {
+                index.module_counts(relative)
+            } else {
+                None
+            };
+            let shoulder = facts.map(|f| passive_context::render(f, gc.as_ref()));
+            entries.push(json!({
+                "path": relative,
+                "state": state,
+                "staging": staging.get(relative),
+                "shoulder": shoulder,
+                "callers": gc.as_ref().and_then(|g| g["callers"].as_i64()).unwrap_or(0),
+                "depended_on_by_modules":
+                    gc.as_ref().and_then(|g| g["depended_on_by_modules"].as_i64()).unwrap_or(0),
+                "ccn_total": facts.map(|f| f.cyclomatic_complexity_total).unwrap_or(0),
+                "ccn_rank":
+                    facts.map(|f| f.rank.clone()).unwrap_or_else(|| "unknown".into()),
+                "present_in": facts.map(|f| f.present_in.clone()).unwrap_or_default(),
+                "last_subject": facts.and_then(|f| f.last_subject.clone()),
+                "top_author": facts.and_then(|f| f.top_author.clone()),
+            }));
+        }
     }
     entries
 }

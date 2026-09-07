@@ -28,7 +28,7 @@ use serde::Serialize;
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
-use std::rc::Rc;
+use std::sync::Arc;
 
 use crate::file_facts::RESOLVE_CHUNK;
 
@@ -74,7 +74,7 @@ impl Serialize for FileEnrichment {
 /// carries its enrichment once instead of a thousand times.
 pub struct EnrichedMatch<'a> {
     m: &'a Match,
-    file: Rc<FileEnrichment>,
+    file: Arc<FileEnrichment>,
 }
 
 impl Serialize for EnrichedMatch<'_> {
@@ -91,7 +91,7 @@ impl Serialize for EnrichedMatch<'_> {
 /// keyed by the same path the rows carry, plus the repo-wide complexity
 /// figures that calibrate read depth.
 pub struct SearchContext<'a> {
-    pub files: &'a BTreeMap<String, Rc<FileEnrichment>>,
+    pub files: &'a BTreeMap<String, Arc<FileEnrichment>>,
     pub repo: &'a Value,
     /// The graph command that answers the question whole, when the searched
     /// word is a name the graph knows. See `signpost`.
@@ -99,9 +99,9 @@ pub struct SearchContext<'a> {
 }
 
 /// The per-file map, written through the shared handles rather than cloned:
-/// `Rc` is only `Serialize` under serde's `rc` feature, and the handle is
-/// what keeps one file's enrichment single-copy across all its matches.
-struct FileMap<'a>(&'a BTreeMap<String, Rc<FileEnrichment>>);
+/// the handle keeps one file's enrichment single-copy across all its matches
+/// while allowing the completed map to cross a Rayon worker boundary.
+struct FileMap<'a>(&'a BTreeMap<String, Arc<FileEnrichment>>);
 
 impl Serialize for FileMap<'_> {
     fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
@@ -199,11 +199,12 @@ fn git_context(facts: Option<&file_facts::FileFacts>) -> Value {
 pub fn enrich<'a>(
     matches: &'a [Match],
     repo_root: &Path,
-) -> (Vec<EnrichedMatch<'a>>, BTreeMap<String, Rc<FileEnrichment>>) {
+) -> (
+    Vec<EnrichedMatch<'a>>,
+    BTreeMap<String, Arc<FileEnrichment>>,
+) {
     let mut ordered: Vec<&Match> = matches.iter().collect();
-    ordered.sort_by(|a, b| {
-        (&a.file, a.line, &a.snippet).cmp(&(&b.file, b.line, &b.snippet))
-    });
+    ordered.sort_by(|a, b| (&a.file, a.line, &a.snippet).cmp(&(&b.file, b.line, &b.snippet)));
 
     let mut unique: Vec<&str> = ordered.iter().map(|m| m.file.as_str()).collect();
     unique.dedup();
@@ -211,20 +212,17 @@ pub fn enrich<'a>(
         .iter()
         .map(|f| cache::absolutize(Path::new(f)))
         .collect();
-
     // Resolve in chunks, projecting each file's facts to what the enrichment
     // renders and dropping the facts with the chunk.
-    let mut by_file: BTreeMap<String, Rc<FileEnrichment>> = BTreeMap::new();
-    for (names, paths) in unique
-        .chunks(RESOLVE_CHUNK)
-        .zip(abs.chunks(RESOLVE_CHUNK))
-    {
+    let mut by_file: BTreeMap<String, Arc<FileEnrichment>> = BTreeMap::new();
+    for (names, paths) in unique.chunks(RESOLVE_CHUNK).zip(abs.chunks(RESOLVE_CHUNK)) {
         let facts_map = file_facts::get_batch(paths, repo_root);
         for (name, path) in names.iter().zip(paths.iter()) {
-            let facts = facts_map.get(&cache::relative_to_root(path, repo_root));
+            let (_, key) = file_facts::resolve_under_root(path, repo_root);
+            let facts = facts_map.get(&key);
             by_file.insert(
                 name.to_string(),
-                Rc::new(FileEnrichment {
+                Arc::new(FileEnrichment {
                     file_complexity: file_complexity(facts),
                     nearest_doc: json!(digest::nearest_doc(path)),
                     git: git_context(facts),
@@ -238,7 +236,7 @@ pub fn enrich<'a>(
         .into_iter()
         .map(|m| EnrichedMatch {
             m,
-            file: Rc::clone(&by_file[m.file.as_str()]),
+            file: Arc::clone(&by_file[m.file.as_str()]),
         })
         .collect();
     (enriched, by_file)
@@ -248,7 +246,7 @@ pub fn enrich<'a>(
 /// shoulder, then a one-line summary.
 pub fn render_human(
     enriched: &[EnrichedMatch],
-    files: &BTreeMap<String, Rc<FileEnrichment>>,
+    files: &BTreeMap<String, Arc<FileEnrichment>>,
     repo_ctx: &Value,
     signpost: Option<&str>,
 ) {
@@ -298,16 +296,21 @@ pub fn render_human(
 /// an ordinary text search says nothing extra.
 pub fn signpost(word: Option<&str>, repo_root: &Path) -> Option<String> {
     let word = word?;
-    // The index answers this without loading a file: how many places declare
-    // the word, and how many mention it.
+    // The index answers this without resolving call sites: how many places
+    // declare the word, and how many files mention it.
     let index = crate::relations::get(repo_root);
     if !index.knows(word) {
         return None;
     }
-    let callers = index.used_in(word).count() as i64;
-    if callers == 0 {
+    let mentioning_files = index.used_in(word).count() as i64;
+    if mentioning_files == 0 {
         return None;
     }
+    let mentioning_files_label = if mentioning_files == 1 {
+        "mentioning file"
+    } else {
+        "mentioning files"
+    };
     // The kind lives in the declaring file's extraction, not the index, so
     // it costs the declaring files only — one or two, never the repo.
     let declarations = crate::relations::declarations(word, repo_root);
@@ -317,16 +320,14 @@ pub fn signpost(word: Option<&str>, repo_root: &Path) -> Option<String> {
         .map(|c| c.declaration.kind.clone())
         .unwrap_or_else(|| "symbol".to_string());
     Some(format!(
-        "{word} is a {kind} \u{00b7} {callers} callers \u{00b7} {definitions} definitions \u{2192} trace callers {word}"
+        "{word} is a {kind} \u{00b7} {mentioning_files} {mentioning_files_label} \u{00b7} {definitions} definitions \u{2192} trace callers {word}"
     ))
 }
 
 /// The searched word when the search term is a bare name, so a signpost is
 /// even possible: a regex or a phrase names no symbol.
 pub fn searched_name(term: &str) -> Option<&str> {
-    let bare = term
-        .chars()
-        .all(|c| c.is_alphanumeric() || c == '_')
+    let bare = term.chars().all(|c| c.is_alphanumeric() || c == '_')
         && term.len() > 1
         && !term.chars().next().is_some_and(|c| c.is_numeric());
     bare.then_some(term)
@@ -339,19 +340,19 @@ pub fn searched_name(term: &str) -> Option<&str> {
 /// the entry is missing. The relations commands carry a `source_file` per
 /// result row; this lets each result carry the same file-state shoulder the
 /// per-file commands emit, without recomputing facts per row.
-pub fn file_shoulders(
-    rel_files: &[String],
-    repo_root: &Path,
-) -> HashMap<String, String> {
+pub fn file_shoulders(rel_files: &[String], repo_root: &Path) -> HashMap<String, String> {
     let mut unique: Vec<String> = rel_files.to_vec();
     unique.sort();
     unique.dedup();
-    let abs: Vec<PathBuf> = unique.iter().map(|r| repo_root.join(r)).collect();
-    let facts_map = file_facts::get_batch(&abs, repo_root);
     let mut out = HashMap::with_capacity(unique.len());
-    for rel in unique {
-        if let Some(f) = facts_map.get(&rel) {
-            out.insert(rel, passive_context::render(f, None));
+
+    for names in unique.chunks(RESOLVE_CHUNK) {
+        let paths: Vec<PathBuf> = names.iter().map(|rel| repo_root.join(rel)).collect();
+        let facts_map = file_facts::get_batch(&paths, repo_root);
+        for rel in names {
+            if let Some(f) = facts_map.get(rel) {
+                out.insert(rel.clone(), passive_context::render(f, None));
+            }
         }
     }
     out

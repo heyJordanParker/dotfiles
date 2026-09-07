@@ -13,12 +13,12 @@
 //!
 //!   * References resolve by STRUCTURE, not bare name: the use site and the
 //!     declaration must agree on language and call shape. A free call
-//!     resolves to a single non-method symbol or to nothing (never a fan-out
-//!     across same-named declarations); a static / `new` / type-hint use
-//!     resolves to the named class exactly; a cross-language call resolves to
-//!     nothing. The only residual AMBIGUOUS edge is a member call whose
-//!     receiver type the site does not name — it narrows to methods of that
-//!     name, never to a free function or a wrong-language symbol.
+//!     resolves to a single non-method symbol or to nothing unless ambiguous
+//!     import evidence names every candidate; a static / `new` / type-hint
+//!     use resolves to the named class exactly; a cross-language call resolves
+//!     to nothing. A member call whose receiver type the site does not name
+//!     remains ambiguous and narrows to methods of that name, never to a free
+//!     function or a wrong-language symbol.
 //!
 //!   * Existing import-edge behaviour for module-level queries continues
 //!     unchanged — module → module dependents are preserved exactly.
@@ -212,8 +212,14 @@ fn python_member_call_collision_is_the_only_ambiguity() {
     // free function of the same name must NOT, because a member call resolves
     // only to methods, never to a free symbol.
     let f = Fixture::new();
-    f.write("job.py", "class Job:\n    def run(self):\n        return 1\n");
-    f.write("task.py", "class Task:\n    def run(self):\n        return 2\n");
+    f.write(
+        "job.py",
+        "class Job:\n    def run(self):\n        return 1\n",
+    );
+    f.write(
+        "task.py",
+        "class Task:\n    def run(self):\n        return 2\n",
+    );
     f.write("free.py", "def run():\n    return 0\n");
     f.write("caller.py", "def go(obj):\n    return obj.run()\n");
     f.commit("py member collision");
@@ -251,14 +257,8 @@ fn python_inferred_reference_resolves_without_target_module() {
     // symbol has a single uniquely-named declaration. The reference
     // resolves by name alone — INFERRED.
     let f = Fixture::new();
-    f.write(
-        "tgt.py",
-        "def lone_unique_name():\n    return 1\n",
-    );
-    f.write(
-        "caller.py",
-        "def use():\n    return lone_unique_name()\n",
-    );
+    f.write("tgt.py", "def lone_unique_name():\n    return 1\n");
+    f.write("caller.py", "def use():\n    return lone_unique_name()\n");
     f.commit("py inferred");
     f.trace(&["cache", "build", "."]).ok();
     let r = f.trace(&["callers", "lone_unique_name", "--json"]);
@@ -331,7 +331,10 @@ fn ts_defines_finds_nested_function() {
 #[test]
 fn ts_callers_returns_use_sites() {
     let f = Fixture::new();
-    f.write("util.ts", "export function helper(x: number): number { return x; }\n");
+    f.write(
+        "util.ts",
+        "export function helper(x: number): number { return x; }\n",
+    );
     f.write(
         "app.ts",
         concat!(
@@ -369,8 +372,14 @@ fn ts_free_call_collision_resolves_to_nothing() {
     // a single non-method symbol or to nothing — never a fan-out to every
     // same-named declaration. So neither `compute` records the caller.
     let f = Fixture::new();
-    f.write("a.ts", "export function compute(x: number): number { return x; }\n");
-    f.write("b.ts", "export function compute(x: number): number { return x + 1; }\n");
+    f.write(
+        "a.ts",
+        "export function compute(x: number): number { return x; }\n",
+    );
+    f.write(
+        "b.ts",
+        "export function compute(x: number): number { return x + 1; }\n",
+    );
     f.write(
         "caller.ts",
         "export function go(): number { return compute(1); }\n",
@@ -409,7 +418,10 @@ fn ts_member_call_collision_is_the_only_ambiguity() {
         "post.ts",
         "export class Post {\n  save(): number { return 2; }\n}\n",
     );
-    f.write("helpers.ts", "export function save(): number { return 0; }\n");
+    f.write(
+        "helpers.ts",
+        "export function save(): number { return 0; }\n",
+    );
     f.write(
         "caller.ts",
         "export function go(obj: any): number { return obj.save(); }\n",
@@ -531,10 +543,7 @@ fn php_defines_finds_nested_function() {
 #[test]
 fn php_callers_returns_use_sites() {
     let f = Fixture::new();
-    f.write(
-        "util.php",
-        "<?php\nfunction helper($x) { return $x; }\n",
-    );
+    f.write("util.php", "<?php\nfunction helper($x) { return $x; }\n");
     f.write(
         "app.php",
         concat!(
@@ -570,7 +579,10 @@ fn php_free_call_collision_resolves_to_nothing() {
     let f = Fixture::new();
     f.write("a.php", "<?php\nfunction compute($x) { return $x; }\n");
     f.write("b.php", "<?php\nfunction compute($x) { return $x + 1; }\n");
-    f.write("caller.php", "<?php\nfunction go() { return compute(1); }\n");
+    f.write(
+        "caller.php",
+        "<?php\nfunction go() { return compute(1); }\n",
+    );
     f.commit("php free collision");
     f.trace(&["cache", "build", "."]).ok();
     let r = f.trace(&["callers", "compute", "--json"]);
@@ -695,6 +707,343 @@ fn cross_language_call_resolves_to_nothing() {
         !rows_php.iter().any(|(f, _, _)| f == "account.ts"),
         "a TypeScript process() must NOT resolve onto the PHP process method — got {:?}",
         rows_php
+    );
+}
+
+#[test]
+fn relative_imports_resolve_from_each_importing_directory() {
+    let f = Fixture::new();
+    for package in ["one", "two"] {
+        f.write(
+            &format!("packages/{package}/helpers.ts"),
+            "export function parentHelper(): number { return 1; }\n",
+        );
+        f.write(
+            &format!("packages/{package}/feature/helpers.ts"),
+            "export function localHelper(): number { return 2; }\n",
+        );
+        f.write(
+            &format!("packages/{package}/feature/app.ts"),
+            concat!(
+                "import { localHelper } from './helpers';\n",
+                "import { parentHelper } from '../helpers';\n",
+                "export function useHelpers(): number {\n",
+                "  return localHelper() + parentHelper();\n",
+                "}\n",
+            ),
+        );
+    }
+    f.commit("relative imports in two packages");
+    f.trace(&["cache", "build", "."]).ok();
+
+    for (name, target) in [
+        ("localHelper", "feature/helpers.ts"),
+        ("parentHelper", "helpers.ts"),
+    ] {
+        let r = f.trace(&["callers", name, "--json"]);
+        r.ok();
+        let v = r.view();
+        for package in ["one", "two"] {
+            let definition = format!("packages/{package}/{target}::{name}");
+            let rows = caller_rows(&v, &definition);
+            let expected = format!("packages/{package}/feature/app.ts");
+            assert!(
+                rows.iter().any(|(file, _, confidence)| {
+                    file == &expected && confidence == "EXTRACTED"
+                }),
+                "{definition} did not resolve from its own importer directory: {rows:?}"
+            );
+            assert!(
+                rows.iter().all(|(file, _, _)| file == &expected),
+                "{definition} received a caller from the other package: {rows:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn ambiguous_suffix_imports_keep_every_compatible_candidate() {
+    let f = Fixture::new();
+    f.write(
+        "left/helpers.ts",
+        "export function sharedHelper(): number { return 1; }\n",
+    );
+    f.write(
+        "right/helpers.ts",
+        "export function sharedHelper(): number { return 2; }\n",
+    );
+    f.write(
+        "app/main.ts",
+        "import { sharedHelper } from 'helpers';\nexport const value = sharedHelper();\n",
+    );
+    f.commit("ambiguous suffix import");
+    f.trace(&["cache", "build", "."]).ok();
+
+    let r = f.trace(&["callers", "sharedHelper", "--json"]);
+    r.ok();
+    let v = r.view();
+    for definition in [
+        "left/helpers.ts::sharedHelper",
+        "right/helpers.ts::sharedHelper",
+    ] {
+        let rows = caller_rows(&v, definition);
+        assert!(
+            rows.iter().any(|(file, _, confidence)| {
+                file == "app/main.ts" && confidence == "AMBIGUOUS"
+            }),
+            "ambiguous import omitted {definition}: {rows:?}"
+        );
+    }
+}
+
+#[test]
+fn ambiguous_imports_preserve_each_reference_site_candidate() {
+    let f = Fixture::new();
+    f.write(
+        "left/helpers.ts",
+        "export function sharedHelper(): number { return 1; }\n",
+    );
+    f.write(
+        "right/helpers.ts",
+        "export function sharedHelper(): number { return 2; }\n",
+    );
+    f.write(
+        "app/main.ts",
+        "import { sharedHelper } from 'helpers';\nexport function useHelper(): number {\n  return sharedHelper();\n}\n",
+    );
+    f.commit("ambiguous reference site");
+    f.trace(&["cache", "build", "."]).ok();
+
+    let r = f.trace(&["callers", "sharedHelper", "--json"]);
+    r.ok();
+    let v = r.view();
+    for definition in [
+        "left/helpers.ts::sharedHelper",
+        "right/helpers.ts::sharedHelper",
+    ] {
+        let rows = caller_rows(&v, definition);
+        assert!(
+            rows.iter().any(|(file, line, confidence)| {
+                file == "app/main.ts" && *line == 3 && confidence == "AMBIGUOUS"
+            }),
+            "ambiguous import omitted the actual call for {definition}: {rows:?}"
+        );
+    }
+}
+
+#[test]
+fn a_name_declared_beyond_one_resolve_chunk_keeps_every_candidate() {
+    let f = Fixture::new();
+    for index in 0..513 {
+        f.write(
+            &format!("declarations/{index:03}.ts"),
+            &format!("export class Type{index} {{\n  save(): number {{ return {index}; }}\n}}\n"),
+        );
+    }
+    f.write(
+        "caller.ts",
+        "export function persist(value: any): number {\n  return value.save();\n}\n",
+    );
+    f.commit("common declaration beyond one resolve chunk");
+    f.trace(&["cache", "build", "."]).ok();
+
+    let definitions = f.trace(&["defines", "save", "--json"]);
+    definitions.ok();
+    let definitions = definitions.view();
+    assert_eq!(definitions["definitions"].as_i64(), Some(513));
+    let files = def_files(&definitions);
+    assert_eq!(files.len(), 513);
+    assert_eq!(files.first(), Some(&("declarations/000.ts".to_string(), 2)));
+    assert_eq!(files.last(), Some(&("declarations/512.ts".to_string(), 2)));
+
+    let callers = f.trace(&["callers", "save", "--limit", "600", "--json"]);
+    callers.ok();
+    let callers = callers.view();
+    assert_eq!(callers["symbols"].as_i64(), Some(513));
+    assert_eq!(callers["callers"].as_i64(), Some(513));
+    assert_eq!(callers["total"].as_i64(), Some(513));
+    assert_eq!(callers["truncated"].as_bool(), Some(false));
+    for index in 0..513 {
+        let node_id = format!("declarations/{index:03}.ts::save");
+        assert_eq!(
+            caller_rows(&callers, &node_id),
+            vec![("caller.ts".to_string(), 2, "AMBIGUOUS".to_string())],
+            "candidate {node_id} lost or changed its use site"
+        );
+    }
+}
+
+#[test]
+fn typescript_named_import_resolves_the_declared_module() {
+    let f = Fixture::new();
+    f.write(
+        "helpers.ts",
+        "export function sharedHelper(): number { return 1; }\n",
+    );
+    f.write(
+        "helpers/sharedHelper.ts",
+        "export function sharedHelper(): number { return 2; }\n",
+    );
+    f.write(
+        "app.ts",
+        "import { sharedHelper } from './helpers';\nexport function useHelper(): number {\n  return sharedHelper();\n}\n",
+    );
+    f.commit("module and symbol path collision");
+    f.trace(&["cache", "build", "."]).ok();
+
+    let r = f.trace(&["callers", "sharedHelper", "--json"]);
+    r.ok();
+    let v = r.view();
+    let module_rows = caller_rows(&v, "helpers.ts::sharedHelper");
+    assert!(
+        module_rows.iter().any(|(file, line, confidence)| {
+            file == "app.ts" && *line == 3 && confidence == "EXTRACTED"
+        }),
+        "the declared from-module did not receive the call: {module_rows:?}"
+    );
+    let symbol_path_rows = caller_rows(&v, "helpers/sharedHelper.ts::sharedHelper");
+    assert!(
+        symbol_path_rows.iter().all(|(file, _, _)| file != "app.ts"),
+        "the named symbol path stole the declared module import: {symbol_path_rows:?}"
+    );
+}
+
+#[test]
+fn relative_imports_cannot_escape_the_repository_root() {
+    let f = Fixture::new();
+    f.write(
+        "helper.ts",
+        "export function escapedHelper(): number { return 1; }\n",
+    );
+    f.write(
+        "app.ts",
+        "import { escapedHelper } from '../helper';\nexport const value = escapedHelper();\n",
+    );
+    f.commit("root escape import");
+    f.trace(&["cache", "build", "."]).ok();
+
+    let r = f.trace(&["callers", "escapedHelper", "--json"]);
+    r.ok();
+    let rows = caller_rows(&r.view(), "helper.ts::escapedHelper");
+    assert!(
+        rows.iter().all(|(file, _, _)| file != "app.ts"),
+        "an import above the repository root clamped onto helper.ts: {rows:?}"
+    );
+}
+
+#[test]
+fn invalid_typescript_imports_suppress_only_their_local_bindings() {
+    let f = Fixture::new();
+    f.write(
+        "local.ts",
+        "export function local(): number { return 1; }\n",
+    );
+    f.write(
+        "remote.ts",
+        "export function remote(): number { return 2; }\n",
+    );
+    f.write(
+        "fallback.ts",
+        "export function fallback(): number { return 3; }\n",
+    );
+    f.write(
+        "worker.ts",
+        "export class Worker { execute(): number { return 4; } }\n",
+    );
+    f.write(
+        "app/main.ts",
+        "import { remote as local } from '../../outside';\nimport fallback from '../../outside';\nimport * as library from '../../outside';\nexport function useImports(): number {\n  local();\n  remote();\n  fallback();\n  return library.execute();\n}\n",
+    );
+    f.commit("invalid TypeScript bindings");
+    f.trace(&["cache", "build", "."]).ok();
+
+    let local = f.trace(&["callers", "local", "--json"]);
+    local.ok();
+    assert_eq!(caller_rows(&local.view(), "local.ts::local"), Vec::new());
+
+    let remote = f.trace(&["callers", "remote", "--json"]);
+    remote.ok();
+    assert_eq!(
+        caller_rows(&remote.view(), "remote.ts::remote"),
+        vec![("app/main.ts".to_string(), 6, "INFERRED".to_string())]
+    );
+
+    let fallback = f.trace(&["callers", "fallback", "--json"]);
+    fallback.ok();
+    assert_eq!(
+        caller_rows(&fallback.view(), "fallback.ts::fallback"),
+        Vec::new()
+    );
+
+    let execute = f.trace(&["callers", "execute", "--json"]);
+    execute.ok();
+    assert_eq!(
+        caller_rows(&execute.view(), "worker.ts::execute"),
+        Vec::new()
+    );
+}
+
+#[test]
+fn invalid_named_binding_does_not_suppress_an_unrelated_member_property() {
+    let f = Fixture::new();
+    f.write(
+        "worker.ts",
+        "export class Worker { local(): number { return 1; } }\n",
+    );
+    f.write(
+        "app/main.ts",
+        "import { remote as local } from '../../outside';\nexport function use(object: any): number {\n  return object.local();\n}\n",
+    );
+    f.commit("member property matches invalid binding");
+    f.trace(&["cache", "build", "."]).ok();
+
+    let callers = f.trace(&["callers", "local", "--json"]);
+    callers.ok();
+    assert_eq!(
+        caller_rows(&callers.view(), "worker.ts::local"),
+        vec![("app/main.ts".to_string(), 3, "INFERRED".to_string())]
+    );
+}
+
+#[test]
+fn unrelated_same_file_method_does_not_exempt_an_invalid_namespace_binding() {
+    let f = Fixture::new();
+    f.write(
+        "worker.ts",
+        "export class Worker { execute(): number { return 1; } }\n",
+    );
+    f.write(
+        "app/main.ts",
+        "import * as library from '../../outside';\nclass Marker { library(): number { return 0; } }\nexport function use(): number {\n  return library.execute();\n}\n",
+    );
+    f.commit("method name matches invalid namespace binding");
+    f.trace(&["cache", "build", "."]).ok();
+
+    let callers = f.trace(&["callers", "execute", "--json"]);
+    callers.ok();
+    assert_eq!(
+        caller_rows(&callers.view(), "worker.ts::execute"),
+        Vec::new()
+    );
+}
+
+#[test]
+fn import_symbol_fallback_never_crosses_languages() {
+    let f = Fixture::new();
+    f.write("helpers.py", "def shared_helper():\n    return 1\n");
+    f.write(
+        "app.ts",
+        "import { shared_helper } from 'missing';\nexport const value = shared_helper();\n",
+    );
+    f.commit("cross-language import homonym");
+    f.trace(&["cache", "build", "."]).ok();
+
+    let r = f.trace(&["callers", "shared_helper", "--json"]);
+    r.ok();
+    let rows = caller_rows(&r.view(), "helpers.py::shared_helper");
+    assert!(
+        rows.iter().all(|(file, _, _)| file != "app.ts"),
+        "a TypeScript import resolved to a Python homonym: {rows:?}"
     );
 }
 
@@ -849,8 +1198,7 @@ fn callers_source_is_calling_function_not_module() {
         .map(|c| c["node_id"].as_str().unwrap_or("").to_string())
         .collect();
     assert!(
-        ids.contains(&"app.py::first".to_string())
-            && ids.contains(&"app.py::second".to_string()),
+        ids.contains(&"app.py::first".to_string()) && ids.contains(&"app.py::second".to_string()),
         "caller node ids must be the calling FUNCTIONS, got {:?}",
         ids
     );
@@ -871,7 +1219,10 @@ fn callers_carry_calling_symbol_signature() {
     // `structure` extracts): parameters, types, return type. Here `first`
     // calls `helper`, so `helper`'s caller row exposes `first`'s signature.
     let f = Fixture::new();
-    f.write("util.ts", "export function helper(x: number): number { return x; }\n");
+    f.write(
+        "util.ts",
+        "export function helper(x: number): number { return x; }\n",
+    );
     // `first` is DECLARED on line 2 but CALLS helper on line 4 — distinct
     // lines, so the signature lookup must use the calling symbol's
     // declaration coordinates, not the use-site line.
@@ -903,12 +1254,13 @@ fn callers_carry_calling_symbol_signature() {
         "caller row must carry the calling symbol's signature object, got {:?}",
         sig
     );
-    let params = sig["parameters"].as_array().unwrap_or_else(|| {
-        panic!("signature must list parameters, got {:?}", sig)
-    });
+    let params = sig["parameters"]
+        .as_array()
+        .unwrap_or_else(|| panic!("signature must list parameters, got {:?}", sig));
     assert!(
-        params.iter().any(|p| p["name"].as_str() == Some("a")
-            && p["type"].as_str() == Some("string")),
+        params
+            .iter()
+            .any(|p| p["name"].as_str() == Some("a") && p["type"].as_str() == Some("string")),
         "first's parameter `a: string` must surface in the caller signature: {:?}",
         params
     );
@@ -1049,8 +1401,7 @@ fn rust_callers_resolve_to_calling_function() {
         .map(|c| c["node_id"].as_str().unwrap_or("").to_string())
         .collect();
     assert!(
-        ids.contains(&"app.rs::first".to_string())
-            && ids.contains(&"app.rs::second".to_string()),
+        ids.contains(&"app.rs::first".to_string()) && ids.contains(&"app.rs::second".to_string()),
         "Rust caller sources must be the calling functions: {:?}",
         ids
     );
@@ -1184,10 +1535,7 @@ fn ruby_member_call_collision_is_ambiguous() {
     let f = Fixture::new();
     f.write("job.rb", "class Job\n  def run\n    1\n  end\nend\n");
     f.write("task.rb", "class Task\n  def run\n    2\n  end\nend\n");
-    f.write(
-        "caller.rb",
-        "def go(obj)\n  obj.run\nend\n",
-    );
+    f.write("caller.rb", "def go(obj)\n  obj.run\nend\n");
     f.commit("ruby member collision");
     f.trace(&["cache", "build", "."]).ok();
     let r = f.trace(&["callers", "run", "--json"]);
@@ -1296,10 +1644,7 @@ fn c_free_call_collision_resolves_to_nothing() {
     let f = Fixture::new();
     f.write("a.c", "int compute(int x) { return x; }\n");
     f.write("b.c", "int compute(int x) { return x + 1; }\n");
-    f.write(
-        "caller.c",
-        "int go(void) {\n    return compute(1);\n}\n",
-    );
+    f.write("caller.c", "int go(void) {\n    return compute(1);\n}\n");
     f.commit("c free collision");
     f.trace(&["cache", "build", "."]).ok();
     let r = f.trace(&["callers", "compute", "--json"]);

@@ -127,10 +127,7 @@ fn spec_for(lang: &str) -> Option<LangSpec> {
         },
         // --- lua -----------------------------------------------------------
         "lua" => LangSpec {
-            function_kinds: set(&[
-                "function_declaration",
-                "function_definition",
-            ]),
+            function_kinds: set(&["function_declaration", "function_definition"]),
             decision_kinds: set(&[
                 "if_statement",
                 "elseif_statement",
@@ -142,11 +139,7 @@ fn spec_for(lang: &str) -> Option<LangSpec> {
         },
         // --- go ------------------------------------------------------------
         "go" => LangSpec {
-            function_kinds: set(&[
-                "function_declaration",
-                "method_declaration",
-                "func_literal",
-            ]),
+            function_kinds: set(&["function_declaration", "method_declaration", "func_literal"]),
             decision_kinds: set(&[
                 "if_statement",
                 "for_statement",
@@ -160,10 +153,7 @@ fn spec_for(lang: &str) -> Option<LangSpec> {
         },
         // --- rust ----------------------------------------------------------
         "rust" => LangSpec {
-            function_kinds: set(&[
-                "function_item",
-                "closure_expression",
-            ]),
+            function_kinds: set(&["function_item", "closure_expression"]),
             decision_kinds: set(&[
                 "if_expression",
                 "for_expression",
@@ -177,13 +167,7 @@ fn spec_for(lang: &str) -> Option<LangSpec> {
         },
         // --- ruby ----------------------------------------------------------
         "ruby" => LangSpec {
-            function_kinds: set(&[
-                "method",
-                "singleton_method",
-                "lambda",
-                "do_block",
-                "block",
-            ]),
+            function_kinds: set(&["method", "singleton_method", "lambda", "do_block", "block"]),
             decision_kinds: set(&[
                 "if",
                 "elsif",
@@ -334,10 +318,7 @@ pub fn facts_from_tree(
 }
 
 /// LIFO-stack walk over all function nodes, including nested ones.
-fn iter_functions<'a>(
-    root: Node<'a>,
-    function_kinds: &HashSet<&'static str>,
-) -> Vec<Node<'a>> {
+fn iter_functions<'a>(root: Node<'a>, function_kinds: &HashSet<&'static str>) -> Vec<Node<'a>> {
     let mut out = Vec::new();
     let mut stack = vec![root];
     while let Some(node) = stack.pop() {
@@ -359,9 +340,7 @@ fn count_decision_nodes(fn_node: Node, spec: &LangSpec) -> i64 {
     let mut cursor = fn_node.walk();
     let mut stack: Vec<Node> = fn_node.children(&mut cursor).collect();
     while let Some(node) = stack.pop() {
-        if node.id() != fn_node.id()
-            && spec.function_kinds.contains(node.kind())
-        {
+        if node.id() != fn_node.id() && spec.function_kinds.contains(node.kind()) {
             continue;
         }
         // A decision point is a named grammar construct. Some grammars
@@ -482,7 +461,11 @@ fn class_kinds(lang: &str) -> &'static [&'static str] {
             "class",
             "interface_declaration",
         ],
-        "java" => &["class_declaration", "interface_declaration", "enum_declaration"],
+        "java" => &[
+            "class_declaration",
+            "interface_declaration",
+            "enum_declaration",
+        ],
         "ruby" => &["class", "module", "singleton_class"],
         _ => &[],
     }

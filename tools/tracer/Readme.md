@@ -55,7 +55,7 @@ trace history <file> | --contains <p>   Whole-file log, function-line history, o
 trace blame <file> [<symbol>]      Symbol-aware blame; collapsed regions with commit subjects
 trace diff [--base <ref>] [--symbols]    Files or module-level symbols changed vs a base ref, load-bearing first
 trace status [--state <s>]         Working-tree dirty set ordered by blast radius
-trace context [<path>] [--offset N] [--limit N] [--no-record]   Session-start primer (no args) or single-file enrichment (path arg); --offset/--limit record which line range was read, accumulating per-file read coverage; --no-record renders the shoulder without recording a read (the enrich hook sets it for Edit/Write — an edit is not a read)
+trace context [<paths...>] [--offset N] [--limit N] [--no-record]   Session-start primer (no args), single-file enrichment (one path, optionally with --offset/--limit to record which line range was read), or multi-file enrichment (multiple paths, which requires --no-record and rejects --directory/--offset/--limit); --no-record renders the shoulder without recording a read (the enrich hook sets it for Edit/Write and for every multi-file batch — an edit is not a read)
 ```
 
 `read`, `list`, `tree`, and `info` annotate each file with a one-line passive-context shoulder showing lifecycle state (new / renamed / modified / settled), age, and complexity rank — letting an AI agent calibrate its conclusions about how settled a file is before drawing them.
@@ -88,12 +88,12 @@ no `jq` is shelled out.
 `.tracer-cache/` at the repo root, two namespaces that never cross-read — `file/` and `sessions/`:
 
 - `file/{hash}.json` — per-file facts (complexity, imports list, exports list). One entry per file, keyed by SHA-256 of file contents + path + cache schema version.
-- `file/relations_v2__schema{N}.json` — the relations index: `name -> {defined_in, used_in}` and `file -> [importer]` for the whole repo. Rewritten in place, and only the files whose contents moved are re-absorbed. Reference edges are resolved per query, never stored.
+- `file/relations_edges_v1__schema{N}.json` and `file/relations_symbols_v1__schema{N}.json` — the relations index for the whole repo: the edges entry holds the file table, provenance, and `file -> [importer]`; the symbols entry holds `name -> {defined_in, used_in}` and is parsed only for a symbol query. Rewritten in place, and only the files whose contents moved are re-absorbed. Reference edges are resolved per query, never stored.
 - `sessions/{session}/{agent}/` — the per-session, per-Agent docs context log.
 
-The git-activity map, the deploy-presence map, and the mtime index also live under `file/`, keyed by HEAD and the 30-day cutoff date.
+The git-activity map's history-derived facts live under `file/`, keyed by HEAD and the 30-day cutoff date; working-tree state is recomputed fresh on every read. The deploy-presence map is cached separately under `file/`, keyed by the present deploy branches' tip commit ids. The mtime index is cached separately again, keyed by the cache schema version and the active complexity backend.
 
-Add `.tracer-cache/` to your project's `.gitignore`. Use `trace cache clear` to invalidate manually.
+The cache writes its own `.tracer-cache/.gitignore`, so it never enters git or the tracked file list. Use `trace cache clear` to invalidate manually.
 
 ## Cyclomatic complexity
 

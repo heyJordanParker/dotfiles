@@ -28,9 +28,11 @@
 //!
 //! Storage follows `file_facts`'s `mtime_index_v2__` precedent exactly: one
 //! mutable index in the `file/` namespace over immutable content-addressed
-//! entries. Each row records the file it came from, so a changed file's rows
-//! are filtered out and re-added from its fresh extraction — the repository
-//! is never re-derived, and there is no global fingerprint.
+//! entries. Each row records the file it came from, so a changed file's symbol
+//! rows are filtered out and re-added from its fresh extraction. When a file
+//! or declaration change can alter resolution, importer rows are re-derived
+//! from the unchanged files' cached imports — source is never re-extracted,
+//! and there is no global fingerprint.
 
 use crate::extraction::{Declaration, ExtractionResult, RefShape};
 use crate::file_facts::{self, FileFacts};
@@ -38,26 +40,19 @@ use crate::{cache, extraction, memo};
 use rayon::prelude::*;
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
-use std::collections::{BTreeMap, HashMap, HashSet};
+use sha2::{Digest, Sha256};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
+
+struct ImportResolution<'a> {
+    invalid_bindings: &'a [String],
+    targets: Vec<(String, &'static str, Option<String>)>,
+}
 
 pub const CONFIDENCE_EXTRACTED: &str = "EXTRACTED";
 pub const CONFIDENCE_INFERRED: &str = "INFERRED";
 pub const CONFIDENCE_AMBIGUOUS: &str = "AMBIGUOUS";
-
-/// The two file lists for one symbol name. Both are repo-relative paths in
-/// discovery order, so a query's row order is stable across runs.
-///
-/// A path is held by shared handle, never by value. It appears once per name
-/// that mentions it, and spelling each occurrence as its own `String` turned
-/// next.js's 8.2 MB index into 172 MB of resident memory before a query ran.
-/// The handles all point at the one copy `Relations::intern` keeps.
-#[derive(Debug, Default, Clone)]
-pub struct SymbolRow {
-    pub defined_in: Vec<Arc<str>>,
-    pub used_in: Vec<Arc<str>>,
-}
 
 /// The stored index: the two inversions plus the provenance that makes an
 /// incremental update possible.
@@ -66,11 +61,14 @@ pub struct SymbolRow {
 /// maps were computed from. Comparing it against the current per-file hashes
 /// names the files whose rows are stale, which is the whole update: drop
 /// those paths from every list, then add what their fresh extraction says.
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default)]
 pub struct Relations {
-    symbols: HashMap<String, SymbolRow>,
+    files: Vec<Arc<str>>,
+    file_table_hash: String,
+    symbols: OnceLock<HashMap<String, (Vec<u32>, Vec<u32>)>>,
     importers: HashMap<Arc<str>, Vec<Importer>>,
     built_from: BTreeMap<Arc<str>, Built>,
+    repo_root: PathBuf,
 }
 
 /// What the index knows about a file without opening it: the content key its
@@ -87,11 +85,16 @@ struct Built {
 /// The index exactly as it sits on disk, so reading it allocates the rows
 /// and nothing else. `to_json` writes this shape.
 #[derive(Deserialize)]
-struct Stored {
+struct StoredEdges {
     files: Vec<String>,
     built: Vec<(String, Option<String>)>,
-    symbols: HashMap<String, (Vec<u32>, Vec<u32>)>,
     importers: HashMap<String, Vec<(u32, u64, Option<String>)>>,
+}
+
+#[derive(Deserialize)]
+struct StoredSymbols {
+    table: String,
+    symbols: HashMap<String, (Vec<u32>, Vec<u32>)>,
 }
 
 /// One file that imports another, and how surely the import resolved.
@@ -104,7 +107,7 @@ struct Stored {
 #[derive(Debug, Clone)]
 pub struct Importer {
     pub file: Arc<str>,
-    pub confidence: String,
+    pub confidence: &'static str,
     /// The symbol the import named, when it named one. `from util import
     /// helper` depends on `helper`, not merely on `util`, and a row that
     /// says the module loses which part of it is actually depended on.
@@ -117,11 +120,12 @@ impl Relations {
     /// extractors index it.
     pub fn defined_in(&self, name: &str) -> impl Iterator<Item = &str> {
         self.symbols
+            .get_or_init(|| self.load_symbols())
             .get(&name.to_lowercase())
-            .map(|r| r.defined_in.as_slice())
-            .unwrap_or(&[])
-            .iter()
-            .map(|p| &**p)
+            .into_iter()
+            .flat_map(|(defined_in, _)| defined_in)
+            .filter_map(|index| self.files.get(*index as usize))
+            .map(|path| &**path)
     }
 
     /// Files with a use site naming `name`. A candidate set for the
@@ -129,16 +133,20 @@ impl Relations {
     /// `shape_matches` has seen it.
     pub fn used_in(&self, name: &str) -> impl Iterator<Item = &str> {
         self.symbols
+            .get_or_init(|| self.load_symbols())
             .get(&name.to_lowercase())
-            .map(|r| r.used_in.as_slice())
-            .unwrap_or(&[])
-            .iter()
-            .map(|p| &**p)
+            .into_iter()
+            .flat_map(|(_, used_in)| used_in)
+            .filter_map(|index| self.files.get(*index as usize))
+            .map(|path| &**path)
     }
 
     /// Files whose imports resolve to `file` — the import inversion.
     pub fn importers_of(&self, file: &str) -> &[Importer] {
-        self.importers.get(file).map(|v| v.as_slice()).unwrap_or(&[])
+        self.importers
+            .get(file)
+            .map(|v| v.as_slice())
+            .unwrap_or(&[])
     }
 
     /// Every file that imports something, with what it imports. The ranking
@@ -181,16 +189,22 @@ impl Relations {
 
     /// The one shared handle for a path. Every list that names a file holds a
     /// clone of this handle, so the path's bytes exist once per index.
-    fn intern(&mut self, path: &str) -> Arc<str> {
-        match self.built_from.get_key_value(path) {
-            Some((existing, _)) => Arc::clone(existing),
-            None => Arc::from(path),
+    fn intern(&mut self, path: &str) -> (Arc<str>, u32) {
+        if let Some((index, existing)) = self
+            .files
+            .iter()
+            .enumerate()
+            .find(|(_, existing)| &***existing == path)
+        {
+            return (Arc::clone(existing), index as u32);
         }
+        let path: Arc<str> = Arc::from(path);
+        self.files.push(Arc::clone(&path));
+        (path, (self.files.len() - 1) as u32)
     }
 
-    /// Every indexed file paired with its language, in sorted order — what
-    /// `ModulePaths` is built from, and what a row needs to spell a module
-    /// path. Free: the index carries it.
+    /// Every indexed file paired with its language, in sorted order — the
+    /// complete input `ModulePaths` requires.
     pub fn listing(&self) -> Vec<(String, Option<String>)> {
         self.built_from
             .iter()
@@ -198,29 +212,44 @@ impl Relations {
             .collect()
     }
 
+    /// The indexed language for one file.
+    pub fn language(&self, path: &str) -> Option<&str> {
+        self.built_from
+            .get(path)
+            .and_then(|built| built.language.as_deref())
+    }
+
     /// How many distinct names the index carries.
     pub fn name_count(&self) -> usize {
-        self.symbols.len()
+        self.symbols.get_or_init(|| self.load_symbols()).len()
     }
 
     /// Whether the index knows this name at all — the search signpost's
     /// whole question, answered without loading a file.
     pub fn knows(&self, name: &str) -> bool {
-        self.symbols.contains_key(&name.to_lowercase())
+        self.symbols
+            .get_or_init(|| self.load_symbols())
+            .contains_key(&name.to_lowercase())
     }
 
-    fn row_mut(&mut self, name: &str) -> &mut SymbolRow {
-        self.symbols.entry(name.to_lowercase()).or_default()
+    fn symbols_mut(&mut self) -> &mut HashMap<String, (Vec<u32>, Vec<u32>)> {
+        self.symbols.get_or_init(|| self.load_symbols());
+        self.symbols.get_mut().expect("symbols cell initialized")
     }
 
     /// Remove every trace of `file`, so its fresh contribution can be added
     /// without duplicating rows. A name left with no files at all is dropped
     /// rather than kept as an empty row.
     fn forget(&mut self, file: &str) {
-        self.symbols.retain(|_, row| {
-            row.defined_in.retain(|f| &**f != file);
-            row.used_in.retain(|f| &**f != file);
-            !(row.defined_in.is_empty() && row.used_in.is_empty())
+        let index = self
+            .files
+            .iter()
+            .position(|candidate| &**candidate == file)
+            .map(|index| index as u32);
+        self.symbols_mut().retain(|_, (defined_in, used_in)| {
+            defined_in.retain(|candidate| Some(*candidate) != index);
+            used_in.retain(|candidate| Some(*candidate) != index);
+            !(defined_in.is_empty() && used_in.is_empty())
         });
         for list in self.importers.values_mut() {
             list.retain(|i| &*i.file != file);
@@ -234,7 +263,7 @@ impl Relations {
     /// resolved, because an import that misses on module path falls back to
     /// the symbol map — so the two passes cannot be merged.
     fn absorb_symbols(&mut self, facts: &FileFacts, key: &str) {
-        let path = self.intern(&facts.path);
+        let (path, index) = self.intern(&facts.path);
         self.built_from.insert(
             Arc::clone(&path),
             Built {
@@ -247,15 +276,21 @@ impl Relations {
             None => return,
         };
         for declaration in &extraction.declarations {
-            let row = self.row_mut(&declaration.name);
-            if !row.defined_in.contains(&path) {
-                row.defined_in.push(Arc::clone(&path));
+            let row = self
+                .symbols_mut()
+                .entry(declaration.name.to_lowercase())
+                .or_default();
+            if !row.0.contains(&index) {
+                row.0.push(index);
             }
         }
         for reference in &extraction.references {
-            let row = self.row_mut(&reference.name);
-            if !row.used_in.contains(&path) {
-                row.used_in.push(Arc::clone(&path));
+            let row = self
+                .symbols_mut()
+                .entry(reference.name.to_lowercase())
+                .or_default();
+            if !row.1.contains(&index) {
+                row.1.push(index);
             }
         }
     }
@@ -268,11 +303,9 @@ impl Relations {
         imports: &[extraction::Import],
         modules: &ModulePaths,
     ) {
-        let importer = self.intern(path);
-        for (target, confidence, symbol) in
-            self.resolve_imports(imports, language, modules)
-        {
-            let target = self.intern(&target);
+        let (importer, _) = self.intern(path);
+        for (target, confidence, symbol) in self.resolve_imports(path, imports, language, modules) {
+            let (target, _) = self.intern(&target);
             let list = self.importers.entry(target).or_default();
             if !list.iter().any(|i| i.file == importer) {
                 list.push(Importer {
@@ -291,84 +324,136 @@ impl Relations {
     /// one.
     fn resolve_imports(
         &self,
+        importer_path: &str,
         imports: &[extraction::Import],
         language: Option<&str>,
         modules: &ModulePaths,
-    ) -> Vec<(String, String, Option<String>)> {
-        let mut out: Vec<(String, String, Option<String>)> = Vec::new();
+    ) -> Vec<(String, &'static str, Option<String>)> {
+        let mut out: Vec<(String, &'static str, Option<String>)> = Vec::new();
         for import in imports {
-            // `from module import symbol` names the symbol's own file when
-            // one exists, and the module otherwise — the dominant Python and
-            // TypeScript form, and the reason a from-imported file must not
-            // read as having no importers.
-            let combined = import.symbol.as_ref().map(|symbol| {
-                if language == Some("python") {
-                    format!("{}.{}", import.module, symbol)
-                } else {
-                    format!("{}/{}", import.module, symbol)
-                }
-            });
-            let resolved = combined
-                .and_then(|c| modules.resolve(&c, language))
-                .or_else(|| modules.resolve(&import.module, language));
-            // A module path that resolved is a clean resolution. When it did
-            // not, an imported symbol the map knows still names its file:
-            // one declaring file is INFERRED, several are AMBIGUOUS.
-            let (target, confidence) = match resolved {
-                Some(file) => (file, CONFIDENCE_EXTRACTED.to_string()),
-                None => {
-                    let Some(symbol) = import.symbol.as_ref() else { continue };
-                    let declaring: Vec<&str> = self.defined_in(symbol).collect();
-                    match declaring.len() {
-                        1 => (declaring[0].to_string(), CONFIDENCE_INFERRED.to_string()),
-                        n if n > 1 => {
-                            (declaring[0].to_string(), CONFIDENCE_AMBIGUOUS.to_string())
+            let resolution = self.resolve_import(importer_path, import, language, modules);
+            for (target, confidence, symbol) in resolution.targets {
+                match out.iter_mut().find(|(file, _, _)| file == &target) {
+                    Some(existing) => {
+                        if existing.2.is_none() && symbol.is_some() {
+                            existing.1 = confidence;
+                            existing.2 = symbol;
                         }
-                        _ => continue,
                     }
+                    None => out.push((target, confidence, symbol)),
                 }
-            };
-            // The named symbol only stands as the depended-on thing when the
-            // target file actually declares it; otherwise the module is what
-            // the import reaches.
-            let symbol = import
-                .symbol
-                .as_ref()
-                .filter(|s| self.defined_in(s).any(|f| f == target))
-                .cloned();
-            // One edge per target file. A language that emits both a module
-            // import and a named import for the same statement would
-            // otherwise put the importer in the inversion twice and double
-            // its direct-edge count. The named symbol wins the slot, because
-            // it says what is actually depended on.
-            match out.iter_mut().find(|(f, _, _)| f == &target) {
-                Some(existing) => {
-                    if existing.2.is_none() && symbol.is_some() {
-                        existing.1 = confidence;
-                        existing.2 = symbol;
-                    }
-                }
-                None => out.push((target, confidence, symbol)),
             }
         }
         out
     }
 
-    /// The stored form, with every path written once.
+    fn resolve_import<'a>(
+        &self,
+        importer_path: &str,
+        import: &'a extraction::Import,
+        language: Option<&str>,
+        modules: &ModulePaths,
+    ) -> ImportResolution<'a> {
+        // `from module import symbol` names the symbol's own file when
+        // one exists, and the module otherwise — Python's package form,
+        // and the reason a from-imported file must not read as having no
+        // importers. Other languages' named imports still name the module
+        // written after `from`, not a child path made from the symbol.
+        let combined = if language == Some("python") {
+            import
+                .symbol
+                .as_ref()
+                .map(|symbol| format!("{}.{}", import.module, symbol))
+        } else {
+            None
+        };
+        let combined_resolved = combined
+            .and_then(|module| modules.resolve(&module, importer_path, language))
+            .unwrap_or_default();
+        let module_resolved = modules.resolve(&import.module, importer_path, language);
+        let Some(module_resolved) = module_resolved else {
+            return ImportResolution {
+                invalid_bindings: if import.locals.is_empty() {
+                    import.symbol.as_slice()
+                } else {
+                    &import.locals
+                },
+                targets: Vec::new(),
+            };
+        };
+        let mut resolved = if combined_resolved.is_empty() {
+            module_resolved
+        } else {
+            combined_resolved
+        };
+        // A module path that resolved is a clean resolution. When it did
+        // not, an imported symbol the map knows still names its file:
+        // one declaring file is INFERRED, several are AMBIGUOUS.
+        let confidence = if resolved.len() == 1 {
+            CONFIDENCE_EXTRACTED
+        } else if resolved.len() > 1 {
+            CONFIDENCE_AMBIGUOUS
+        } else {
+            let Some(symbol) = import.symbol.as_ref() else {
+                return ImportResolution {
+                    invalid_bindings: &[],
+                    targets: Vec::new(),
+                };
+            };
+            resolved = self
+                .defined_in(symbol)
+                .filter(|file| {
+                    self.built_from
+                        .get(*file)
+                        .and_then(|built| built.language.as_deref())
+                        == language
+                })
+                .map(str::to_string)
+                .collect();
+            match resolved.len() {
+                1 => CONFIDENCE_INFERRED,
+                n if n > 1 => CONFIDENCE_AMBIGUOUS,
+                _ => {
+                    return ImportResolution {
+                        invalid_bindings: &[],
+                        targets: Vec::new(),
+                    }
+                }
+            }
+        };
+        let mut targets = Vec::new();
+        for target in resolved {
+            // The named symbol only stands as the depended-on thing when
+            // the target file actually declares it; otherwise the module
+            // is what the import reaches.
+            let symbol = import
+                .symbol
+                .as_ref()
+                .filter(|s| self.defined_in(s).any(|file| file == target))
+                .cloned();
+            // One edge per target file. A language that emits both a
+            // module import and a named import for the same statement
+            // would otherwise double its direct-edge count. The named
+            // symbol wins because it says what is actually depended on.
+            targets.push((target, confidence, symbol));
+        }
+        ImportResolution {
+            invalid_bindings: &[],
+            targets,
+        }
+    }
+
+    /// The stored forms, with every path written once in the edges entry.
     ///
     /// A path appears in the index once per name that mentions it. Spelling
     /// each one in full made laravel-framework's entry 7.0 MB, and parsing it
     /// cost 81 MB of resident memory before a single query ran. One path
     /// table plus integer references carries the identical index in 1.1 MB.
-    fn to_json(&self) -> Value {
+    fn to_json(&self) -> (Value, Value) {
         // `built_from` holds every indexed file, and no row can name a file
         // outside it: rows are absorbed per file and `forget` drops both.
         let paths: Vec<&str> = self.built_from.keys().map(|p| &**p).collect();
-        let slot: HashMap<&str, usize> = paths
-            .iter()
-            .enumerate()
-            .map(|(i, p)| (*p, i))
-            .collect();
+        let slot: HashMap<&str, usize> = paths.iter().enumerate().map(|(i, p)| (*p, i)).collect();
         let at = |p: &str| slot.get(p).copied();
 
         let built: Vec<Value> = self
@@ -377,11 +462,17 @@ impl Relations {
             .map(|b| json!([b.key, b.language]))
             .collect();
 
-        let mut symbols = Map::with_capacity(self.symbols.len());
-        for (name, row) in &self.symbols {
-            let d: Vec<usize> = row.defined_in.iter().filter_map(|p| at(p)).collect();
-            let u: Vec<usize> = row.used_in.iter().filter_map(|p| at(p)).collect();
-            symbols.insert(name.clone(), json!([d, u]));
+        let old_paths: Vec<&str> = self.files.iter().map(|path| &**path).collect();
+        let mut symbols =
+            Map::with_capacity(self.symbols.get_or_init(|| self.load_symbols()).len());
+        for (name, (defined_in, used_in)) in self.symbols.get().expect("symbols initialized") {
+            let remap = |indexes: &[u32]| {
+                indexes
+                    .iter()
+                    .filter_map(|index| old_paths.get(*index as usize).and_then(|path| at(path)))
+                    .collect::<Vec<_>>()
+            };
+            symbols.insert(name.clone(), json!([remap(defined_in), remap(used_in)]));
         }
 
         let mut importers = Map::with_capacity(self.importers.len());
@@ -390,56 +481,53 @@ impl Relations {
             let rows: Vec<Value> = list
                 .iter()
                 .filter_map(|i| {
-                    Some(json!([at(&i.file)?, confidence_code(&i.confidence), i.symbol]))
+                    Some(json!([
+                        at(&i.file)?,
+                        confidence_code(i.confidence),
+                        i.symbol
+                    ]))
                 })
                 .collect();
             importers.insert(t.to_string(), Value::Array(rows));
         }
 
-        json!({
-            "files": paths,
-            "built": built,
-            "symbols": Value::Object(symbols),
-            "importers": Value::Object(importers),
-        })
+        (
+            json!({"files": paths, "built": built, "importers": Value::Object(importers)}),
+            json!({"table": self.file_table_hash, "symbols": Value::Object(symbols)}),
+        )
     }
 
-    fn from_bytes(bytes: &[u8]) -> Option<Self> {
-        let stored: Stored = serde_json::from_slice(bytes).ok()?;
+    fn from_bytes(bytes: &[u8], repo_root: &Path) -> Option<Self> {
+        let stored: StoredEdges = serde_json::from_slice(bytes).ok()?;
         // One handle per path, made once here. Every row below clones a
         // handle rather than the path's bytes, which is the whole reason the
         // index is cheap to hold.
-        let files: Vec<Arc<str>> =
-            stored.files.into_iter().map(Arc::<str>::from).collect();
-        let path_at = |i: u32| files.get(i as usize).map(Arc::clone);
-        let paths = |list: Vec<u32>| -> Vec<Arc<str>> {
-            list.into_iter().filter_map(path_at).collect()
+        let files: Vec<Arc<str>> = stored.files.into_iter().map(Arc::<str>::from).collect();
+        let file_table_hash = table_hash(files.iter().map(|path| &**path));
+        let mut out = Relations {
+            files,
+            file_table_hash,
+            repo_root: repo_root.to_path_buf(),
+            ..Default::default()
         };
-
-        let mut out = Relations::default();
         for (i, (key, language)) in stored.built.into_iter().enumerate() {
-            let file = Arc::clone(files.get(i)?);
+            let file = Arc::clone(out.files.get(i)?);
             out.built_from.insert(file, Built { key, language });
         }
-        for (name, (defined_in, used_in)) in stored.symbols {
-            out.symbols.insert(
-                name,
-                SymbolRow {
-                    defined_in: paths(defined_in),
-                    used_in: paths(used_in),
-                },
-            );
-        }
         for (target, list) in stored.importers {
-            let Some(target) = target.parse::<u32>().ok().and_then(path_at) else {
+            let Some(target) = target
+                .parse::<u32>()
+                .ok()
+                .and_then(|index| out.files.get(index as usize).cloned())
+            else {
                 continue;
             };
             let rows: Vec<Importer> = list
                 .into_iter()
                 .filter_map(|(file, confidence, symbol)| {
                     Some(Importer {
-                        file: path_at(file)?,
-                        confidence: confidence_name(confidence).to_string(),
+                        file: out.files.get(file as usize).cloned()?,
+                        confidence: confidence_name(confidence),
                         symbol,
                     })
                 })
@@ -448,11 +536,66 @@ impl Relations {
         }
         Some(out)
     }
+
+    fn load_symbols(&self) -> HashMap<String, (Vec<u32>, Vec<u32>)> {
+        let table = &self.file_table_hash;
+        if let Some(symbols) =
+            cache::load_bytes(cache::NAMESPACE_FILE, &symbols_key(), &self.repo_root)
+                .as_deref()
+                .and_then(|bytes| serde_json::from_slice::<StoredSymbols>(bytes).ok())
+                .filter(|stored| stored.table == *table)
+                .map(|stored| stored.symbols)
+        {
+            return symbols;
+        }
+        let symbols = self.rebuild_symbols();
+        let document = json!({"table": table, "symbols": symbols});
+        let _ = cache::save(
+            cache::NAMESPACE_FILE,
+            &symbols_key(),
+            &document,
+            &self.repo_root,
+        );
+        symbols
+    }
+
+    fn rebuild_symbols(&self) -> HashMap<String, (Vec<u32>, Vec<u32>)> {
+        let mut symbols: HashMap<String, (Vec<u32>, Vec<u32>)> = HashMap::new();
+        for (base, chunk) in self.files.chunks(file_facts::RESOLVE_CHUNK).enumerate() {
+            let paths: Vec<PathBuf> = chunk
+                .iter()
+                .map(|path| self.repo_root.join(&**path))
+                .collect();
+            let facts = file_facts::get_batch(&paths, &self.repo_root);
+            for (offset, path) in chunk.iter().enumerate() {
+                let index = base * file_facts::RESOLVE_CHUNK + offset;
+                let Some(facts) = facts.get(&**path) else {
+                    continue;
+                };
+                let Some(extraction) = &facts.extraction else {
+                    continue;
+                };
+                for declaration in &extraction.declarations {
+                    let row = symbols.entry(declaration.name.to_lowercase()).or_default();
+                    if !row.0.contains(&(index as u32)) {
+                        row.0.push(index as u32);
+                    }
+                }
+                for reference in &extraction.references {
+                    let row = symbols.entry(reference.name.to_lowercase()).or_default();
+                    if !row.1.contains(&(index as u32)) {
+                        row.1.push(index as u32);
+                    }
+                }
+            }
+        }
+        symbols
+    }
 }
 
 /// The three confidence classes, stored as their ordinal. Written out in full
 /// they were the second-largest thing in the index after the paths.
-fn confidence_code(confidence: &str) -> u64 {
+pub(crate) fn confidence_code(confidence: &str) -> u64 {
     match confidence {
         CONFIDENCE_EXTRACTED => 0,
         CONFIDENCE_INFERRED => 1,
@@ -475,57 +618,97 @@ fn confidence_name(code: u64) -> &'static str {
 /// turns a written import (`Illuminate\Support\Str`, `./helpers`) into the
 /// repo-relative file it names.
 struct ModulePaths {
-    /// module path -> relative file, in discovery order.
-    exact: HashMap<String, String>,
-    ordered: Vec<(String, String)>,
-    lowered: Vec<(String, String)>,
+    /// Normalized module path, relative file, and language in discovery order.
+    entries: Vec<(String, String, Option<String>)>,
+    /// Exact module path to positions in `entries`. Multiple positions retain
+    /// honest same-language ambiguity without making exact imports scan the
+    /// repository.
+    exact: HashMap<String, Vec<usize>>,
 }
 
 impl ModulePaths {
     fn new(files: &[(String, Option<String>)]) -> Self {
-        let mut exact = HashMap::with_capacity(files.len());
-        let mut ordered = Vec::with_capacity(files.len());
-        let mut lowered = Vec::with_capacity(files.len());
+        let mut entries = Vec::with_capacity(files.len());
+        let mut exact: HashMap<String, Vec<usize>> = HashMap::with_capacity(files.len());
         for (path, language) in files {
-            let module = file_to_module(path, language.as_deref());
-            if !exact.contains_key(&module) {
-                exact.insert(module.clone(), path.clone());
-                lowered.push((module.to_lowercase(), path.clone()));
-                ordered.push((module, path.clone()));
+            let mut module = file_to_module(path, language.as_deref());
+            if language.as_deref() == Some("php") {
+                module = module.to_lowercase();
+            }
+            let position = entries.len();
+            exact.entry(module.clone()).or_default().push(position);
+            entries.push((module, path.clone(), language.clone()));
+        }
+        Self { entries, exact }
+    }
+
+    /// The compatible-language files an import may name. Explicit relative
+    /// imports are first made repository-relative from the importing file;
+    /// suffix fallback retains every honest candidate rather than choosing
+    /// whichever file happened to be discovered first.
+    fn resolve(
+        &self,
+        module_path: &str,
+        importer_path: &str,
+        language: Option<&str>,
+    ) -> Option<Vec<String>> {
+        let mut wanted = module_path.to_string();
+        if module_path.starts_with("./") || module_path.starts_with("../") {
+            let mut path = Path::new(importer_path)
+                .parent()
+                .unwrap_or_else(|| Path::new(""))
+                .to_path_buf();
+            for segment in module_path.split('/') {
+                match segment {
+                    "" | "." => {}
+                    ".." => {
+                        if !path.pop() {
+                            return None;
+                        }
+                    }
+                    part => path.push(part),
+                }
+            }
+            wanted = file_to_module(&path.to_string_lossy(), language);
+        }
+
+        let compared = if language == Some("php") {
+            wanted.replace('\\', "/").to_lowercase()
+        } else {
+            wanted.clone()
+        };
+        let compatible = |entry_language: &Option<String>| entry_language.as_deref() == language;
+        if let Some(positions) = self.exact.get(&compared) {
+            let mut exact: Vec<String> = positions
+                .iter()
+                .filter_map(|position| self.entries.get(*position))
+                .filter(|(_, _, entry_language)| compatible(entry_language))
+                .map(|(_, file, _)| file.clone())
+                .collect();
+            if !exact.is_empty() {
+                exact.sort();
+                exact.dedup();
+                return Some(exact);
             }
         }
-        Self { exact, ordered, lowered }
-    }
 
-    /// The file an imported module path names: exact hit, else the
-    /// language-aware suffix match the graph build used.
-    fn resolve(&self, module_path: &str, language: Option<&str>) -> Option<String> {
-        if let Some(file) = self.exact.get(module_path) {
-            return Some(file.clone());
-        }
-        if language == Some("php") {
-            let slashed = module_path.replace('\\', "/").to_lowercase();
-            return self
-                .lowered
-                .iter()
-                .find(|(module, _)| module.ends_with(&slashed))
-                .map(|(_, file)| file.clone());
-        }
-        // `./helpers` and `../helpers` name the same module as `src/helpers`;
-        // without stripping the prefix the suffix match never sees past it.
-        let normalized = strip_relative_prefix(module_path);
-        let dot_suffix = format!(".{normalized}");
-        let slash_suffix = format!("/{normalized}");
-        self.ordered
+        let mut suffixes: Vec<String> = self
+            .entries
             .iter()
-            .find(|(module, _)| {
-                module.ends_with(&normalized)
-                    || module.ends_with(&dot_suffix)
-                    || module.ends_with(&slash_suffix)
+            .filter(|(module, _, entry_language)| {
+                if !compatible(entry_language) {
+                    return false;
+                }
+                module.strip_suffix(&compared).is_some_and(|prefix| {
+                    prefix.is_empty() || prefix.ends_with('.') || prefix.ends_with('/')
+                })
             })
-            .map(|(_, file)| file.clone())
+            .map(|(_, file, _)| file.clone())
+            .collect();
+        suffixes.sort();
+        suffixes.dedup();
+        Some(suffixes)
     }
-
 }
 
 /// The addressable id for one declaration, as every command has always
@@ -556,23 +739,24 @@ pub fn file_to_module(relative_path: &str, language: Option<&str>) -> String {
     }
 }
 
-/// Drop `./` and any leading `../` segments from a relative import path.
-fn strip_relative_prefix(module_path: &str) -> String {
-    let mut s = module_path;
-    if let Some(rest) = s.strip_prefix("./") {
-        s = rest;
-    }
-    while let Some(rest) = s.strip_prefix("../") {
-        s = rest;
-    }
-    s.to_string()
-}
-
 /// Stable key: the index is mutable and updated in place, so it never
 /// carries a fingerprint. The schema version rides along because the rows
 /// describe extraction output, which a schema bump can reshape.
-fn index_key() -> String {
-    format!("relations_v2__schema{}", cache::SCHEMA_VERSION)
+fn edges_key() -> String {
+    format!("relations_edges_v1__schema{}", cache::SCHEMA_VERSION)
+}
+
+fn symbols_key() -> String {
+    format!("relations_symbols_v1__schema{}", cache::SCHEMA_VERSION)
+}
+
+fn table_hash<'a>(paths: impl IntoIterator<Item = &'a str>) -> String {
+    let mut hasher = Sha256::new();
+    for path in paths {
+        hasher.update(path.as_bytes());
+        hasher.update(b"\0");
+    }
+    hex::encode(hasher.finalize())
 }
 
 static MEMO: memo::Memo<Relations> = OnceLock::new();
@@ -580,21 +764,33 @@ static MEMO: memo::Memo<Relations> = OnceLock::new();
 /// The two inversions for a repository, current as of this call.
 ///
 /// Loads the stored index, compares its `built_from` against the per-file
-/// content hashes on disk, and updates only the files that moved: dropped
-/// paths are forgotten, added and changed paths are absorbed from their fresh
-/// extraction. A first call on a cold cache absorbs everything, which is the
-/// same work the graph build did minus the resolution pass.
+/// content hashes on disk, and re-absorbs declarations for files that moved.
+/// When files or declarations move, imports are re-resolved from cached
+/// per-file extraction so unchanged importers follow the new declarations. A
+/// first call on a cold cache absorbs everything, which is the same work the
+/// graph build did minus reference resolution.
 pub fn get(repo_root: &Path) -> Arc<Relations> {
     memo::get_or_build(&MEMO, repo_root, || load_and_update(repo_root))
 }
 
 fn load_and_update(repo_root: &Path) -> Relations {
-    let files = discover_files(repo_root);
+    let Some(files) = discover_files(repo_root) else {
+        return cache::load_bytes(cache::NAMESPACE_FILE, &edges_key(), repo_root)
+            .as_deref()
+            .and_then(|bytes| Relations::from_bytes(bytes, repo_root))
+            .unwrap_or_else(|| Relations {
+                repo_root: repo_root.to_path_buf(),
+                ..Default::default()
+            });
+    };
     let hashes = file_facts::file_hashes_for(&files, repo_root);
-    let mut relations = cache::load_bytes(cache::NAMESPACE_FILE, &index_key(), repo_root)
+    let mut relations = cache::load_bytes(cache::NAMESPACE_FILE, &edges_key(), repo_root)
         .as_deref()
-        .and_then(Relations::from_bytes)
-        .unwrap_or_default();
+        .and_then(|bytes| Relations::from_bytes(bytes, repo_root))
+        .unwrap_or_else(|| Relations {
+            repo_root: repo_root.to_path_buf(),
+            ..Default::default()
+        });
 
     let gone: Vec<String> = relations
         .built_from
@@ -604,9 +800,7 @@ fn load_and_update(repo_root: &Path) -> Relations {
         .collect();
     let moved: Vec<String> = hashes
         .iter()
-        .filter(|(path, key)| {
-            relations.built_from.get(path.as_str()).map(|b| &b.key) != Some(*key)
-        })
+        .filter(|(path, key)| relations.built_from.get(path.as_str()).map(|b| &b.key) != Some(*key))
         .map(|(path, _)| path.clone())
         .collect();
     if gone.is_empty() && moved.is_empty() {
@@ -617,14 +811,35 @@ fn load_and_update(repo_root: &Path) -> Relations {
     }
 
     // Adding or removing a file moves module-path resolution for every file,
-    // so the whole index is rebuilt. A content-only change leaves every path
-    // in place, and then only the files that moved are re-absorbed — and
-    // only their entries are read. Reading all 3,030 entries for a one-line
-    // edit was 0.3s on laravel-framework, on every command.
+    // so the whole index is rebuilt. A content-only change re-absorbs the
+    // files that moved. If their declarations moved too, every import is
+    // re-resolved from cached extraction because symbol fallback depends on
+    // declarations in files the importer never opened.
     let structural = !gone.is_empty()
         || moved
             .iter()
             .any(|path| !relations.built_from.contains_key(path.as_str()));
+    let moved_files: HashSet<&str> = moved.iter().map(String::as_str).collect();
+    if !structural {
+        relations.symbols.get_or_init(|| relations.load_symbols());
+    }
+    let declarations_before: BTreeSet<(String, String)> = if structural {
+        BTreeSet::new()
+    } else {
+        relations
+            .symbols
+            .get()
+            .expect("symbols loaded before incremental update")
+            .iter()
+            .flat_map(|(name, (defined_in, _))| {
+                defined_in
+                    .iter()
+                    .filter_map(|index| relations.files.get(*index as usize))
+                    .filter(|file| moved_files.contains::<str>(file.as_ref()))
+                    .map(|file| (name.clone(), file.to_string()))
+            })
+            .collect()
+    };
     let touched: Vec<String> = if structural {
         hashes.keys().cloned().collect()
     } else {
@@ -632,7 +847,14 @@ fn load_and_update(repo_root: &Path) -> Relations {
     };
 
     if structural {
-        relations = Relations::default();
+        relations = Relations {
+            repo_root: repo_root.to_path_buf(),
+            ..Default::default()
+        };
+        relations
+            .symbols
+            .set(HashMap::new())
+            .expect("new symbols cell is empty");
     } else {
         for path in &moved {
             relations.forget(path);
@@ -649,58 +871,113 @@ fn load_and_update(repo_root: &Path) -> Relations {
     // same extraction — so the chunk's facts are dropped before the next
     // chunk is read. Holding every file's facts at once instead cost 848 MB
     // on next.js (22,702 files); the whole import set there is 36,957 rows.
-    let mut imports_by_file: Vec<(String, Option<String>, Vec<extraction::Import>)> =
-        Vec::with_capacity(touched.len());
+    let mut imports_by_file: BTreeMap<String, (Option<String>, Vec<extraction::Import>)> =
+        BTreeMap::new();
     for chunk in touched.chunks(file_facts::RESOLVE_CHUNK) {
         let needed: Vec<PathBuf> = chunk.iter().map(|rel| repo_root.join(rel)).collect();
-        let facts = file_facts::get_batch(&needed, repo_root);
+        let mut facts = file_facts::get_batch(&needed, repo_root);
         for path in chunk {
-            let (Some(f), Some(key)) = (facts.get(path), hashes.get(path)) else {
+            let (Some(f), Some(key)) = (facts.remove(path), hashes.get(path)) else {
                 continue;
             };
-            relations.absorb_symbols(f, key);
-            if let Some(e) = &f.extraction {
-                if !e.imports.is_empty() {
-                    imports_by_file.push((
-                        f.path.clone(),
-                        f.language.clone(),
-                        e.imports.clone(),
-                    ));
+            relations.absorb_symbols(&f, key);
+            if let Some(extraction) = f.extraction {
+                if !extraction.imports.is_empty() {
+                    imports_by_file.insert(f.path, (f.language, extraction.imports));
+                }
+            }
+        }
+    }
+
+    let declarations_after: BTreeSet<(String, String)> = if structural {
+        BTreeSet::new()
+    } else {
+        relations
+            .symbols
+            .get()
+            .expect("symbols loaded before incremental update")
+            .iter()
+            .flat_map(|(name, (defined_in, _))| {
+                defined_in
+                    .iter()
+                    .filter_map(|index| relations.files.get(*index as usize))
+                    .filter(|file| moved_files.contains::<str>(file.as_ref()))
+                    .map(|file| (name.clone(), file.to_string()))
+            })
+            .collect()
+    };
+    let rebuild_importers = structural || declarations_before != declarations_after;
+    if rebuild_importers {
+        relations.importers.clear();
+        let already_loaded: HashSet<&str> = touched.iter().map(String::as_str).collect();
+        let untouched: Vec<String> = hashes
+            .keys()
+            .filter(|path| !already_loaded.contains(path.as_str()))
+            .cloned()
+            .collect();
+        for chunk in untouched.chunks(file_facts::RESOLVE_CHUNK) {
+            let needed: Vec<PathBuf> = chunk.iter().map(|rel| repo_root.join(rel)).collect();
+            let mut facts = file_facts::get_batch(&needed, repo_root);
+            for path in chunk {
+                let Some(f) = facts.remove(path) else {
+                    continue;
+                };
+                if let Some(extraction) = f.extraction {
+                    if !extraction.imports.is_empty() {
+                        imports_by_file.insert(f.path, (f.language, extraction.imports));
+                    }
                 }
             }
         }
     }
 
     // The module map is a pure function of the file list and each file's
-    // language, both of which the index now carries for every touched file.
+    // language, both of which the index carries for every indexed file.
     let modules = ModulePaths::new(&relations.listing());
-    for (path, language, imports) in &imports_by_file {
+    for (path, (language, imports)) in &imports_by_file {
         relations.absorb_imports(path, language.as_deref(), imports, &modules);
     }
 
-    let key = index_key();
-    let _ = cache::save(cache::NAMESPACE_FILE, &key, &relations.to_json(), repo_root);
+    relations.file_table_hash = table_hash(relations.files.iter().map(|path| &**path));
+    let (edges, symbols) = relations.to_json();
+    let edges_key = edges_key();
+    let symbols_key = symbols_key();
+    let _ = cache::save(cache::NAMESPACE_FILE, &symbols_key, &symbols, repo_root);
+    let _ = cache::save(cache::NAMESPACE_FILE, &edges_key, &edges, repo_root);
     // A schema bump rotates the key, so the prior version's index would sit
     // in the namespace forever without this sweep.
-    cache::evict_prefixed(cache::NAMESPACE_FILE, "relations_", &key, repo_root);
+    cache::evict_prefixed(
+        cache::NAMESPACE_FILE,
+        "relations_edges_v1_",
+        &edges_key,
+        repo_root,
+    );
+    cache::evict_prefixed(
+        cache::NAMESPACE_FILE,
+        "relations_symbols_v1_",
+        &symbols_key,
+        repo_root,
+    );
+    cache::evict_prefixed(cache::NAMESPACE_FILE, "relations_v", "", repo_root);
     relations
 }
 
 /// Files to index: the shared enumeration, filtered to supported extensions,
 /// symlinks excluded. Same set the graph build walked.
-pub fn discover_files(repo_root: &Path) -> Vec<PathBuf> {
+pub fn discover_files(repo_root: &Path) -> Option<Vec<PathBuf>> {
     let exts = extraction::supported_extensions();
-    crate::repo_files::tracked_paths(repo_root, None)
-        .unwrap_or_default()
-        .into_iter()
-        .filter(|f| {
-            f.extension()
-                .and_then(|e| e.to_str())
-                .map(|e| exts.contains(&e.to_lowercase().as_str()))
-                .unwrap_or(false)
-                && !f.is_symlink()
-        })
-        .collect()
+    Some(
+        crate::repo_files::tracked_paths(repo_root, None)?
+            .into_iter()
+            .filter(|f| {
+                f.extension()
+                    .and_then(|e| e.to_str())
+                    .map(|e| exts.contains(&e.to_lowercase().as_str()))
+                    .unwrap_or(false)
+                    && !f.is_symlink()
+            })
+            .collect(),
+    )
 }
 
 /// One declaration a name could resolve to, with the language of the file
@@ -743,28 +1020,33 @@ pub fn declarations(name: &str, repo_root: &Path) -> Vec<Candidate> {
     if files.is_empty() {
         return Vec::new();
     }
-    let needed: Vec<PathBuf> = files.iter().map(|p| repo_root.join(p)).collect();
-    let facts = file_facts::get_batch(&needed, repo_root);
     let mut out = Vec::new();
-    for path in files {
-        let Some(f) = facts.get(path) else { continue };
-        let Some(extraction) = &f.extraction else { continue };
-        for declaration in extraction
-            .declarations
-            .iter()
-            .filter(|d| d.name.eq_ignore_ascii_case(name))
-        {
-            out.push(Candidate {
-                file: path.to_string(),
-                language: f.language.clone(),
-                declaration: declaration.clone(),
-            });
+    for chunk in files.chunks(file_facts::RESOLVE_CHUNK) {
+        let needed: Vec<PathBuf> = chunk.iter().map(|path| repo_root.join(*path)).collect();
+        let facts = file_facts::get_batch(&needed, repo_root);
+        for path in chunk {
+            let Some(f) = facts.get(*path) else { continue };
+            let Some(extraction) = &f.extraction else {
+                continue;
+            };
+            for declaration in extraction
+                .declarations
+                .iter()
+                .filter(|declaration| declaration.name.eq_ignore_ascii_case(name))
+            {
+                out.push(Candidate {
+                    file: path.to_string(),
+                    language: f.language.clone(),
+                    declaration: declaration.clone(),
+                });
+            }
         }
     }
     out
 }
 
 /// Which way an import walk runs.
+#[derive(Clone, Copy)]
 pub enum Reach {
     /// Who depends on this file.
     Importers,
@@ -786,12 +1068,7 @@ pub struct Reached {
 /// read the other way, inverted once in memory. 14,094 edges on
 /// laravel-framework and 678 on WordPress, so inverting costs nothing and
 /// storing both would be a second copy of one fact.
-pub fn reachable(
-    file: &str,
-    max_depth: i64,
-    reach: Reach,
-    repo_root: &Path,
-) -> Vec<Reached> {
+pub fn reachable(file: &str, max_depth: i64, reach: Reach, repo_root: &Path) -> Vec<Reached> {
     let relations = get(repo_root);
     let forward: HashMap<&str, Vec<(&str, Option<&String>)>> = match reach {
         Reach::Importers => HashMap::new(),
@@ -805,6 +1082,16 @@ pub fn reachable(
             map
         }
     };
+    reachable_from(&relations, &forward, file, max_depth, reach)
+}
+
+fn reachable_from(
+    relations: &Relations,
+    forward: &HashMap<&str, Vec<(&str, Option<&String>)>>,
+    file: &str,
+    max_depth: i64,
+    reach: Reach,
+) -> Vec<Reached> {
     let mut seen: HashSet<String> = HashSet::from([file.to_string()]);
     let mut frontier = std::collections::VecDeque::from([(file.to_string(), 0i64)]);
     let mut out = Vec::new();
@@ -820,11 +1107,7 @@ pub fn reachable(
                 .collect(),
             Reach::Imports => forward
                 .get(current.as_str())
-                .map(|v| {
-                    v.iter()
-                        .map(|(f, s)| (f.to_string(), s.cloned()))
-                        .collect()
-                })
+                .map(|v| v.iter().map(|(f, s)| (f.to_string(), s.cloned())).collect())
                 .unwrap_or_default(),
         };
         for (step, symbol) in next {
@@ -847,61 +1130,112 @@ pub fn reachable(
 /// rank identically.
 ///
 /// Ranking by raw edge count buries a file that one hub imports and
-/// everything else reaches through that hub, so the transitive set ranks;
-/// the walk is the cost, so it runs only over the top `limit * 3` by direct
-/// count. `usages --path`, `dependencies --path` and the primer's Spine are
-/// the same question asked three ways and read this one function.
+/// everything else reaches through that hub, so every scoped subject's
+/// transitive set is measured before the limit. `usages --path`,
+/// `dependencies --path` and the primer's Spine are the same question
+/// asked three ways and read this one function.
 pub fn ranked_by_reach(
     max_depth: i64,
     limit: usize,
     reach: Reach,
+    scope: Option<&str>,
     repo_root: &Path,
 ) -> Vec<Ranked> {
     let relations = get(repo_root);
-    let mut direct: HashMap<&str, i64> = HashMap::new();
-    // The most-imported symbol of a file, for the importer ranking. The
-    // ranked file is the TARGET there, and the edge's symbol lives in the
-    // target, so the row can name what is actually depended on rather than
-    // the file that holds it.
-    let mut named: HashMap<&str, &String> = HashMap::new();
+    let mut identity: HashMap<&str, usize> = HashMap::new();
+    let mut files: Vec<&str> = Vec::new();
     for (target, importer) in relations.import_edges() {
-        let node = match reach {
-            Reach::Importers => target,
-            Reach::Imports => &importer.file,
-        };
-        *direct.entry(node).or_insert(0) += 1;
-        if matches!(reach, Reach::Importers) {
-            if let Some(symbol) = importer.symbol.as_ref() {
-                named.entry(target).or_insert(symbol);
+        for file in [target, &*importer.file] {
+            if !identity.contains_key(file) {
+                identity.insert(file, files.len());
+                files.push(file);
             }
         }
     }
-    let mut by_direct: Vec<&str> = direct.keys().copied().collect();
-    by_direct.sort_by(|a, b| direct[b].cmp(&direct[a]).then(a.cmp(b)));
-    by_direct.truncate(limit.saturating_mul(3));
 
-    let mut ranked: Vec<Ranked> = by_direct
-        .into_iter()
-        .map(|file| {
-            let walked = match reach {
-                Reach::Importers => {
-                    reachable(file, max_depth, Reach::Importers, repo_root).len()
-                }
-                Reach::Imports => {
-                    reachable(file, max_depth, Reach::Imports, repo_root).len()
-                }
-            };
-            Ranked {
-                file: file.to_string(),
-                symbol: named.get(file).map(|s| (*s).clone()),
-                direct: direct[file],
-                transitive: walked as i64,
+    let mut adjacency: Vec<Vec<usize>> = vec![Vec::new(); files.len()];
+    let mut direct = vec![0i64; files.len()];
+    // The ranked file is the TARGET there, and the edge's symbol lives in the
+    // target, so the row can name what is actually depended on rather than
+    // the file that holds it.
+    let mut named: Vec<Option<&String>> = vec![None; files.len()];
+    for (target, importer) in relations.import_edges() {
+        let target = identity[target];
+        let importer_file = identity[&*importer.file];
+        let (node, next) = match reach {
+            Reach::Importers => (target, importer_file),
+            Reach::Imports => (importer_file, target),
+        };
+        adjacency[node].push(next);
+        direct[node] += 1;
+        if matches!(reach, Reach::Importers) {
+            if let Some(symbol) = importer.symbol.as_ref() {
+                named[target].get_or_insert(symbol);
             }
+        }
+    }
+    let scope = scope.unwrap_or("").trim_end_matches('/');
+    let prefix = if scope.is_empty() {
+        None
+    } else {
+        Some(format!("{scope}/"))
+    };
+    let mut subjects: Vec<usize> = files
+        .iter()
+        .enumerate()
+        .filter(|(id, file)| {
+            direct[*id] > 0
+                && (scope.is_empty()
+                    || **file == scope
+                    || prefix
+                        .as_deref()
+                        .map(|prefix| file.starts_with(prefix))
+                        .unwrap_or(false))
         })
+        .map(|(id, _)| id)
         .collect();
-    ranked.sort_by(|a, b| {
-        (b.transitive, b.direct, &b.file).cmp(&(a.transitive, a.direct, &a.file))
-    });
+    subjects.sort_by_key(|id| files[*id]);
+
+    let mut ranked: Vec<Ranked> = subjects
+        .into_par_iter()
+        .map_init(
+            || {
+                (
+                    vec![0usize; files.len()],
+                    0usize,
+                    std::collections::VecDeque::new(),
+                )
+            },
+            |(visited, visit, frontier), file| {
+                *visit += 1;
+                visited[file] = *visit;
+                frontier.clear();
+                frontier.push_back((file, 0i64));
+                let mut transitive = 0i64;
+                while let Some((current, depth)) = frontier.pop_front() {
+                    if depth >= max_depth {
+                        continue;
+                    }
+                    for &next in &adjacency[current] {
+                        if visited[next] == *visit {
+                            continue;
+                        }
+                        visited[next] = *visit;
+                        transitive += 1;
+                        frontier.push_back((next, depth + 1));
+                    }
+                }
+                Ranked {
+                    file: files[file].to_string(),
+                    symbol: named[file].cloned(),
+                    direct: direct[file],
+                    transitive,
+                }
+            },
+        )
+        .collect();
+    ranked
+        .sort_by(|a, b| (b.transitive, b.direct, &b.file).cmp(&(a.transitive, a.direct, &a.file)));
     ranked.truncate(limit);
     ranked
 }
@@ -913,12 +1247,6 @@ pub struct Ranked {
     pub symbol: Option<String>,
     pub direct: i64,
     pub transitive: i64,
-}
-
-/// Every indexed file's language, which a row needs to spell that file's
-/// module path. The index carries it, so no per-file entry is opened.
-pub fn languages(repo_root: &Path) -> HashMap<String, Option<String>> {
-    get(repo_root).listing().into_iter().collect()
 }
 
 /// Files whose module path's last segment is `name` — the module fallback
@@ -942,12 +1270,13 @@ pub fn modules_named(name: &str, repo_root: &Path) -> Vec<String> {
 /// Every resolved use site of `name`, computed now from the files the index
 /// names rather than read out of a stored edge list.
 ///
-/// The resolution model is unchanged, structural as before: candidates are
-/// restricted to the same language as the use site, a free call resolves only
-/// to non-method declarations, a static use resolves to the named class or
-/// its method, and a member call resolves to methods — the sole residual
-/// ambiguous case. What changed is when it runs and over how much: the files
-/// the index names for this one name, not every file in the repository.
+/// Resolution stays structural: candidates are restricted to the same
+/// language as the use site, a free call resolves only to non-method
+/// declarations, a static use resolves to the named class or its method, and
+/// a member call resolves to methods. Member calls remain ambiguous when the
+/// receiver type is unknown; free and static calls also remain ambiguous when
+/// an ambiguous import legitimately names multiple candidates. Resolution
+/// runs only over the files the index names for this name.
 pub fn use_sites(name: &str, repo_root: &Path) -> Vec<UseSite> {
     let relations = get(repo_root);
     let mut wanted: Vec<&str> = relations.used_in(name).collect();
@@ -955,28 +1284,31 @@ pub fn use_sites(name: &str, repo_root: &Path) -> Vec<UseSite> {
         return Vec::new();
     }
     let defining: Vec<&str> = relations.defined_in(name).collect();
-    let declaring: Vec<PathBuf> = defining.iter().map(|p| repo_root.join(p)).collect();
-    let declaring_facts = file_facts::get_batch(&declaring, repo_root);
 
     // The declaration's own language is the file's, which `Declaration` does
     // not carry — it is a per-file fact, so it rides beside the row rather
     // than being copied onto every declaration in the index.
-    let candidates: Vec<Candidate> = defining
-        .iter()
-        .filter_map(|path| declaring_facts.get(*path).map(|f| (*path, f)))
-        .flat_map(|(path, f)| {
-            f.extraction
-                .iter()
-                .flat_map(|e| e.declarations.iter())
-                .filter(|d| d.name.eq_ignore_ascii_case(name))
-                .map(|d| Candidate {
-                    file: path.to_string(),
-                    language: f.language.clone(),
-                    declaration: d.clone(),
-                })
-                .collect::<Vec<_>>()
-        })
-        .collect();
+    let mut candidates = Vec::new();
+    for chunk in defining.chunks(file_facts::RESOLVE_CHUNK) {
+        let declaring: Vec<PathBuf> = chunk.iter().map(|path| repo_root.join(*path)).collect();
+        let facts = file_facts::get_batch(&declaring, repo_root);
+        for path in chunk {
+            let Some(f) = facts.get(*path) else {
+                continue;
+            };
+            candidates.extend(
+                f.extraction
+                    .iter()
+                    .flat_map(|extraction| extraction.declarations.iter())
+                    .filter(|declaration| declaration.name.eq_ignore_ascii_case(name))
+                    .map(|declaration| Candidate {
+                        file: path.to_string(),
+                        language: f.language.clone(),
+                        declaration: declaration.clone(),
+                    }),
+            );
+        }
+    }
     if candidates.is_empty() {
         return Vec::new();
     }
@@ -1000,18 +1332,49 @@ pub fn use_sites(name: &str, repo_root: &Path) -> Vec<UseSite> {
             .par_iter()
             .map(|path| {
                 let mut out = Vec::new();
-                let Some(f) = facts.get(*path) else { return out };
-                let Some(extraction) = &f.extraction else { return out };
-                let imported: HashSet<String> = relations
-                    .resolve_imports(&extraction.imports, f.language.as_deref(), &modules)
-                    .into_iter()
-                    .map(|(target, _, _)| target)
+                let Some(f) = facts.get(*path) else {
+                    return out;
+                };
+                let Some(extraction) = &f.extraction else {
+                    return out;
+                };
+                let import_resolutions: Vec<ImportResolution<'_>> = extraction
+                    .imports
+                    .iter()
+                    .map(|import| {
+                        relations.resolve_import(path, import, f.language.as_deref(), &modules)
+                    })
                     .collect();
+                let invalid_bindings: Vec<&str> = import_resolutions
+                    .iter()
+                    .flat_map(|resolution| resolution.invalid_bindings.iter().map(String::as_str))
+                    .collect();
+                let imported: HashMap<String, &'static str> = import_resolutions
+                    .iter()
+                    .flat_map(|resolution| resolution.targets.iter())
+                    .fold(HashMap::new(), |mut imported, (target, confidence, _)| {
+                        let confidence = confidence_name(confidence_code(&confidence));
+                        imported
+                            .entry(target.clone())
+                            .and_modify(|current| {
+                                if confidence_code(confidence) < confidence_code(current) {
+                                    *current = confidence;
+                                }
+                            })
+                            .or_insert(confidence);
+                        imported
+                    });
                 for reference in extraction
                     .references
                     .iter()
                     .filter(|r| r.name.eq_ignore_ascii_case(name))
                 {
+                    if invalid_bindings
+                        .iter()
+                        .any(|binding| reference_uses_binding(reference, binding))
+                    {
+                        continue;
+                    }
                     resolve_one(
                         &candidates,
                         path,
@@ -1031,6 +1394,16 @@ pub fn use_sites(name: &str, repo_root: &Path) -> Vec<UseSite> {
     sites
 }
 
+fn reference_uses_binding(reference: &extraction::Reference, binding: &str) -> bool {
+    match reference.shape {
+        RefShape::Free => reference.name.eq_ignore_ascii_case(binding),
+        RefShape::Member | RefShape::Static => reference
+            .receiver
+            .as_deref()
+            .is_some_and(|receiver| receiver.eq_ignore_ascii_case(binding)),
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn resolve_one(
     candidates: &[Candidate],
@@ -1038,7 +1411,7 @@ fn resolve_one(
     facts: &FileFacts,
     extraction: &ExtractionResult,
     reference: &extraction::Reference,
-    imported: &HashSet<String>,
+    imported: &HashMap<String, &'static str>,
     out: &mut Vec<UseSite>,
 ) {
     let matching: Vec<&Candidate> = candidates
@@ -1077,22 +1450,36 @@ fn resolve_one(
         if candidate.file == path && sole_declaration(extraction, &reference.name) {
             return;
         }
-        let confidence = if imported.contains(&candidate.file) || candidate.file == path {
+        let confidence = if candidate.file == path {
             CONFIDENCE_EXTRACTED
         } else {
-            CONFIDENCE_INFERRED
+            imported
+                .get(&candidate.file)
+                .copied()
+                .unwrap_or(CONFIDENCE_INFERRED)
         };
         out.push(site(candidate, confidence));
         return;
     }
-    // Import context narrows a multi-candidate match: a single candidate in
-    // an imported (or the same) file is the resolved one.
-    let in_imports: Vec<&&Candidate> = matching
+    // Import context narrows a multi-candidate match. One imported candidate
+    // keeps the import edge's confidence; several are all legitimate targets
+    // and therefore remain ambiguous.
+    let in_imports: Vec<(&Candidate, &str)> = matching
         .iter()
-        .filter(|c| imported.contains(&c.file))
+        .filter_map(|candidate| {
+            imported
+                .get(&candidate.file)
+                .map(|confidence| (*candidate, *confidence))
+        })
         .collect();
     if in_imports.len() == 1 {
-        out.push(site(in_imports[0], CONFIDENCE_EXTRACTED));
+        out.push(site(in_imports[0].0, in_imports[0].1));
+        return;
+    }
+    if in_imports.len() > 1 {
+        for (candidate, _) in in_imports {
+            out.push(site(candidate, CONFIDENCE_AMBIGUOUS));
+        }
         return;
     }
     // Only a member call may stay ambiguous: its receiver type is not named,
@@ -1143,9 +1530,7 @@ fn shape_matches(
         // target only where calling the class constructs an instance (Python,
         // Ruby); elsewhere construction is a `new` expression, already
         // classified Static.
-        RefShape::Free => {
-            !is_method && (!is_type || constructs_by_call(referrer_language))
-        }
+        RefShape::Free => !is_method && (!is_type || constructs_by_call(referrer_language)),
         // A static use names the class at the site, so it resolves exactly:
         // the named type itself, or the method of that name whose container
         // is the named type.

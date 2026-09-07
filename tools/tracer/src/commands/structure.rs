@@ -6,7 +6,7 @@
 //! start_line, giving per-symbol complexity where a function starts there.
 
 use crate::commands::{enrich, signatures};
-use crate::{cache, ccn, file_facts, relations};
+use crate::{cache, file_facts, relations};
 use anyhow::Result;
 use serde_json::{json, Map, Value};
 use std::collections::{BTreeMap, HashSet};
@@ -210,8 +210,8 @@ pub fn run(path: &Path, as_json: bool) -> Result<Value> {
     let mut by_line: BTreeMap<i64, i64> = BTreeMap::new();
     let source = std::fs::read(&p).unwrap_or_default();
     if function_count > 0 {
-        if let Some(functions) = ccn::analyze(&source, &p.to_string_lossy()) {
-            for f in functions {
+        if let Some(facts) = &facts {
+            for f in &facts.functions {
                 by_line.insert(f.start_line, f.cyclomatic_complexity);
             }
         }
@@ -294,9 +294,7 @@ pub fn run(path: &Path, as_json: bool) -> Result<Value> {
             exports = ex
                 .exports
                 .iter()
-                .map(|e| {
-                    json!({"name": e.name, "kind": e.kind, "line": e.line})
-                })
+                .map(|e| json!({"name": e.name, "kind": e.kind, "line": e.line}))
                 .collect();
         }
     }
@@ -346,10 +344,7 @@ pub fn run(path: &Path, as_json: bool) -> Result<Value> {
     if let Some(s) = &shoulder {
         println!("{s}");
     }
-    println!(
-        "Language: {}",
-        language.as_deref().unwrap_or("(unknown)")
-    );
+    println!("Language: {}", language.as_deref().unwrap_or("(unknown)"));
     println!(
         "Symbols: {}  Imports: {}  Exports: {}",
         symbols.len(),

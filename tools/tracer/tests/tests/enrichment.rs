@@ -40,14 +40,24 @@ fn shoulder_carries_first_seen_range_and_changed_together() {
     // the range deterministic: the file is created ~400 days ago (a `1y…`
     // bucket) alongside a sibling, then modified today.
     let f = Fixture::new();
-    f.write("core.py", "def feature(x):\n    if x:\n        return 1\n    return 0\n");
+    f.write(
+        "core.py",
+        "def feature(x):\n    if x:\n        return 1\n    return 0\n",
+    );
     f.write("sibling.py", "x = 1\n");
     // First commit: long ago, both files together (the co-change pair).
     git_at_date(&f.root, "2024-01-01T12:00:00", &["add", "-A"]);
-    git_at_date(&f.root, "2024-01-01T12:00:00", &["commit", "--quiet", "-m", "create core + sibling"]);
+    git_at_date(
+        &f.root,
+        "2024-01-01T12:00:00",
+        &["commit", "--quiet", "-m", "create core + sibling"],
+    );
     // Second commit: today, touching core.py only — moves last_modified to
     // the `today` bucket while first_seen stays in the old bucket.
-    f.write("core.py", "def feature(x):\n    if x:\n        return 2\n    return 0\n");
+    f.write(
+        "core.py",
+        "def feature(x):\n    if x:\n        return 2\n    return 0\n",
+    );
     f.commit("touch core today");
 
     let r = f.trace(&["read", "core.py", "--json"]);
@@ -82,14 +92,31 @@ fn shoulder_churn_velocity_diverges_from_lifetime_total() {
     // total and velocity coincide.
     let f = Fixture::new();
     // Two old commits, well outside the 30-day window.
-    f.write("svc.py", "def a(x):\n    if x:\n        return 1\n    return 0\n");
+    f.write(
+        "svc.py",
+        "def a(x):\n    if x:\n        return 1\n    return 0\n",
+    );
     git_at_date(&f.root, "2024-01-01T12:00:00", &["add", "-A"]);
-    git_at_date(&f.root, "2024-01-01T12:00:00", &["commit", "--quiet", "-m", "create"]);
-    f.write("svc.py", "def a(x):\n    if x:\n        return 2\n    return 0\n");
+    git_at_date(
+        &f.root,
+        "2024-01-01T12:00:00",
+        &["commit", "--quiet", "-m", "create"],
+    );
+    f.write(
+        "svc.py",
+        "def a(x):\n    if x:\n        return 2\n    return 0\n",
+    );
     git_at_date(&f.root, "2024-02-01T12:00:00", &["add", "-A"]);
-    git_at_date(&f.root, "2024-02-01T12:00:00", &["commit", "--quiet", "-m", "old edit"]);
+    git_at_date(
+        &f.root,
+        "2024-02-01T12:00:00",
+        &["commit", "--quiet", "-m", "old edit"],
+    );
     // One recent commit, today — inside the 30-day window.
-    f.write("svc.py", "def a(x):\n    if x:\n        return 3\n    return 0\n");
+    f.write(
+        "svc.py",
+        "def a(x):\n    if x:\n        return 3\n    return 0\n",
+    );
     f.commit("recent edit");
 
     let r = f.trace(&["read", "svc.py", "--json"]);
@@ -116,7 +143,11 @@ fn doctor_reports_all_required_binaries_present() {
         r.stdout
     );
     for bin in ["ast-grep", "scc", "ctags", "git", "rg"] {
-        assert!(r.stdout.contains(bin), "doctor omitted {bin}:\n{}", r.stdout);
+        assert!(
+            r.stdout.contains(bin),
+            "doctor omitted {bin}:\n{}",
+            r.stdout
+        );
     }
 }
 
@@ -126,9 +157,17 @@ fn read_whole_file_human_has_passive_context_and_line_numbers() {
     let r = f.trace(&["read", "src/util.py"]);
     r.ok();
     assert!(r.stdout.contains("# src/util.py"), "{}", r.stdout);
-    assert!(r.stdout.contains("[git:"), "missing passive shoulder:\n{}", r.stdout);
+    assert!(
+        r.stdout.contains("[git:"),
+        "missing passive shoulder:\n{}",
+        r.stdout
+    );
     assert!(r.stdout.contains("def helper"), "{}", r.stdout);
-    assert!(r.stdout.contains("L1"), "missing line numbering:\n{}", r.stdout);
+    assert!(
+        r.stdout.contains("L1"),
+        "missing line numbering:\n{}",
+        r.stdout
+    );
 }
 
 #[test]
@@ -157,11 +196,116 @@ fn read_json_shape_is_stable() {
     );
     assert_eq!(
         normalize_age(v["files"]["src/util.py"]["shoulder"].as_str().unwrap()),
-        "[git: new (1 commit) \u{00b7} age: <AGE> \u{00b7} presence: local-only \u{00b7} churn: 1 commit, 1/30d \u{00b7} callers: 1 \u{00b7} dependents: 0 \u{00b7} loc: 4 \u{00b7} ccn: 2 low \u{00b7} together: readme.md, widget.php, pyproject.toml \u{00b7} owner: Tracer Test \u{00b7} last: init standard repo]",
+        "[git: new (1 commit) \u{00b7} age: <AGE> \u{00b7} presence: local-only \u{00b7} churn: 1 commit, 1/30d \u{00b7} incoming: 1 \u{00b7} outgoing: 0 \u{00b7} loc: 4 \u{00b7} ccn: 2 low \u{00b7} together: readme.md, widget.php, pyproject.toml \u{00b7} owner: Tracer Test \u{00b7} last: init standard repo]",
         "read shoulder must be the exact settled shoulder: {}",
         v["files"]["src/util.py"]["shoulder"]
     );
     assert!(v["files"]["src/util.py"]["nested_memories"].is_null());
+}
+
+#[test]
+fn shoulder_labels_incoming_and_outgoing_from_the_subject_file() {
+    let f = standard_repo();
+
+    let incoming = f.trace(&["read", "src/util.py", "--json"]);
+    incoming.ok();
+    let incoming_shoulder = incoming.view()["files"]["src/util.py"]["shoulder"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert!(
+        incoming_shoulder.contains("\u{00b7} incoming: 1 \u{00b7} outgoing: 0 \u{00b7}"),
+        "util.py is imported by app.py and imports no internal file: {incoming_shoulder}"
+    );
+
+    let outgoing = f.trace(&["read", "src/app.py", "--json"]);
+    outgoing.ok();
+    let outgoing_shoulder = outgoing.view()["files"]["src/app.py"]["shoulder"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert!(
+        outgoing_shoulder.contains("\u{00b7} incoming: 0 \u{00b7} outgoing: 1 \u{00b7}"),
+        "app.py imports util.py and no internal file imports app.py: {outgoing_shoulder}"
+    );
+}
+
+#[test]
+fn search_signpost_counts_mentioning_files_without_claiming_resolved_callers() {
+    let f = Fixture::new();
+    f.write("lib.py", "def dispatch(job):\n    return job\n");
+    f.write(
+        "app.py",
+        "from lib import dispatch\n\ndef run(first, second):\n    dispatch(first)\n    return dispatch(second)\n",
+    );
+    f.commit("two references in one mentioning file");
+
+    let r = f.trace(&["grep", "dispatch", "--path", ".", "--json"]);
+    r.ok();
+    assert_eq!(
+        r.view()["signpost"].as_str().unwrap_or(""),
+        "dispatch is a function \u{00b7} 1 mentioning file \u{00b7} 1 definitions \u{2192} trace callers dispatch",
+        "the index knows one mentioning file without resolving its two call sites: {}",
+        r.stdout
+    );
+
+    f.write("other.py", "from lib import dispatch\n\ndispatch(None)\n");
+    f.commit("second mentioning file");
+    let plural = f.trace(&["grep", "dispatch", "--path", ".", "--json"]);
+    plural.ok();
+    assert_eq!(
+        plural.view()["signpost"].as_str().unwrap_or(""),
+        "dispatch is a function \u{00b7} 2 mentioning files \u{00b7} 1 definitions \u{2192} trace callers dispatch",
+        "plural grammar must follow the number of mentioning files: {}",
+        plural.stdout
+    );
+}
+
+#[test]
+fn callers_keeps_complete_shoulders_beyond_one_resolve_chunk() {
+    let f = Fixture::new();
+    f.write("target.py", "def shared_target(value):\n    return value\n");
+    for index in 0..513 {
+        f.write(
+            &format!("callers/caller_{index:03}.py"),
+            &format!(
+                "from target import shared_target\n\ndef caller_{index:03}(value):\n    shared_target(value)\n    return shared_target(value + 1)\n"
+            ),
+        );
+    }
+    f.commit("broad callers");
+
+    let r = f.trace(&["callers", "shared_target", "--limit", "2000", "--json"]);
+    r.ok();
+    let v = r.view();
+    let callers = v["results"][0]["callers"]
+        .as_array()
+        .expect("shared_target must contain its caller rows");
+    let files = v["files"]
+        .as_object()
+        .expect("callers context must contain a files object");
+
+    assert_eq!(
+        callers.len(),
+        1026,
+        "both calls in every file must remain visible"
+    );
+    assert_eq!(
+        files.len(),
+        513,
+        "duplicate caller rows must resolve to one shoulder per mentioning file"
+    );
+    for index in 0..513 {
+        let path = format!("callers/caller_{index:03}.py");
+        let shoulder = files[&path]["shoulder"]
+            .as_str()
+            .unwrap_or_else(|| panic!("{path} must retain its complete shoulder"));
+        assert_eq!(
+            normalize_age(shoulder),
+            "[git: new (1 commit) · age: <AGE> · presence: local-only · churn: 1 commit, 1/30d · loc: 3 · ccn: 1 low · owner: Tracer Test · last: broad callers]",
+            "{path} must retain its complete canonical shoulder"
+        );
+    }
 }
 
 /// A file whose rendered read runs far past the size budget. No comments,
@@ -193,7 +337,10 @@ fn read_over_budget_trims_at_a_line_and_marks_the_cut() {
     assert_eq!(v["results"][0]["truncated"], true);
     assert_eq!(v["results"][0]["total_lines"], 2000);
     let last_shown = v["results"][0]["shown_lines"][1].as_i64().unwrap();
-    assert!(last_shown > 0 && last_shown < 2000, "expected a partial window, got {last_shown}");
+    assert!(
+        last_shown > 0 && last_shown < 2000,
+        "expected a partial window, got {last_shown}"
+    );
 
     let content = v["results"][0]["content"].as_str().unwrap();
     let marker = trim_marker_of(content).unwrap_or_else(|| panic!("no trim marker in:\n{content}"));
@@ -203,8 +350,14 @@ fn read_over_budget_trims_at_a_line_and_marks_the_cut() {
     );
     // The cut is on a line boundary: the last shown line is present whole
     // and the one after it is absent.
-    assert!(content.contains(&format!("value_{last_shown} = ")), "last shown line was cut mid-line");
-    assert!(!content.contains(&format!("value_{} = ", last_shown + 1)), "line past the cut leaked in");
+    assert!(
+        content.contains(&format!("value_{last_shown} = ")),
+        "last shown line was cut mid-line"
+    );
+    assert!(
+        !content.contains(&format!("value_{} = ", last_shown + 1)),
+        "line past the cut leaked in"
+    );
 }
 
 #[test]
@@ -228,7 +381,10 @@ fn read_trim_marker_command_returns_the_next_window() {
         .1
         .trim_end_matches(']');
     let printed: Vec<&str> = command.split_whitespace().collect();
-    assert_eq!(printed[0], "trace", "the marker must print a runnable trace command: {command}");
+    assert_eq!(
+        printed[0], "trace",
+        "the marker must print a runnable trace command: {command}"
+    );
 
     let mut args: Vec<&str> = printed[1..].to_vec();
     args.push("--json");
@@ -266,8 +422,14 @@ fn read_all_flag_returns_the_whole_file() {
     assert_eq!(v["results"][0]["truncated"], false);
     assert_eq!(v["results"][0]["shown_lines"], serde_json::json!([1, 2000]));
     let content = v["results"][0]["content"].as_str().unwrap();
-    assert!(trim_marker_of(content).is_none(), "--all must not mark a trim");
-    assert!(content.contains("value_2000 = "), "--all must return the last line");
+    assert!(
+        trim_marker_of(content).is_none(),
+        "--all must not mark a trim"
+    );
+    assert!(
+        content.contains("value_2000 = "),
+        "--all must return the last line"
+    );
 }
 
 #[test]
@@ -282,13 +444,29 @@ fn read_raw_over_budget_is_trimmed_and_marked() {
     r.ok();
     let v = r.view();
     assert_eq!(v["results"][0]["truncated"], true);
-    let marker = trim_marker_of(v["results"][0]["content"].as_str().unwrap()).expect("trim marker under --raw");
-    assert!(marker.ends_with("--raw]"), "the continue command must keep --raw: {marker}");
+    let marker = trim_marker_of(v["results"][0]["content"].as_str().unwrap())
+        .expect("trim marker under --raw");
+    assert!(
+        marker.ends_with("--raw]"),
+        "the continue command must keep --raw: {marker}"
+    );
 
     let last_shown = v["results"][0]["shown_lines"][1].as_i64().unwrap();
-    let next = f.trace(&["read", "big.py", "--lines", &format!("{}:2000", last_shown + 1), "--raw", "--json"]);
+    let next = f.trace(&[
+        "read",
+        "big.py",
+        "--lines",
+        &format!("{}:2000", last_shown + 1),
+        "--raw",
+        "--json",
+    ]);
     next.ok();
-    assert_eq!(next.view()["results"][0]["shown_lines"][0].as_i64().unwrap(), last_shown + 1);
+    assert_eq!(
+        next.view()["results"][0]["shown_lines"][0]
+            .as_i64()
+            .unwrap(),
+        last_shown + 1
+    );
 }
 
 #[test]
@@ -299,7 +477,10 @@ fn read_single_line_past_the_budget_is_whole_and_unmarked() {
     // build appended `[trimmed at L1 of 1]` to untrimmed content and
     // reported `truncated: false` in the same payload.
     let f = standard_repo();
-    f.write("bundle.js", &format!("var x = \"{}\";\n", "y".repeat(40_000)));
+    f.write(
+        "bundle.js",
+        &format!("var x = \"{}\";\n", "y".repeat(40_000)),
+    );
     f.commit("add bundle.js");
 
     let r = f.trace(&["read", "bundle.js", "--json"]);
@@ -308,8 +489,14 @@ fn read_single_line_past_the_budget_is_whole_and_unmarked() {
     assert_eq!(v["results"][0]["truncated"], false);
     assert_eq!(v["results"][0]["total_lines"], 1);
     let content = v["results"][0]["content"].as_str().unwrap();
-    assert!(trim_marker_of(content).is_none(), "untrimmed content must carry no marker");
-    assert!(content.contains(&"y".repeat(40_000)), "the whole line must survive");
+    assert!(
+        trim_marker_of(content).is_none(),
+        "untrimmed content must carry no marker"
+    );
+    assert!(
+        content.contains(&"y".repeat(40_000)),
+        "the whole line must survive"
+    );
 }
 
 #[test]
@@ -355,11 +542,21 @@ fn read_between_over_budget_continues_inside_the_anchor_section() {
     f.write("big.py", &oversized_python(2000));
     f.commit("add big.py");
 
-    let r = f.trace(&["read", "big.py", "--between", "value_100 ", "value_1900 ", "--json"]);
+    let r = f.trace(&[
+        "read",
+        "big.py",
+        "--between",
+        "value_100 ",
+        "value_1900 ",
+        "--json",
+    ]);
     r.ok();
     let v = r.view();
     assert_eq!(v["results"][0]["truncated"], true);
-    assert_eq!(v["results"][0]["between_resolved_lines"], serde_json::json!([100, 1900]));
+    assert_eq!(
+        v["results"][0]["between_resolved_lines"],
+        serde_json::json!([100, 1900])
+    );
     let last_shown = v["results"][0]["shown_lines"][1].as_i64().unwrap();
     let marker = trim_marker_of(v["results"][0]["content"].as_str().unwrap()).expect("trim marker");
     assert!(
@@ -379,7 +576,10 @@ fn read_at_ref_over_budget_keeps_the_ref_in_the_continue_command() {
     let v = r.view();
     assert_eq!(v["results"][0]["truncated"], true);
     let marker = trim_marker_of(v["results"][0]["content"].as_str().unwrap()).expect("trim marker");
-    assert!(marker.ends_with("--at HEAD]"), "the continue command must stay on the ref: {marker}");
+    assert!(
+        marker.ends_with("--at HEAD]"),
+        "the continue command must stay on the ref: {marker}"
+    );
 }
 
 #[test]
@@ -400,7 +600,14 @@ fn read_multi_file_caps_each_file_separately() {
     f.write("big.py", &oversized_python(2000));
     f.commit("add big.py");
 
-    let r = f.trace(&["read", "big.py", "src/util.py", "--lines", "1:5000", "--json"]);
+    let r = f.trace(&[
+        "read",
+        "big.py",
+        "src/util.py",
+        "--lines",
+        "1:5000",
+        "--json",
+    ]);
     r.ok();
     let v = r.view();
     let files = v["results"].as_array().unwrap();
@@ -608,6 +815,490 @@ fn read_raw_skips_fluff_stripping() {
 }
 
 #[test]
+fn read_cleaning_removes_only_standalone_generated_comment_banners() {
+    let f = Fixture::new();
+    f.write(
+        "instructions.md",
+        "# License and copyright notes\n\
+         * See the license file\n\
+         Generated bytes await the integrated gate.\n\
+         This Markdown instruction says do not edit the source text.\n\
+         # Do not edit production\n\
+         * Do not edit production\n",
+    );
+    f.write(
+        "generated.rs",
+        "// Code generated by tracer. DO NOT EDIT.\n\
+         const MARKER: &str = \"generated by\";\n\
+         // Code generated by tracer. DO NOT EDIT.\n\
+         const INSTRUCTION: &str = \"do not edit\";\n\
+         // Generated bytes are preserved here.\n\
+         // Do not edit this variable while iterating.\n\
+         const RAW: &str = r#\"\n\
+         // Code generated by tracer. DO NOT EDIT.\n\
+         \"#;\n\
+         /* Generated by tracer. */ const VALUE: usize = 1;\n",
+    );
+    f.write(
+        "licensed.rs",
+        "#!/usr/bin/env rust-script\n\
+         \n\
+         /*\n\
+          * Copyright (c) 2026 Example\n\
+          * License: MIT\n\
+          */\n\
+         fn licensed() {}\n",
+    );
+    f.write(
+        "Cargo.lock",
+        "# This file is automatically @generated by Cargo.\n\
+         # It is not intended for manual editing.\n\
+         version = 4\n",
+    );
+    f.write(
+        "scoped.rs",
+        "// Code generated by tracer.\n\
+         const START: usize = 1;\n\
+         // Code generated by tracer.\n\
+         fn body() -> usize { START }\n\
+         const END: usize = 2;\n",
+    );
+    f.write(
+        "uncertain.rs",
+        "/* Generated by tracer.\n\
+         /* nested */\n\
+         */\n\
+         const TEXT: &str = \"// Code generated by tracer.\";\n",
+    );
+    f.write(
+        "first-line-nested.rs",
+        "/* Generated by tracer. /* nested */\n\
+         */\n\
+         const KEPT: usize = 1;\n",
+    );
+    f.write(
+        "ordinary-license.rs",
+        "// Keep license_cache intact.\n\
+         // See the license file before changing this.\n\
+         const KEPT: usize = 1;\n",
+    );
+    f.write(
+        "line-endings.rs",
+        "// Code generated by tracer.\r\nconst CRLF: usize = 1;\r// Generated by tracer.\rconst BARE: usize = 2;\r",
+    );
+    f.commit("add read cleaning fixtures");
+
+    let prose = f.trace(&["read", "instructions.md"]);
+    prose.ok();
+    assert!(
+        prose
+            .stdout
+            .contains("L3: Generated bytes await the integrated gate."),
+        "ordinary prose containing marker-like text disappeared:\n{}",
+        prose.stdout
+    );
+    assert!(
+        prose
+            .stdout
+            .contains("L4: This Markdown instruction says do not edit the source text."),
+        "Markdown instruction containing a generated marker disappeared:\n{}",
+        prose.stdout
+    );
+    assert!(
+        prose.stdout.contains("L1: # License and copyright notes")
+            && prose.stdout.contains("L2: * See the license file")
+            && prose.stdout.contains("L5: # Do not edit production")
+            && prose.stdout.contains("L6: * Do not edit production"),
+        "Markdown heading or list instruction disappeared:\n{}",
+        prose.stdout
+    );
+
+    let prose_json = f.trace(&["read", "instructions.md", "--json"]);
+    prose_json.ok();
+    assert_eq!(
+        prose_json.json()["results"][0]["content"].as_str().unwrap(),
+        "L1: # License and copyright notes\n\
+         L2: * See the license file\n\
+         L3: Generated bytes await the integrated gate.\n\
+         L4: This Markdown instruction says do not edit the source text.\n\
+         L5: # Do not edit production\n\
+         L6: * Do not edit production\n",
+        "JSON read must preserve complete Markdown instructions"
+    );
+
+    let source_human = f.trace(&["read", "generated.rs"]);
+    source_human.ok();
+    assert!(
+        source_human
+            .stdout
+            .contains("L 5: // Generated bytes are preserved here.")
+            && source_human
+                .stdout
+                .contains("L 6: // Do not edit this variable while iterating.")
+            && source_human
+                .stdout
+                .contains("L 8: // Code generated by tracer. DO NOT EDIT.")
+            && source_human
+                .stdout
+                .contains("L10: /* Generated by tracer. */ const VALUE: usize = 1;"),
+        "ordinary source comments disappeared:\n{}",
+        source_human.stdout
+    );
+    assert!(
+        !source_human
+            .stdout
+            .contains("L 1: // Code generated by tracer"),
+        "leading generated banner survived cleaning:\n{}",
+        source_human.stdout
+    );
+
+    let source = f.trace(&["read", "generated.rs", "--json"]);
+    source.ok();
+    let document = source.json();
+    for slot in ["query", "context", "results", "counts"] {
+        assert!(
+            document.get(slot).is_some(),
+            "read JSON lost the {slot} slot: {document}"
+        );
+    }
+    let content = document["results"][0]["content"].as_str().unwrap();
+    assert_eq!(
+        content,
+        "L 2: const MARKER: &str = \"generated by\";\n\
+         L 3: // Code generated by tracer. DO NOT EDIT.\n\
+         L 4: const INSTRUCTION: &str = \"do not edit\";\n\
+         L 5: // Generated bytes are preserved here.\n\
+         L 6: // Do not edit this variable while iterating.\n\
+         L 7: const RAW: &str = r#\"\n\
+         L 8: // Code generated by tracer. DO NOT EDIT.\n\
+         L 9: \"#;\n\
+         L10: /* Generated by tracer. */ const VALUE: usize = 1;\n",
+        "cleaned source must preserve strings and source line numbers around the removed banner"
+    );
+    assert!(
+        document["context"]["files"]["generated.rs"]["shoulder"].is_string(),
+        "cleaned JSON read lost passive file context: {document}"
+    );
+
+    let raw = f.trace(&["read", "generated.rs", "--raw"]);
+    raw.ok();
+    assert!(
+        raw.stdout
+            .contains("// Code generated by tracer. DO NOT EDIT."),
+        "--raw must preserve the generated banner:\n{}",
+        raw.stdout
+    );
+
+    let inner_range = f.trace(&["read", "generated.rs", "--lines", "8:8"]);
+    inner_range.ok();
+    assert!(
+        inner_range
+            .stdout
+            .contains("L8: // Code generated by tracer. DO NOT EDIT."),
+        "a scoped read inside a raw string became a new header:\n{}",
+        inner_range.stdout
+    );
+
+    let licensed = f.trace(&["read", "licensed.rs"]);
+    licensed.ok();
+    assert!(
+        licensed.stdout.contains("#!/usr/bin/env rust-script")
+            && licensed.stdout.contains("L7: fn licensed() {}")
+            && !licensed.stdout.contains("Copyright")
+            && !licensed.stdout.contains("License: MIT"),
+        "complete leading block license header was not removed conservatively:\n{}",
+        licensed.stdout
+    );
+
+    let lock = f.trace(&["read", "Cargo.lock"]);
+    lock.ok();
+    assert!(
+        lock.stdout.contains("L3: version = 4")
+            && !lock.stdout.contains("automatically @generated")
+            && !lock.stdout.contains("manual editing"),
+        "Cargo.lock's real generated header was not removed as one leading comment block:\n{}",
+        lock.stdout
+    );
+
+    let committed_range = f.trace(&["read", "generated.rs", "--lines", "1:3", "--at", "HEAD"]);
+    committed_range.ok();
+    assert!(
+        committed_range.stdout.contains("L2: const MARKER")
+            && committed_range
+                .stdout
+                .contains("L3: // Code generated by tracer")
+            && !committed_range
+                .stdout
+                .contains("L1: // Code generated by tracer"),
+        "ref range did not use the original source's header eligibility:\n{}",
+        committed_range.stdout
+    );
+
+    let method = f.trace(&["read", "scoped.rs", "--method", "body"]);
+    method.ok();
+    assert!(
+        method.stdout.contains("L3: // Code generated by tracer.")
+            && method.stdout.contains("L4: fn body() -> usize { START }"),
+        "a method selection reclassified its attached body comment as a header:\n{}",
+        method.stdout
+    );
+
+    let between = f.trace(&["read", "scoped.rs", "--between", "START", "END"]);
+    between.ok();
+    assert!(
+        between.stdout.contains("L3: // Code generated by tracer.")
+            && !between.stdout.contains("L1: // Code generated by tracer."),
+        "an anchor selection did not retain original-source header eligibility:\n{}",
+        between.stdout
+    );
+
+    let uncertain = f.trace(&["read", "uncertain.rs"]);
+    uncertain.ok();
+    assert!(
+        uncertain.stdout.contains("L1: /* Generated by tracer.")
+            && uncertain.stdout.contains("L2: /* nested */")
+            && uncertain
+                .stdout
+                .contains("L4: const TEXT: &str = \"// Code generated by tracer.\";"),
+        "ambiguous comments or source strings were removed:\n{}",
+        uncertain.stdout
+    );
+
+    let first_line_nested = f.trace(&["read", "first-line-nested.rs"]);
+    first_line_nested.ok();
+    assert!(
+        first_line_nested
+            .stdout
+            .contains("L1: /* Generated by tracer. /* nested */")
+            && first_line_nested
+                .stdout
+                .contains("L3: const KEPT: usize = 1;"),
+        "a nested opener on the first block line was guessed to be a notice:\n{}",
+        first_line_nested.stdout
+    );
+
+    let ordinary_license = f.trace(&["read", "ordinary-license.rs"]);
+    ordinary_license.ok();
+    assert!(
+        ordinary_license
+            .stdout
+            .contains("L1: // Keep license_cache intact.")
+            && ordinary_license
+                .stdout
+                .contains("L2: // See the license file before changing this."),
+        "ordinary leading license instructions were removed:\n{}",
+        ordinary_license.stdout
+    );
+
+    let crlf = f.trace(&["read", "line-endings.rs", "--lines", "1:2"]);
+    crlf.ok();
+    assert!(
+        crlf.stdout.contains("L2: const CRLF: usize = 1;")
+            && !crlf.stdout.contains("L1: // Code generated by tracer."),
+        "CRLF selection lost original-source header line numbers:\n{}",
+        crlf.stdout
+    );
+    let bare_cr = f.trace(&["read", "line-endings.rs", "--lines", "2:2"]);
+    bare_cr.ok();
+    assert!(
+        bare_cr.stdout.contains(
+            "L2: const CRLF: usize = 1;\r// Generated by tracer.\rconst BARE: usize = 2;\r"
+        ),
+        "bare CR bytes did not remain content in the established LF line:\n{}",
+        bare_cr.stdout
+    );
+}
+
+#[test]
+fn read_preserves_mixed_line_source_identity_across_modes() {
+    let f = Fixture::new();
+    let mut source = String::from(
+        "// Generated by tracer.\r// header\r// header\n\
+         const START: usize = 1;\n\
+         fn picked() -> usize {\r\n\
+             START\r\
+         }\n\
+         const END: usize = 2;\n",
+    );
+    for n in 1..=600 {
+        source.push_str(&format!("// padding {n:03} {}", "x".repeat(80)));
+        source.push_str(match n % 3 {
+            0 => "\r\n",
+            1 => "\r",
+            _ => "\n",
+        });
+    }
+    f.write("mixed.rs", &source);
+    f.commit("add mixed line source");
+
+    let whole = f.trace(&["read", "mixed.rs", "--all", "--json"]);
+    whole.ok();
+    let whole_content = whole.json()["results"][0]["content"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert!(whole_content.contains("L  1: // Generated by tracer.\r// header\r// header"));
+    assert!(whole_content.contains("L  2: const START: usize = 1;"));
+    assert!(whole_content.contains("L  3: fn picked() -> usize {"));
+    assert!(whole_content.contains("L  4: START\r}"));
+
+    let range = f.trace(&["read", "mixed.rs", "--lines", "2:3", "--json"]);
+    range.ok();
+    assert_eq!(
+        range.json()["results"][0]["content"],
+        "L2: const START: usize = 1;\nL3: fn picked() -> usize {\r\n"
+    );
+
+    let method = f.trace(&["read", "mixed.rs", "--method", "picked", "--json"]);
+    method.ok();
+    let method_content = method.json()["results"][0]["content"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert!(method_content.contains("L3: fn picked() -> usize {"));
+    assert!(method_content.contains("L4: START\r}"));
+
+    let between = f.trace(&[
+        "read",
+        "mixed.rs",
+        "--between",
+        "const START",
+        "const END",
+        "--json",
+    ]);
+    between.ok();
+    let between_json = between.json();
+    let between_content = between_json["results"][0]["content"].as_str().unwrap();
+    assert!(between_content.contains("L2: const START: usize = 1;"));
+    assert!(between_content.contains("L5: const END: usize = 2;"));
+    assert_eq!(
+        between_json["results"][0]["between_resolved_lines"],
+        serde_json::json!([2, 5])
+    );
+
+    let historical = f.trace(&[
+        "read",
+        "mixed.rs",
+        "--between",
+        "const START",
+        "const END",
+        "--at",
+        "HEAD",
+        "--json",
+    ]);
+    historical.ok();
+    assert_eq!(
+        historical.json()["results"][0]["between_resolved_lines"],
+        serde_json::json!([2, 5])
+    );
+
+    let raw = f.trace(&["read", "mixed.rs", "--raw", "--all", "--json"]);
+    raw.ok();
+    assert_eq!(raw.json()["results"][0]["content"], source);
+
+    let budgeted = f.trace(&["read", "mixed.rs", "--raw", "--json"]);
+    budgeted.ok();
+    let budgeted_json = budgeted.json();
+    assert_eq!(budgeted_json["results"][0]["truncated"], true);
+    let emitted = budgeted_json["results"][0]["content"]
+        .as_str()
+        .unwrap()
+        .split("\n[trimmed at ")
+        .next()
+        .unwrap();
+    let emitted_lines = emitted.lines().count();
+    assert_eq!(
+        budgeted_json["results"][0]["shown_lines"][1]
+            .as_u64()
+            .unwrap() as usize,
+        emitted_lines
+    );
+
+    f.write("mixed.rs", &source.replace("START\r", "START + 1\r"));
+    let diff = f.trace(&["read", "mixed.rs", "--at", "HEAD", "--diff", "--json"]);
+    diff.ok();
+    assert!(
+        diff.json()["context"]["files"]["mixed.rs"]["symbol_diff"]["changed"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|entry| entry["name"] == "picked")
+    );
+}
+
+#[test]
+fn read_between_matches_anchors_without_line_terminators() {
+    let f = Fixture::new();
+    f.write("anchors.txt", "before\nSTART\nkeep\nEND\ntrailing\n");
+    f.commit("add anchored section");
+
+    let read = f.trace(&[
+        "read",
+        "anchors.txt",
+        "--between",
+        "^START$",
+        "^END$",
+        "--raw",
+        "--json",
+    ]);
+    read.ok();
+    let document = read.json();
+    assert_eq!(document["results"][0]["content"], "START\nkeep\nEND\n");
+    assert_eq!(
+        document["results"][0]["between_resolved_lines"],
+        serde_json::json!([2, 4])
+    );
+}
+
+#[test]
+fn read_keeps_ambiguous_leading_comments() {
+    let f = Fixture::new();
+    f.write(
+        "plain.rs",
+        "// License checking happens in verify().\nfn verify() {}\n",
+    );
+    f.write(
+        "settings.toml",
+        "# License key configuration\nlicense_key = \"test\"\n",
+    );
+    f.write(
+        "comments.lua",
+        "-- Generated by tracer.\n--[[\nimportant explanatory text\n]]\nlocal value = 1\n",
+    );
+    f.write(
+        "equals.LUA",
+        "-- Generated by tracer.\n--[=[\nimportant explanatory text\n]=]\nlocal value = 1\n",
+    );
+    f.commit("add ambiguous leading comments");
+
+    let rust = f.trace(&["read", "plain.rs"]);
+    rust.ok();
+    assert!(rust
+        .stdout
+        .contains("License checking happens in verify()."));
+
+    let toml = f.trace(&["read", "settings.toml"]);
+    toml.ok();
+    assert!(toml.stdout.contains("License key configuration"));
+
+    for file in ["comments.lua", "equals.LUA"] {
+        let lua = f.trace(&["read", file]);
+        lua.ok();
+        assert!(
+            lua.stdout.contains("Generated by tracer."),
+            "{}",
+            lua.stdout
+        );
+        assert!(
+            lua.stdout.contains("important explanatory text"),
+            "{}",
+            lua.stdout
+        );
+        assert!(lua.stdout.contains("local value = 1"), "{}", lua.stdout);
+    }
+}
+
+#[test]
 fn read_at_ref_reads_committed_content() {
     let f = Fixture::new();
     f.write("v.py", "VALUE = 1\n");
@@ -618,7 +1309,10 @@ fn read_at_ref_reads_committed_content() {
     let v = r.view();
     assert_eq!(v["results"][0]["source"], "ref");
     assert!(
-        v["results"][0]["content"].as_str().unwrap().contains("VALUE = 1"),
+        v["results"][0]["content"]
+            .as_str()
+            .unwrap()
+            .contains("VALUE = 1"),
         "ref read returned worktree content:\n{}",
         v["results"][0]["content"]
     );
@@ -629,7 +1323,11 @@ fn read_diff_requires_at_ref() {
     let f = standard_repo();
     let r = f.trace(&["read", "src/util.py", "--diff"]);
     r.code_is(2);
-    assert!(r.combined().contains("--diff requires --at"), "{}", r.combined());
+    assert!(
+        r.combined().contains("--diff requires --at"),
+        "{}",
+        r.combined()
+    );
 }
 
 #[test]
@@ -673,7 +1371,10 @@ fn read_symbol_diff_partitions_added_removed_changed() {
     r.ok();
     let v = r.view();
     let d = &v["files"]["mod.py"]["symbol_diff"];
-    assert!(!d.is_null(), "symbol_diff missing on a supported file:\n{v}");
+    assert!(
+        !d.is_null(),
+        "symbol_diff missing on a supported file:\n{v}"
+    );
 
     let names = |arr: &serde_json::Value| -> Vec<String> {
         let mut out: Vec<String> = arr
@@ -722,11 +1423,19 @@ fn read_symbol_diff_partitions_added_removed_changed() {
     // worktree `fresh` is the 3rd block (L7), committed `gone` was the
     // 2nd block (L4).
     assert_eq!(added["name"], "fresh");
-    assert_eq!(added["line"].as_i64().unwrap(), 7, "fresh is at worktree L7: {added}");
+    assert_eq!(
+        added["line"].as_i64().unwrap(),
+        7,
+        "fresh is at worktree L7: {added}"
+    );
     let removed = d["removed"][0].clone();
     assert_eq!(removed["name"], "gone");
     assert_eq!(removed["kind"], "function");
-    assert_eq!(removed["line"].as_i64().unwrap(), 4, "gone was at committed L4: {removed}");
+    assert_eq!(
+        removed["line"].as_i64().unwrap(),
+        4,
+        "gone was at committed L4: {removed}"
+    );
 }
 
 #[test]
@@ -738,17 +1447,22 @@ fn read_between_anchors_returns_exact_section_and_resolved_lines() {
     f.write(
         "block.py",
         concat!(
-            "import os\n",          // L1
-            "# region start\n",     // L2  <- start anchor
-            "def inside():\n",      // L3
-            "    return os\n",      // L4
-            "# region end\n",       // L5  <- end anchor
-            "TRAILING = 1\n",       // L6
+            "import os\n",      // L1
+            "# region start\n", // L2  <- start anchor
+            "def inside():\n",  // L3
+            "    return os\n",  // L4
+            "# region end\n",   // L5  <- end anchor
+            "TRAILING = 1\n",   // L6
         ),
     );
     f.commit("anchored");
     let r = f.trace(&[
-        "read", "block.py", "--between", "region start", "region end", "--json",
+        "read",
+        "block.py",
+        "--between",
+        "region start",
+        "region end",
+        "--json",
     ]);
     r.ok();
     let v = r.view();
@@ -799,10 +1513,10 @@ fn info_file_json_reports_complexity_and_graph_fields() {
         .find(|f| f["name"].as_str() == Some("main"))
         .expect("main present");
     assert_eq!(main_fn["cyclomatic_complexity"].as_i64().unwrap(), 4);
-    // repo_context over the fixed 8-entry fixture tree is deterministic.
+    // repo_context over the fixed 7-entry fixture tree is deterministic.
     assert_eq!(
         v["repo"],
-        serde_json::json!({"total_files": 8, "median_file_ccn": 0, "complexity_p95": 1}),
+        serde_json::json!({"total_files": 7, "median_file_ccn": 0, "complexity_p95": 1}),
         "info file repo context must be exact for the known fixture: {}",
         v["repo"]
     );
@@ -876,7 +1590,7 @@ fn info_directory_aggregates_files() {
     }
     assert_eq!(
         v["repo"],
-        serde_json::json!({"total_files": 8, "median_file_ccn": 0, "complexity_p95": 1}),
+        serde_json::json!({"total_files": 7, "median_file_ccn": 0, "complexity_p95": 1}),
         "info directory repo context must be exact: {}",
         v["repo"]
     );
@@ -899,7 +1613,9 @@ fn info_brief_truncates_function_table() {
     // the top 3 and reports the remaining 5 — both header and footer are
     // exact, hand-determinable strings, not an either/or.
     assert!(
-        brief.stdout.contains("Functions (top 3 by complexity of 8):"),
+        brief
+            .stdout
+            .contains("Functions (top 3 by complexity of 8):"),
         "--brief header must name the top-3-of-8 truncation exactly:\n{}",
         brief.stdout
     );
@@ -960,7 +1676,12 @@ fn structure_lists_imports_and_symbols_json() {
         "app.py exports exactly main() at L5: {:?}",
         v["exports"]
     );
-    assert_eq!(v["symbols"].as_i64().unwrap(), 1, "app.py has one symbol: {}", v);
+    assert_eq!(
+        v["symbols"].as_i64().unwrap(),
+        1,
+        "app.py has one symbol: {}",
+        v
+    );
 }
 
 #[test]
@@ -973,16 +1694,16 @@ fn structure_exports_are_the_exact_module_level_set() {
     f.write(
         "api.py",
         concat!(
-            "import os\n",                  // L1
-            "\n",                           // L2
-            "def public_fn(x):\n",          // L3
-            "    def nested():\n",          // L4  (must NOT be exported)
-            "        return 1\n",           // L5
-            "    return nested()\n",        // L6
-            "\n",                           // L7
-            "class PublicClass:\n",         // L8
-            "    def method(self):\n",      // L9  (method, not a module export)
-            "        return 2\n",           // L10
+            "import os\n",             // L1
+            "\n",                      // L2
+            "def public_fn(x):\n",     // L3
+            "    def nested():\n",     // L4  (must NOT be exported)
+            "        return 1\n",      // L5
+            "    return nested()\n",   // L6
+            "\n",                      // L7
+            "class PublicClass:\n",    // L8
+            "    def method(self):\n", // L9  (method, not a module export)
+            "        return 2\n",      // L10
         ),
     );
     f.commit("api");
@@ -1124,11 +1845,11 @@ fn tree_json_carries_repo_context_and_ranks() {
         "tree rows must be the exact four-file fixture set: {}",
         v["results"]
     );
-    // The repo context over the whole 8-entry fixture tree: median CCN 0,
+    // The repo context over the whole 7-entry fixture tree: median CCN 0,
     // p95 1 — deterministic for this fixed source.
     assert_eq!(
         v["repo"],
-        serde_json::json!({"total_files": 8, "median_file_ccn": 0, "complexity_p95": 1}),
+        serde_json::json!({"total_files": 7, "median_file_ccn": 0, "complexity_p95": 1}),
         "tree repo context must be exact for the known fixture: {}",
         v["repo"]
     );
@@ -1176,6 +1897,61 @@ fn tree_recurses_into_nested_directories() {
 }
 
 #[test]
+fn tree_keeps_every_fact_beyond_one_resolve_chunk() {
+    let f = Fixture::new();
+    for index in 0..513 {
+        f.write(
+            &format!("src/file_{index:03}.py"),
+            &format!("def file_{index:03}(value):\n    return value\n"),
+        );
+    }
+    f.commit("large tree");
+
+    let r = f.trace(&["tree", "src", "--depth", "1", "--json"]);
+    r.ok();
+    let v = r.view();
+    let rows = v["results"]
+        .as_array()
+        .expect("tree results must be an array");
+    let files = v["files"]
+        .as_object()
+        .expect("tree context must contain a files object");
+
+    assert_eq!(
+        rows.len(),
+        513,
+        "every selected file must remain in the tree"
+    );
+    assert_eq!(files.len(), 513, "every tree row must retain its shoulder");
+    assert_eq!(v["repo"]["total_files"], 513);
+    assert_eq!(v["repo"]["median_file_ccn"], 0);
+    assert_eq!(v["repo"]["complexity_p95"], 0);
+
+    for (index, row) in rows.iter().enumerate() {
+        let path = format!("file_{index:03}.py");
+        assert_eq!(
+            row,
+            &serde_json::json!({
+                "path": path,
+                "ccn_total": 1,
+                "ccn_max_function": 1,
+                "loc": 2,
+                "rank": "low",
+            }),
+            "row {index} must retain its exact metrics"
+        );
+        let shoulder = files[&path]["shoulder"]
+            .as_str()
+            .unwrap_or_else(|| panic!("{path} must retain its complete shoulder"));
+        assert_eq!(
+            normalize_age(shoulder),
+            "[git: new (1 commit) · age: <AGE> · churn: 1 commit, 1/30d · loc: 2 · ccn: 1 low]",
+            "{path} must retain its canonical shoulder"
+        );
+    }
+}
+
+#[test]
 fn list_directory_json_separates_dirs_and_files() {
     let f = standard_repo();
     let r = f.trace(&["list", ".", "--json"]);
@@ -1218,7 +1994,9 @@ fn list_directory_json_separates_dirs_and_files() {
     for d in dirs {
         let lm = d["last_modified"].as_str().unwrap();
         assert!(
-            lm.len() == 10 && lm.as_bytes()[4] == b'-' && lm.as_bytes()[7] == b'-'
+            lm.len() == 10
+                && lm.as_bytes()[4] == b'-'
+                && lm.as_bytes()[7] == b'-'
                 && lm.chars().filter(|c| *c == '-').count() == 2
                 && lm.chars().all(|c| c.is_ascii_digit() || c == '-'),
             "last_modified must be a YYYY-MM-DD date: {lm}"
@@ -1229,7 +2007,12 @@ fn list_directory_json_separates_dirs_and_files() {
     // committed. Sizes and mtimes are run-time values, so the stat group is
     // asserted by presence and positivity, the code and git groups exactly.
     let files = v["files"].as_array().unwrap();
-    assert_eq!(files.len(), 1, "exactly pyproject.toml at root: {}", v["files"]);
+    assert_eq!(
+        files.len(),
+        1,
+        "exactly pyproject.toml at root: {}",
+        v["files"]
+    );
     let file = &files[0];
     assert_eq!(file["name"], "pyproject.toml");
     assert!(
@@ -1254,6 +2037,84 @@ fn list_directory_json_separates_dirs_and_files() {
     );
     assert_eq!(v["entries"].as_i64().unwrap(), 1, "{v}");
     assert_eq!(v["limited"], false, "{v}");
+}
+
+#[test]
+fn list_keeps_rows_aggregates_and_git_facts_beyond_one_resolve_chunk() {
+    let f = Fixture::new();
+    for index in 0..513 {
+        let directory = if index < 257 { "alpha" } else { "beta" };
+        f.write(
+            &format!("{directory}/module_{index:03}.py"),
+            &format!("def module_{index:03}(value):\n    if value:\n        return value\n    return 0\n"),
+        );
+    }
+    f.write("root.py", "def root():\n    return 1\n");
+    f.write("settings.toml", "enabled = true\n");
+    f.commit("broad list");
+
+    let r = f.trace(&["list", ".", "--json"]);
+    r.ok();
+    let v = r.view();
+
+    let directories: Vec<serde_json::Value> = v["directories"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|directory| {
+            serde_json::json!({
+                "name": directory["name"],
+                "child_count": directory["child_count"],
+                "file_count": directory["file_count"],
+                "ccn_total": directory["ccn_total"],
+                "has_uncommitted": directory["has_uncommitted"],
+            })
+        })
+        .collect();
+    assert_eq!(
+        serde_json::Value::Array(directories),
+        serde_json::json!([
+            {"name": "alpha", "child_count": 257, "file_count": 257, "ccn_total": 514, "has_uncommitted": false},
+            {"name": "beta", "child_count": 256, "file_count": 256, "ccn_total": 512, "has_uncommitted": false},
+        ]),
+        "directory aggregates must survive a facts set larger than one chunk: {}",
+        v["directories"]
+    );
+
+    let files = v["files"].as_array().unwrap();
+    assert_eq!(
+        files
+            .iter()
+            .map(|file| file["name"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        vec!["root.py", "settings.toml"],
+        "direct files must keep their sorted rows: {}",
+        v["files"]
+    );
+    assert_eq!(
+        files[0]["code"]["ccn_total"], 1,
+        "source facts must survive: {}",
+        files[0]
+    );
+    assert_eq!(
+        files[1]["code"]["loc"], 1,
+        "SCC-only facts must survive: {}",
+        files[1]
+    );
+    for file in files {
+        assert_eq!(
+            file["git"]["commit_count"], 1,
+            "passive git context must survive: {file}"
+        );
+    }
+    assert_eq!(
+        v["entries"], 2,
+        "direct-file count must remain unchanged: {v}"
+    );
+    assert_eq!(
+        v["limited"], false,
+        "unbounded listing must remain unbounded: {v}"
+    );
 }
 
 /// The row source is the disk, not the git universe: a gitignored artifact
@@ -1288,8 +2149,14 @@ fn list_shows_gitignored_artifact_files_stat_only() {
             file["stat"]["size_bytes"].as_i64().unwrap() > 0,
             "stat group always present: {file}"
         );
-        assert!(file["code"].is_null(), "no language resolves for .txt: {file}");
-        assert!(file["git"].is_null(), "git holds nothing for an ignored file: {file}");
+        assert!(
+            file["code"].is_null(),
+            "no language resolves for .txt: {file}"
+        );
+        assert!(
+            file["git"].is_null(),
+            "git holds nothing for an ignored file: {file}"
+        );
     }
     assert_eq!(v["entries"].as_i64().unwrap(), 2, "{v}");
 }
@@ -1434,12 +2301,22 @@ fn stats_json_has_distribution_and_languages() {
     let v = r.view();
     // standard_repo() commits exactly 7 files; scc's per-language counts,
     // loc and complexity over that fixed tree are deterministic.
-    assert_eq!(v["files"].as_i64().unwrap(), 7, "standard_repo has 7 files: {}", v);
+    assert_eq!(
+        v["files"].as_i64().unwrap(),
+        7,
+        "standard_repo has 7 files: {}",
+        v
+    );
     let lang = |name: &str, files: i64, loc: i64, cx: i64, v: &serde_json::Value| {
         let l = &v["languages"][name];
         assert_eq!(l["files"].as_i64().unwrap(), files, "{name} files: {}", v);
         assert_eq!(l["loc"].as_i64().unwrap(), loc, "{name} loc: {}", v);
-        assert_eq!(l["complexity"].as_i64().unwrap(), cx, "{name} complexity: {}", v);
+        assert_eq!(
+            l["complexity"].as_i64().unwrap(),
+            cx,
+            "{name} complexity: {}",
+            v
+        );
     };
     lang("Python", 2, 13, 4, &v); // app.py + util.py; CCN 4+0(file-level) via scc
     lang("TypeScript", 2, 5, 0, &v); // front.tsx + consts.ts
@@ -1453,7 +2330,12 @@ fn stats_json_has_distribution_and_languages() {
         v
     );
     let d = &v["distribution"];
-    assert_eq!(d["median"].as_i64().unwrap(), 0, "distribution.median: {}", v);
+    assert_eq!(
+        d["median"].as_i64().unwrap(),
+        0,
+        "distribution.median: {}",
+        v
+    );
     assert_eq!(d["p75"].as_i64().unwrap(), 1, "distribution.p75: {}", v);
     assert_eq!(d["p90"].as_i64().unwrap(), 1, "distribution.p90: {}", v);
     assert_eq!(d["p95"].as_i64().unwrap(), 1, "distribution.p95: {}", v);
@@ -1511,7 +2393,9 @@ fn stats_json_has_distribution_and_languages() {
         assert!(
             w[0].3 >= w[1].3,
             "top_complex must be complexity-descending, got {:?} then {:?}: {}",
-            w[0], w[1], v
+            w[0],
+            w[1],
+            v
         );
     }
 }
@@ -1553,8 +2437,16 @@ fn docs_command_returns_deduped_ancestor_set_human() {
         "missing header:\n{}",
         r.stdout
     );
-    assert!(r.stdout.contains("Root rules"), "missing root doc:\n{}", r.stdout);
-    assert!(r.stdout.contains("Sub rules"), "missing sub doc:\n{}", r.stdout);
+    assert!(
+        r.stdout.contains("Root rules"),
+        "missing root doc:\n{}",
+        r.stdout
+    );
+    assert!(
+        r.stdout.contains("Sub rules"),
+        "missing sub doc:\n{}",
+        r.stdout
+    );
 }
 
 #[test]
@@ -1567,10 +2459,9 @@ fn docs_command_json_shape() {
     assert_eq!(v["directory_scoped"], false);
     assert_eq!(v["docs"], 2);
     let docs = v["results"].as_array().unwrap();
-    assert!(docs.iter().any(|d| d["content"]
-        .as_str()
-        .unwrap()
-        .contains("Root rules")));
+    assert!(docs
+        .iter()
+        .any(|d| d["content"].as_str().unwrap().contains("Root rules")));
 }
 
 #[test]
@@ -1612,7 +2503,11 @@ fn read_default_suppresses_injection() {
         "default read must not inject project docs:\n{}",
         r.stdout
     );
-    assert!(r.stdout.contains("def helper"), "code body missing:\n{}", r.stdout);
+    assert!(
+        r.stdout.contains("def helper"),
+        "code body missing:\n{}",
+        r.stdout
+    );
 }
 
 #[test]
@@ -1763,7 +2658,8 @@ fn first_touch_of_a_file_surfaces_its_symbols() {
     let r = f.trace_env(&["context", "app/controllers/orders.py"], &env);
     r.ok();
     assert!(
-        r.stdout.contains("[symbols: create(x) ccn=2; cancel() ccn=1]"),
+        r.stdout
+            .contains("[symbols: create(x) ccn=2; cancel() ccn=1]"),
         "first surfacing must list the file's declarations, with signatures, in source order:\n{}",
         r.stdout
     );
@@ -1952,7 +2848,11 @@ fn structure_php_method_carries_visibility_return_type_attributes_and_typed_para
         .iter()
         .map(|x| x.as_str().unwrap())
         .collect();
-    assert!(mods.contains(&"public") && mods.contains(&"static"), "{}", m);
+    assert!(
+        mods.contains(&"public") && mods.contains(&"static"),
+        "{}",
+        m
+    );
     let params = m["parameters"].as_array().expect("parameters");
     assert_eq!(params.len(), 2, "{}", m);
     assert_eq!(params[0]["name"].as_str().unwrap(), "slug", "{}", m);
@@ -2024,7 +2924,12 @@ fn structure_ts_class_carries_decorators_generics_and_implements() {
     r.ok();
     let v = r.view();
     let cls = find_symbol(&v, "Svc");
-    assert_eq!(cls["type_parameters"].as_str().unwrap(), "<T extends Foo>", "{}", cls);
+    assert_eq!(
+        cls["type_parameters"].as_str().unwrap(),
+        "<T extends Foo>",
+        "{}",
+        cls
+    );
     let imps: Vec<&str> = cls["implements"]
         .as_array()
         .expect("implements")
@@ -2035,13 +2940,21 @@ fn structure_ts_class_carries_decorators_generics_and_implements() {
     let decos = cls["decorators"].as_array().expect("class decorators");
     assert_eq!(decos.len(), 1, "{}", cls);
     assert!(
-        decos[0]["source"].as_str().unwrap().starts_with("@Injectable"),
+        decos[0]["source"]
+            .as_str()
+            .unwrap()
+            .starts_with("@Injectable"),
         "{}",
         cls
     );
 
     let field = find_symbol(&v, "count");
-    assert_eq!(field["visibility"].as_str().unwrap(), "private", "{}", field);
+    assert_eq!(
+        field["visibility"].as_str().unwrap(),
+        "private",
+        "{}",
+        field
+    );
     assert_eq!(field["type"].as_str().unwrap(), "number", "{}", field);
     assert_eq!(field["default"].as_str().unwrap(), "0", "{}", field);
 
@@ -2086,7 +2999,12 @@ fn structure_ts_interface_carries_extends_generics_and_field_types() {
     let v = r.view();
     let iface = find_symbol(&v, "User");
     assert_eq!(iface["kind"].as_str().unwrap(), "interface", "{}", iface);
-    assert_eq!(iface["type_parameters"].as_str().unwrap(), "<T>", "{}", iface);
+    assert_eq!(
+        iface["type_parameters"].as_str().unwrap(),
+        "<T>",
+        "{}",
+        iface
+    );
     let ext: Vec<&str> = iface["extends"]
         .as_array()
         .expect("extends")
@@ -2143,7 +3061,12 @@ fn structure_python_function_carries_decorators_annotations_and_defaults() {
     assert_eq!(bases, vec!["Base"], "{}", cls);
     let cls_decos = cls["decorators"].as_array().expect("class decorators");
     assert_eq!(cls_decos.len(), 1, "{}", cls);
-    assert_eq!(cls_decos[0]["source"].as_str().unwrap(), "@dataclass", "{}", cls);
+    assert_eq!(
+        cls_decos[0]["source"].as_str().unwrap(),
+        "@dataclass",
+        "{}",
+        cls
+    );
 
     let create = find_symbol(&v, "create");
     assert_eq!(create["async"].as_bool().unwrap(), true, "{}", create);
@@ -2309,7 +3232,10 @@ fn co_change_ignores_a_commit_over_the_file_cap() {
 
     let r = f.trace(&["read", "pair_a.py", "--json"]);
     r.ok();
-    let shoulder = r.view()["files"]["pair_a.py"]["shoulder"].as_str().unwrap().to_string();
+    let shoulder = r.view()["files"]["pair_a.py"]["shoulder"]
+        .as_str()
+        .unwrap()
+        .to_string();
     assert!(
         shoulder.contains("\u{00b7} together: pair_b.py \u{00b7}"),
         "the two-file coupling must survive the sweep: {shoulder:?}"
@@ -2348,7 +3274,10 @@ fn shallow_clone_graft_commit_leaves_no_history() {
 
     let r = tracer_cli_tests::trace(&clone, ["read", "core.py", "--json"]);
     r.ok();
-    let shoulder = r.view()["files"]["core.py"]["shoulder"].as_str().unwrap().to_string();
+    let shoulder = r.view()["files"]["core.py"]["shoulder"]
+        .as_str()
+        .unwrap()
+        .to_string();
     assert!(
         shoulder.contains("git: no-history"),
         "a graft commit must leave no history: {shoulder:?}"

@@ -6,11 +6,135 @@
 //! results but nothing persists. These tests pin that contract end-to-end
 //! through the CLI.
 
-use std::path::PathBuf;
+use std::fs;
+use std::os::unix::fs::PermissionsExt;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use tracer_cli_tests::{standard_repo, trace_bin, trace};
+use tracer_cli_tests::{standard_repo, trace, trace_bin, Fixture};
+
+fn counting_git(f: &Fixture) -> (String, PathBuf) {
+    let real = Command::new("which")
+        .arg("git")
+        .output()
+        .expect("which git")
+        .stdout;
+    let real = String::from_utf8(real).unwrap().trim().to_string();
+    let bin = f.root.join(".tracer-cache/git-observer");
+    fs::create_dir_all(&bin).unwrap();
+    let observations = bin.join("observations");
+    let wrapper = bin.join("git");
+    fs::write(
+        &wrapper,
+        format!(
+            "#!/bin/sh\nprintf '%s\\t%s\\n' \"$PWD\" \"$*\" >> '{}'\nexec '{}' \"$@\"\n",
+            observations.display(),
+            real
+        ),
+    )
+    .unwrap();
+    fs::set_permissions(&wrapper, fs::Permissions::from_mode(0o755)).unwrap();
+    let path = format!(
+        "{}:{}",
+        bin.display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+    (path, observations)
+}
+
+fn root_observations(path: &Path) -> Vec<PathBuf> {
+    fs::read_to_string(path)
+        .unwrap_or_default()
+        .lines()
+        .filter_map(|line| {
+            let (cwd, args) = line.split_once('\t')?;
+            (args == "rev-parse --show-toplevel").then(|| PathBuf::from(cwd))
+        })
+        .collect()
+}
+
+#[test]
+fn repeated_worktree_root_lookups_share_one_invocation_local_observation() {
+    let f = standard_repo();
+    let linked = f.add_worktree("linked-wt", "root-observer-worktree");
+    let (path, observations) = counting_git(&f);
+    let baseline = f.trace(&["info", "src", "--json"]);
+    baseline.ok();
+
+    let observed = f.trace_env(&["info", "src", "--json"], &[("PATH", &path)]);
+    observed.ok();
+    assert_eq!(
+        observed.stdout, baseline.stdout,
+        "Git observation changed stdout"
+    );
+    assert_eq!(
+        observed.stderr, baseline.stderr,
+        "Git observation changed stderr"
+    );
+    assert_eq!(
+        root_observations(&observations),
+        vec![f.root.join("src").canonicalize().unwrap()],
+        "identical lookup directories repeated the Git root observation"
+    );
+
+    fs::write(&observations, "").unwrap();
+    let main_file = f.path("src/app.py");
+    let linked_file = linked.join("src/app.py").to_string_lossy().into_owned();
+    let read_args = [
+        "read",
+        main_file.as_str(),
+        linked_file.as_str(),
+        "--lines",
+        "1:1",
+        "--json",
+    ];
+    let baseline_read = f.trace(&read_args);
+    baseline_read.ok();
+    let observed_read = f.trace_env(&read_args, &[("PATH", &path)]);
+    observed_read.ok();
+    assert_eq!(
+        observed_read.stdout, baseline_read.stdout,
+        "per-worktree Git observation changed stdout"
+    );
+    assert_eq!(
+        observed_read.stderr, baseline_read.stderr,
+        "per-worktree Git observation changed stderr"
+    );
+    assert_eq!(
+        root_observations(&observations),
+        vec![
+            f.root.join("src").canonicalize().unwrap(),
+            linked.join("src").canonicalize().unwrap(),
+        ],
+        "different lookup directories or worktree roots were conflated"
+    );
+
+    fs::write(&observations, "").unwrap();
+    let rooted = f.trace_env(
+        &["read", "src/app.py", "--lines", "1:1", "--json"],
+        &[("PATH", &path)],
+    );
+    rooted.ok();
+    assert_eq!(rooted.json()["results"][0]["file"], "src/app.py");
+    fs::rename(f.root.join(".git"), f.root.join(".git-away")).unwrap();
+    fs::write(&observations, "").unwrap();
+    let unrooted = f.trace_env(
+        &["read", "src/app.py", "--lines", "1:1", "--json"],
+        &[("PATH", &path)],
+    );
+    unrooted.ok();
+    assert_eq!(unrooted.json()["results"][0]["file"], "app.py");
+    assert_eq!(
+        root_observations(&observations),
+        vec![f.root.join("src").canonicalize().unwrap()],
+        "a later process reused the earlier process's repository observation"
+    );
+    assert!(
+        !f.root.join("src/.tracer-cache").exists(),
+        "the no-root process wrote a cache outside Git"
+    );
+}
 
 // --- 1. cache writes land at the worktree root -----------------------------
 

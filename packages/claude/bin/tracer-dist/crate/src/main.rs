@@ -13,10 +13,10 @@ mod git_activity;
 mod jsonfmt;
 mod lang;
 mod memo;
-mod relations;
 mod output;
 mod passive_context;
 mod pathval;
+mod relations;
 mod repo_context;
 mod repo_files;
 
@@ -257,7 +257,7 @@ enum Command {
     },
     /// Session-start primer (no args) or the one-line file briefing.
     Context {
-        path: Option<PathBuf>,
+        paths: Vec<PathBuf>,
         #[arg(long = "directory")]
         force_directory: bool,
         /// 1-based line the read started at (the read tool's `offset`); records
@@ -273,6 +273,8 @@ enum Command {
         /// read coverage.
         #[arg(long = "no-record")]
         no_record: bool,
+        #[arg(long)]
+        json: bool,
     },
     /// Cleaned read: whole file, method, line range, or anchor section; worktree or git ref.
     Read {
@@ -593,9 +595,9 @@ fn main() -> Result<()> {
             Some(DocsCommand::Status { path, json }) => output::run_value(json, filter, || {
                 commands::docs::run_status(path.as_deref(), json)
             }),
-            Some(DocsCommand::Reset { source, json }) => output::run_value(json, filter, || {
-                commands::docs::run_reset(&source, json)
-            }),
+            Some(DocsCommand::Reset { source, json }) => {
+                output::run_value(json, filter, || commands::docs::run_reset(&source, json))
+            }
             Some(DocsCommand::Prime {
                 reason,
                 observed_from,
@@ -623,15 +625,15 @@ fn main() -> Result<()> {
             }),
         },
         Command::Context {
-            path,
+            paths,
             force_directory,
             offset,
             limit,
             no_record,
-        } => {
-            output::guard(false, filter)?;
-            commands::context::run(path.as_deref(), force_directory, offset, limit, !no_record)
-        }
+            json,
+        } => output::run_value(json, filter, || {
+            commands::context::run(&paths, force_directory, offset, limit, !no_record, json)
+        }),
         Command::Read {
             paths,
             method,
@@ -643,7 +645,7 @@ fn main() -> Result<()> {
             between,
             as_diff,
             docs,
-        } => output::run_value(json, filter, || {
+        } => output::run_streamed(json, filter, |sink| {
             let docs_override = if docs { Some(true) } else { None };
             commands::read::run(
                 &paths,
@@ -656,6 +658,8 @@ fn main() -> Result<()> {
                 between.map(|v| (v[0].clone(), v[1].clone())),
                 as_diff,
                 docs_override,
+                filter.is_none(),
+                sink,
             )
         }),
         Command::Blame {

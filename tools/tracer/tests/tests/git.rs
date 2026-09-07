@@ -6,7 +6,301 @@
 //! point of these commands is "look at the load-bearing thing first", so a
 //! command whose ranking inverted must fail the suite, not pass it.
 
+use std::io::Write;
+use std::process::{Command, Stdio};
 use tracer_cli_tests::{normalize_age, standard_repo, Fixture};
+
+fn info_shoulder(f: &Fixture, path: &str) -> String {
+    let value = f.trace(&["info", path, "--json"]).ok().view();
+    let file = value["file"].as_str().unwrap();
+    value["files"][file]["shoulder"]
+        .as_str()
+        .unwrap()
+        .to_string()
+}
+
+#[test]
+fn deployment_refs_are_observed_once_and_refresh_independently() {
+    let f = Fixture::new();
+    f.write(".gitignore", ".tracer-cache/\n");
+    f.write("base.py", "BASE = 1\n");
+    f.commit("base");
+    f.write("deployed.py", "DEPLOYED = 1\n");
+    f.commit("add deployed file");
+
+    // Warm the HEAD-keyed history before any deployment ref exists, then hold
+    // HEAD fixed while only live refs and working-tree state move.
+    info_shoulder(&f, "deployed.py");
+    for r#ref in [
+        "refs/remotes/origin/production",
+        "refs/remotes/origin/staging",
+        "refs/remotes/origin/main",
+        "refs/remotes/origin/master",
+        "refs/remotes/origin/main-extra",
+        "refs/remotes/unrelated/main",
+    ] {
+        f.git(&["update-ref", r#ref, "HEAD"]);
+    }
+    f.write("deployed.py", "DEPLOYED = 2\n");
+
+    let row = |run: &tracer_cli_tests::Run| {
+        run.ok();
+        let value = run.view();
+        value["results"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["path"] == "deployed.py")
+            .cloned()
+            .expect("deployed.py status row")
+    };
+    let assert_live = |row: &serde_json::Value, refs: &[&str]| {
+        assert_eq!(row["state"], "modified", "working state changed: {row}");
+        assert_eq!(
+            row["present_in"],
+            serde_json::json!(refs),
+            "deployment presence changed incorrectly: {row}"
+        );
+    };
+
+    let trace_events = f.root.join(".git/live-refs-trace.json");
+    let trace_events_text = trace_events.to_string_lossy().to_string();
+    let initial = f.trace_env(
+        &["status", "--json"],
+        &[("GIT_TRACE2_EVENT", trace_events_text.as_str())],
+    );
+    assert_live(&row(&initial), &["main", "prod", "staging"]);
+
+    let events = std::fs::read_to_string(&trace_events).expect("git trace2 event log");
+    let ref_rev_parses = events
+        .lines()
+        .filter(|line| {
+            [
+                "origin/production",
+                "origin/staging",
+                "origin/main",
+                "origin/master",
+            ]
+            .iter()
+            .any(|r#ref| line.contains(&format!("\"argv\":[\"git\",\"rev-parse\",\"{ref}\"]")))
+        })
+        .count();
+    let ref_observations = events
+        .lines()
+        .filter(|line| {
+            line.contains("\"argv\":[\"git\",\"for-each-ref\"")
+                && line.contains("refs/remotes/origin/production")
+                && line.contains("refs/remotes/origin/staging")
+                && line.contains("refs/remotes/origin/main")
+                && line.contains("refs/remotes/origin/master")
+        })
+        .count();
+    assert_eq!(
+        ref_rev_parses, 0,
+        "expected no ref-specific rev-parse launches, found {ref_rev_parses}; events:\n{events}"
+    );
+    assert_eq!(
+        ref_observations, 1,
+        "expected one bounded for-each-ref observation, found {ref_observations}; events:\n{events}"
+    );
+
+    f.git(&["update-ref", "refs/remotes/origin/production", "HEAD^"]);
+    assert_live(&row(&f.trace(&["status", "--json"])), &["main", "staging"]);
+
+    f.git(&["update-ref", "refs/remotes/origin/staging", "HEAD^"]);
+    assert_live(&row(&f.trace(&["status", "--json"])), &["main"]);
+
+    f.git(&["update-ref", "refs/remotes/origin/main", "HEAD^"]);
+    assert_live(&row(&f.trace(&["status", "--json"])), &["main"]);
+
+    f.git(&["update-ref", "-d", "refs/remotes/origin/master"]);
+    assert_live(&row(&f.trace(&["status", "--json"])), &[]);
+}
+
+#[test]
+fn deployment_presence_uses_the_observed_tip_when_the_ref_moves() {
+    let f = Fixture::new();
+    f.write(".gitignore", ".tracer-cache/\ntest-bin/\n");
+    let existing = "existing\tline\nbreak.py";
+    let added = "added\tline\nbreak.py";
+    f.write(existing, "VALUE = 1\n");
+    f.commit("first deployment tree");
+    f.write(added, "VALUE = 1\n");
+    f.commit("second deployment tree");
+    f.git(&["update-ref", "refs/remotes/origin/production", "HEAD^"]);
+    f.write(existing, "VALUE = 2\n");
+    f.write(added, "VALUE = 2\n");
+
+    let actual_git = String::from_utf8(
+        Command::new("which")
+            .arg("git")
+            .output()
+            .expect("find git executable")
+            .stdout,
+    )
+    .unwrap()
+    .trim()
+    .to_string();
+    let wrapper_directory = f.root.join("test-bin");
+    std::fs::create_dir_all(&wrapper_directory).unwrap();
+    let observed_output = f.root.join(".git/presence-observed");
+    let wrapper = wrapper_directory.join("git");
+    std::fs::write(
+        &wrapper,
+        format!(
+            "#!/bin/sh\nif [ \"$1\" = \"for-each-ref\" ]; then\n  '{}' \"$@\" > '{}'\n  '{}' update-ref refs/remotes/origin/production HEAD\n  cat '{}'\nelse\n  exec '{}' \"$@\"\nfi\n",
+            actual_git,
+            observed_output.display(),
+            actual_git,
+            observed_output.display(),
+            actual_git,
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(
+        &wrapper,
+        <std::fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(0o755),
+    )
+    .unwrap();
+    let path = format!(
+        "{}:{}",
+        wrapper_directory.display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+
+    let rows = |run: &tracer_cli_tests::Run| {
+        run.ok();
+        run.view()["results"].as_array().unwrap().clone()
+    };
+    let presence = |rows: &[serde_json::Value], path: &str| {
+        let row = rows
+            .iter()
+            .find(|row| row["path"] == path)
+            .unwrap_or_else(|| panic!("missing status row for {path:?}: {rows:?}"));
+        assert_eq!(row["state"], "modified", "working state changed: {row}");
+        row["present_in"].clone()
+    };
+
+    let observed = rows(&f.trace_env(&["status", "--json"], &[("PATH", &path)]));
+    assert_eq!(presence(&observed, existing), serde_json::json!(["prod"]));
+    assert_eq!(presence(&observed, added), serde_json::json!([]));
+
+    let moved = rows(&f.trace_env(&["status", "--json"], &[("PATH", &path)]));
+    assert_eq!(presence(&moved, existing), serde_json::json!(["prod"]));
+    assert_eq!(presence(&moved, added), serde_json::json!(["prod"]));
+}
+
+#[test]
+fn untracked_machine_paths_keep_tabs_newlines_and_unicode() {
+    let f = standard_repo();
+    let path = "nested/café\tline\nbreak.py";
+    f.write(path, "VALUE = 1\n");
+
+    let shoulder = info_shoulder(&f, path);
+    assert!(
+        shoulder.contains("git: untracked"),
+        "machine-readable porcelain lost the exact path: {shoulder}"
+    );
+    f.commit("commit machine path");
+    let historical = info_shoulder(&f, path);
+    assert!(
+        historical.contains("git: new (1 commit)"),
+        "NUL-delimited history lost the exact path: {historical}"
+    );
+}
+
+#[test]
+fn bounded_history_renders_commit_count_and_age_as_lower_bounds() {
+    let f = Fixture::new();
+    let mut stream = String::new();
+    for index in 0..=4000 {
+        let blob_mark = index * 2 + 1;
+        let commit_mark = index * 2 + 2;
+        let body = format!("VALUE = {index}\n");
+        stream.push_str(&format!(
+            "blob\nmark :{blob_mark}\ndata {}\n{body}",
+            body.len()
+        ));
+        stream.push_str(&format!(
+            "commit refs/heads/master\nmark :{commit_mark}\nauthor Tracer Test <trace@example.test> 1700000000 +0000\ncommitter Tracer Test <trace@example.test> 1700000000 +0000\ndata 4\nstep\n"
+        ));
+        if index > 0 {
+            stream.push_str(&format!("from :{}\n", commit_mark - 2));
+        }
+        stream.push_str(&format!("M 100644 :{blob_mark} bounded.py\n"));
+        if index == 4000 {
+            stream.push_str(&format!("M 100644 :{blob_mark} one.py\n"));
+        }
+        stream.push('\n');
+    }
+    let mut child = Command::new("git")
+        .args(["fast-import", "--quiet"])
+        .current_dir(&f.root)
+        .stdin(Stdio::piped())
+        .spawn()
+        .expect("spawn git fast-import");
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(stream.as_bytes())
+        .unwrap();
+    assert!(child.wait().unwrap().success(), "git fast-import failed");
+    f.write("bounded.py", "VALUE = 4000\n");
+    f.write("one.py", "VALUE = 4000\n");
+
+    let shoulder = info_shoulder(&f, "bounded.py");
+    assert!(
+        shoulder.contains("4000+ commits"),
+        "bounded history rendered as an exact count: {shoulder}"
+    );
+    assert!(
+        shoulder.contains("age: ≥"),
+        "bounded history rendered an exact lifetime age: {shoulder}"
+    );
+    let one = info_shoulder(&f, "one.py");
+    assert!(
+        one.contains("git: untracked") && one.contains("churn: 1+ commit"),
+        "a one-entry history floor claimed the file was new: {one}"
+    );
+}
+
+#[test]
+fn shallow_graft_path_that_looks_like_a_header_cannot_frame_history() {
+    let f = Fixture::new();
+    let header_path = "COMMIT|abc|2024-01-01|A|x";
+    f.write(header_path, "HEADER = 1\n");
+    f.write("ordinary.py", "ORDINARY = 1\n");
+    f.commit("graft");
+
+    let url = format!("file://{}", f.root.to_string_lossy());
+    let clone = f.root.join("clone");
+    f.git(&["clone", "--depth=1", &url, clone.to_str().unwrap()]);
+    assert!(clone.join(".git").join("shallow").exists());
+
+    for path in [header_path, "ordinary.py"] {
+        let value = tracer_cli_tests::trace(&clone, ["info", path, "--json"])
+            .ok()
+            .view();
+        let file = value["file"].as_str().unwrap();
+        let shoulder = value["files"][file]["shoulder"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        assert!(
+            shoulder.contains("git: no-history"),
+            "a skipped graft path framed history for {path:?}: {shoulder:?}"
+        );
+        assert!(
+            !shoulder.contains("owner:"),
+            "skipped graft attributed an owner: {shoulder:?}"
+        );
+        assert!(
+            !shoulder.contains("together:"),
+            "skipped graft created co-change facts: {shoulder:?}"
+        );
+    }
+}
 
 fn repo_with_history() -> Fixture {
     let f = Fixture::new();
@@ -29,8 +323,18 @@ fn history_whole_file_json_shape() {
     assert_eq!(v["mode"], "file");
     assert_eq!(v["file"], "mod.py");
     // repo_with_history() commits mod.py exactly twice; both are recent.
-    assert_eq!(v["commits"].as_i64().unwrap(), 2, "exactly two commits: {}", v);
-    assert_eq!(v["commits_30d"].as_i64().unwrap(), 2, "both commits are recent: {}", v);
+    assert_eq!(
+        v["commits"].as_i64().unwrap(),
+        2,
+        "exactly two commits: {}",
+        v
+    );
+    assert_eq!(
+        v["commits_30d"].as_i64().unwrap(),
+        2,
+        "both commits are recent: {}",
+        v
+    );
     assert_eq!(v["last_author"], "Tracer Test");
     assert_eq!(v["last_subject"], "bump alpha, add beta");
     assert_eq!(v["top_author"], "Tracer Test");
@@ -41,7 +345,12 @@ fn history_whole_file_json_shape() {
         .iter()
         .map(|c| c["subject"].as_str().unwrap())
         .collect();
-    assert_eq!(subjects, vec!["bump alpha, add beta", "add alpha"], "recent_commits: {}", v);
+    assert_eq!(
+        subjects,
+        vec!["bump alpha, add beta", "add alpha"],
+        "recent_commits: {}",
+        v
+    );
     for c in v["results"].as_array().unwrap() {
         assert_eq!(c["author"], "Tracer Test");
     }
@@ -49,7 +358,12 @@ fn history_whole_file_json_shape() {
     let blame = v["top_blame_authors"].as_array().unwrap();
     assert_eq!(blame.len(), 1, "one author: {}", v);
     assert_eq!(blame[0]["author"], "Tracer Test");
-    assert_eq!(blame[0]["lines"].as_i64().unwrap(), 6, "6 lines in mod.py: {}", v);
+    assert_eq!(
+        blame[0]["lines"].as_i64().unwrap(),
+        6,
+        "6 lines in mod.py: {}",
+        v
+    );
 }
 
 #[test]
@@ -88,7 +402,12 @@ fn history_pickaxe_mode_finds_string_introduction() {
     // "beta" enters the repo in exactly one commit: the second one. The
     // pickaxe must report that single commit and point at the line + the
     // enclosing symbol where the token appears.
-    assert_eq!(v["commits"].as_i64().unwrap(), 1, "beta added in one commit: {}", v);
+    assert_eq!(
+        v["commits"].as_i64().unwrap(),
+        1,
+        "beta added in one commit: {}",
+        v
+    );
     let commits = v["results"].as_array().unwrap();
     assert_eq!(commits.len(), 1, "exactly one pickaxe commit: {}", v);
     assert_eq!(commits[0]["subject"], "bump alpha, add beta");
@@ -96,7 +415,12 @@ fn history_pickaxe_mode_finds_string_introduction() {
     let matches = commits[0]["matches"].as_array().unwrap();
     assert_eq!(matches.len(), 1, "one matching line: {}", v);
     assert_eq!(matches[0]["path"], "mod.py");
-    assert_eq!(matches[0]["line"].as_i64().unwrap(), 5, "def beta() is on line 5: {}", v);
+    assert_eq!(
+        matches[0]["line"].as_i64().unwrap(),
+        5,
+        "def beta() is on line 5: {}",
+        v
+    );
     assert_eq!(matches[0]["enclosing_symbol"], "beta");
 }
 
@@ -108,7 +432,11 @@ fn history_contains_is_mutually_exclusive_with_file() {
     // are explicit runtime errors — non-zero exit with a clear stderr
     // message, not the pathval exit-2 path required-arg commands use.
     assert_ne!(r.code, 0, "expected non-zero exit:\n{}", r.combined());
-    assert!(r.combined().contains("mutually exclusive"), "{}", r.combined());
+    assert!(
+        r.combined().contains("mutually exclusive"),
+        "{}",
+        r.combined()
+    );
 }
 
 #[test]
@@ -133,7 +461,12 @@ fn blame_whole_file_json_regions() {
     // a commit made near a UTC day boundary renders a different local
     // calendar date than `git log` does, so the date is environment-
     // dependent; the region partition, authorship and subjects are not.
-    assert_eq!(v["regions"].as_i64().unwrap(), 2, "two blame regions: {}", v);
+    assert_eq!(
+        v["regions"].as_i64().unwrap(),
+        2,
+        "two blame regions: {}",
+        v
+    );
     assert_eq!(v["lines"].as_i64().unwrap(), 6, "6 lines: {}", v);
     let regions = v["results"].as_array().unwrap();
     let shape: Vec<(i64, i64, &str, &str)> = regions
@@ -170,8 +503,18 @@ fn blame_symbol_scope_narrows_to_function() {
     // introduced by the second commit, so it blames to a single region
     // spanning exactly that range. (Date is environment-dependent — see
     // blame_whole_file_json_regions — so it is not pinned.)
-    assert_eq!(v["line_range"]["start"].as_i64().unwrap(), 5, "beta starts at L5: {}", v);
-    assert_eq!(v["line_range"]["end"].as_i64().unwrap(), 6, "beta ends at L6: {}", v);
+    assert_eq!(
+        v["line_range"]["start"].as_i64().unwrap(),
+        5,
+        "beta starts at L5: {}",
+        v
+    );
+    assert_eq!(
+        v["line_range"]["end"].as_i64().unwrap(),
+        6,
+        "beta ends at L6: {}",
+        v
+    );
     assert_eq!(v["regions"].as_i64().unwrap(), 1, "one region: {}", v);
     assert_eq!(v["lines"].as_i64().unwrap(), 2, "beta is 2 lines: {}", v);
     let r = &v["results"][0];
@@ -193,7 +536,12 @@ fn blame_lines_scope() {
     // Lines 1-2 straddle the two commits: L1 from "add alpha", L2 from
     // "bump alpha, add beta" — two single-line regions. (Date is
     // environment-dependent, see blame_whole_file_json_regions.)
-    assert_eq!(v["regions"].as_i64().unwrap(), 2, "two regions across L1:2: {}", v);
+    assert_eq!(
+        v["regions"].as_i64().unwrap(),
+        2,
+        "two regions across L1:2: {}",
+        v
+    );
     assert_eq!(v["lines"].as_i64().unwrap(), 2);
     let shape: Vec<(i64, i64, &str, &str)> = v["results"]
         .as_array()
@@ -226,7 +574,11 @@ fn blame_symbol_and_lines_mutually_exclusive() {
     // blame, like history, reports argument-conflict and unknown-symbol as
     // explicit runtime errors: non-zero exit with a clear stderr message.
     assert_ne!(r.code, 0, "expected non-zero exit:\n{}", r.combined());
-    assert!(r.combined().contains("mutually exclusive"), "{}", r.combined());
+    assert!(
+        r.combined().contains("mutually exclusive"),
+        "{}",
+        r.combined()
+    );
 }
 
 #[test]
@@ -479,9 +831,7 @@ fn diff_file_mode_orders_load_bearing_first_exactly() {
     // Pin the discriminating attribute so a future change that keeps the
     // order by accident (e.g. all-zero dependents) still fails.
     let dep = |name: &str| -> i64 {
-        rows.iter()
-            .find(|x| x["path"] == name)
-            .unwrap()["direct_dependents"]
+        rows.iter().find(|x| x["path"] == name).unwrap()["direct_dependents"]
             .as_i64()
             .unwrap()
     };
@@ -750,11 +1100,12 @@ fn rename_lifecycle_shoulder_reflects_renamed_state() {
     // The uncommitted-rename status shoulder is likewise fully
     // deterministic: renamed (uncommitted), local-only, churn of zero (the
     // moved-but-uncommitted path has no commits of its own yet), the one
-    // caller (caller.py imports feature), zero dependents, carried CCN 2.
+    // incoming relation (caller.py imports feature), zero outgoing relations,
+    // carried CCN 2.
     // No age and no changed-together on this path — pinned exactly.
     assert_eq!(
         renamed_entry["shoulder"].as_str().unwrap(),
-        "[git: renamed (uncommitted) \u{00b7} presence: local-only \u{00b7} churn: 0 commits, 0/30d \u{00b7} callers: 1 \u{00b7} dependents: 0 \u{00b7} loc: 4 \u{00b7} ccn: 2 low]",
+        "[git: renamed (uncommitted) \u{00b7} presence: local-only \u{00b7} churn: 0 commits, 0/30d \u{00b7} incoming: 1 \u{00b7} outgoing: 0 \u{00b7} loc: 4 \u{00b7} ccn: 2 low]",
         "uncommitted-rename shoulder must be exact: {}",
         renamed_entry["shoulder"]
     );
@@ -779,15 +1130,12 @@ fn status_lists_dirty_files_with_intelligence() {
     let r = f.trace(&["status", "--json"]);
     r.ok();
     let v = r.view();
-    // The dirty set is exactly three, hand-verifiable: src/util.py
-    // (modified), newfile.py (untracked), and the .tracer-cache/ directory
-    // the preceding `cache build` wrote (untracked). status orders by
-    // blast radius, so util.py (1 caller) leads, then the two zero-impact
-    // untracked entries in their stable order.
+    // The dirty set excludes tracer's self-ignored cache: src/util.py is
+    // modified and newfile.py is untracked. status orders by blast radius.
     assert_eq!(
         v["files"].as_i64().unwrap(),
-        3,
-        "dirty set must be exactly util.py + newfile.py + .tracer-cache/: {}",
+        2,
+        "dirty set must be exactly util.py + newfile.py: {}",
         r.stdout
     );
     let paths: Vec<&str> = v["results"]
@@ -798,7 +1146,7 @@ fn status_lists_dirty_files_with_intelligence() {
         .collect();
     assert_eq!(
         paths,
-        vec!["src/util.py", ".tracer-cache/", "newfile.py"],
+        vec!["src/util.py", "newfile.py"],
         "status entry order must be blast-radius then stable: {:?}",
         paths
     );
@@ -874,6 +1222,65 @@ fn status_carries_the_staging_word_per_file() {
     );
 }
 
+#[test]
+fn status_preserves_every_row_across_the_resolve_bound() {
+    let f = Fixture::new();
+    f.write(".gitignore", ".tracer-cache/\n");
+    for index in 0..514 {
+        f.write(
+            &format!("file_{index:03}.py"),
+            &format!("VALUE = {index}\n"),
+        );
+    }
+    f.commit("base");
+
+    f.git(&["mv", "file_000.py", "renamed.py"]);
+    f.git(&["rm", "file_001.py"]);
+    for index in 2..514 {
+        f.write(
+            &format!("file_{index:03}.py"),
+            &format!("def value():\n    return {index}\n"),
+        );
+    }
+    f.write("fresh.py", "FRESH = 1\n");
+    f.git(&["add", "file_002.py"]);
+    f.write("file_002.py", "def value():\n    return 999\n");
+    f.git(&["add", "file_003.py"]);
+
+    let r = f.trace(&["status", "--json"]);
+    r.ok();
+    let v = r.view();
+    let rows = v["results"].as_array().unwrap();
+    assert_eq!(
+        v["files"], 515,
+        "every dirty row must survive: {}",
+        r.stdout
+    );
+    assert_eq!(rows.len(), 515, "result count must match counts.files");
+
+    let row = |path: &str| {
+        rows.iter()
+            .find(|entry| entry["path"] == path)
+            .unwrap_or_else(|| panic!("missing status row for {path}"))
+    };
+    assert_eq!(row("renamed.py")["state"], "renamed");
+    assert_eq!(row("file_001.py")["state"], "deleted");
+    assert_eq!(row("fresh.py")["state"], "untracked");
+    assert_eq!(row("file_002.py")["staging"], "partly staged");
+    assert_eq!(row("file_003.py")["staging"], "staged");
+    assert_eq!(row("file_513.py")["ccn_total"], 1);
+    assert_eq!(row("file_513.py")["ccn_rank"], "low");
+    assert_eq!(row("file_513.py")["callers"], 0);
+    assert!(
+        row("file_513.py")["shoulder"]
+            .as_str()
+            .unwrap()
+            .contains("loc: 2 · ccn: 1 low"),
+        "last chunk must retain passive context: {}",
+        row("file_513.py")
+    );
+}
+
 /// `history --commit <ref>` answers what `git show -s --format=full` was
 /// reached for: the body, not just the subject.
 #[test]
@@ -912,7 +1319,12 @@ fn history_commit_mode_returns_the_whole_commit() {
         .as_array()
         .unwrap()
         .iter()
-        .map(|row| (row["path"].as_str().unwrap(), row["status"].as_str().unwrap()))
+        .map(|row| {
+            (
+                row["path"].as_str().unwrap(),
+                row["status"].as_str().unwrap(),
+            )
+        })
         .collect();
     assert_eq!(files["mod.py"], "modified");
     assert_eq!(files["added.py"], "added");
@@ -950,7 +1362,13 @@ fn history_regex_searches_past_changes_by_pattern() {
         literal.stdout
     );
 
-    let regex = f.trace(&["history", "--contains", "TIMEOUT = [0-9]+", "--regex", "--json"]);
+    let regex = f.trace(&[
+        "history",
+        "--contains",
+        "TIMEOUT = [0-9]+",
+        "--regex",
+        "--json",
+    ]);
     regex.ok();
     assert_eq!(
         regex.view()["commits"].as_i64().unwrap(),
@@ -987,7 +1405,10 @@ fn grep_at_ref_searches_a_commit_not_the_worktree() {
     assert_eq!(v["results"][0]["file"], "app.py");
     assert_eq!(v["results"][0]["line"].as_i64().unwrap(), 1);
     assert!(
-        v["results"][0]["snippet"].as_str().unwrap().contains("SECRET_TOKEN"),
+        v["results"][0]["snippet"]
+            .as_str()
+            .unwrap()
+            .contains("SECRET_TOKEN"),
         "{}",
         past.stdout
     );

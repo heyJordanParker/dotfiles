@@ -64,7 +64,10 @@ pub fn apply(json: &[u8], program: &str) -> Result<Vec<Value>> {
         Ok(m) => m,
         Err(e) => bail!("--filter: invalid jq program: {e:?}"),
     };
-    let filter = match jaq_core::Compiler::default().with_funs(funs).compile(modules) {
+    let filter = match jaq_core::Compiler::default()
+        .with_funs(funs)
+        .compile(modules)
+    {
         Ok(f) => f,
         Err(e) => bail!("--filter: invalid jq program: {e:?}"),
     };
@@ -75,9 +78,8 @@ pub fn apply(json: &[u8], program: &str) -> Result<Vec<Value>> {
         match result {
             Ok(v) => {
                 let rendered = v.to_string();
-                let parsed: Value = serde_json::from_str(&rendered).map_err(|e| {
-                    anyhow::anyhow!("--filter: result was not valid JSON: {e}")
-                })?;
+                let parsed: Value = serde_json::from_str(&rendered)
+                    .map_err(|e| anyhow::anyhow!("--filter: result was not valid JSON: {e}"))?;
                 out.push(parsed);
             }
             Err(e) => bail!("--filter: jq runtime error: {}", diagnostic(e)),

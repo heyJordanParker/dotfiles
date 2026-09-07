@@ -14,7 +14,7 @@ Local code-intelligence command-line interface for Agents working in a repositor
 - Per-function complexity is computed by the in-process tree-sitter decision-node walker.
 - `.tracer-cache/` lives at the target repository root.
 - The cache namespaces are `file/` and `sessions/<session_id>/<agent_id>/`.
-- The `file/` namespace stores per-file facts, the bulk git-activity map, the deploy-presence map, the mtime index, and the relations index.
+- The `file/` namespace stores per-file facts, the bulk git-activity map, the deploy-presence map, the mtime index, and separate relations edges and symbols entries.
 - A cache entry holds only what its key's inputs determine.
 - A repo-wide index reads through `cache::load_bytes` and deserializes straight into its own type, never into a `serde_json::Value` first.
 - `memo.rs` owns every per-repo memo, so an index or map is read and parsed at most once per invocation.
@@ -22,11 +22,12 @@ Local code-intelligence command-line interface for Agents working in a repositor
 - `cache clear` empties the `file/` namespace, and `--all` removes the whole tree.
 - Every repo-wide index sweeps its superseded keys with `cache::evict_prefixed` on write.
 - The per-file entry is keyed by contents and path, so it holds no git facts.
-- `git_activity` owns every git fact and keys its map by HEAD and the 30-day cutoff date.
+- `git_activity` owns every git fact; its disk-cached bulk map keys only history-derived facts by HEAD and the 30-day cutoff date.
+- Working-tree state is always recomputed fresh, and deploy-branch presence is cached separately, keyed by the present deploy branches' tip commit ids.
 - `file_facts::with_git` joins the git facts onto per-file facts on every resolve.
 - `relations.rs` owns the two inversions and the on-demand resolver.
 - The inversions are `name -> {defined_in, used_in}` and `file -> [importer]`.
-- `file/relations_v2__schema<N>.json` is the index holding both inversions.
+- `file/relations_edges_v1__schema<N>.json` holds the file table, provenance, and importer inversion; `file/relations_symbols_v1__schema<N>.json` holds the name inversion and is parsed only for a symbol query.
 - The index writes every path once into a table and references it by position.
 - In memory a path is one shared handle, and every list that names a file holds a clone of it.
 - The index is mutable and rewritten in place, so its key carries no fingerprint.
@@ -34,11 +35,11 @@ Local code-intelligence command-line interface for Agents working in a repositor
 - `built_from` names the content key each file's rows were absorbed from, so only the files that moved are re-absorbed.
 - Reference edges are resolved per query from the files the index names, never stored.
 - `relations::use_sites` is the resolver, and it runs the mentioning files in parallel, a `RESOLVE_CHUNK` at a time.
-- Resolution is same-language only, and a member call is the sole ambiguous case.
-- A member call fans out to one row per same-named declaration, and `callers --limit` bounds what is returned.
+- Resolution is same-language only; ambiguity now also arises when a free or static call's import legitimately names several candidates, not only from a member call whose receiver type is unknown.
+- An ambiguous reference fans out to one row per remaining candidate, and `callers --limit` bounds what is returned.
 - `cache build` takes the repository to build, never a subdirectory of one.
 - `commands::reach` owns `usages` and `dependencies`, which are one walk read in either direction.
-- `file_facts::RESOLVE_CHUNK` is the one bound on how much of a repository is resident at a time.
+- `file_facts::RESOLVE_CHUNK` bounds how many files' full extracted facts one `get_batch` resolve holds resident at a time; it is not a byte-level or total-repository memory guarantee.
 - Every caller that can span a whole repository walks its inputs through `RESOLVE_CHUNK`.
 - `file_facts::get_batch` is the only correct resolver for a command that touches more than one file.
 - Adding or removing a file rebuilds the index whole, because it moves module-path resolution for every file.

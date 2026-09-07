@@ -9,7 +9,7 @@
 //! (`Type { .. }` / `Type(..)` as a path call) and macro invocations.
 //! Imports are the leaf names brought in by `use` paths.
 
-use crate::extraction::{Declaration, Export, ExtractionResult, Import, Reference, RefShape};
+use crate::extraction::{Declaration, Export, ExtractionResult, Import, RefShape, Reference};
 use tree_sitter::{Node, Parser};
 
 fn empty() -> ExtractionResult {
@@ -72,7 +72,13 @@ fn walk_imports(root: Node, source: &[u8]) -> Vec<Import> {
     while let Some(n) = stack.pop() {
         if n.kind() == "use_declaration" {
             if let Some(arg) = n.child_by_field_name("argument") {
-                collect_use(arg, source, &[], n.start_position().row as i64 + 1, &mut out);
+                collect_use(
+                    arg,
+                    source,
+                    &[],
+                    n.start_position().row as i64 + 1,
+                    &mut out,
+                );
             }
         }
         let mut c = n.walk();
@@ -103,6 +109,7 @@ fn collect_use(node: Node, source: &[u8], prefix: &[String], line: i64, out: &mu
                     out.push(Import {
                         module: next.join("::"),
                         symbol: Some(t.to_string()),
+                        locals: Vec::new(),
                         line,
                     });
                 }
@@ -149,6 +156,7 @@ fn collect_use(node: Node, source: &[u8], prefix: &[String], line: i64, out: &mu
                 out.push(Import {
                     module: prefix.join("::"),
                     symbol: Some(t.to_string()),
+                    locals: Vec::new(),
                     line,
                 });
             }
@@ -198,14 +206,12 @@ fn walk_declarations(root: Node, source: &[u8]) -> Vec<Declaration> {
                     // A function is a method when its container is set (it
                     // sits inside an impl/trait body); a type item is never
                     // contained.
-                    let decl_container = if matches!(
-                        n.kind(),
-                        "function_item" | "function_signature_item"
-                    ) {
-                        container.clone()
-                    } else {
-                        None
-                    };
+                    let decl_container =
+                        if matches!(n.kind(), "function_item" | "function_signature_item") {
+                            container.clone()
+                        } else {
+                            None
+                        };
                     if seen.insert((name.to_string(), line)) {
                         out.push(Declaration {
                             name: name.to_string(),

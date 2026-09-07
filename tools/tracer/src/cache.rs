@@ -31,7 +31,7 @@ pub const NAMESPACE_FILE: &str = "file";
 /// Bump whenever extraction, the `FileFacts` shape, or a repo-wide index
 /// shape changes — old entries become unreachable automatically across all
 /// namespaces.
-pub const SCHEMA_VERSION: u32 = 15;
+pub const SCHEMA_VERSION: u32 = 18;
 
 /// Active CCN backend. There is exactly one backend — the tree-sitter
 /// AST decision-node walker — so cache identity is unconditionally
@@ -51,19 +51,24 @@ pub fn active_ccn_backend() -> &'static str {
 /// so nothing ever persists outside a worktree root.
 pub fn worktree_root_for(path: &Path) -> Option<PathBuf> {
     let cwd = cwd_of(path);
-    let out = Command::new("git")
-        .args(["rev-parse", "--show-toplevel"])
-        .current_dir(&cwd)
-        .output()
-        .ok()?;
-    if !out.status.success() {
-        return None;
-    }
-    let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
-    if s.is_empty() {
-        return None;
-    }
-    Some(PathBuf::from(s))
+    #[allow(non_upper_case_globals)]
+    static worktree_roots: crate::memo::Memo<Option<PathBuf>> = std::sync::OnceLock::new();
+    let root = crate::memo::get_or_build(&worktree_roots, &cwd, || {
+        let out = Command::new("git")
+            .args(["rev-parse", "--show-toplevel"])
+            .current_dir(&cwd)
+            .output()
+            .ok()?;
+        if !out.status.success() {
+            return None;
+        }
+        let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        if s.is_empty() {
+            return None;
+        }
+        Some(PathBuf::from(s))
+    });
+    root.as_ref().clone()
 }
 
 /// Non-persisting display root for read paths that need *some* base for
@@ -106,13 +111,14 @@ fn cache_root(repo_root: &Path) -> Result<PathBuf> {
     // `.tracer-cache/` dirs from materializing under cwd when tracer is
     // invoked outside any git repo.
     if !repo_root.join(".git").exists() {
-        anyhow::bail!(
-            "cache_root: not a worktree root: {}",
-            repo_root.display()
-        );
+        anyhow::bail!("cache_root: not a worktree root: {}", repo_root.display());
     }
     let dir = repo_root.join(CACHE_DIR_NAME);
     fs::create_dir_all(&dir)?;
+    let ignore = dir.join(".gitignore");
+    if !ignore.exists() {
+        fs::write(ignore, "*\n")?;
+    }
     Ok(dir)
 }
 
@@ -138,9 +144,7 @@ pub fn relative_to_root(path: &Path, repo_root: &Path) -> String {
 /// sha256("v{SCHEMA}|ccn:{backend}\0" + data + "\0" + relpath).
 pub fn file_hash_from_bytes(data: &[u8], path: &Path, repo_root: &Path) -> String {
     let mut hasher = Sha256::new();
-    hasher.update(
-        format!("v{}|ccn:{}\0", SCHEMA_VERSION, active_ccn_backend()).as_bytes(),
-    );
+    hasher.update(format!("v{}|ccn:{}\0", SCHEMA_VERSION, active_ccn_backend()).as_bytes());
     hasher.update(data);
     hasher.update(b"\0");
     hasher.update(relative_to_root(path, repo_root).as_bytes());
@@ -150,12 +154,6 @@ pub fn file_hash_from_bytes(data: &[u8], path: &Path, repo_root: &Path) -> Strin
 pub fn file_hash(path: &Path, repo_root: &Path) -> Result<String> {
     let data = fs::read(path)?;
     Ok(file_hash_from_bytes(&data, path, repo_root))
-}
-
-/// Load a cache entry as a serde_json::Value. None when missing or corrupt.
-pub fn load(namespace: &str, key: &str, repo_root: &Path) -> Option<serde_json::Value> {
-    let bytes = load_bytes(namespace, key, repo_root)?;
-    serde_json::from_slice(&bytes).ok()
 }
 
 /// The entry's raw bytes, for an entry whose reader deserializes straight
@@ -185,12 +183,7 @@ pub fn load_bytes(namespace: &str, key: &str, repo_root: &Path) -> Option<Vec<u8
 /// the same invariant `worktree_root_for` enforces, but the assert fires
 /// the moment a caller passes a non-worktree path so the wrong call site
 /// is named in tests rather than silently no-op'd.
-pub fn save(
-    namespace: &str,
-    key: &str,
-    value: &serde_json::Value,
-    repo_root: &Path,
-) -> Result<()> {
+pub fn save(namespace: &str, key: &str, value: &serde_json::Value, repo_root: &Path) -> Result<()> {
     debug_assert!(
         repo_root.join(".git").exists(),
         "cache::save called with non-worktree repo_root: {}",
@@ -209,8 +202,7 @@ pub fn save(
     // so concurrent rayon writers in get_batch never collide on one temp
     // path (a collision is both a concurrency hazard and a write
     // serialization point).
-    static SEQ: std::sync::atomic::AtomicU64 =
-        std::sync::atomic::AtomicU64::new(0);
+    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let n = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let tmp = dir.join(format!("{key}.{}.{n}.tmp", std::process::id()));
     {

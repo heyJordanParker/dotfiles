@@ -16,7 +16,10 @@ SessionStart matcher `startup|resume|clear|compact` runs `trace context` and inj
 SessionStart matcher `startup|resume|clear|compact` runs `trace context prime --reason session_start|post_compact`; compact maps to `post_compact`, all other starts map to `session_start`.
 
 ### `enrich_on_read.py` attaches shoulders to file operations
-PreToolUse matcher `Read|Glob|Grep|Edit|Write` runs `trace context <file>`. Edit and Write pass `--no-record` because an edit is not a read. Glob and Grep resolve matched files and cap enrichment at twenty files.
+PreToolUse matcher `Read|Glob|Grep|Edit|Write` runs `trace context <file>`.
+
+- Edit, Write, and a shell pre-execution read pass `--no-record`.
+- Glob and Grep batch matched files into `trace context <files...> --no-record --json` calls, capped at twenty successful shoulders.
 
 ### `guard_trace.py` blocks lossy commands
 PreToolUse matcher `Bash` blocks trace output piped to shell filters or redirected into a repository file, and raw file-search commands against in-repo paths. It whitelists `/tmp`, `/dev/null`, `docs/shaping/`, `docs/plans/`, `docs/agents/`, `.claude/shaping/`, `.claude/plans/`, and `.tracer-cache/`.

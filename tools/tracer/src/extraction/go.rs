@@ -9,7 +9,7 @@
 //! edge is the package-qualified function call and the site names no type)
 //! and composite literals (`Type{..}` — `Static`).
 
-use crate::extraction::{Declaration, Export, ExtractionResult, Import, Reference, RefShape};
+use crate::extraction::{Declaration, Export, ExtractionResult, Import, RefShape, Reference};
 use tree_sitter::{Node, Parser};
 
 fn empty() -> ExtractionResult {
@@ -76,6 +76,7 @@ fn walk_imports(root: Node, source: &[u8]) -> Vec<Import> {
                     out.push(Import {
                         module,
                         symbol,
+                        locals: Vec::new(),
                         line: n.start_position().row as i64 + 1,
                     });
                 }

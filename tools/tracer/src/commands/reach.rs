@@ -12,7 +12,6 @@ use crate::commands::enrich;
 use crate::{cache, relations};
 use anyhow::Result;
 use serde_json::{json, Value};
-use std::collections::HashMap;
 use std::path::Path;
 
 /// Which way to read the import inversion, and every word that changes with
@@ -80,7 +79,6 @@ pub fn run(
     as_json: bool,
 ) -> Result<Value> {
     if let Some(p) = path {
-        crate::pathval::require_exists(p, "--path");
         return path_mode(direction, p, depth, limit, as_json);
     }
     let symbol = match symbol {
@@ -102,9 +100,9 @@ pub fn run(
 fn reached_row(
     direction: Direction,
     reached: &relations::Reached,
-    languages: &HashMap<String, Option<String>>,
+    index: &relations::Relations,
 ) -> Value {
-    let language = languages.get(&reached.file).cloned().flatten();
+    let language = index.language(&reached.file);
     let named = match direction {
         Direction::Dependencies => reached.symbol.as_ref(),
         Direction::Dependents => None,
@@ -116,8 +114,8 @@ fn reached_row(
             "symbol",
         ),
         None => (
-            relations::module_id(&reached.file, language.as_deref()),
-            relations::file_to_module(&reached.file, language.as_deref()),
+            relations::module_id(&reached.file, language),
+            relations::file_to_module(&reached.file, language),
             "module",
         ),
     };
@@ -130,12 +128,7 @@ fn reached_row(
     })
 }
 
-fn symbol_mode(
-    direction: Direction,
-    symbol: &str,
-    depth: i64,
-    as_json: bool,
-) -> Result<Value> {
+fn symbol_mode(direction: Direction, symbol: &str, depth: i64, as_json: bool) -> Result<Value> {
     let here = Path::new(".");
     let repo_root = cache::worktree_root_for(here).unwrap_or_else(|| cache::display_root(here));
     let declarations = relations::declarations(symbol, &repo_root);
@@ -148,7 +141,7 @@ fn symbol_mode(
         eprintln!("Symbol '{symbol}' not declared anywhere in this repository.");
         std::process::exit(2);
     }
-    let languages = relations::languages(&repo_root);
+    let index = relations::get(&repo_root);
 
     // (node_id, label, kind, the file to walk from, source line)
     let mut subjects: Vec<(String, String, String, String, i64)> = Vec::new();
@@ -162,10 +155,10 @@ fn symbol_mode(
         ));
     }
     for file in &modules {
-        let language = languages.get(file).cloned().flatten();
+        let language = index.language(file);
         subjects.push((
-            relations::module_id(file, language.as_deref()),
-            relations::file_to_module(file, language.as_deref()),
+            relations::module_id(file, language),
+            relations::file_to_module(file, language),
             "module".to_string(),
             file.clone(),
             1,
@@ -174,9 +167,7 @@ fn symbol_mode(
 
     let chains: Vec<Vec<relations::Reached>> = subjects
         .iter()
-        .map(|(_, _, _, file, _)| {
-            relations::reachable(file, depth, direction.reach(), &repo_root)
-        })
+        .map(|(_, _, _, file, _)| relations::reachable(file, depth, direction.reach(), &repo_root))
         .collect();
 
     // Both directions carry the same file state, so they answer with
@@ -194,7 +185,7 @@ fn symbol_mode(
     {
         let rows: Vec<Value> = chain
             .iter()
-            .map(|r| reached_row(direction, r, &languages))
+            .map(|r| reached_row(direction, r, &index))
             .collect();
         symbols.push(json!({
             "node_id": node_id,
@@ -217,7 +208,7 @@ fn symbol_mode(
                 continue;
             }
             for r in chain {
-                let row = reached_row(direction, r, &languages);
+                let row = reached_row(direction, r, &index);
                 println!(
                     "    [d={}] {} [{}] @ {}:1",
                     r.depth,
@@ -253,14 +244,26 @@ fn path_mode(
     // The index is always read against the real git repo root: a single-file
     // `--path` argument used as the root would index one file and amputate
     // every cross-file edge.
-    let repo_root = cache::worktree_root_for(path).unwrap_or_else(|| cache::display_root(path));
+    let repo_root = cache::worktree_root_for(path)
+        .or_else(|| cache::worktree_root_for(Path::new(".")))
+        .unwrap_or_else(|| cache::display_root(path));
+    let scope = repo_root
+        .canonicalize()
+        .ok()
+        .zip(path.canonicalize().ok())
+        .and_then(|(root, path)| {
+            path.strip_prefix(root)
+                .ok()
+                .map(|path| path.to_string_lossy().replace('\\', "/"))
+        });
     let ranked = relations::ranked_by_reach(
         depth,
         limit.max(0) as usize,
         direction.reach(),
+        scope.as_deref(),
         &repo_root,
     );
-    let languages = relations::languages(&repo_root);
+    let index = relations::get(&repo_root);
 
     let ranked_files: Vec<String> = ranked.iter().map(|r| r.file.clone()).collect();
     let shoulders = enrich::file_shoulders(&ranked_files, &repo_root);
@@ -274,7 +277,7 @@ fn path_mode(
         .iter()
         .enumerate()
         .map(|(i, r)| {
-            let language = languages.get(&r.file).cloned().flatten();
+            let language = index.language(&r.file);
             let named = match direction {
                 Direction::Dependents => r.symbol.as_ref(),
                 Direction::Dependencies => None,
@@ -286,8 +289,8 @@ fn path_mode(
                     "symbol",
                 ),
                 None => (
-                    relations::module_id(&r.file, language.as_deref()),
-                    relations::file_to_module(&r.file, language.as_deref()),
+                    relations::module_id(&r.file, language),
+                    relations::file_to_module(&r.file, language),
                     "module",
                 ),
             };
@@ -318,7 +321,10 @@ fn path_mode(
 
     if !as_json {
         if rows.is_empty() {
-            println!("(no imports found in this repository — run `trace cache build` if you expect data)");
+            println!(
+                "(no files with {} found in this scope)",
+                direction.rows_key()
+            );
         } else {
             println!(
                 "Top {} {} nodes in {} (transitive depth ≤ {depth}):",

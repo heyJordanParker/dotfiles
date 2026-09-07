@@ -213,7 +213,7 @@ fn read_log_dir() -> Option<PathBuf> {
     None
 }
 
-fn content_hash(content: &str) -> String {
+pub fn content_hash(content: &str) -> String {
     let digest = Sha256::digest(content.as_bytes());
     format!("sha256:{}", hex::encode(digest))
 }
@@ -347,8 +347,9 @@ pub fn record_emission(memories: &[LoadedMemory], source: &str) {
 /// which line range was read (`lines`, a 1-based inclusive `(start, end)`;
 /// `None` means the whole file). Returns whether this is the file's first
 /// surfacing in the session (so the caller can attach first-touch-only context
-/// like the file's method list). No-op when the session id is absent or the
-/// file is missing.
+/// like the file's method list). No-op when the session id is absent.
+/// Captured source identity, byte count, and line count come from its caller,
+/// so bookkeeping never reopens a file after that caller delivered it.
 ///
 /// Two states coexist. The `emitted` projection dedups by content hash —
 /// mirroring `record_emission`, a follow-up doc-injection or read against the
@@ -366,13 +367,13 @@ pub fn record_emission(memories: &[LoadedMemory], source: &str) {
 pub fn record_read(
     file_path: &std::path::Path,
     source: &str,
+    content_hash: &str,
+    content_size: usize,
+    total_lines: usize,
     lines: Option<(usize, usize)>,
 ) -> bool {
     let Some(dir) = log_dir() else {
         return true;
-    };
-    let Ok(content) = fs::read_to_string(file_path) else {
-        return false;
     };
     if fs::create_dir_all(&dir).is_err() {
         return true;
@@ -399,8 +400,7 @@ pub fn record_read(
         .unwrap_or_else(|_| file_path.to_path_buf())
         .to_string_lossy()
         .to_string();
-    let hash = content_hash(&content);
-    let total_lines = content.lines().count();
+    let hash = content_hash.to_string();
 
     let first_touch = view.emitted.get(&canonical) != Some(&hash);
 
@@ -432,7 +432,7 @@ pub fn record_read(
             path: canonical,
             kind: EventKind::ReadFile,
             source: source.to_string(),
-            size: content.len(),
+            size: content_size,
             content_hash: hash,
             triggering_tool: std::env::var("TRACER_TRIGGERING_TOOL").ok(),
             triggering_command: std::env::var("TRACER_TRIGGERING_COMMAND").ok(),
@@ -518,7 +518,11 @@ pub fn record_directory_touch(dir_path: &std::path::Path, source: &str) -> bool 
 ///
 /// No-op when the session id is absent. Lock failures swallow, matching
 /// `record_emission`.
-pub fn record_context_prime_drift(report: &drift::Report, observed: &drift::Observed, source: &str) {
+pub fn record_context_prime_drift(
+    report: &drift::Report,
+    observed: &drift::Observed,
+    source: &str,
+) {
     let Some(dir) = log_dir() else {
         return;
     };
@@ -559,7 +563,8 @@ pub fn record_context_prime_drift(report: &drift::Report, observed: &drift::Obse
         }
     }
     for doc in &observed.paths {
-        view.emitted.insert(doc.path.clone(), doc.content_hash.clone());
+        view.emitted
+            .insert(doc.path.clone(), doc.content_hash.clone());
     }
 
     let payload = serde_json::to_string(report).unwrap_or_else(|_| "{}".to_string());
@@ -726,10 +731,7 @@ pub fn loaded_entries() -> Vec<LoadedEntry> {
             .and_then(|v| v.as_str())
             .unwrap_or("doc_injection")
             .to_string();
-        let size = ev
-            .get("size")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(0) as usize;
+        let size = ev.get("size").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
         let visible_as = ev
             .get("visible_as")
             .and_then(|v| v.as_str())

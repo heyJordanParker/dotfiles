@@ -15,7 +15,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use tracer_cli_tests::{trace_bin, Fixture};
+use tracer_cli_tests::{trace_bin, trace_env, Fixture};
 
 #[allow(non_upper_case_globals)] // project naming rule bans ALL_CAPS for our own identifiers
 static log_seq: AtomicU64 = AtomicU64::new(0);
@@ -45,9 +45,8 @@ fn read_events_jsonl(repo_root: &Path, session_id: &str, agent_id: &str) -> Vec<
     text.lines()
         .filter(|l| !l.trim().is_empty())
         .map(|l| {
-            serde_json::from_str(l).unwrap_or_else(|e| {
-                panic!("events.jsonl line is not valid JSON ({e}): {l}")
-            })
+            serde_json::from_str(l)
+                .unwrap_or_else(|e| panic!("events.jsonl line is not valid JSON ({e}): {l}"))
         })
         .collect()
 }
@@ -182,7 +181,11 @@ fn different_agents_in_one_session_keep_separate_logs() {
     // Alpha surfaces docs first.
     let alpha_first = f.trace_env(&["docs", "sub/util.py"], &env_alpha);
     alpha_first.ok();
-    assert!(alpha_first.stdout.contains("Root rules"), "{}", alpha_first.stdout);
+    assert!(
+        alpha_first.stdout.contains("Root rules"),
+        "{}",
+        alpha_first.stdout
+    );
 
     // Beta in the same session must still see the docs — its log is
     // independent and starts empty.
@@ -235,55 +238,70 @@ fn concurrent_writers_produce_no_corruption() {
     // must keep events.jsonl line-valid and view.json single-object-valid.
     let f = docs_repo();
     let sid = fresh_session_id("concurrent");
-    let bin = trace_bin();
     let root = f.root.clone();
 
     let mut handles = Vec::new();
     for _ in 0..8 {
-        let bin = bin.clone();
         let root = root.clone();
         let sid = sid.clone();
         handles.push(thread::spawn(move || {
-            let out = Command::new(&bin)
-                .args(["docs", "sub/util.py"])
-                .current_dir(&root)
-                .env("HOME", &root)
-                .env("CLAUDE_CODE_SESSION_ID", &sid)
-                .output()
-                .expect("spawn trace");
-            assert!(
-                out.status.success(),
-                "trace docs failed: {}",
-                String::from_utf8_lossy(&out.stderr)
-            );
+            trace_env(
+                &root,
+                ["docs", "sub/util.py"],
+                &[("CLAUDE_CODE_SESSION_ID", sid.as_str())],
+            )
         }));
     }
     for h in handles {
-        h.join().unwrap();
+        h.join().unwrap().ok();
     }
 
     let events = read_events_jsonl(&f.root, &sid, "root");
     // Every line parsed as JSON via read_events_jsonl — file is line-valid.
-    // Dedup-by-hash means at most 2 events (root + sub Claude.md). The
-    // observed count is 1 ≤ n ≤ 2 depending on whether any racer raced
-    // through after another already materialized the view.
-    assert!(
-        events.len() <= 2,
-        "concurrent dedupe failed — got {} events, expected ≤ 2: {:?}",
+    assert_eq!(
         events.len(),
-        events
+        2,
+        "concurrent writers must record each surfaced doc exactly once: {events:?}"
+    );
+    let visible: BTreeSet<&str> = events
+        .iter()
+        .map(|event| event["visible_as"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        visible,
+        BTreeSet::from(["Claude.md", "sub/Claude.md"]),
+        "concurrent writers must retain the exact surfaced documents"
     );
     assert!(
-        !events.is_empty(),
-        "at least one writer must have appended"
+        events
+            .iter()
+            .all(|event| event["kind"] == "doc_injection" && event["source"] == "trace_docs"),
+        "concurrent events must remain exact doc events: {events:?}"
     );
 
     let view = read_view(&f.root, &sid, "root");
     let emitted = view["emitted"].as_object().expect("view.emitted is object");
-    assert!(
-        emitted.len() <= 2 && !emitted.is_empty(),
-        "view.emitted size out of range: {:?}",
-        emitted
+    assert_eq!(
+        emitted.len(),
+        2,
+        "view must materialize each surfaced doc exactly once: {emitted:?}"
+    );
+    let emitted_paths: BTreeSet<&str> = emitted.keys().map(String::as_str).collect();
+    let canonical_root = f.root.canonicalize().expect("fixture root canonicalizes");
+    let expected_paths = BTreeSet::from([
+        canonical_root
+            .join("Claude.md")
+            .to_string_lossy()
+            .into_owned(),
+        canonical_root
+            .join("sub/Claude.md")
+            .to_string_lossy()
+            .into_owned(),
+    ]);
+    assert_eq!(
+        emitted_paths,
+        expected_paths.iter().map(String::as_str).collect(),
+        "view must contain only the exact root and sub docs"
     );
 }
 
@@ -298,17 +316,23 @@ fn context_file_arg_records_read_file_event() {
     f.trace_env(&["context", "sub/util.py"], &env).ok();
 
     let events = read_events_jsonl(&f.root, &sid, "root");
-    let read_events: Vec<&serde_json::Value> = events
-        .iter()
-        .filter(|e| e["kind"] == "read_file")
-        .collect();
+    let read_events: Vec<&serde_json::Value> =
+        events.iter().filter(|e| e["kind"] == "read_file").collect();
     assert_eq!(
         read_events.len(),
         1,
         "expected one read_file event for the file-arg context call, got: {events:?}"
     );
     let event = read_events[0];
-    for key in ["ts", "path", "kind", "source", "size", "content_hash", "visible_as"] {
+    for key in [
+        "ts",
+        "path",
+        "kind",
+        "source",
+        "size",
+        "content_hash",
+        "visible_as",
+    ] {
         assert!(
             event.get(key).is_some(),
             "read_file event missing required field `{key}`: {event}"
@@ -316,7 +340,10 @@ fn context_file_arg_records_read_file_event() {
     }
     assert_eq!(event["source"], "agent_read", "{event}");
     assert!(
-        event["content_hash"].as_str().unwrap().starts_with("sha256:"),
+        event["content_hash"]
+            .as_str()
+            .unwrap()
+            .starts_with("sha256:"),
         "content_hash must be sha256-prefixed: {event}"
     );
     assert!(
@@ -460,8 +487,7 @@ fn dotfiles_root() -> PathBuf {
 }
 
 fn archive_hook() -> PathBuf {
-    dotfiles_root()
-        .join("packages/agents/hooks/archive_subagent_log.py")
+    dotfiles_root().join("packages/agents/hooks/archive_subagent_log.py")
 }
 
 /// Spawn the archive hook with cwd = the test's repo root, which is how
@@ -500,7 +526,11 @@ fn archive_hook_moves_active_log_under_archived_subdir() {
     );
     let pre_events = read_events_jsonl(&f.root, &sid, aid);
     let pre_view = read_view(&f.root, &sid, aid);
-    assert_eq!(pre_events.len(), 2, "log should hold 2 doc events pre-archive");
+    assert_eq!(
+        pre_events.len(),
+        2,
+        "log should hold 2 doc events pre-archive"
+    );
 
     // Archive it.
     run_archive_hook(&f.root, &sid, aid);
@@ -510,7 +540,8 @@ fn archive_hook_moves_active_log_under_archived_subdir() {
         !log_dir(&f.root, &sid, aid).exists(),
         "active log dir must be removed after archive"
     );
-    let archived_dir = f.root
+    let archived_dir = f
+        .root
         .join(".tracer-cache")
         .join("sessions")
         .join(&sid)
@@ -522,8 +553,8 @@ fn archive_hook_moves_active_log_under_archived_subdir() {
     );
     let archived_events_path = archived_dir.join("events.jsonl");
     let archived_view_path = archived_dir.join("view.json");
-    let archived_events_text = std::fs::read_to_string(&archived_events_path)
-        .expect("archived events.jsonl readable");
+    let archived_events_text =
+        std::fs::read_to_string(&archived_events_path).expect("archived events.jsonl readable");
     let archived_events: Vec<serde_json::Value> = archived_events_text
         .lines()
         .filter(|l| !l.trim().is_empty())
@@ -575,7 +606,8 @@ fn read_path_follows_archived_log_when_active_is_absent() {
     );
 
     // Archived events.jsonl is unchanged: 2 events, exactly the originals.
-    let archived_dir = f.root
+    let archived_dir = f
+        .root
         .join(".tracer-cache")
         .join("sessions")
         .join(&sid)
@@ -601,7 +633,8 @@ fn archive_hook_is_a_no_op_for_a_subagent_that_never_wrote_a_log() {
     let f = docs_repo();
     let sid = fresh_session_id("archive-noop");
     let aid = "subagent-never-ran";
-    let archived_dir = f.root
+    let archived_dir = f
+        .root
         .join(".tracer-cache")
         .join("sessions")
         .join(&sid)
@@ -637,7 +670,8 @@ fn archive_hook_replaces_existing_archived_copy_on_double_stop() {
     // First run + archive.
     f.trace_env(&["docs", "sub/util.py"], &env).ok();
     run_archive_hook(&f.root, &sid, aid);
-    let archived_dir = f.root
+    let archived_dir = f
+        .root
         .join(".tracer-cache")
         .join("sessions")
         .join(&sid)
@@ -655,10 +689,7 @@ fn archive_hook_replaces_existing_archived_copy_on_double_stop() {
         "sub/inner/Claude.md",
         "# Inner rules\n\nInner-deep rules.\n",
     );
-    f.write(
-        "sub/inner/leaf.py",
-        "def leaf(v):\n    return v\n",
-    );
+    f.write("sub/inner/leaf.py", "def leaf(v):\n    return v\n");
     f.commit("add deeper inner rules");
     f.trace_env(&["docs", "sub/inner/leaf.py"], &env).ok();
     assert!(

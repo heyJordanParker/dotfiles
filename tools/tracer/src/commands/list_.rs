@@ -23,7 +23,7 @@
 use crate::{cache, file_facts, git_activity, passive_context, repo_files};
 use anyhow::Result;
 use serde_json::{json, Value};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -39,9 +39,7 @@ fn is_source_ext(rel: &str) -> bool {
     Path::new(rel)
         .extension()
         .and_then(|e| e.to_str())
-        .map(|e| {
-            crate::extraction::supported_extensions().contains(&e.to_lowercase().as_str())
-        })
+        .map(|e| crate::extraction::supported_extensions().contains(&e.to_lowercase().as_str()))
         .unwrap_or(false)
 }
 
@@ -91,7 +89,8 @@ struct FileRow {
     mtime_ns: i64,
     /// Repo-relative key when the listing sits inside a worktree.
     rel: Option<String>,
-    facts: Option<file_facts::FileFacts>,
+    code_json: Value,
+    code_human: Option<(i64, i64, String)>,
     git: Option<String>,
     git_json: Value,
 }
@@ -110,23 +109,16 @@ struct DirSummary {
     has_uncommitted: bool,
 }
 
-/// Aggregate per-entry signals over a tracked subtree: complexity from the
-/// per-file facts (only source files are batched, so the rest contribute 0),
-/// git state from the bulk activity map that owns it.
+/// Aggregate git signals over a tracked subtree. Complexity is projected into
+/// the summary as each bounded facts chunk resolves.
 fn aggregate(
     rels: &[String],
     git_map: &std::collections::HashMap<String, git_activity::GitActivity>,
-    facts_map: &std::collections::HashMap<String, file_facts::FileFacts>,
 ) -> DirSummary {
-    let mut ccn_total = 0i64;
     let mut last_modified: Option<String> = None;
     let mut has_uncommitted = false;
 
     for rel in rels {
-        ccn_total += facts_map
-            .get(rel)
-            .map(|f| f.cyclomatic_complexity_total)
-            .unwrap_or(0);
         let activity = git_map.get(rel);
         let modified = activity.and_then(|a| a.last_modified.clone());
         let state = activity.and_then(|a| a.working_state.clone());
@@ -135,14 +127,18 @@ fn aggregate(
                 last_modified = Some(m.clone());
             }
         }
-        if state.as_deref().map(|s| DIRTY_STATES.contains(&s)).unwrap_or(false) {
+        if state
+            .as_deref()
+            .map(|s| DIRTY_STATES.contains(&s))
+            .unwrap_or(false)
+        {
             has_uncommitted = true;
         }
     }
 
     DirSummary {
         file_count: rels.len(),
-        ccn_total,
+        ccn_total: 0,
         last_modified,
         has_uncommitted,
     }
@@ -162,9 +158,7 @@ fn partition_under_base(
         .unwrap_or_else(|_| repo_root.to_path_buf());
     let base_abs = base.canonicalize().unwrap_or_else(|_| base.to_path_buf());
     let rel_base = base_abs.strip_prefix(&root).unwrap_or(Path::new(""));
-    let rel_base_str = if rel_base.as_os_str().is_empty()
-        || rel_base.to_string_lossy() == "."
-    {
+    let rel_base_str = if rel_base.as_os_str().is_empty() || rel_base.to_string_lossy() == "." {
         String::new()
     } else {
         format!("{}/", rel_base.to_string_lossy())
@@ -176,7 +170,10 @@ fn partition_under_base(
         }
         let under = &rel[rel_base_str.len()..];
         if let Some((head, _)) = under.split_once('/') {
-            by_subdir.entry(head.to_string()).or_default().push(rel.clone());
+            by_subdir
+                .entry(head.to_string())
+                .or_default()
+                .push(rel.clone());
         }
     }
     by_subdir
@@ -293,10 +290,7 @@ pub fn run(
         fs::read_dir(base.join(name))
             .map(|rd| {
                 rd.flatten()
-                    .filter(|e| {
-                        show_hidden
-                            || !e.file_name().to_string_lossy().starts_with('.')
-                    })
+                    .filter(|e| show_hidden || !e.file_name().to_string_lossy().starts_with('.'))
                     .count()
             })
             .unwrap_or(0)
@@ -306,47 +300,33 @@ pub fn run(
         Some(root) => {
             let git_map = git_activity::bulk_cached(root);
             let scc = crate::repo_context::metrics(root);
-            let tracked =
-                repo_files::tracked_files(root, Some(&base)).unwrap_or_default();
+            let tracked = repo_files::tracked_files(root, Some(&base)).unwrap_or_default();
             let by_subdir = partition_under_base(root, &base, &tracked);
 
-            let rel_of = |name: &str| -> String {
-                cache::relative_to_root(&base.join(name), root)
-            };
+            let rel_of = |name: &str| -> String { cache::relative_to_root(&base.join(name), root) };
 
-            // ONE batch: the tracked source subtree (dir aggregates) plus the
-            // rendered direct files whose type a source resolves — extraction
-            // supported, or the repo metrics indexed it. Ephemeral artifacts
-            // resolve in neither and stay stat-only, so nothing is extracted
-            // or cached for them.
-            let mut batch: Vec<PathBuf> = tracked
-                .iter()
-                .filter(|r| is_source_ext(r))
-                .map(|r| root.join(r))
-                .collect();
-            for (name, _, _) in &rendered {
-                let rel = rel_of(name);
-                if is_source_ext(name) || scc.per_file.get(&rel).is_some() {
-                    batch.push(base.join(name));
-                }
-            }
-            let facts_map = file_facts::get_batch(&batch, root);
-
+            let mut dir_index_by_rel: HashMap<String, usize> = HashMap::new();
             for name in &dir_names {
+                let tracked = by_subdir.get(name);
+                let index = dirs_out.len();
+                if let Some(paths) = tracked {
+                    for rel in paths {
+                        dir_index_by_rel.insert(rel.clone(), index);
+                    }
+                }
                 dirs_out.push(DirRow {
                     name: name.clone(),
                     child_count: child_count_of(name),
                     // An ignored dir has no tracked paths and stays None —
                     // its row carries the disk's child count alone.
-                    tracked: by_subdir
-                        .get(name)
-                        .map(|paths| aggregate(paths, &git_map, &facts_map)),
+                    tracked: tracked.map(|paths| aggregate(paths, &git_map)),
                 });
             }
+            let mut direct_index_by_rel: HashMap<String, usize> = HashMap::new();
             for (name, size, mtime) in &rendered {
                 let rel = rel_of(name);
-                let facts = facts_map.get(&rel).cloned();
                 let activity = git_map.get(&rel);
+                direct_index_by_rel.insert(rel.clone(), files_out.len());
                 files_out.push(FileRow {
                     name: name.clone(),
                     size_bytes: *size,
@@ -354,8 +334,46 @@ pub fn run(
                     rel: Some(rel.clone()),
                     git: activity.and_then(passive_context::git_group),
                     git_json: git_json_group(activity),
-                    facts,
+                    code_json: Value::Null,
+                    code_human: None,
                 });
+            }
+
+            // Resolve at most one shared chunk at a time, then immediately
+            // project its facts into directory summaries or direct rows.
+            let mut batch_rels: BTreeSet<String> = tracked
+                .iter()
+                .filter(|rel| is_source_ext(rel))
+                .cloned()
+                .collect();
+            for (name, _, _) in &rendered {
+                let rel = rel_of(name);
+                if is_source_ext(name) || scc.per_file.get(&rel).is_some() {
+                    batch_rels.insert(rel);
+                }
+            }
+            let batch_rels: Vec<String> = batch_rels.into_iter().collect();
+            for rels in batch_rels.chunks(file_facts::RESOLVE_CHUNK) {
+                let paths: Vec<PathBuf> = rels.iter().map(|rel| root.join(rel)).collect();
+                let facts = file_facts::get_batch(&paths, root);
+                for (rel, fact) in facts {
+                    if let Some(index) = dir_index_by_rel.get(&rel) {
+                        if let Some(summary) = dirs_out[*index].tracked.as_mut() {
+                            summary.ccn_total += fact.cyclomatic_complexity_total;
+                        }
+                    }
+                    if let Some(index) = direct_index_by_rel.get(&rel) {
+                        let row = &mut files_out[*index];
+                        row.code_json = code_json_group(Some(&fact));
+                        row.code_human = fact.language.as_ref().map(|_| {
+                            (
+                                fact.loc,
+                                fact.cyclomatic_complexity_total,
+                                fact.rank.clone(),
+                            )
+                        });
+                    }
+                }
             }
         }
         None => {
@@ -372,7 +390,8 @@ pub fn run(
                     size_bytes: *size,
                     mtime_ns: *mtime,
                     rel: None,
-                    facts: None,
+                    code_json: Value::Null,
+                    code_human: None,
                     git: None,
                     git_json: Value::Null,
                 });
@@ -408,7 +427,7 @@ pub fn run(
                     "mtime_ns": f.mtime_ns,
                     "mtime": fmt_mtime(f.mtime_ns),
                 },
-                "code": code_json_group(f.facts.as_ref()),
+                "code": f.code_json,
                 "git": f.git_json,
             })
         })
@@ -456,13 +475,8 @@ pub fn run(
             fmt_size(f.size_bytes),
             fmt_mtime(f.mtime_ns),
         );
-        if let Some(facts) = &f.facts {
-            if facts.language.is_some() {
-                line.push_str(&format!(
-                    "  loc {} \u{00b7} ccn {} {}",
-                    facts.loc, facts.cyclomatic_complexity_total, facts.rank
-                ));
-            }
+        if let Some((loc, ccn_total, rank)) = &f.code_human {
+            line.push_str(&format!("  loc {loc} \u{00b7} ccn {ccn_total} {rank}"));
         }
         if let Some(g) = &f.git {
             line.push_str(&format!("  [{g}]"));

@@ -63,9 +63,7 @@ fn merge_base(repo_root: &Path, base: &str) -> String {
         .current_dir(repo_root)
         .output();
     match out {
-        Ok(o) if o.status.success() => {
-            String::from_utf8_lossy(&o.stdout).trim().to_string()
-        }
+        Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout).trim().to_string(),
         _ => {
             eprintln!("Error: no common ancestor between HEAD and '{base}'.");
             std::process::exit(2);
@@ -133,9 +131,7 @@ fn name_status(repo_root: &Path, scope: &Scope, pathspec: Option<&str>) -> Vec<C
     }
     let out = cmd.current_dir(repo_root).output();
     let stdout = match out {
-        Ok(o) if o.status.success() => {
-            String::from_utf8_lossy(&o.stdout).to_string()
-        }
+        Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout).to_string(),
         Ok(o) => {
             eprintln!(
                 "Error: git diff failed: {}",
@@ -374,9 +370,8 @@ fn emit_file_mode(
         if let Some(rf) = row["rename_from"].as_str() {
             println!("      renamed from: {rf}");
         }
-        if let Some(shoulder) = payload["context"]["files"][row["path"].as_str().unwrap_or("")]
-            ["shoulder"]
-            .as_str()
+        if let Some(shoulder) =
+            payload["context"]["files"][row["path"].as_str().unwrap_or("")]["shoulder"].as_str()
         {
             println!("      {shoulder}");
         }
@@ -480,7 +475,10 @@ fn symbol_rows_for_change(
     head: &Exports,
     base: &Exports,
 ) -> Vec<Value> {
-    let pre_path = change.rename_from.clone().unwrap_or_else(|| change.path.clone());
+    let pre_path = change
+        .rename_from
+        .clone()
+        .unwrap_or_else(|| change.path.clone());
 
     // Index exports by (name, kind) with insertion-ordered, last-value-wins
     // semantics: a duplicate (name, kind) collapses to ONE entry at the

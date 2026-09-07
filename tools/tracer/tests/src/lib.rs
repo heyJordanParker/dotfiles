@@ -146,6 +146,16 @@ where
     for a in args {
         cmd.arg(a);
     }
+    // Session identity belongs to the fixture, never to the invoking agent.
+    // Remove inherited values before applying explicit fixture overrides.
+    for key in [
+        "AGENT_SESSION_ID",
+        "CODEX_THREAD_ID",
+        "CLAUDE_CODE_SESSION_ID",
+        "TRACER_AGENT_ID",
+    ] {
+        cmd.env_remove(key);
+    }
     for (k, v) in env {
         cmd.env(k, v);
     }

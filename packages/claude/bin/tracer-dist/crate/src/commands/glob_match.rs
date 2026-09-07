@@ -72,4 +72,3 @@ pub fn fnmatch(name: &str, pattern: &str) -> bool {
         Err(_) => false,
     }
 }
-

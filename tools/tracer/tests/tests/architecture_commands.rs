@@ -14,6 +14,9 @@
 //!   * exact path-mode centrality / coupling ordering on a fixture whose
 //!     ranking is hand-determinable.
 
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::fs;
+use std::os::unix::fs::symlink;
 use tracer_cli_tests::{standard_repo, Fixture};
 
 // ---------------------------------------------------------------------------
@@ -117,7 +120,9 @@ fn callers_excludes_unrelated_symbol() {
     let r = f.trace(&["callers", "lone_fn", "--json"]);
     r.ok();
     let v = r.view();
-    let callers = symbol(&v, "lone.py::lone_fn")["callers"].as_array().unwrap();
+    let callers = symbol(&v, "lone.py::lone_fn")["callers"]
+        .as_array()
+        .unwrap();
     assert!(
         callers.is_empty(),
         "lone_fn has no referencer; callers must be empty, got {:?}",
@@ -161,9 +166,18 @@ fn callers_excludes_unrelated_symbol() {
     assert_eq!(row["source_line"].as_i64(), Some(4));
     assert_eq!(row["relation"].as_str(), Some("references"));
     assert_eq!(row["label"].as_str(), Some("c_fn"));
-    assert_eq!(symbol(&v, "pkg/d.py::d_fn")["caller_count"].as_i64(), Some(1));
-    assert_eq!(symbol(&v, "pkg/d.py::d_fn")["resolved_count"].as_i64(), Some(1));
-    assert_eq!(symbol(&v, "pkg/d.py::d_fn")["ambiguous_count"].as_i64(), Some(0));
+    assert_eq!(
+        symbol(&v, "pkg/d.py::d_fn")["caller_count"].as_i64(),
+        Some(1)
+    );
+    assert_eq!(
+        symbol(&v, "pkg/d.py::d_fn")["resolved_count"].as_i64(),
+        Some(1)
+    );
+    assert_eq!(
+        symbol(&v, "pkg/d.py::d_fn")["ambiguous_count"].as_i64(),
+        Some(0)
+    );
 }
 
 #[test]
@@ -209,7 +223,9 @@ fn usages_dependent_row_carries_file_shoulder() {
     let r = f.trace(&["usages", "d_fn", "--json"]);
     r.ok();
     let v = r.view();
-    let deps = symbol(&v, "pkg/d.py::d_fn")["dependents"].as_array().unwrap();
+    let deps = symbol(&v, "pkg/d.py::d_fn")["dependents"]
+        .as_array()
+        .unwrap();
     let row = deps
         .iter()
         .find(|d| d["source_file"].as_str() == Some("pkg/c.py"))
@@ -260,7 +276,9 @@ fn structure_carries_file_shoulder() {
     let r = f.trace(&["structure", "pkg/d.py", "--json"]);
     r.ok();
     let v = r.view();
-    let file = v["file"].as_str().expect("structure echoes the file it read");
+    let file = v["file"]
+        .as_str()
+        .expect("structure echoes the file it read");
     let shoulder = v["files"][file]["shoulder"]
         .as_str()
         .expect("structure must carry a non-null shoulder for an in-repo file");
@@ -349,7 +367,8 @@ fn callers_unknown_symbol_exits_2() {
     let r = f.trace(&["callers", "NoSuchSymbol_zzz"]);
     r.code_is(2);
     assert!(
-        r.combined().contains("not declared anywhere in this repository"),
+        r.combined()
+            .contains("not declared anywhere in this repository"),
         "a miss must name the symbol and say it is not declared here: {}",
         r.combined()
     );
@@ -442,7 +461,9 @@ fn dependencies_symbol_mode_returns_dependencies() {
     let r = f.trace(&["dependencies", "main", "--json"]);
     r.ok();
     let v = r.view();
-    let deps = symbol(&v, "src/app.py::main")["dependencies"].as_array().unwrap();
+    let deps = symbol(&v, "src/app.py::main")["dependencies"]
+        .as_array()
+        .unwrap();
     assert!(
         deps.iter()
             .any(|d| d["node_id"].as_str() == Some("src/util.py::helper")),
@@ -491,7 +512,11 @@ fn dependencies_transitive_reach_is_exact_per_depth() {
     );
     // Depth 9 (over-deep): identical to full reach — no phantom nodes, the
     // island never appears.
-    assert_eq!(at("9"), at("3"), "over-deep traversal must not invent nodes");
+    assert_eq!(
+        at("9"),
+        at("3"),
+        "over-deep traversal must not invent nodes"
+    );
     assert!(
         !at("9").iter().any(|i| i.contains("lone")),
         "the unrelated island must never appear in a dependency chain"
@@ -503,7 +528,11 @@ fn dependencies_missing_arg_exits_2() {
     let f = standard_repo();
     let r = f.trace(&["dependencies"]);
     r.code_is(2);
-    assert!(r.combined().contains("SYMBOL or --path"), "{}", r.combined());
+    assert!(
+        r.combined().contains("SYMBOL or --path"),
+        "{}",
+        r.combined()
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -517,7 +546,9 @@ fn usages_symbol_mode_returns_dependents() {
     let r = f.trace(&["usages", "helper", "--json"]);
     r.ok();
     let v = r.view();
-    let dependents = symbol(&v, "src/util.py::helper")["dependents"].as_array().unwrap();
+    let dependents = symbol(&v, "src/util.py::helper")["dependents"]
+        .as_array()
+        .unwrap();
     assert!(
         !dependents.is_empty(),
         "helper has a dependent (app.py imports it): {:?}",
@@ -561,7 +592,11 @@ fn usages_transitive_reach_is_exact_per_depth() {
         ],
         "depth 3 must climb the whole chain"
     );
-    assert_eq!(at("9"), at("3"), "over-deep traversal must not invent nodes");
+    assert_eq!(
+        at("9"),
+        at("3"),
+        "over-deep traversal must not invent nodes"
+    );
     assert!(
         !at("9").iter().any(|i| i.contains("lone")),
         "the unrelated island must never appear in a dependent chain"
@@ -576,7 +611,9 @@ fn usages_excludes_unrelated_symbol() {
     let r = f.trace(&["usages", "lone_fn", "--depth", "9", "--json"]);
     r.ok();
     let v = r.view();
-    let dependents = symbol(&v, "lone.py::lone_fn")["dependents"].as_array().unwrap();
+    let dependents = symbol(&v, "lone.py::lone_fn")["dependents"]
+        .as_array()
+        .unwrap();
     assert!(
         dependents.is_empty(),
         "lone_fn is imported by nobody; dependents must be empty: {:?}",
@@ -589,7 +626,11 @@ fn usages_missing_arg_exits_2() {
     let f = standard_repo();
     let r = f.trace(&["usages"]);
     r.code_is(2);
-    assert!(r.combined().contains("SYMBOL or --path"), "{}", r.combined());
+    assert!(
+        r.combined().contains("SYMBOL or --path"),
+        "{}",
+        r.combined()
+    );
 }
 
 /// Reverse queries served from the reverse-edge index must return the same
@@ -608,9 +649,7 @@ fn reverse_query_returns_complete_dependent_set() {
     for name in ["one", "two", "three", "four", "five"] {
         f.write(
             &format!("pkg/{name}.py"),
-            &format!(
-                "from pkg.core import core_fn\n\ndef {name}_fn(x):\n    return core_fn(x)\n"
-            ),
+            &format!("from pkg.core import core_fn\n\ndef {name}_fn(x):\n    return core_fn(x)\n"),
         );
     }
     // Island: imports nothing internal, depends on nobody in the chain. Must
@@ -683,17 +722,16 @@ fn callers_reports_confidence_classes() {
         "from uniq import only_here\n\ndef use():\n    return only_here()\n",
     );
     f.write("target.py", "def rare_unique_name():\n    return 1\n");
-    f.write(
-        "sole.py",
-        "def u():\n    return rare_unique_name()\n",
-    );
+    f.write("sole.py", "def u():\n    return rare_unique_name()\n");
     f.commit("confidence repo");
     f.trace(&["cache", "build", "."]).ok();
 
     let r = f.trace(&["callers", "only_here", "--json"]);
     r.ok();
     let v = r.view();
-    let callers = symbol(&v, "uniq.py::only_here")["callers"].as_array().unwrap();
+    let callers = symbol(&v, "uniq.py::only_here")["callers"]
+        .as_array()
+        .unwrap();
     assert_eq!(callers.len(), 1, "only_here has one caller: {:?}", callers);
     assert_eq!(
         callers[0]["confidence"].as_str(),
@@ -806,6 +844,198 @@ fn dependencies_path_mode_ranks_high_coupling_nodes_exactly() {
 }
 
 #[test]
+fn path_mode_scopes_ranked_subjects_without_scoping_reach() {
+    let f = Fixture::new();
+    f.write("scoped/__init__.py", "");
+    f.write("outside/__init__.py", "");
+    f.write("outside/core.py", "def core_fn(x):\n    return x + 1\n");
+    f.write(
+        "outside/mid.py",
+        "from outside.core import core_fn\n\ndef mid_fn(x):\n    return core_fn(x)\n",
+    );
+    f.write(
+        "scoped/entry.py",
+        "from outside.mid import mid_fn\n\ndef entry_fn(x):\n    return mid_fn(x)\n",
+    );
+    f.write("scoped/base.py", "def base_fn(x):\n    return x + 1\n");
+    f.write(
+        "outside/consumer.py",
+        "from scoped.base import base_fn\n\ndef consumer_fn(x):\n    return base_fn(x)\n",
+    );
+    f.write(
+        "outside/top.py",
+        "from outside.consumer import consumer_fn\n\ndef top_fn(x):\n    return consumer_fn(x)\n",
+    );
+    f.commit("cross-scope chains");
+    f.trace(&["cache", "build", "."]).ok();
+
+    let dependencies = f.trace(&["dependencies", "--path", "scoped", "--json"]);
+    dependencies.ok();
+    let dependency_view = dependencies.view();
+    let dependency_rows = dependency_view["results"]
+        .as_array()
+        .expect("dependencies results must be rows");
+    assert_eq!(
+        dependency_rows.len(),
+        1,
+        "only scoped files with dependencies may rank: {dependency_rows:?}"
+    );
+    assert_eq!(dependency_rows[0]["node_id"], "module::scoped.entry");
+    assert_eq!(dependency_rows[0]["direct_dependencies"], 1);
+    assert_eq!(
+        dependency_rows[0]["transitive_dependencies"], 2,
+        "the scoped entry must keep its reach through outside/mid.py to outside/core.py"
+    );
+
+    let file_dependencies = f.trace(&["dependencies", "--path", "scoped/entry.py", "--json"]);
+    file_dependencies.ok();
+    let file_view = file_dependencies.view();
+    let file_rows = file_view["results"]
+        .as_array()
+        .expect("file-scoped dependencies results must be rows");
+    assert_eq!(
+        file_rows.len(),
+        1,
+        "a file scope must select only that file"
+    );
+    assert_eq!(file_rows[0]["node_id"], "module::scoped.entry");
+    assert_eq!(file_rows[0]["transitive_dependencies"], 2);
+
+    let usages = f.trace(&["usages", "--path", "scoped", "--json"]);
+    usages.ok();
+    let usage_view = usages.view();
+    let usage_rows = usage_view["results"]
+        .as_array()
+        .expect("usages results must be rows");
+    assert_eq!(
+        usage_rows.len(),
+        1,
+        "only scoped files with dependents may rank: {usage_rows:?}"
+    );
+    assert_eq!(usage_rows[0]["node_id"], "scoped/base.py::base_fn");
+    assert_eq!(usage_rows[0]["direct_dependents"], 1);
+    assert_eq!(
+        usage_rows[0]["transitive_dependents"], 2,
+        "the scoped base must keep its reach through outside/consumer.py to outside/top.py"
+    );
+}
+
+#[test]
+fn path_mode_outside_root_uses_unscoped_ranking() {
+    let f = chain_repo();
+    f.trace(&["cache", "build", "."]).ok();
+
+    let outside = std::env::temp_dir().join(format!(
+        "trace-reach-outside-root-{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    fs::create_dir_all(&outside).unwrap();
+    fs::write(outside.join("outside.py"), "def outside():\n    return 0\n").unwrap();
+    symlink(&outside, f.root.join("outside-link")).unwrap();
+
+    let expected = f.trace(&["usages", "--path", ".", "--json"]);
+    expected.ok();
+    let run = f.trace(&["usages", "--path", "outside-link", "--json"]);
+
+    let _ = fs::remove_file(f.root.join("outside-link"));
+    let _ = fs::remove_dir_all(&outside);
+
+    run.ok();
+    assert_eq!(
+        run.view()["results"],
+        expected.view()["results"],
+        "a path that canonicalizes outside the repository keeps the repository-wide ranking"
+    );
+}
+
+#[test]
+fn path_mode_uses_the_repository_containing_the_requested_path() {
+    let f = standard_repo();
+    let other = chain_repo();
+    let expected = other.trace(&["usages", "--path", ".", "--json"]);
+    expected.ok();
+    let path = other.root.to_string_lossy().to_string();
+
+    let run = f.trace(&["usages", "--path", &path, "--json"]);
+
+    run.ok();
+    assert_eq!(
+        run.view()["results"],
+        expected.view()["results"],
+        "--path must rank the repository containing the requested path"
+    );
+}
+
+#[test]
+fn missing_path_mode_uses_the_repository_wide_ranking() {
+    let f = chain_repo();
+    let expected = f.trace(&["usages", "--path", ".", "--json"]);
+    expected.ok();
+
+    let run = f.trace(&["usages", "--path", "missing", "--json"]);
+
+    run.ok();
+    assert_eq!(
+        run.view()["results"],
+        expected.view()["results"],
+        "a missing --path must not suppress the repository-wide ranking"
+    );
+}
+
+#[test]
+fn usages_path_mode_ranks_every_subject_before_limiting() {
+    let f = Fixture::new();
+    f.write("root.py", "def root_fn(x):\n    return x + 1\n");
+    f.write(
+        "hub.py",
+        "from root import root_fn\n\ndef hub_fn(x):\n    return root_fn(x)\n",
+    );
+    for n in 0..7 {
+        f.write(
+            &format!("leaf_{n}.py"),
+            &format!("from hub import hub_fn\n\ndef leaf_{n}_fn(x):\n    return hub_fn(x)\n"),
+        );
+    }
+    for distractor in 0..4 {
+        f.write(
+            &format!("distractor_{distractor}.py"),
+            &format!("def distractor_{distractor}_fn(x):\n    return x + 1\n"),
+        );
+        for caller in 0..2 {
+            f.write(
+                &format!("caller_{distractor}_{caller}.py"),
+                &format!(
+                    "from distractor_{distractor} import distractor_{distractor}_fn\n\ndef caller_{distractor}_{caller}_fn(x):\n    return distractor_{distractor}_fn(x)\n"
+                ),
+            );
+        }
+    }
+    f.commit("low-direct high-transitive root");
+    f.trace(&["cache", "build", "."]).ok();
+
+    let r = f.trace(&["usages", "--path", ".", "--limit", "1", "--json"]);
+    r.ok();
+    let v = r.view();
+    let rows = v["results"]
+        .as_array()
+        .expect("usages results must be rows");
+    assert_eq!(
+        rows.len(),
+        1,
+        "limit must apply after exact ranking: {rows:?}"
+    );
+    assert_eq!(
+        rows[0]["node_id"], "root.py::root_fn",
+        "root_fn has only one direct dependent but reaches hub plus seven leaves"
+    );
+    assert_eq!(rows[0]["direct_dependents"], 1);
+    assert_eq!(rows[0]["transitive_dependents"], 8);
+}
+
+#[test]
 fn usages_path_mode_respects_limit() {
     let f = chain_repo();
     f.trace(&["cache", "build", "."]).ok();
@@ -822,4 +1052,170 @@ fn usages_path_mode_respects_limit() {
         "limit must keep the highest-centrality node: {:?}",
         rows[0]
     );
+}
+
+#[test]
+fn path_mode_matches_exact_reach_oracle_beyond_thirty_subjects() {
+    let f = Fixture::new();
+    f.write("scope/__init__.py", "");
+    f.write("outside/__init__.py", "");
+
+    let scoped: Vec<String> = (0..34).map(|n| format!("scope/n{n:02}.py")).collect();
+    let outside = [
+        "outside/a.py".to_string(),
+        "outside/b.py".to_string(),
+        "outside/c.py".to_string(),
+        "outside/d.py".to_string(),
+    ];
+    let mut written_edges: Vec<(String, String)> = (0..34)
+        .map(|n| (scoped[n].clone(), scoped[(n + 1) % 34].clone()))
+        .collect();
+
+    // n00 -> n01/n02 -> n03 is a diamond. The repeated n04 -> n05 import
+    // must still be one stored graph edge, as the relations index promises.
+    written_edges.extend([
+        (scoped[0].clone(), scoped[2].clone()),
+        (scoped[1].clone(), scoped[3].clone()),
+        (scoped[4].clone(), scoped[5].clone()),
+        (scoped[10].clone(), outside[0].clone()),
+        (outside[0].clone(), outside[1].clone()),
+        (outside[1].clone(), scoped[11].clone()),
+        (outside[2].clone(), scoped[12].clone()),
+        (outside[3].clone(), outside[2].clone()),
+    ]);
+
+    let mut imports: HashMap<String, Vec<String>> = HashMap::new();
+    for (source, target) in &written_edges {
+        imports
+            .entry(source.clone())
+            .or_default()
+            .push(target.clone());
+    }
+    for file in scoped.iter().chain(outside.iter()) {
+        let stem = file
+            .rsplit_once('/')
+            .map(|(_, name)| name)
+            .unwrap()
+            .trim_end_matches(".py");
+        let mut source = String::new();
+        for target in imports.get(file).into_iter().flatten() {
+            let target_module = target.trim_end_matches(".py").replace('/', ".");
+            let target_stem = target
+                .rsplit_once('/')
+                .map(|(_, name)| name)
+                .unwrap()
+                .trim_end_matches(".py");
+            source.push_str(&format!("from {target_module} import {target_stem}_fn\n"));
+        }
+        source.push_str(&format!("\ndef {stem}_fn():\n    return 0\n"));
+        f.write(file, &source);
+    }
+    f.commit("exact reach graph");
+    f.trace(&["cache", "build", "."]).ok();
+
+    let mut graph_edges = written_edges;
+    graph_edges.sort();
+    graph_edges.dedup();
+
+    for (command, direct_key, transitive_key, follows_imports) in [
+        (
+            "dependencies",
+            "direct_dependencies",
+            "transitive_dependencies",
+            true,
+        ),
+        (
+            "usages",
+            "direct_dependents",
+            "transitive_dependents",
+            false,
+        ),
+    ] {
+        let mut adjacency: HashMap<&str, Vec<&str>> = HashMap::new();
+        let mut direct: HashMap<&str, i64> = HashMap::new();
+        for (importer, imported) in &graph_edges {
+            let (subject, next) = if follows_imports {
+                (importer.as_str(), imported.as_str())
+            } else {
+                (imported.as_str(), importer.as_str())
+            };
+            adjacency.entry(subject).or_default().push(next);
+            *direct.entry(subject).or_insert(0) += 1;
+        }
+
+        for depth in [1i64, 2, 4, i64::MAX] {
+            let mut expected: Vec<(String, i64, i64)> = direct
+                .iter()
+                .filter(|(file, _)| file.starts_with("scope/"))
+                .map(|(file, edge_count)| {
+                    let mut seen = HashSet::from([*file]);
+                    let mut frontier = VecDeque::from([(*file, 0i64)]);
+                    while let Some((current, current_depth)) = frontier.pop_front() {
+                        if current_depth >= depth {
+                            continue;
+                        }
+                        for next in adjacency.get(current).into_iter().flatten() {
+                            if seen.insert(*next) {
+                                frontier.push_back((*next, current_depth + 1));
+                            }
+                        }
+                    }
+                    (file.to_string(), *edge_count, (seen.len() - 1) as i64)
+                })
+                .collect();
+            expected.sort_by(|a, b| {
+                b.2.cmp(&a.2)
+                    .then_with(|| b.1.cmp(&a.1))
+                    .then_with(|| b.0.cmp(&a.0))
+            });
+            let expected: Vec<(String, i64, i64, i64, String)> = expected
+                .into_iter()
+                .enumerate()
+                .map(|(index, (file, direct, transitive))| {
+                    let node_id = if follows_imports {
+                        format!("module::{}", file.trim_end_matches(".py").replace('/', "."))
+                    } else {
+                        let stem = file
+                            .rsplit_once('/')
+                            .map(|(_, name)| name)
+                            .unwrap()
+                            .trim_end_matches(".py");
+                        format!("{file}::{stem}_fn")
+                    };
+                    (file, direct, transitive, (index + 1) as i64, node_id)
+                })
+                .collect();
+
+            for worker_count in ["1", "4"] {
+                let depth_arg = depth.to_string();
+                let r = f.trace_env(
+                    &[
+                        command, "--path", "scope", "--depth", &depth_arg, "--limit", "100",
+                        "--json",
+                    ],
+                    &[("RAYON_NUM_THREADS", worker_count)],
+                );
+                r.ok();
+                let v = r.view();
+                let actual: Vec<(String, i64, i64, i64, String)> = v["results"]
+                    .as_array()
+                    .expect("path-mode results must be rows")
+                    .iter()
+                    .map(|row| {
+                        (
+                            row["source_file"].as_str().unwrap().to_string(),
+                            row[direct_key].as_i64().unwrap(),
+                            row[transitive_key].as_i64().unwrap(),
+                            row["rank"].as_i64().unwrap(),
+                            row["node_id"].as_str().unwrap().to_string(),
+                        )
+                    })
+                    .collect();
+                assert_eq!(
+                    actual, expected,
+                    "{command} depth {depth} with {worker_count} workers must match the complete independent BFS oracle"
+                );
+            }
+        }
+    }
 }

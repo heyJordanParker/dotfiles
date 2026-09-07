@@ -11,7 +11,13 @@ use std::process::Command;
 /// scc failure → stderr + exit 1 (hard-fail contract).
 fn scc_by_file(path: &Path) -> Vec<Value> {
     let out = match Command::new("scc")
-        .args(["--format", "json", "--by-file"])
+        .args([
+            "--format",
+            "json",
+            "--by-file",
+            "--exclude-dir",
+            ".tracer-cache",
+        ])
         .arg(path)
         .output()
     {
@@ -171,7 +177,10 @@ pub fn run(path: &Path, as_json: bool) -> Result<Value> {
             lang,
             stats.get("files").and_then(|x| x.as_i64()).unwrap_or(0),
             stats.get("loc").and_then(|x| x.as_i64()).unwrap_or(0),
-            stats.get("complexity").and_then(|x| x.as_i64()).unwrap_or(0),
+            stats
+                .get("complexity")
+                .and_then(|x| x.as_i64())
+                .unwrap_or(0),
         );
     }
     println!();

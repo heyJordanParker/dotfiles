@@ -13,7 +13,10 @@ use tracer_cli_tests::{standard_repo, Fixture};
 #[test]
 fn primer_layout_ccn_aggregate_is_exact() {
     let f = Fixture::new();
-    f.write("src/a.py", "def a(x):\n    if x:\n        return 1\n    return 0\n");
+    f.write(
+        "src/a.py",
+        "def a(x):\n    if x:\n        return 1\n    return 0\n",
+    );
     f.write("src/c.py", "def c():\n    return 1\n");
     f.commit("two known python files");
 
@@ -118,13 +121,13 @@ fn primer_warms_cache_as_side_effect() {
     f.trace(&["context"]).ok();
     let v = f.trace(&["cache", "stats", "--json"]).view();
     // The primer warms the file cache over standard_repo()'s fixed tree:
-    // exactly 9 entries — six per-file entries, the mtime index, the
-    // git-activity map, and the relations index. A primer that stopped
+    // exactly 10 entries — six per-file entries, the mtime index, the
+    // git-activity map, and the two relations-index entries. A primer that stopped
     // warming, or warmed a different file set, fails this.
     assert_eq!(
         v["file"]["entries"].as_i64().unwrap(),
-        9,
-        "primer must warm exactly 9 file-cache entries: {v}"
+        10,
+        "primer must warm exactly 10 file-cache entries: {v}"
     );
 }
 
@@ -192,10 +195,90 @@ fn primer_spine_ranks_by_transitive_dependents() {
         .expect("leaf line");
     let nums: Vec<&str> = leaf_line.split_whitespace().collect();
     // Row shape: "<rank> <direct> <transitive> <kind> <label> @ <source>".
-    assert_eq!(nums[1], "1", "leaf direct in-edges = 1 (only mid): {leaf_line}");
+    assert_eq!(
+        nums[1], "1",
+        "leaf direct in-edges = 1 (only mid): {leaf_line}"
+    );
     assert_eq!(
         nums[2], "5",
         "leaf transitive dependents = 5 (mid,a,b,c,d): {leaf_line}"
+    );
+}
+
+/// The primer preserves the full transitive walk and its established ten-row
+/// presentation limit. A depth-three walk would rank `shallow` above `deep`,
+/// while an eight-row candidate cap would discard two expected rows.
+#[test]
+fn primer_spine_emits_ten_rows_ranked_by_full_transitive_reach() {
+    let f = Fixture::new();
+    f.write("src/deep.ts", "export const deep = 1;\n");
+    for (name, imported) in [
+        ("level_one", "deep"),
+        ("level_two", "level_one"),
+        ("level_three", "level_two"),
+        ("level_four", "level_three"),
+        ("level_five", "level_four"),
+    ] {
+        f.write(
+            &format!("src/{name}.ts"),
+            &format!(
+                "import {{ {imported} }} from './{imported}';\nexport const {name} = {imported};\n"
+            ),
+        );
+    }
+    f.write("src/shallow.ts", "export const shallow = 1;\n");
+    for name in ["shallow_a", "shallow_b", "shallow_c", "shallow_d"] {
+        f.write(
+            &format!("src/{name}.ts"),
+            &format!("import {{ shallow }} from './shallow';\nexport const {name} = shallow;\n"),
+        );
+    }
+    for index in 0..6 {
+        f.write(
+            &format!("src/spare_{index}.ts"),
+            &format!("export const spare_{index} = {index};\n"),
+        );
+        f.write(
+            &format!("src/spare_user_{index}.ts"),
+            &format!(
+                "import {{ spare_{index} }} from './spare_{index}';\nexport const spare_user_{index} = spare_{index};\n"
+            ),
+        );
+    }
+    f.commit("deep and wide dependency graph");
+    f.trace(&["cache", "build", "."]).ok();
+
+    let r = f.trace(&["context"]);
+    r.ok();
+    let rows: Vec<Vec<&str>> = r
+        .stdout
+        .lines()
+        .skip_while(|line| !line.contains("## Spine"))
+        .skip(3)
+        .take_while(|line| line.trim_start().starts_with(|c: char| c.is_ascii_digit()))
+        .map(|line| line.split_whitespace().collect())
+        .collect();
+    let actual: Vec<(&str, &str, &str, &str)> = rows
+        .iter()
+        .map(|columns| (columns[4], columns[1], columns[2], columns[6]))
+        .collect();
+
+    assert_eq!(
+        actual,
+        vec![
+            ("deep", "1", "5", "src/deep.ts:1"),
+            ("shallow", "4", "4", "src/shallow.ts:1"),
+            ("level_one", "1", "4", "src/level_one.ts:1"),
+            ("level_two", "1", "3", "src/level_two.ts:1"),
+            ("level_three", "1", "2", "src/level_three.ts:1"),
+            ("spare_5", "1", "1", "src/spare_5.ts:1"),
+            ("spare_4", "1", "1", "src/spare_4.ts:1"),
+            ("spare_3", "1", "1", "src/spare_3.ts:1"),
+            ("spare_2", "1", "1", "src/spare_2.ts:1"),
+            ("spare_1", "1", "1", "src/spare_1.ts:1"),
+        ],
+        "primer must emit the exact top ten after walking full transitive reach:\n{}",
+        r.stdout
     );
 }
 
@@ -217,7 +300,10 @@ fn primer_surfaces_applicable_unloaded_conditional_rule() {
     f.trace(&["cache", "build", "."]).ok();
 
     // Dirty a file the rule's glob matches.
-    f.write("src/app.py", "def main():\n    if True:\n        return 1\n    return 0\n");
+    f.write(
+        "src/app.py",
+        "def main():\n    if True:\n        return 1\n    return 0\n",
+    );
 
     let r = f.trace(&["context"]);
     r.ok();
@@ -248,7 +334,10 @@ fn primer_applicable_rules_silent_when_no_dirty_match() {
     f.trace(&["cache", "build", "."]).ok();
 
     // Dirty a python file — the .ts-scoped rule must not surface.
-    f.write("src/app.py", "def main():\n    if True:\n        return 1\n    return 0\n");
+    f.write(
+        "src/app.py",
+        "def main():\n    if True:\n        return 1\n    return 0\n",
+    );
 
     let r = f.trace(&["context"]);
     r.ok();

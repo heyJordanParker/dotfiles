@@ -11,9 +11,9 @@ Codex's CLI has no native Read/Glob/Grep tool — it reads files only through it
 shell tool, which arrives here as tool_name "Bash" with the command in
 tool_input.command. So a Codex `cat <file>` would carry no shoulder without the
 Bash branch. When the shell command is a read of a repo file, emit the same
-`trace context <file>` shoulder. guard_trace blocks the raw read in the same
-PreToolUse group, but Codex still delivers this additionalContext to the model
-(the two compose: guard steers to `trace read`, enrich supplies the shoulder).
+`trace context <file>` shoulder without recording coverage. guard_trace blocks
+raw reads in the same PreToolUse group, so only a successful `trace read`
+records the source it actually delivers.
 
 Silent fallback: any error path exits 0 with no output. The native tool runs.
 The one exception is a per-file timeout, which says so in that file's place —
@@ -22,10 +22,10 @@ dropping it would leave a multi-file shoulder that reads as complete.
 
 import json
 import os
-import re
 import shutil
 import subprocess
 import sys
+import time
 
 from lib import feedback
 from lib.command import segments
@@ -42,11 +42,6 @@ BINDING = {
 # Codex shell read of a repo file would otherwise pass uninstrumented.
 READ_COMMANDS = {"cat", "head", "tail", "sed", "less", "more", "view", "bat"}
 
-# A `sed -n 'A,Bp'` line-range print: the address range the agent actually saw.
-SED_RANGE = re.compile(r"^(\d+),(\d+)p$")
-# A `head -n N` / `head -N` line count: the agent saw lines 1..N.
-HEAD_COUNT = re.compile(r"^-n?(\d+)$")
-
 # Cap on matched-file enrichment for the multi-file tools (Glob/Grep). The full
 # `trace context` shoulder costs a git + graph lookup per file; an unbounded loop
 # over a wide match set would blow the hook timeout and yield nothing. The cap
@@ -55,59 +50,34 @@ MATCH_CAP = 20
 
 
 def read_target(parts):
-    """The file a read-shaped shell segment targets and the span it shows.
-
-    parts is one tokenized segment (command + args). Returns
-    `(path, offset, limit)` — the first plain path argument plus the 1-based
-    inclusive line span the command renders, so a partial read records only the
-    portion the agent saw, not the whole file:
-      - `cat`/`bat`/`less`/`more`/`view` → `(path, None, None)` (whole file)
-      - `head -n N` / `head -N`          → `(path, 1, N)`
-      - `sed -n 'A,Bp'`                  → `(path, A, B - A + 1)`
-    Returns `("", None, None)` when the segment isn't a read of a plain repo path
-    (flags/globs/option values), or when the span is unknowable (`tail` reads the
-    last N lines, whose start depends on the file length the hook can't see — a
-    whole-file record would over-count and a positioned guess would be fiction, so
-    `tail` is skipped rather than mis-recorded).
-    """
-    none = ("", None, None)
+    """The plain file targeted by a read-shaped shell segment."""
     if not parts:
-        return none
+        return ""
     cmd = os.path.basename(parts[0])
     if cmd not in READ_COMMANDS:
-        return none
+        return ""
 
-    offset, limit = None, None
-    want_count = False  # the previous token was a bare `-n` expecting its value
+    skip_value = False
+    sed_has_program = False
     for tok in parts[1:]:
-        if want_count:
-            want_count = False
-            if cmd == "head" and tok.isdigit():
-                offset, limit = 1, int(tok)
-                continue
-        if tok.startswith("-"):
-            if cmd == "head":
-                m = HEAD_COUNT.match(tok)
-                if m:
-                    offset, limit = 1, int(m.group(1))
-                elif tok == "-n":
-                    want_count = True  # count is the next token (`head -n 5`)
+        if skip_value:
+            skip_value = False
+            if cmd == "sed":
+                sed_has_program = True
             continue
-        if cmd == "sed":
-            m = SED_RANGE.match(tok)
-            if m:
-                a, b = int(m.group(1)), int(m.group(2))
-                if b >= a:
-                    offset, limit = a, b - a + 1
-                continue
+        if tok.startswith("-"):
+            if tok in ("-n", "--lines", "-c", "--bytes") and cmd in ("head", "tail"):
+                skip_value = True
+            elif tok in ("-e", "--expression", "-f", "--file") and cmd == "sed":
+                skip_value = True
+            continue
+        if cmd == "sed" and not sed_has_program:
+            sed_has_program = True
+            continue
         if any(c in tok for c in "$`*?[]{}"):
-            return none
-        # `tail` shows the last N lines — the shown span's start is unknowable
-        # without the file length, so it must not be recorded as a read.
-        if cmd == "tail":
-            return none
-        return (tok, offset, limit)
-    return none
+            return ""
+        return tok
+    return ""
 
 
 def resolve_trace_bin():
@@ -131,9 +101,10 @@ TRACE_TIMEOUT = 5
 # set for the match while silently missing entries, with nothing to tell the
 # agent (or a test) which files never got looked at.
 UNAVAILABLE = "[trace context unavailable: enrichment timed out]"
+FAILED = "[trace context unavailable: trace failed]"
 
 
-def run_trace(trace_bin, args, env, on_timeout=""):
+def run_trace(trace_bin, args, env, on_timeout="", timeout=TRACE_TIMEOUT):
     """stdout of `trace <args>`, fluff stripped, or "" on failure.
 
     A timeout answers `on_timeout`, so a caller that must account for every file
@@ -141,7 +112,7 @@ def run_trace(trace_bin, args, env, on_timeout=""):
     """
     try:
         out = subprocess.run([trace_bin, *args], capture_output=True, text=True,
-                             timeout=TRACE_TIMEOUT, env=env)
+                             timeout=timeout, env=env)
     except subprocess.TimeoutExpired:
         return on_timeout
     except Exception:
@@ -187,23 +158,45 @@ def rows(raw):
     return out if isinstance(out, list) else []
 
 
-def glob_matches(trace_bin, pattern, base, env):
-    """Matched files for a Glob, each prefixed with <base> so it resolves.
+def glob_matches(trace_bin, pattern, base, env, deadline=None):
+    """Matched files anchored to the worktree that produced each find row."""
+    timeout = TRACE_TIMEOUT if deadline is None else max(0, deadline - time.monotonic())
+    if timeout == 0:
+        return []
+    raw = run_trace(trace_bin, ["find", pattern, base, "--json"], env, timeout=timeout)
+    try:
+        found_root = subprocess.run(
+            ["git", "-C", base, "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            timeout=min(TRACE_TIMEOUT, max(0, deadline - time.monotonic()))
+            if deadline is not None else TRACE_TIMEOUT,
+            env=env,
+        )
+        root = found_root.stdout.strip() if found_root.returncode == 0 else ""
+    except Exception:
+        root = ""
+    root = root or os.path.realpath(base)
+    files = []
+    for row in rows(raw):
+        path = row.get("path") if isinstance(row, dict) else None
+        if not path:
+            continue
+        if os.path.isabs(path):
+            files.append(path)
+        else:
+            files.append(os.path.join(root, path))
+    return files
 
-    `trace find` answers full-path globs and returns paths relative to <base>;
-    prepend it so each one resolves for the per-file `trace context` shoulder.
-    """
-    raw = run_trace(trace_bin, ["find", pattern, base, "--json"], env)
-    return [
-        os.path.join(base, row["path"])
-        for row in rows(raw)
-        if isinstance(row, dict) and row.get("path")
-    ]
 
-
-def grep_matches(trace_bin, pattern, path, env):
+def grep_matches(trace_bin, pattern, path, env, deadline=None):
     """Distinct files containing a Grep match, order preserved."""
-    raw = run_trace(trace_bin, ["grep", pattern, "--path", path, "--json"], env)
+    timeout = TRACE_TIMEOUT if deadline is None else max(0, deadline - time.monotonic())
+    if timeout == 0:
+        return []
+    raw = run_trace(
+        trace_bin, ["grep", pattern, "--path", path, "--json"], env, timeout=timeout
+    )
     files, seen = [], set()
     for hit in rows(raw):
         f = hit.get("file") if isinstance(hit, dict) else None
@@ -213,29 +206,77 @@ def grep_matches(trace_bin, pattern, path, env):
     return files
 
 
-def enrich_matches(trace_bin, files, env):
-    """One `trace context` shoulder per matched file, capped at MATCH_CAP.
-
-    Each kept file contributes "<file>\\n<shoulder>\\n"; files whose shoulder
-    comes back empty are skipped and don't count toward the cap.
-
-    `record=False`: a Glob listing or Grep match surfaces a file's path (and one
-    matching line) but never its content, so the shoulder renders without
-    recording a read — a match must not inflate the matched file's read coverage.
-    """
+def enrich_matches(trace_bin, files, env, deadline=None):
+    """Batch full no-record context without reducing successful-file coverage."""
+    queue = list(dict.fromkeys(files))
     block, count = "", 0
-    for f in files:
-        if count >= MATCH_CAP:
-            break
-        line = shoulder(trace_bin, f, env, record=False)
-        if not line:
+    if deadline is None:
+        deadline = time.monotonic() + BINDING["timeout"]
+
+    while queue and count < MATCH_CAP:
+        size = min(MATCH_CAP - count, len(queue))
+        batch, queue = queue[:size], queue[size:]
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            block += "".join(f"{path}\n{UNAVAILABLE}\n" for path in batch)
+            if queue:
+                block += f"[trace context omitted: {len(queue)} additional matched files omitted]\n"
+            return block
+
+        raw = run_trace(
+            trace_bin,
+            ["context", *batch, "--no-record", "--json"],
+            env,
+            on_timeout=UNAVAILABLE,
+            timeout=remaining,
+        )
+        if raw == UNAVAILABLE:
+            block += "".join(f"{path}\n{UNAVAILABLE}\n" for path in batch)
             continue
-        block += f"{f}\n{line}\n"
-        count += 1
+        try:
+            document = json.loads(raw)
+            if set(document) != {"query", "context", "results", "counts"}:
+                raise ValueError("incomplete trace document")
+            result_rows = document["results"]
+            if (
+                not isinstance(document["query"], dict)
+                or document["query"].get("paths") != batch
+                or not isinstance(document["context"], dict)
+                or not isinstance(document["counts"], dict)
+                or not isinstance(result_rows, list)
+                or len(result_rows) != len(batch)
+            ):
+                raise ValueError("trace results are not a list")
+            associated = {
+                row.get("file"): row
+                for row in result_rows
+                if isinstance(row, dict) and isinstance(row.get("file"), str)
+            }
+        except (TypeError, ValueError, json.JSONDecodeError):
+            block += "".join(f"{path}\n{FAILED}\n" for path in batch)
+            continue
+
+        for path in batch:
+            row = associated.get(path)
+            content = row.get("content") if row else ""
+            if isinstance(content, str) and content:
+                rendered = content.rstrip("\n")
+                block += f"{path}\n{rendered}\n"
+                count += 1
+            else:
+                error = row.get("error") if row else None
+                marker = f"[trace context unavailable: {error}]" if error else FAILED
+                block += f"{path}\n{marker}\n"
+
+    if queue:
+        block += f"[trace context omitted: {len(queue)} additional matched files omitted]\n"
     return block
 
 
 def main():
+    # The sleeping-child probe completed in 28.30s with a 28s work budget;
+    # two seconds left 1.70s for startup, cleanup and envelope emission.
+    deadline = time.monotonic() + BINDING["timeout"] - 2
     event = read_event()
     tool_name = field(event, "tool_name", "")
 
@@ -270,25 +311,24 @@ def main():
         segs = segments(command_str(event))
         if not segs:
             return 0
-        target, offset, limit = next(
-            (found for found in (read_target(s) for s in segs) if found[0]),
-            ("", None, None),
-        )
+        target = next((found for found in (read_target(s) for s in segs) if found), "")
         if not target:
             return 0
-        output = shoulder(trace_bin, target, env, offset, limit)
+        output = shoulder(trace_bin, target, env, record=False)
     elif tool_name == "Glob":
         pattern = field(event, "tool_input.pattern", "")
         if not pattern:
             return 0
         base = field(event, "tool_input.path", "") or os.environ.get("PWD") or os.getcwd()
-        output = enrich_matches(trace_bin, glob_matches(trace_bin, pattern, base, env), env)
+        matches = glob_matches(trace_bin, pattern, base, env, deadline)
+        output = enrich_matches(trace_bin, matches, env, deadline)
     elif tool_name == "Grep":
         pattern = field(event, "tool_input.pattern", "")
         if not pattern:
             return 0
         path = field(event, "tool_input.path", "") or os.environ.get("PWD") or os.getcwd()
-        output = enrich_matches(trace_bin, grep_matches(trace_bin, pattern, path, env), env)
+        matches = grep_matches(trace_bin, pattern, path, env, deadline)
+        output = enrich_matches(trace_bin, matches, env, deadline)
     else:
         return 0
 

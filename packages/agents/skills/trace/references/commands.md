@@ -14,7 +14,7 @@ Template:
   trace cache stats
   trace cache clear [--all]
   trace context
-  trace context <path> [--directory] [--offset N] [--limit N] [--no-record]
+  trace context <paths...> [--directory] [--offset N] [--limit N] [--no-record]
   trace docs prime --reason session_start|post_compact [--observed-from PATH|-]
   trace list <dir> [--all] [--recent] [--limit N]
   trace tree <path> [--depth N]
@@ -47,6 +47,10 @@ Template:
 Use `--json --filter '<jq expression>'`. The filter requires `--json`.
 Never: pipe to `jq`.
 
+IF passing more than one path to `trace context`:
+### Add `--no-record`
+Multiple paths require `--no-record` and cannot combine with `--directory`, `--offset`, or `--limit`.
+
 ## 2. Match common questions to commands
 
 ### Use centrality commands for Architecture questions
@@ -60,6 +64,10 @@ Start with `trace context`, then `trace stats`, then `trace list`, `trace tree`,
 
 ### Use search commands by match type
 Use `trace grep` for text in code, `trace logs` for text in a log file, `trace pattern` for structural search, and `trace find` for basenames and full-path globs.
+
+IF a search backend fails to run:
+### Expect a nonzero exit, not an empty match
+`grep`, `pattern`, and `grep --at` exit nonzero and name the failed backend when the search process itself fails; a genuine no-match still exits zero with the ordinary four-slot document.
 
 ### Use history commands for why and ownership
 Use `trace diff` for changed files, `trace status` for dirty files by blast radius, `trace history` for file or symbol history, and `trace blame` for function or line ownership.

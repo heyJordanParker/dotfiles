@@ -147,7 +147,10 @@ fn parse_porcelain(output: &str) -> Vec<BlameLine> {
             lines.push(BlameLine {
                 line,
                 sha: sha.clone(),
-                author: attrs.get("author").cloned().unwrap_or_else(|| "unknown".into()),
+                author: attrs
+                    .get("author")
+                    .cloned()
+                    .unwrap_or_else(|| "unknown".into()),
                 author_time: attrs
                     .get("author-time")
                     .and_then(|s| s.parse().ok())
@@ -323,7 +326,9 @@ pub fn run(
     if !file.is_file() {
         bail!("file not found: {}", file.display());
     }
-    let path = file.canonicalize().unwrap_or_else(|_| cache::absolutize(file));
+    let path = file
+        .canonicalize()
+        .unwrap_or_else(|_| cache::absolutize(file));
 
     let mut line_range: Option<(i64, i64)> = None;
     let mut scope = "file";
@@ -363,15 +368,18 @@ pub fn run(
                 }
             },
         }),
-        json!(regions.iter().map(|r| json!({
-            "line_start": r.line_start,
-            "line_end": r.line_end,
-            "sha": short_sha(&r.sha),
-            "author": r.author,
-            "date": isoformat_date(r.author_time, &r.author_tz),
-            "age": humanize_age(r.author_time),
-            "subject": subject(r),
-        })).collect::<Vec<_>>()),
+        json!(regions
+            .iter()
+            .map(|r| json!({
+                "line_start": r.line_start,
+                "line_end": r.line_end,
+                "sha": short_sha(&r.sha),
+                "author": r.author,
+                "date": isoformat_date(r.author_time, &r.author_tz),
+                "age": humanize_age(r.author_time),
+                "subject": subject(r),
+            }))
+            .collect::<Vec<_>>()),
         json!({"regions": regions.len(), "lines": blame_lines.len()}),
     );
 

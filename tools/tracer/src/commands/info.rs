@@ -2,22 +2,10 @@
 //! The per-function table is AST-derived; `nloc` is the line span.
 //! Emits a function complexity profile plus architecture context.
 
-use crate::{cache, ccn, file_facts, passive_context, relations, repo_context};
+use crate::{cache, file_facts, passive_context, relations, repo_context};
 use anyhow::Result;
 use serde_json::{json, Value};
 use std::path::Path;
-
-fn rank(ccn_total: i64) -> &'static str {
-    if ccn_total < 10 {
-        "low"
-    } else if ccn_total < 30 {
-        "medium"
-    } else if ccn_total < 80 {
-        "high"
-    } else {
-        "critical"
-    }
-}
 
 fn leading_comment(path: &Path) -> Option<String> {
     crate::digest::leading_comment(path, 25)
@@ -27,8 +15,10 @@ fn file_info(path: &Path) -> Value {
     let repo_root = cache::worktree_root_for(path).unwrap_or_else(|| cache::display_root(path));
     let facts = file_facts::get(path, &repo_root);
 
-    let source = std::fs::read(path).unwrap_or_default();
-    let functions = ccn::analyze(&source, &path.to_string_lossy()).unwrap_or_default();
+    let functions = facts
+        .as_ref()
+        .map(|facts| facts.functions.as_slice())
+        .unwrap_or_default();
     let fn_json: Vec<Value> = functions
         .iter()
         .map(|f| {
@@ -42,21 +32,24 @@ fn file_info(path: &Path) -> Value {
         })
         .collect();
 
-    let ccn_total: i64 = functions.iter().map(|f| f.cyclomatic_complexity).sum();
-    let ccn_max: i64 = functions
-        .iter()
-        .map(|f| f.cyclomatic_complexity)
-        .max()
+    let ccn_total = facts
+        .as_ref()
+        .map(|facts| facts.cyclomatic_complexity_total)
         .unwrap_or(0);
-    let function_count = functions.len() as i64;
+    let ccn_max = facts
+        .as_ref()
+        .map(|facts| facts.cyclomatic_complexity_max)
+        .unwrap_or(0);
+    let function_count = facts
+        .as_ref()
+        .map(|facts| facts.function_count)
+        .unwrap_or(0);
 
     let leading = leading_comment(path);
     let relative = cache::relative_to_root(path, &repo_root);
     let index = relations::get(&repo_root);
-    let languages = relations::languages(&repo_root);
-    let callers =
-        crate::digest::top_callers(&index, &relative, &languages, Some(&repo_root), 10);
-    let deps = crate::digest::immediate_dependencies(&index, &relative, &languages, 15);
+    let callers = crate::digest::top_callers(&index, &relative, Some(&repo_root), 10);
+    let deps = crate::digest::immediate_dependencies(&index, &relative, 15);
 
     let loc = facts
         .as_ref()
@@ -70,7 +63,7 @@ fn file_info(path: &Path) -> Value {
         "function_count": function_count,
         "cyclomatic_complexity_total": ccn_total,
         "cyclomatic_complexity_max": ccn_max,
-        "rank": rank(ccn_total),
+        "rank": file_facts::rank(ccn_total),
         "functions": fn_json,
         "nearest_doc": crate::digest::nearest_doc(path),
         "passive_context": facts.as_ref().map(|f| passive_context::render(f, None)),
@@ -83,64 +76,67 @@ fn file_info(path: &Path) -> Value {
 fn dir_info(path: &Path) -> Value {
     let base = cache::absolutize(path);
     let repo_root = cache::worktree_root_for(&base).unwrap_or_else(|| cache::display_root(&base));
-    let tracked = crate::repo_files::tracked_files(&repo_root, Some(&base));
+    let tracked =
+        crate::repo_files::tracked_files(&repo_root, (base != repo_root).then_some(base.as_path()));
 
     let mut files: Vec<Value> = vec![];
     let mut total_count = 0i64;
 
-    let push_facts = |under_base: String,
-                       full: &Path,
-                       f: &file_facts::FileFacts,
-                       files: &mut Vec<Value>| {
-        files.push(json!({
-            "file": under_base,
-            "abs_path": full.to_string_lossy(),
-            "loc": f.loc,
-            "cyclomatic_complexity_total": f.cyclomatic_complexity_total,
-            "function_count": f.function_count,
-            "rank": f.rank,
-            "passive_context": passive_context::render_compact(f),
-        }));
-    };
+    let push_facts =
+        |under_base: String, full: &Path, f: &file_facts::FileFacts, files: &mut Vec<Value>| {
+            files.push(json!({
+                "file": under_base,
+                "abs_path": full.to_string_lossy(),
+                "loc": f.loc,
+                "cyclomatic_complexity_total": f.cyclomatic_complexity_total,
+                "function_count": f.function_count,
+                "rank": f.rank,
+                "passive_context": passive_context::render_compact(f),
+            }));
+        };
 
     match tracked {
         Some(rels) => {
-            let mut rels = rels;
-            rels.sort();
-            // SINGLE batch (was O(N²) per-file get() — the dotfiles
-            // info-dir cold regression #4). Real extraction preserved.
-            let fulls: Vec<std::path::PathBuf> =
-                rels.iter().map(|r| repo_root.join(r)).collect();
-            let facts_map = file_facts::get_batch(&fulls, &repo_root);
-            for rel in &rels {
-                let full = repo_root.join(rel);
-                let under = match full
-                    .canonicalize()
-                    .ok()
-                    .and_then(|c| c.strip_prefix(&base).ok().map(|p| p.to_path_buf()))
-                {
-                    Some(p) => p.to_string_lossy().to_string(),
-                    None => continue,
-                };
-                total_count += 1;
-                if let Some(f) = facts_map.get(rel) {
-                    push_facts(under, &full, f, &mut files);
+            for rels in rels.chunks(file_facts::RESOLVE_CHUNK) {
+                let fulls: Vec<std::path::PathBuf> =
+                    rels.iter().map(|rel| repo_root.join(rel)).collect();
+                let facts_map = file_facts::get_batch(&fulls, &repo_root);
+                for rel in rels {
+                    let full = repo_root.join(rel);
+                    let under = match full
+                        .canonicalize()
+                        .ok()
+                        .and_then(|c| c.strip_prefix(&base).ok().map(|p| p.to_path_buf()))
+                    {
+                        Some(p) => p.to_string_lossy().to_string(),
+                        None => continue,
+                    };
+                    total_count += 1;
+                    if let Some(f) = facts_map.get(rel) {
+                        push_facts(under, &full, f, &mut files);
+                    }
                 }
             }
         }
         None => {
             let mut walked = crate::repo_files::walk_files(&base);
             walked.sort();
-            let facts_map = file_facts::get_batch(&walked, &repo_root);
-            for full in &walked {
-                total_count += 1;
-                let under = full
-                    .strip_prefix(&base)
-                    .map(|p| p.to_string_lossy().to_string())
-                    .unwrap_or_else(|_| full.to_string_lossy().to_string());
-                let rel = cache::relative_to_root(full, &repo_root);
-                if let Some(f) = facts_map.get(&rel) {
-                    push_facts(under, full, f, &mut files);
+            for walked in walked.chunks(file_facts::RESOLVE_CHUNK) {
+                let normalized: Vec<std::path::PathBuf> = walked
+                    .iter()
+                    .map(|path| repo_root.join(cache::relative_to_root(path, &repo_root)))
+                    .collect();
+                let facts_map = file_facts::get_batch(&normalized, &repo_root);
+                for full in walked {
+                    total_count += 1;
+                    let under = full
+                        .strip_prefix(&base)
+                        .map(|p| p.to_string_lossy().to_string())
+                        .unwrap_or_else(|_| full.to_string_lossy().to_string());
+                    let rel = cache::relative_to_root(full, &repo_root);
+                    if let Some(f) = facts_map.get(&rel) {
+                        push_facts(under, full, f, &mut files);
+                    }
                 }
             }
         }
@@ -165,12 +161,17 @@ fn dir_info(path: &Path) -> Value {
 pub fn run(path: &Path, as_json: bool, brief: bool) -> Result<Value> {
     crate::pathval::require_exists(path, "PATH");
     let p = cache::absolutize(path);
-    let mut info = if p.is_file() {
-        file_info(&p)
-    } else {
-        dir_info(&p)
-    };
-    info["repo_context"] = repo_context::repo_context(&p);
+    let (mut info, repo_ctx) = rayon::join(
+        || {
+            if p.is_file() {
+                file_info(&p)
+            } else {
+                dir_info(&p)
+            }
+        },
+        || repo_context::repo_context(&p),
+    );
+    info["repo_context"] = repo_ctx;
 
     if !as_json {
         if p.is_file() {
@@ -258,10 +259,7 @@ fn emit_file_human(info: &Value, full: bool) {
     if let Some(pc) = info["passive_context"].as_str() {
         println!("{pc}");
     }
-    println!(
-        "Language: {}",
-        info["language"].as_str().unwrap_or("None")
-    );
+    println!("Language: {}", info["language"].as_str().unwrap_or("None"));
     println!(
         "LOC: {}  Functions: {}  CCN total: {}  CCN max: {}  Rank: {}",
         info["loc"].as_i64().unwrap_or(0),
@@ -288,8 +286,7 @@ fn emit_file_human(info: &Value, full: bool) {
             for c in callers {
                 let label = c["label"].as_str().unwrap_or("");
                 let kind = c["kind"].as_str().unwrap_or("");
-                let where_ = match (c["source_line"].as_i64(), c["source_file"].as_str())
-                {
+                let where_ = match (c["source_line"].as_i64(), c["source_file"].as_str()) {
                     (Some(l), Some(f)) => format!(" — {f}:{l}"),
                     (None, Some(f)) => format!(" — {f}"),
                     _ => String::new(),
@@ -316,8 +313,10 @@ fn emit_file_human(info: &Value, full: bool) {
         }
     }
     println!();
-    let mut funcs: Vec<&Value> =
-        info["functions"].as_array().map(|a| a.iter().collect()).unwrap_or_default();
+    let mut funcs: Vec<&Value> = info["functions"]
+        .as_array()
+        .map(|a| a.iter().collect())
+        .unwrap_or_default();
     funcs.sort_by(|a, b| {
         b["cyclomatic_complexity"]
             .as_i64()
@@ -363,14 +362,27 @@ fn emit_dir_human(info: &Value) {
     );
     println!();
     println!("Files (top 20 by complexity, with file digest):");
-    let mut files: Vec<&Value> =
-        info["files"].as_array().map(|a| a.iter().collect()).unwrap_or_default();
+    let mut files: Vec<&Value> = info["files"]
+        .as_array()
+        .map(|a| a.iter().collect())
+        .unwrap_or_default();
     files.sort_by(|a, b| {
         b["cyclomatic_complexity_total"]
             .as_i64()
             .cmp(&a["cyclomatic_complexity_total"].as_i64())
     });
-    for f in files.iter().take(20) {
+    let selected: Vec<&Value> = files.into_iter().take(20).collect();
+    let directory = Path::new(info["directory"].as_str().unwrap_or(""));
+    let repo_root =
+        cache::worktree_root_for(directory).unwrap_or_else(|| cache::display_root(directory));
+    let paths: Vec<std::path::PathBuf> = selected
+        .iter()
+        .filter_map(|file| file["abs_path"].as_str())
+        .map(Path::new)
+        .map(|path| repo_root.join(cache::relative_to_root(path, &repo_root)))
+        .collect();
+    let facts = file_facts::get_batch(&paths, &repo_root);
+    for f in selected {
         println!(
             "  {:>5}  {:>5} loc  {:>3} fn  [{:<8}]  {}  ({})",
             f["cyclomatic_complexity_total"].as_i64().unwrap_or(0),
@@ -392,11 +404,9 @@ fn emit_dir_human(info: &Value) {
                     }
                 }
             }
-            let src = std::fs::read(p).unwrap_or_default();
-            if let Some(mut fns) = ccn::analyze(&src, abs) {
-                fns.sort_by(|a, b| {
-                    b.cyclomatic_complexity.cmp(&a.cyclomatic_complexity)
-                });
+            let relative = cache::relative_to_root(p, &repo_root);
+            if let Some(mut fns) = facts.get(&relative).map(|facts| facts.functions.clone()) {
+                fns.sort_by(|a, b| b.cyclomatic_complexity.cmp(&a.cyclomatic_complexity));
                 let top: Vec<String> = fns
                     .iter()
                     .take(3)

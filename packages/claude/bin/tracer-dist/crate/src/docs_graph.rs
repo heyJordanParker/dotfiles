@@ -1,15 +1,15 @@
-//! Docs-graph builder: walks every recognized project-rules markdown file
+//! Docs-graph builder: discovers every recognized project-rules markdown file
 //! in the repo, resolves `@include` directives, parses conditional
 //! `paths:` frontmatter onto rule nodes. Two harness conventions are
 //! recognized: Claude Code's `CLAUDE.md`/`Claude.md` (plus `.local.md`
 //! peer) and OpenAI's `AGENTS.md`/`Agents.md` (plus `.local.md` peer)
 //! — the cross-harness convention adopted by Codex, Cursor, Aider, Jules,
-//! Amp et al. Both share the directory walk and the same `@include`/
+//! Amp et al. Both share the file-list discovery and the same `@include`/
 //! `paths:` mechanics; each gets its own `kind` (`agents_md` /
 //! `agents_local_md` mirror the existing `claude_md` / `local_md`).
 //!
 //! Builds in memory on every call and caches nothing, so the answer is
-//! always current. The walk covers doc files only — a few dozen in a large
+//! always current. Discovery covers doc files only — a few dozen in a large
 //! repo — so there is nothing here worth persisting.
 //!
 //! The walker, include resolver, and frontmatter parsers belong to
@@ -79,7 +79,7 @@ impl DocsGraph {
 }
 
 /// Build the docs graph for `repo_root`. Pure in-memory build — no cache
-/// reads, no cache writes. The walk is over doc files only, so it is cheap
+/// reads, no cache writes. Discovery is over doc files only, so it is cheap
 /// enough to run per call.
 pub fn build(repo_root: &Path) -> DocsGraph {
     let head = git_head(repo_root);
@@ -108,44 +108,44 @@ fn git_head(repo_root: &Path) -> String {
 /// order. The recognized set spans both harness conventions: Claude Code's
 /// `CLAUDE.md` / `Claude.md` (plus `.local.md` peer) and OpenAI's
 /// `AGENTS.md` / `Agents.md` (plus `.local.md` peer), plus any markdown
-/// file under a `.claude/rules/` ancestor. Hidden dirs other than
-/// `.claude` are pruned, plus the standard SKIP_DIRS set (`.git`,
-/// `.tracer-cache`, `node_modules`, …).
+/// file under a `.claude/rules/` ancestor. In a repository, discovery uses
+/// the repository file list; outside one, it uses the bounded filesystem walk.
 fn discover_doc_files(repo_root: &Path) -> Vec<PathBuf> {
-    let skip = crate::repo_files::skip_dirs();
-    let mut out: Vec<PathBuf> = Vec::new();
-    let walker = walkdir::WalkDir::new(repo_root).into_iter().filter_entry(|e| {
-        let name = e.file_name().to_string_lossy();
-        if e.file_type().is_dir() {
-            // Allow `.claude` and the repo root through; otherwise prune
-            // hidden dirs and the skip set.
-            if name == ".claude" {
-                return true;
-            }
-            !skip.contains(name.as_ref()) && !name.starts_with('.')
-        } else {
-            true
+    let files: Vec<PathBuf> = match crate::repo_files::tracked_files(repo_root, None) {
+        Some(paths) => paths.iter().map(|path| repo_root.join(path)).collect(),
+        None => {
+            let skip = crate::repo_files::skip_dirs();
+            walkdir::WalkDir::new(repo_root)
+                .into_iter()
+                .filter_entry(|entry| {
+                    let name = entry.file_name().to_string_lossy();
+                    if !entry.file_type().is_dir() {
+                        return true;
+                    }
+                    name == ".claude"
+                        || name == "build"
+                        || (!skip.contains(name.as_ref()) && !name.starts_with('.'))
+                })
+                .flatten()
+                .filter(|entry| entry.file_type().is_file())
+                .map(|entry| entry.into_path())
+                .collect()
         }
-    });
-    for entry in walker.flatten() {
-        if !entry.file_type().is_file() {
-            continue;
-        }
-        let path = entry.path();
-        let name = entry.file_name().to_string_lossy();
-        if is_rules_doc(&name) {
-            out.push(path.to_path_buf());
-            continue;
-        }
-        // `.claude/rules/**/*.md` — any markdown file anywhere under a
-        // `.claude/rules` ancestor.
-        if path.extension().and_then(|e| e.to_str()) == Some("md")
-            && path.components().any(|c| c.as_os_str() == "rules")
-            && path.components().any(|c| c.as_os_str() == ".claude")
-        {
-            out.push(path.to_path_buf());
-        }
-    }
+    };
+    let mut out: Vec<PathBuf> = files
+        .into_iter()
+        .filter(|path| {
+            let name = path.file_name().unwrap_or_default().to_string_lossy();
+            is_rules_doc(&name)
+                || (path.extension().and_then(|extension| extension.to_str()) == Some("md")
+                    && path
+                        .components()
+                        .any(|component| component.as_os_str() == "rules")
+                    && path
+                        .components()
+                        .any(|component| component.as_os_str() == ".claude"))
+        })
+        .collect();
     out.sort();
     out
 }

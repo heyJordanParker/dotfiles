@@ -8,7 +8,7 @@
 //! the site), object creation (`new Type(..)` — `Static`) and parameter /
 //! return type hints (`Static`, the type names the class).
 
-use crate::extraction::{Declaration, Export, ExtractionResult, Import, Reference, RefShape};
+use crate::extraction::{Declaration, Export, ExtractionResult, Import, RefShape, Reference};
 use tree_sitter::{Node, Parser};
 
 fn empty() -> ExtractionResult {
@@ -86,6 +86,7 @@ fn walk_imports(root: Node, source: &[u8]) -> Vec<Import> {
                     out.push(Import {
                         module: p,
                         symbol: None,
+                        locals: Vec::new(),
                         line,
                     });
                 } else {
@@ -96,6 +97,7 @@ fn walk_imports(root: Node, source: &[u8]) -> Vec<Import> {
                     out.push(Import {
                         module,
                         symbol,
+                        locals: Vec::new(),
                         line,
                     });
                 }
@@ -140,14 +142,12 @@ fn walk_declarations(root: Node, source: &[u8]) -> Vec<Declaration> {
             if let Some(name_node) = n.child_by_field_name("name") {
                 if let Ok(name) = name_node.utf8_text(source) {
                     let line = name_node.start_position().row as i64 + 1;
-                    let decl_container = if matches!(
-                        n.kind(),
-                        "method_declaration" | "constructor_declaration"
-                    ) {
-                        container.clone()
-                    } else {
-                        None
-                    };
+                    let decl_container =
+                        if matches!(n.kind(), "method_declaration" | "constructor_declaration") {
+                            container.clone()
+                        } else {
+                            None
+                        };
                     if seen.insert((name.to_string(), line)) {
                         out.push(Declaration {
                             name: name.to_string(),

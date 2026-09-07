@@ -108,7 +108,11 @@ fn the_relations_index_rebuilds_after_schema_shape_change() {
         "importers": {},
         "built_from": {"pkg/a.py": stale_file_key, "pkg/b.py": stale_file_key},
     });
-    fs::write(&stale_index, serde_json::to_string(&stale_relations).unwrap()).unwrap();
+    fs::write(
+        &stale_index,
+        serde_json::to_string(&stale_relations).unwrap(),
+    )
+    .unwrap();
 
     // First query after the "upgrade". No manual cache clear.
     let r = f.trace(&["callers", "b_fn", "--json"]);
@@ -125,7 +129,7 @@ fn the_relations_index_rebuilds_after_schema_shape_change() {
     );
 
     // Eviction: the prior schema's index is gone, and the namespace holds
-    // exactly one relations index.
+    // exactly two current relations-index entries.
     assert!(
         !stale_index.exists(),
         "the prior schema's relations index survived the rebuild — a schema \
@@ -143,8 +147,8 @@ fn the_relations_index_rebuilds_after_schema_shape_change() {
         .collect();
     assert_eq!(
         indexes.len(),
-        1,
-        "the file namespace must hold exactly one relations index after the \
+        2,
+        "the file namespace must hold exactly two relations-index entries after the \
          rebuild; got {indexes:?}"
     );
 }
@@ -239,8 +243,7 @@ fn php_callers_fallback_to_module_importers_when_no_references() {
         .filter_map(|c| c["source_file"].as_str())
         .collect();
     assert!(
-        files.contains(&"app/Importers/A.php")
-            && files.contains(&"app/Importers/B.php"),
+        files.contains(&"app/Importers/A.php") && files.contains(&"app/Importers/B.php"),
         "module-importer fallback must surface importing files when the \
          symbol has zero references; got {:?}",
         files
@@ -285,14 +288,11 @@ fn typescript_module_caller_is_extracted_when_import_resolves() {
 }
 
 // ---------------------------------------------------------------------------
-// Contradiction 4 — `downstream --path P` empty where `upstream --path P` works
+// Contradiction 4 — a file scope amputated cross-file edges
 // ---------------------------------------------------------------------------
 
 #[test]
-fn usages_path_mode_returns_results_when_dependencies_does() {
-    // A path inside the repo on which `upstream --path` returns results
-    // must give `downstream --path` matching coverage — not the empty
-    // "(no nodes in the architecture graph — cache may be empty)" verdict.
+fn path_mode_scopes_subjects_but_keeps_cross_file_reach() {
     let f = Fixture::new();
     f.write("pkg/__init__.py", "");
     f.write(
@@ -304,40 +304,76 @@ fn usages_path_mode_returns_results_when_dependencies_does() {
         "from pkg.c import c_fn\n\ndef b_fn(x):\n    return c_fn(x)\n",
     );
     f.write("pkg/c.py", "def c_fn(x):\n    return x + 1\n");
-    f.commit("path-mode parity");
+    f.commit("scoped path reach");
     f.trace(&["cache", "build", "."]).ok();
 
-    // Resolve "pkg/a.py" via a single-file path. `a.py` imports a sibling
-    // (pkg.b), and the architecture graph carries that internal edge.
-    // The bug: path_mode set repo_root to the absolutized arg, so when the
-    // arg is a file the git-ls-files fallback returned just that file —
-    // and edges whose target lived outside that file disappeared on the
-    // downstream side while the upstream side still found the importer.
-    let pkg_file = f.path("pkg/a.py");
+    let middle = f.path("pkg/b.py");
+    for (command, direct_key, transitive_key, node_id) in [
+        (
+            "dependencies",
+            "direct_dependencies",
+            "transitive_dependencies",
+            "module::pkg.b",
+        ),
+        (
+            "usages",
+            "direct_dependents",
+            "transitive_dependents",
+            "pkg/b.py::b_fn",
+        ),
+    ] {
+        let run = f.trace(&[command, "--path", &middle, "--json"]);
+        run.ok();
+        let document = run.json();
+        for slot in ["query", "context", "results", "counts"] {
+            assert!(
+                document.get(slot).is_some(),
+                "{command} omitted {slot}: {document}"
+            );
+        }
+        assert_eq!(document["query"]["path"], middle);
+        assert_eq!(document["counts"]["nodes"], 1);
+        let rows = document["results"]
+            .as_array()
+            .expect("results must be rows");
+        assert_eq!(rows.len(), 1, "only pkg/b.py may be ranked: {rows:?}");
+        assert_eq!(rows[0]["node_id"], node_id);
+        assert_eq!(rows[0][direct_key], 1);
+        assert_eq!(rows[0][transitive_key], 1);
+        assert!(
+            document["context"]["files"].get("pkg/b.py").is_some(),
+            "the positive subject must carry its passive context: {document}"
+        );
+    }
 
-    let up = f.trace(&["dependencies", "--path", &pkg_file, "--json"]);
-    up.ok();
-    let up_rows = up.json()["results"]
+    let entry = f.path("pkg/a.py");
+    let dependencies = f.trace(&["dependencies", "--path", &entry, "--json"]);
+    dependencies.ok();
+    let dependency_document = dependencies.json();
+    let dependency_rows = dependency_document["results"]
         .as_array()
-        .expect("upstream rows must be an array")
-        .len();
+        .expect("dependencies results must be rows");
+    assert_eq!(dependency_rows.len(), 1, "only pkg/a.py may be ranked");
+    assert_eq!(dependency_rows[0]["node_id"], "module::pkg.a");
+    assert_eq!(dependency_rows[0]["direct_dependencies"], 1);
+    assert_eq!(dependency_rows[0]["transitive_dependencies"], 2);
+    assert!(dependency_document["context"]["files"]
+        .get("pkg/a.py")
+        .is_some());
 
-    let dn = f.trace(&["usages", "--path", &pkg_file, "--json"]);
-    dn.ok();
-    let dn_value = dn.json();
-    let dn_rows = dn_value["results"]
-        .as_array()
-        .expect("downstream rows must be an array")
-        .len();
+    let usages = f.trace(&["usages", "--path", &entry, "--json"]);
+    usages.ok();
+    let usage_document = usages.json();
+    assert_eq!(usage_document["results"], serde_json::json!([]));
+    assert_eq!(usage_document["counts"]["nodes"], 0);
 
-    assert!(up_rows > 0, "upstream must return rows on pkg/a.py: {:?}", up.stdout);
-    assert!(
-        dn_rows > 0,
-        "downstream --path must agree with upstream --path on the same \
-         path/cache; upstream returned {up_rows} rows but downstream \
-         returned {dn_rows}. value={:?}",
-        dn_value
+    let human = f.trace(&["usages", "--path", &entry]);
+    human.ok();
+    assert_eq!(
+        human.stdout.trim(),
+        "(no files with dependents found in this scope)"
     );
+    assert!(!human.stdout.contains("cache build"));
 }
 
 // ---------------------------------------------------------------------------
@@ -410,4 +446,3 @@ fn structure_reports_nonzero_symbols_for_tsx_file_with_declarations() {
         r.stdout
     );
 }
-

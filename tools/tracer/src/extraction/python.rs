@@ -1,6 +1,6 @@
 //! Python tree-sitter extraction: module-level imports and definitions.
 
-use crate::extraction::{Declaration, Export, ExtractionResult, Import, Reference, RefShape};
+use crate::extraction::{Declaration, Export, ExtractionResult, Import, RefShape, Reference};
 use std::collections::HashMap;
 use tree_sitter::{Node, Parser, Query, QueryCursor, StreamingIterator};
 
@@ -60,10 +60,7 @@ pub fn extract(source: &[u8]) -> ExtractionResult {
 /// Imports/exports from an already-parsed Python tree. Decoupled from the
 /// parse so `file_facts` shares one tree with `ccn` (single-parse). Caller
 /// guarantees `tree` came from the Python grammar.
-pub fn extract_from_tree(
-    tree: &tree_sitter::Tree,
-    source: &[u8],
-) -> ExtractionResult {
+pub fn extract_from_tree(tree: &tree_sitter::Tree, source: &[u8]) -> ExtractionResult {
     let lang: tree_sitter::Language = tree_sitter_python::LANGUAGE.into();
     let query = match Query::new(&lang, QUERY_SRC) {
         Ok(q) => q,
@@ -124,6 +121,7 @@ pub fn extract_from_tree(
                 "import.module" => imports.push(Import {
                     module: c.text.clone(),
                     symbol: None,
+                    locals: Vec::new(),
                     line: c.line,
                 }),
                 "import_from.module" => {}
@@ -132,6 +130,7 @@ pub fn extract_from_tree(
                     imports.push(Import {
                         module,
                         symbol: Some(c.text.clone()),
+                        locals: Vec::new(),
                         line: c.line,
                     });
                 }

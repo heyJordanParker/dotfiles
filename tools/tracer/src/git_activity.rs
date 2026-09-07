@@ -9,12 +9,14 @@
 //! recent commits; on a history deeper than the cap, `commit_count` becomes
 //! a floor (commits within the cap, not the full-history total) and
 //! `commit_count_is_floor` is set so consumers can see the count is partial.
-//! Plus `git status --porcelain=v1 -z`, `git rev-parse HEAD`, and one
-//! `git ls-tree -r --name-only <ref>` per deploy branch (the latter
-//! disk-cached, keyed by the branch tip commit ids).
+//! Plus live working state, `git rev-parse HEAD`, one
+//! `git for-each-ref` observation of every deploy tip, and one `git ls-tree
+//! -r --name-only <ref>` per present deploy branch (the latter disk-cached,
+//! keyed by the branch tip commit ids).
 
 use crate::{cache, memo};
-use serde::{Deserialize, Serialize};
+use serde::ser::SerializeStruct;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -28,8 +30,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 /// more memory than the map itself on a repository of any size, and
 /// `working_state` is deliberately absent from the entry — it is recomputed
 /// live on every read, so it defaults like every other missing field.
-#[derive(Debug, Clone, Default, Deserialize, Serialize)]
-#[serde(default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct GitActivity {
     pub last_modified: Option<String>,
     pub last_author: Option<String>,
@@ -45,12 +46,83 @@ pub struct GitActivity {
     /// Never written to the entry: it is a fact about the working tree, which
     /// moves independently of HEAD, so it is recomputed and overlaid on every
     /// read.
-    #[serde(skip_serializing)]
     pub working_state: Option<String>,
-    pub present_in: Vec<String>,
+    pub present_in: Vec<&'static str>,
     pub last_subject: Option<String>,
     pub top_author: Option<String>,
-    pub co_changed: Vec<(String, i64)>,
+    pub co_changed: Vec<(Arc<str>, i64)>,
+}
+
+#[derive(Default, Deserialize)]
+#[serde(default)]
+struct StoredGitActivity {
+    last_modified: Option<String>,
+    last_author: Option<String>,
+    commits_30d: i64,
+    first_seen: Option<String>,
+    commit_count: i64,
+    commit_count_is_floor: bool,
+    rename_from: Option<String>,
+    last_subject: Option<String>,
+    top_author: Option<String>,
+    present_in: Vec<String>,
+    co_changed: Vec<(String, i64)>,
+}
+
+impl From<StoredGitActivity> for GitActivity {
+    fn from(stored: StoredGitActivity) -> Self {
+        Self {
+            last_modified: stored.last_modified,
+            last_author: stored.last_author,
+            commits_30d: stored.commits_30d,
+            first_seen: stored.first_seen,
+            commit_count: stored.commit_count,
+            commit_count_is_floor: stored.commit_count_is_floor,
+            rename_from: stored.rename_from,
+            working_state: None,
+            present_in: stored
+                .present_in
+                .into_iter()
+                .map(|label| deploy_label(&label))
+                .collect(),
+            last_subject: stored.last_subject,
+            top_author: stored.top_author,
+            co_changed: stored
+                .co_changed
+                .into_iter()
+                .map(|(path, count)| (Arc::from(path), count))
+                .collect(),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for GitActivity {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        StoredGitActivity::deserialize(deserializer).map(Self::from)
+    }
+}
+
+impl Serialize for GitActivity {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut state = serializer.serialize_struct("GitActivity", 11)?;
+        state.serialize_field("last_modified", &self.last_modified)?;
+        state.serialize_field("last_author", &self.last_author)?;
+        state.serialize_field("commits_30d", &self.commits_30d)?;
+        state.serialize_field("first_seen", &self.first_seen)?;
+        state.serialize_field("commit_count", &self.commit_count)?;
+        state.serialize_field("commit_count_is_floor", &self.commit_count_is_floor)?;
+        state.serialize_field("rename_from", &self.rename_from)?;
+        state.serialize_field("present_in", &self.present_in)?;
+        state.serialize_field("last_subject", &self.last_subject)?;
+        state.serialize_field("top_author", &self.top_author)?;
+        let co_changed: Vec<(&str, i64)> = self
+            .co_changed
+            .iter()
+            .map(|(path, count)| (path.as_ref(), *count))
+            .collect();
+        state.serialize_field("co_changed", &co_changed)?;
+        state.end()
+    }
 }
 
 impl GitActivity {
@@ -91,6 +163,26 @@ const DEPLOY_BRANCHES: &[(&str, &str)] = &[
     ("main", "origin/main"),
     ("main", "origin/master"),
 ];
+
+fn deploy_label(label: &str) -> &'static str {
+    DEPLOY_BRANCHES
+        .iter()
+        .find_map(|(configured, _)| (*configured == label).then_some(*configured))
+        .unwrap_or_else(|| Box::leak(label.to_string().into_boxed_str()))
+}
+
+fn intern_co_changed(mut activities: HashMap<String, GitActivity>) -> HashMap<String, GitActivity> {
+    let mut paths: HashMap<String, Arc<str>> = HashMap::new();
+    for activity in activities.values_mut() {
+        for (path, _) in &mut activity.co_changed {
+            let interned = paths
+                .entry(path.to_string())
+                .or_insert_with(|| Arc::clone(path));
+            *path = Arc::clone(interned);
+        }
+    }
+    activities
+}
 
 /// Run git in `repo_root` and return stdout with the trailing newline
 /// stripped, or `None` when git fails. Git terminates every command's output
@@ -148,12 +240,8 @@ fn grafts(repo_root: &Path) -> HashSet<String> {
     }
 }
 
-/// Full relpath -> GitActivity map for the repo (single git log pass).
-pub fn bulk(repo_root: &Path) -> HashMap<String, GitActivity> {
+fn historical(repo_root: &Path) -> HashMap<String, GitActivity> {
     let history = walk_history(repo_root);
-    let working = working_tree_state(repo_root);
-    let presence = presence_by_path(repo_root);
-
     let mut out: HashMap<String, GitActivity> = HashMap::new();
     for (path, info) in &history.entries {
         out.insert(
@@ -166,93 +254,92 @@ pub fn bulk(repo_root: &Path) -> HashMap<String, GitActivity> {
                 commit_count: info.commit_count,
                 commit_count_is_floor: history.truncated,
                 rename_from: info.rename_from.clone(),
-                working_state: working.get(path).cloned(),
-                present_in: presence.get(path).cloned().unwrap_or_default(),
+                working_state: None,
+                present_in: Vec::new(),
                 last_subject: info.last_subject.clone(),
                 top_author: info.top_author.clone(),
-                co_changed: info.co_changed.clone(),
-            },
-        );
-    }
-    for (path, state) in &working {
-        if out.contains_key(path) {
-            continue;
-        }
-        out.insert(
-            path.clone(),
-            GitActivity {
-                working_state: Some(state.clone()),
-                present_in: presence.get(path).cloned().unwrap_or_default(),
-                ..GitActivity::empty()
-            },
-        );
-    }
-    // Deploy-branch presence is a fact about the current refs, not about
-    // history, so it survives a repo whose history the walk dropped. In a
-    // shallow clone every file's only commit is a graft, which leaves no
-    // history entry and previously no entry at all — silently turning a file
-    // that is on origin/main into `presence: local-only`.
-    for (path, refs) in &presence {
-        if out.contains_key(path) {
-            continue;
-        }
-        out.insert(
-            path.clone(),
-            GitActivity {
-                present_in: refs.clone(),
-                ..GitActivity::empty()
+                co_changed: info
+                    .co_changed
+                    .iter()
+                    .map(|(path, count)| (Arc::from(path.as_str()), *count))
+                    .collect(),
             },
         );
     }
     out
 }
 
-/// Process-wide memo of the disk-cached bulk map, keyed by repo root.
-///
-/// `file_facts::get` joins git facts onto every single-file resolve, and
-/// `glob`, `diff`, `blame`, and `structure` call it once per file, so without
-/// the memo a run would re-read and re-parse the whole map N times. The lock
-/// is held across the compute so concurrent callers serialize onto one build
-/// rather than racing the same git subprocesses.
+fn compose_live(
+    mut out: HashMap<String, GitActivity>,
+    working: HashMap<String, String>,
+    presence: HashMap<String, Vec<&'static str>>,
+) -> HashMap<String, GitActivity> {
+    for activity in out.values_mut() {
+        activity.working_state = None;
+        activity.present_in.clear();
+    }
+    for (path, state) in working {
+        let entry = out.entry(path).or_insert_with(GitActivity::empty);
+        entry.working_state = Some(state);
+    }
+    // Deploy-branch presence is a fact about the current refs, not about
+    // history, so it survives a repo whose history the walk dropped. In a
+    // shallow clone every file's only commit is a graft, which leaves no
+    // history entry and previously no entry at all — silently turning a file
+    // that is on origin/main into `presence: local-only`.
+    for (path, refs) in presence {
+        let entry = out.entry(path).or_insert_with(GitActivity::empty);
+        entry.present_in = refs;
+    }
+    intern_co_changed(out)
+}
+
+/// Complete disk-cached activity, memoized once per repository root.
 pub fn bulk_cached(repo_root: &Path) -> Arc<HashMap<String, GitActivity>> {
-    static MEMO: memo::Memo<HashMap<String, GitActivity>> = OnceLock::new();
-    memo::get_or_build(&MEMO, repo_root, || bulk_cached_uncached(repo_root))
+    complete_cached(repo_root)
+}
+
+static COMPLETE_MEMO: memo::Memo<HashMap<String, GitActivity>> = OnceLock::new();
+
+fn complete_cached(repo_root: &Path) -> Arc<HashMap<String, GitActivity>> {
+    memo::get_or_build(&COMPLETE_MEMO, repo_root, || {
+        bulk_cached_uncached(repo_root)
+    })
 }
 
 /// Disk-cached bulk map. Historical fields are cached under
-/// `git_activity__{head}__{30d cutoff}` in the file namespace; working-tree
+/// `git_activity_v2__{head}__{30d cutoff}` in the file namespace; working-tree
 /// state is always recomputed fresh and overlaid.
 ///
 /// The cutoff date is in the key because `commits_30d` is computed against
 /// today's date: keyed by HEAD alone, a branch that sits idle keeps serving
 /// the velocity it had on the day the entry was written.
 fn bulk_cached_uncached(repo_root: &Path) -> HashMap<String, GitActivity> {
+    compose_live(
+        cached_history(repo_root),
+        working_tree_state(repo_root),
+        presence_by_path(repo_root),
+    )
+}
+
+fn cached_history(repo_root: &Path) -> HashMap<String, GitActivity> {
     let head = match head_sha(repo_root) {
         Some(h) => h,
-        None => return bulk(repo_root),
+        None => return historical(repo_root),
     };
-    let key = format!("git_activity__{head}__{}", cutoff_30d());
+    let key = format!("git_activity_v2__{head}__{}", cutoff_30d());
     if let Some(history) = cache::load_bytes(cache::NAMESPACE_FILE, &key, repo_root)
         .and_then(|b| serde_json::from_slice::<HashMap<String, GitActivity>>(&b).ok())
     {
-        let working = working_tree_state(repo_root);
-        if working.is_empty() {
-            return history;
-        }
-        let mut out = history;
-        for (path, state) in &working {
-            let entry = out.entry(path.clone()).or_insert_with(GitActivity::empty);
-            entry.working_state = Some(state.clone());
-        }
-        return out;
+        return history;
     }
-    let history = bulk(repo_root);
+    let history = historical(repo_root);
     // `working_state` is `skip_serializing`, so the entry holds only the
     // HEAD-keyed facts the key actually determines.
     if let Ok(payload) = serde_json::to_value(&history) {
         let _ = cache::save(cache::NAMESPACE_FILE, &key, &payload, repo_root);
     }
-    cache::evict_prefixed(cache::NAMESPACE_FILE, "git_activity__", &key, repo_root);
+    cache::evict_prefixed(cache::NAMESPACE_FILE, "git_activity", &key, repo_root);
     history
 }
 
@@ -286,20 +373,22 @@ struct History {
 fn walk_history(repo_root: &Path) -> History {
     let cap_arg = format!("-n{HISTORY_CAP}");
     // `%H` leads the record so a graft commit can be recognized and dropped.
-    let stdout = match git_str(
-        repo_root,
-        &[
+    let stdout = match Command::new("git")
+        .args([
             "log",
             &cap_arg,
             "-M",
             "--diff-merges=first-parent",
             "--name-status",
-            "--pretty=format:COMMIT|%H|%ad|%an|%s",
+            "-z",
+            "--pretty=format:COMMIT|%H|%ad|%an|%s%x00",
             "--date=short",
-        ],
-    ) {
-        Some(s) => s,
-        None => return History::default(),
+        ])
+        .current_dir(repo_root)
+        .output()
+    {
+        Ok(output) if output.status.success() => output.stdout,
+        _ => return History::default(),
     };
     let graft_shas = grafts(repo_root);
     let cutoff_30d = cutoff_30d();
@@ -368,9 +457,18 @@ fn walk_history(repo_root: &Path) -> History {
     };
 
     let mut current_recent = false;
-    for line in stdout.split('\n') {
-        if let Some(rest) = line.strip_prefix("COMMIT|") {
-            flush_co(&mut co_by_path, &mut pairs_held, &current_paths, current_files);
+    let fields: Vec<&[u8]> = stdout.split(|byte| *byte == 0).collect();
+    let mut index = 0;
+    while index < fields.len() {
+        let field = String::from_utf8_lossy(fields[index]);
+        let field = field.trim_start_matches('\n');
+        if let Some(rest) = field.strip_prefix("COMMIT|") {
+            flush_co(
+                &mut co_by_path,
+                &mut pairs_held,
+                &current_paths,
+                current_files,
+            );
             current_paths.clear();
             current_files = 0;
             commit_seen += 1;
@@ -391,23 +489,35 @@ fn walk_history(repo_root: &Path) -> History {
                 .as_deref()
                 .map(|d| d >= cutoff_30d.as_str())
                 .unwrap_or(false);
+            index += 1;
             continue;
         }
-        if line.trim().is_empty() || current_date.is_none() || skip_commit {
+        if field.is_empty() || current_date.is_none() {
+            index += 1;
             continue;
         }
         let date = current_date.clone().unwrap();
-        let tokens: Vec<&str> = line.split('\t').collect();
-        if tokens.len() < 2 {
+        let status = field;
+        let path_fields = if status.starts_with('R') || status.starts_with('C') {
+            2
+        } else {
+            1
+        };
+        if index + path_fields >= fields.len() {
+            break;
+        }
+        if skip_commit {
+            index += path_fields + 1;
             continue;
         }
-        let status = tokens[0];
+        let first_path = String::from_utf8_lossy(fields[index + 1]).into_owned();
+        if first_path.is_empty() {
+            index += 1;
+            continue;
+        }
         if status.starts_with('R') || status.starts_with('C') {
-            if tokens.len() < 3 {
-                continue;
-            }
-            let old_path = tokens[1].to_string();
-            let path = tokens[2].to_string();
+            let old_path = first_path;
+            let path = String::from_utf8_lossy(fields[index + 2]).into_owned();
             ensure(&mut out, &path, &date, &current_author, &current_subject);
             let e = out.get_mut(&path).unwrap();
             e.commit_count += 1;
@@ -426,8 +536,9 @@ fn walk_history(repo_root: &Path) -> History {
                 current_paths.push(path.clone());
             }
             aliases.entry(old_path).or_insert(path);
+            index += 3;
         } else {
-            let path = tokens[1].to_string();
+            let path = first_path;
             let target = aliases.get(&path).cloned().unwrap_or(path);
             ensure(&mut out, &target, &date, &current_author, &current_subject);
             let e = out.get_mut(&target).unwrap();
@@ -443,9 +554,15 @@ fn walk_history(repo_root: &Path) -> History {
             if current_files <= CO_CHANGE_COMMIT_CAP && !current_paths.contains(&target) {
                 current_paths.push(target);
             }
+            index += 2;
         }
     }
-    flush_co(&mut co_by_path, &mut pairs_held, &current_paths, current_files);
+    flush_co(
+        &mut co_by_path,
+        &mut pairs_held,
+        &current_paths,
+        current_files,
+    );
 
     for (path, entry) in out.iter_mut() {
         if let Some(ac) = authors_by_path.get(path) {
@@ -534,7 +651,9 @@ fn unix_to_ymd(secs: i64) -> String {
 /// serialize onto one status run rather than racing `index.lock`.
 pub fn working_tree_state(repo_root: &Path) -> HashMap<String, String> {
     porcelain(repo_root)
-        .iter()
+        .as_deref()
+        .into_iter()
+        .flat_map(|entries| entries.iter())
         .map(|(path, (state, _))| (path.clone(), state.clone()))
         .collect()
 }
@@ -548,10 +667,10 @@ pub fn working_tree_state(repo_root: &Path) -> HashMap<String, String> {
 /// half of what it meant; the word is what prevents that.
 pub fn staging_state(repo_root: &Path) -> HashMap<String, String> {
     porcelain(repo_root)
-        .iter()
-        .filter_map(|(path, (_, staging))| {
-            staging.as_ref().map(|s| (path.clone(), s.clone()))
-        })
+        .as_deref()
+        .into_iter()
+        .flat_map(|entries| entries.iter())
+        .filter_map(|(path, (_, staging))| staging.as_ref().map(|s| (path.clone(), s.clone())))
         .collect()
 }
 
@@ -563,11 +682,23 @@ pub fn staging_state(repo_root: &Path) -> HashMap<String, String> {
 /// most once per root. The lock is held across the compute so concurrent
 /// callers (parallel primer sections, file-facts working-state overlay)
 /// serialize onto one status run rather than racing `index.lock`.
-type Porcelain = HashMap<String, (String, Option<String>)>;
+pub(crate) type Porcelain = HashMap<String, (String, Option<String>)>;
+static PORCELAIN_MEMO: memo::Memo<Option<Arc<Porcelain>>> = OnceLock::new();
 
-fn porcelain(repo_root: &Path) -> Arc<Porcelain> {
-    static MEMO: memo::Memo<Porcelain> = OnceLock::new();
-    memo::get_or_build(&MEMO, repo_root, || porcelain_uncached(repo_root))
+pub(crate) fn porcelain(repo_root: &Path) -> Option<Arc<Porcelain>> {
+    memo::get_or_build(&PORCELAIN_MEMO, repo_root, || {
+        porcelain_uncached(repo_root, "all").map(Arc::new)
+    })
+    .as_ref()
+    .as_ref()
+    .map(Arc::clone)
+}
+
+/// Paths reported by the invocation's one porcelain scan. Repository file
+/// discovery reuses these for untracked files instead of starting a second
+/// directory walk through `git ls-files --others`.
+pub(crate) fn working_paths(repo_root: &Path) -> Option<Vec<String>> {
+    Some(porcelain(repo_root)?.keys().cloned().collect())
 }
 
 /// The staging word for one porcelain `XY` pair, or None when nothing is
@@ -588,15 +719,20 @@ fn staging_word(x: char, y: char) -> Option<String> {
     )
 }
 
-fn porcelain_uncached(repo_root: &Path) -> Porcelain {
+pub(crate) fn porcelain_uncached(repo_root: &Path, untracked: &str) -> Option<Porcelain> {
+    let untracked = format!("--untracked-files={untracked}");
     let out = match Command::new("git")
-        .args(["status", "--porcelain=v1", "-z"])
+        .args(["status", "--porcelain=v1", "-z", &untracked])
         .current_dir(repo_root)
         .output()
     {
         Ok(o) if o.status.success() => o.stdout,
-        _ => return HashMap::new(),
+        _ => return None,
     };
+    Some(parse_porcelain(&out))
+}
+
+fn parse_porcelain(out: &[u8]) -> Porcelain {
     let mut result: Porcelain = HashMap::new();
     let parts: Vec<&[u8]> = out.split(|&b| b == 0).collect();
     let mut i = 0;
@@ -607,7 +743,8 @@ fn porcelain_uncached(repo_root: &Path) -> Porcelain {
             continue;
         }
         let xy: Vec<char> = chunk.chars().take(2).collect();
-        let path: String = chunk.chars().skip(3).collect();
+        let mut path: String = chunk.chars().skip(3).collect();
+        path = normalize_working_path(path);
         let x = xy[0];
         let y = xy[1];
         if x == 'R' || x == 'C' || y == 'R' || y == 'C' {
@@ -634,6 +771,17 @@ fn porcelain_uncached(repo_root: &Path) -> Porcelain {
     result
 }
 
+fn normalize_working_path(path: String) -> String {
+    if path
+        .split('/')
+        .next()
+        .is_some_and(|segment| segment == crate::cache::CACHE_DIR_NAME)
+    {
+        return format!("{}/", crate::cache::CACHE_DIR_NAME);
+    }
+    path
+}
+
 /// For each path, which deploy branches contain it.
 ///
 /// The `ls-tree -r` walks change only when a deploy branch tip moves, which
@@ -642,12 +790,38 @@ fn porcelain_uncached(repo_root: &Path) -> Porcelain {
 /// of both the key and the result, exactly as the live computation does). A
 /// local commit that doesn't touch a deploy branch reuses this cache; a
 /// deploy-branch fast-forward rotates the key and recomputes.
-fn presence_by_path(repo_root: &Path) -> HashMap<String, Vec<String>> {
-    let present: Vec<(&str, &str, String)> = DEPLOY_BRANCHES
+fn presence_by_path(repo_root: &Path) -> HashMap<String, Vec<&'static str>> {
+    let configured: Vec<(&str, &str, String)> = DEPLOY_BRANCHES
         .iter()
-        .filter_map(|(label, r#ref)| {
-            Some((*label, *r#ref, git_str(repo_root, &["rev-parse", r#ref])?))
-        })
+        .map(|(label, r#ref)| (*label, *r#ref, format!("refs/remotes/{ref}")))
+        .collect();
+    let output = match Command::new("git")
+        .arg("for-each-ref")
+        .arg("--format=%(refname)%00%(objectname)")
+        .args(configured.iter().map(|(_, _, full_ref)| full_ref))
+        .current_dir(repo_root)
+        .output()
+    {
+        Ok(output) if output.status.success() => output.stdout,
+        _ => return HashMap::new(),
+    };
+    let mut observed: HashMap<String, String> = HashMap::new();
+    for record in output.split(|byte| *byte == b'\n') {
+        let Some(separator) = record.iter().position(|byte| *byte == 0) else {
+            continue;
+        };
+        let r#ref = String::from_utf8_lossy(&record[..separator]).into_owned();
+        let tip = String::from_utf8_lossy(&record[separator + 1..]).into_owned();
+        if !tip.is_empty() {
+            observed.insert(r#ref, tip);
+        }
+    }
+    // `for-each-ref` may treat an argument as a namespace prefix. Join back
+    // through the full configured names so similarly prefixed and unrelated
+    // refs never enter the cache identity or displayed presence.
+    let present: Vec<(&str, &str, String)> = configured
+        .into_iter()
+        .filter_map(|(label, r#ref, full_ref)| Some((label, r#ref, observed.remove(&full_ref)?)))
         .collect();
 
     if present.is_empty() {
@@ -664,24 +838,30 @@ fn presence_by_path(repo_root: &Path) -> HashMap<String, Vec<String>> {
             hasher.update(tip.as_bytes());
             hasher.update(b"\n");
         }
-        format!("git_presence__{}", hex::encode(hasher.finalize()))
+        format!("git_presence_v2__{}", hex::encode(hasher.finalize()))
     };
 
     if let Some(cached) = cache::load_bytes(cache::NAMESPACE_FILE, &key, repo_root)
         .and_then(|b| serde_json::from_slice::<HashMap<String, Vec<String>>>(&b).ok())
     {
-        return cached;
+        return cached
+            .into_iter()
+            .map(|(path, labels)| {
+                (
+                    path,
+                    labels
+                        .into_iter()
+                        .map(|label| deploy_label(&label))
+                        .collect(),
+                )
+            })
+            .collect();
     }
 
     let computed = compute_presence(repo_root, &present);
     let payload = json!(computed);
-    let _ = cache::save(
-        cache::NAMESPACE_FILE,
-        &key,
-        &payload,
-        repo_root,
-    );
-    cache::evict_prefixed(cache::NAMESPACE_FILE, "git_presence__", &key, repo_root);
+    let _ = cache::save(cache::NAMESPACE_FILE, &key, &payload, repo_root);
+    cache::evict_prefixed(cache::NAMESPACE_FILE, "git_presence", &key, repo_root);
     computed
 }
 
@@ -689,21 +869,26 @@ fn presence_by_path(repo_root: &Path) -> HashMap<String, Vec<String>> {
 fn compute_presence(
     repo_root: &Path,
     present: &[(&str, &str, String)],
-) -> HashMap<String, Vec<String>> {
-    let mut labels_for: HashMap<String, Vec<String>> = HashMap::new();
-    for (label, r#ref, _tip) in present {
-        let stdout =
-            match git_str(repo_root, &["ls-tree", "-r", "--name-only", r#ref]) {
-                Some(s) => s,
-                None => continue,
-            };
-        for path in stdout.split('\n') {
+) -> HashMap<String, Vec<&'static str>> {
+    let mut labels_for: HashMap<String, Vec<&'static str>> = HashMap::new();
+    for (label, _, tip) in present {
+        let output = match Command::new("git")
+            .args(["ls-tree", "-rz", "--name-only", tip])
+            .current_dir(repo_root)
+            .output()
+        {
+            Ok(output) if output.status.success() => output.stdout,
+            _ => continue,
+        };
+        for path in output.split(|byte| *byte == 0) {
             if path.is_empty() {
                 continue;
             }
-            let v = labels_for.entry(path.to_string()).or_default();
-            if !v.contains(&label.to_string()) {
-                v.push(label.to_string());
+            let path = String::from_utf8_lossy(path).into_owned();
+            let v = labels_for.entry(path).or_default();
+            let label = deploy_label(label);
+            if !v.contains(&label) {
+                v.push(label);
             }
         }
     }
@@ -715,4 +900,42 @@ fn compute_presence(
             (p, labels)
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn activity_cache_shape_round_trips() {
+        let activity = GitActivity {
+            last_modified: Some("2026-09-07".to_string()),
+            last_author: Some("Jordan".to_string()),
+            commits_30d: 3,
+            first_seen: Some("2026-08-01".to_string()),
+            commit_count: 7,
+            commit_count_is_floor: false,
+            rename_from: Some("old.rs".to_string()),
+            working_state: None,
+            present_in: vec!["main"],
+            last_subject: Some("change".to_string()),
+            top_author: Some("Jordan".to_string()),
+            co_changed: vec![(Arc::from("other.rs"), 2)],
+        };
+
+        let bytes = serde_json::to_vec(&activity).unwrap();
+
+        assert_eq!(
+            serde_json::from_slice::<GitActivity>(&bytes).unwrap(),
+            activity
+        );
+    }
+
+    #[test]
+    fn installed_v2_entry_round_trips() {
+        let bytes = include_bytes!("../tests/fixtures/git_activity_v2_installed.json");
+        let activity = serde_json::from_slice::<HashMap<String, GitActivity>>(bytes).unwrap();
+
+        assert_eq!(serde_json::to_vec(&activity).unwrap(), bytes);
+    }
 }

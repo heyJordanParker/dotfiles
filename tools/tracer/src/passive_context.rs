@@ -9,7 +9,7 @@
 //! carries the complete repo-state picture: lifecycle, both ages
 //! (created → modified), churn (total + 30-day velocity), changed-together,
 //! deploy-branch presence, size (loc), complexity, owner, last subject, and
-//! (when the caller supplies the graph counts) callers + dependents.
+//! (when the caller supplies the graph counts) incoming + outgoing.
 
 use crate::file_facts::FileFacts;
 use crate::git_activity::GitActivity;
@@ -92,6 +92,7 @@ fn age(facts: &FileFacts) -> Option<String> {
 fn lifecycle_label(
     working_state: Option<&str>,
     commit_count: i64,
+    commit_count_is_floor: bool,
     rename_from: Option<&String>,
 ) -> String {
     match working_state {
@@ -99,10 +100,15 @@ fn lifecycle_label(
         Some("added") => return "added (uncommitted)".into(),
         Some("renamed") => return "renamed (uncommitted)".into(),
         Some("modified") => {
-            return if commit_count <= 1 {
+            return if commit_count_is_floor {
+                format!("modified ({} commits)", count(commit_count, true))
+            } else if commit_count <= 1 {
                 "modified (new file)".into()
             } else {
-                format!("modified ({commit_count} commits)")
+                format!(
+                    "modified ({} commits)",
+                    count(commit_count, commit_count_is_floor)
+                )
             };
         }
         _ => {}
@@ -110,12 +116,14 @@ fn lifecycle_label(
     if let Some(rf) = rename_from {
         return format!("renamed-from {rf}");
     }
-    if commit_count == 0 {
+    if commit_count_is_floor {
+        format!("{} commits", count(commit_count, true))
+    } else if commit_count == 0 {
         "no-history".into()
     } else if commit_count == 1 {
         "new (1 commit)".into()
     } else {
-        format!("{commit_count} commits")
+        format!("{} commits", count(commit_count, commit_count_is_floor))
     }
 }
 
@@ -123,6 +131,7 @@ fn state_label(facts: &FileFacts) -> String {
     lifecycle_label(
         facts.working_state.as_deref(),
         facts.commit_count,
+        facts.commit_count_is_floor,
         facts.rename_from.as_ref(),
     )
 }
@@ -144,7 +153,19 @@ fn clip_subject(subject: &str, max_chars: usize) -> String {
 fn churn(facts: &FileFacts) -> String {
     let total = facts.commit_count;
     let unit = if total == 1 { "commit" } else { "commits" };
-    format!("churn: {total} {unit}, {}/30d", facts.commits_30d)
+    format!(
+        "churn: {} {unit}, {}/30d",
+        count(total, facts.commit_count_is_floor),
+        facts.commits_30d
+    )
+}
+
+fn count(value: i64, is_floor: bool) -> String {
+    if is_floor {
+        format!("{value}+")
+    } else {
+        value.to_string()
+    }
 }
 
 /// Changed-together shoulder: the basenames of the top files that co-change
@@ -160,20 +181,17 @@ fn changed_together(facts: &FileFacts, max: usize) -> Option<String> {
         .iter()
         .take(max)
         .map(|(path, _)| {
-            Path::new(path)
+            Path::new(path.as_ref())
                 .file_name()
                 .map(|n| n.to_string_lossy().to_string())
-                .unwrap_or_else(|| path.clone())
+                .unwrap_or_else(|| path.to_string())
         })
         .collect();
     Some(format!("together: {}", names.join(", ")))
 }
 
 fn complexity(facts: &FileFacts) -> String {
-    format!(
-        "ccn: {} {}",
-        facts.cyclomatic_complexity_total, facts.rank
-    )
+    format!("ccn: {} {}", facts.cyclomatic_complexity_total, facts.rank)
 }
 
 /// The single source of truth for the shoulder's field set. `graph` is the
@@ -184,7 +202,12 @@ fn complexity(facts: &FileFacts) -> String {
 fn parts(facts: &FileFacts, graph: Option<&Value>, dense: bool) -> Vec<String> {
     let mut parts: Vec<String> = vec![format!("git: {}", state_label(facts))];
     if let Some(a) = age(facts) {
-        parts.push(format!("age: {a}"));
+        let bound = if facts.commit_count_is_floor {
+            "≥"
+        } else {
+            ""
+        };
+        parts.push(format!("age: {bound}{a}"));
     }
     if dense {
         parts.push(churn(facts));
@@ -199,12 +222,12 @@ fn parts(facts: &FileFacts, graph: Option<&Value>, dense: bool) -> Vec<String> {
     }
     parts.push(churn(facts));
     if let Some(g) = graph {
-        let callers = g.get("callers").and_then(|x| x.as_i64()).unwrap_or(0);
-        let dep = g
+        let incoming = g.get("callers").and_then(|x| x.as_i64()).unwrap_or(0);
+        let outgoing = g
             .get("depended_on_by_modules")
             .and_then(|x| x.as_i64())
             .unwrap_or(0);
-        parts.push(format!("callers: {callers} · dependents: {dep}"));
+        parts.push(format!("incoming: {incoming} · outgoing: {outgoing}"));
     }
     parts.push(format!("loc: {}", facts.loc));
     parts.push(complexity(facts));
@@ -240,20 +263,85 @@ pub fn render_compact(facts: &FileFacts) -> String {
 /// directly so the group needs no per-file extraction. None when git holds
 /// nothing for the file: no history and no working-tree state.
 pub fn git_group(a: &GitActivity) -> Option<String> {
-    if a.commit_count == 0 && a.working_state.is_none() {
+    if a.commit_count == 0 && !a.commit_count_is_floor && a.working_state.is_none() {
         return None;
     }
     let mut parts = vec![lifecycle_label(
         a.working_state.as_deref(),
         a.commit_count,
+        a.commit_count_is_floor,
         a.rename_from.as_ref(),
     )];
     if let Some(age) = age_range(a.first_seen.as_ref(), a.last_modified.as_ref()) {
-        parts.push(age);
+        let bound = if a.commit_count_is_floor { "≥" } else { "" };
+        parts.push(format!("{bound}{age}"));
     }
     parts.push(format!("{}/30d", a.commits_30d));
     if let Some(owner) = &a.top_author {
         parts.push(owner.clone());
     }
     Some(parts.join(" \u{00b7} "))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn facts(count: i64) -> FileFacts {
+        FileFacts {
+            path: "bounded.py".into(),
+            language: Some("python".into()),
+            loc: 1,
+            function_count: 0,
+            cyclomatic_complexity_total: 0,
+            cyclomatic_complexity_max: 0,
+            rank: "low".into(),
+            functions: Vec::new(),
+            extraction: None,
+            last_modified: Some("2023-11-14".into()),
+            last_author: None,
+            commits_30d: 0,
+            first_seen: Some("2023-11-14".into()),
+            commit_count: count,
+            commit_count_is_floor: true,
+            rename_from: None,
+            working_state: None,
+            present_in: Vec::new(),
+            last_subject: None,
+            top_author: None,
+            co_changed: Vec::new(),
+            mtime_ns: 0,
+            size_bytes: 0,
+        }
+    }
+
+    #[test]
+    fn history_floors_never_claim_newness_in_full_or_dense_context() {
+        for count in [0, 1, 2] {
+            let facts = facts(count);
+            for rendered in [render(&facts, None), render_compact(&facts)] {
+                assert!(
+                    rendered.contains(&format!("{count}+ commits")),
+                    "missing lower bound: {rendered}"
+                );
+                assert!(
+                    !rendered.contains("new"),
+                    "bounded history claimed newness: {rendered}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn terse_git_group_discloses_zero_count_history_floor() {
+        let activity = GitActivity {
+            commit_count_is_floor: true,
+            ..GitActivity::empty()
+        };
+        let rendered = git_group(&activity).expect("a bounded zero is still history evidence");
+        assert!(
+            rendered.contains("0+ commits"),
+            "terse group hid the lower bound: {rendered}"
+        );
+    }
 }

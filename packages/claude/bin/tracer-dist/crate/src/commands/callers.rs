@@ -31,10 +31,7 @@ fn confidence_rank(confidence: &str) -> u8 {
 /// Each file is a tree-sitter parse, and `Collection` on laravel-framework
 /// reaches over a thousand caller rows, so parsing them one after another
 /// was the whole cost of the command.
-fn signature_lists(
-    files: &[String],
-    repo_root: &Path,
-) -> HashMap<String, Vec<Signature>> {
+fn signature_lists(files: &[String], repo_root: &Path) -> HashMap<String, Vec<Signature>> {
     let mut wanted: Vec<&String> = files.iter().filter(|f| !f.is_empty()).collect();
     wanted.sort();
     wanted.dedup();
@@ -101,21 +98,19 @@ fn caller_row(
 /// The rows for one module: the files that import it.
 fn importer_rows(
     file: &str,
-    repo_root: &Path,
-    languages: &HashMap<String, Option<String>>,
+    index: &relations::Relations,
     sig_cache: &HashMap<String, Vec<Signature>>,
 ) -> Vec<Value> {
-    let index = relations::get(repo_root);
     index
         .importers_of(file)
         .iter()
         .map(|importer| {
-            let language = languages.get(&*importer.file).cloned().flatten();
-            let module = relations::file_to_module(&importer.file, language.as_deref());
+            let language = index.language(&importer.file);
+            let module = relations::file_to_module(&importer.file, language);
             // A module has no calling-function source, so its row carries the
             // importing module's own coordinates and a null signature.
             caller_row(
-                relations::module_id(&importer.file, language.as_deref()),
+                relations::module_id(&importer.file, language),
                 &module,
                 "module",
                 "",
@@ -123,7 +118,7 @@ fn importer_rows(
                 &importer.file,
                 1,
                 "imports",
-                &importer.confidence,
+                importer.confidence,
                 sig_cache,
             )
         })
@@ -170,22 +165,17 @@ pub fn run(symbol: &str, limit: usize, as_json: bool) -> Result<Value> {
     let truncated = total_sites > limit;
     sites.truncate(limit);
 
-    let languages = relations::languages(&repo_root);
+    let index = relations::get(&repo_root);
 
     // The use-site file is the file the agent would open to read the call, so
     // its lifecycle state is what each caller row carries.
     let mut row_files: Vec<String> = sites.iter().map(|s| s.file.clone()).collect();
     for file in &modules {
-        row_files.extend(
-            relations::get(&repo_root)
-                .importers_of(file)
-                .iter()
-                .map(|i| i.file.to_string()),
-        );
+        row_files.extend(index.importers_of(file).iter().map(|i| i.file.to_string()));
     }
     for declaration in &declarations {
         row_files.extend(
-            relations::get(&repo_root)
+            index
                 .importers_of(&declaration.file)
                 .iter()
                 .map(|i| i.file.to_string()),
@@ -203,8 +193,7 @@ pub fn run(symbol: &str, limit: usize, as_json: bool) -> Result<Value> {
         let mut callers: Vec<Value> = sites
             .iter()
             .filter(|s| {
-                s.target_file == declaration.file
-                    && s.target.name == declaration.declaration.name
+                s.target_file == declaration.file && s.target.name == declaration.declaration.name
             })
             .map(|s| {
                 // A use site inside a declared function resolves its row to
@@ -219,10 +208,10 @@ pub fn run(symbol: &str, limit: usize, as_json: bool) -> Result<Value> {
                         caller.line,
                     ),
                     None => {
-                        let language = languages.get(&s.file).cloned().flatten();
+                        let language = index.language(&s.file);
                         (
-                            relations::module_id(&s.file, language.as_deref()),
-                            relations::file_to_module(&s.file, language.as_deref()),
+                            relations::module_id(&s.file, language),
+                            relations::file_to_module(&s.file, language),
                             "module".to_string(),
                             String::new(),
                             0,
@@ -249,7 +238,7 @@ pub fn run(symbol: &str, limit: usize, as_json: bool) -> Result<Value> {
         // User;` has no call site the reference walker can catch, and
         // returning zero callers for it would be strictly worse.
         if callers.is_empty() {
-            callers = importer_rows(&declaration.file, &repo_root, &languages, &sig_cache);
+            callers = importer_rows(&declaration.file, &index, &sig_cache);
         }
 
         push_symbol(
@@ -265,13 +254,13 @@ pub fn run(symbol: &str, limit: usize, as_json: bool) -> Result<Value> {
     }
 
     for file in &modules {
-        let language = languages.get(file).cloned().flatten();
-        let callers = importer_rows(file, &repo_root, &languages, &sig_cache);
+        let language = index.language(file);
+        let callers = importer_rows(file, &index, &sig_cache);
         push_symbol(
             &mut symbols,
             &mut headings,
-            relations::module_id(file, language.as_deref()),
-            &relations::file_to_module(file, language.as_deref()),
+            relations::module_id(file, language),
+            &relations::file_to_module(file, language),
             "module",
             file,
             1,
@@ -280,8 +269,7 @@ pub fn run(symbol: &str, limit: usize, as_json: bool) -> Result<Value> {
     }
 
     if !as_json {
-        for ((label, kind, source_file, source_line), entry) in
-            headings.iter().zip(symbols.iter())
+        for ((label, kind, source_file, source_line), entry) in headings.iter().zip(symbols.iter())
         {
             println!("\n{label} [{kind}] @ {source_file}:{source_line}");
             let callers = entry["callers"].as_array().unwrap();

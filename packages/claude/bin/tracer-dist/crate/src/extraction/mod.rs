@@ -15,13 +15,14 @@ pub mod rust;
 pub mod typescript;
 
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
 use std::path::Path;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Import {
     pub module: String,
     pub symbol: Option<String>,
+    #[serde(default)]
+    pub locals: Vec<String>,
     pub line: i64,
 }
 
@@ -59,23 +60,6 @@ pub enum RefShape {
     Static,
 }
 
-impl RefShape {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            RefShape::Free => "free",
-            RefShape::Member => "member",
-            RefShape::Static => "static",
-        }
-    }
-    pub fn from_str(s: &str) -> RefShape {
-        match s {
-            "member" => RefShape::Member,
-            "static" => RefShape::Static,
-            _ => RefShape::Free,
-        }
-    }
-}
-
 /// A reference — an identifier use site (a call or qualified-name access).
 /// Resolved into edges at graph-build time. `shape` is the call form;
 /// `receiver` is the class named at the site for a `Static` use (e.g. `Foo`
@@ -104,141 +88,6 @@ pub struct ExtractionResult {
     pub exports: Vec<Export>,
     pub declarations: Vec<Declaration>,
     pub references: Vec<Reference>,
-}
-
-impl ExtractionResult {
-    /// Stable serialization order: language, imports, exports, declarations, references.
-    pub fn to_json(&self) -> Value {
-        json!({
-            "language": self.language,
-            "imports": self.imports.iter().map(|i| json!({
-                "module": i.module,
-                "symbol": i.symbol,
-                "line": i.line,
-            })).collect::<Vec<_>>(),
-            "exports": self.exports.iter().map(|e| json!({
-                "name": e.name,
-                "kind": e.kind,
-                "line": e.line,
-            })).collect::<Vec<_>>(),
-            "declarations": self.declarations.iter().map(|d| json!({
-                "name": d.name,
-                "kind": d.kind,
-                "line": d.line,
-                "container": d.container,
-            })).collect::<Vec<_>>(),
-            "references": self.references.iter().map(|r| json!({
-                "name": r.name,
-                "line": r.line,
-                "shape": r.shape.as_str(),
-                "receiver": r.receiver,
-                "enclosing": r.enclosing,
-            })).collect::<Vec<_>>(),
-        })
-    }
-
-    pub fn from_json(v: &Value) -> Self {
-        ExtractionResult {
-            language: v
-                .get("language")
-                .and_then(|x| x.as_str())
-                .unwrap_or("unknown")
-                .to_string(),
-            imports: v
-                .get("imports")
-                .and_then(|x| x.as_array())
-                .map(|a| {
-                    a.iter()
-                        .map(|i| Import {
-                            module: i
-                                .get("module")
-                                .and_then(|s| s.as_str())
-                                .unwrap_or("")
-                                .to_string(),
-                            symbol: i
-                                .get("symbol")
-                                .and_then(|s| s.as_str())
-                                .map(|s| s.to_string()),
-                            line: i.get("line").and_then(|s| s.as_i64()).unwrap_or(0),
-                        })
-                        .collect()
-                })
-                .unwrap_or_default(),
-            exports: v
-                .get("exports")
-                .and_then(|x| x.as_array())
-                .map(|a| {
-                    a.iter()
-                        .map(|e| Export {
-                            name: e
-                                .get("name")
-                                .and_then(|s| s.as_str())
-                                .unwrap_or("")
-                                .to_string(),
-                            kind: e
-                                .get("kind")
-                                .and_then(|s| s.as_str())
-                                .unwrap_or("")
-                                .to_string(),
-                            line: e.get("line").and_then(|s| s.as_i64()).unwrap_or(0),
-                        })
-                        .collect()
-                })
-                .unwrap_or_default(),
-            declarations: v
-                .get("declarations")
-                .and_then(|x| x.as_array())
-                .map(|a| {
-                    a.iter()
-                        .map(|d| Declaration {
-                            name: d
-                                .get("name")
-                                .and_then(|s| s.as_str())
-                                .unwrap_or("")
-                                .to_string(),
-                            kind: d
-                                .get("kind")
-                                .and_then(|s| s.as_str())
-                                .unwrap_or("")
-                                .to_string(),
-                            line: d.get("line").and_then(|s| s.as_i64()).unwrap_or(0),
-                            container: d
-                                .get("container")
-                                .and_then(|s| s.as_str())
-                                .map(|s| s.to_string()),
-                        })
-                        .collect()
-                })
-                .unwrap_or_default(),
-            references: v
-                .get("references")
-                .and_then(|x| x.as_array())
-                .map(|a| {
-                    a.iter()
-                        .map(|r| Reference {
-                            name: r
-                                .get("name")
-                                .and_then(|s| s.as_str())
-                                .unwrap_or("")
-                                .to_string(),
-                            line: r.get("line").and_then(|s| s.as_i64()).unwrap_or(0),
-                            shape: RefShape::from_str(
-                                r.get("shape").and_then(|s| s.as_str()).unwrap_or("free"),
-                            ),
-                            receiver: r
-                                .get("receiver")
-                                .and_then(|s| s.as_str())
-                                .map(|s| s.to_string()),
-                            enclosing: r
-                                .get("enclosing")
-                                .and_then(|s| s.as_str())
-                                .map(|s| s.to_string()),
-                        })
-                        .collect()
-                })
-                .unwrap_or_default(),
-        }
-    }
 }
 
 /// Extensions with a registered extractor (lowercase, no leading dot).

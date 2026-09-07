@@ -86,7 +86,14 @@ pub fn run(reason: Reason, observed_from: Option<&str>, as_json: bool) -> Result
             .parent()
             .map(|p| p.to_path_buf())
             .unwrap_or_else(|| global.clone());
-        load_one(&global, &boundary, kind, &mut pass, &mut session, &mut memories);
+        load_one(
+            &global,
+            &boundary,
+            kind,
+            &mut pass,
+            &mut session,
+            &mut memories,
+        );
     }
 
     // 2. Project-root rules chain — repo_root down to cwd. Both harness
@@ -101,7 +108,14 @@ pub fn run(reason: Reason, observed_from: Option<&str>, as_json: bool) -> Result
             (dir.join("AGENTS.md"), "agents_md"),
             (dir.join("Agents.md"), "agents_md"),
         ] {
-            load_one(&candidate, &repo_root, kind, &mut pass, &mut session, &mut memories);
+            load_one(
+                &candidate,
+                &repo_root,
+                kind,
+                &mut pass,
+                &mut session,
+                &mut memories,
+            );
         }
     }
 
@@ -132,12 +146,15 @@ pub fn run(reason: Reason, observed_from: Option<&str>, as_json: bool) -> Result
     let out = crate::output::document(
         json!({"reason": reason.label(), "source": reason.source()}),
         context,
-        json!(memories.iter().map(|m| json!({
-            "path": m.relative_path,
-            "kind": m.kind,
-            "size": m.size,
-            "large": m.large,
-        })).collect::<Vec<_>>()),
+        json!(memories
+            .iter()
+            .map(|m| json!({
+                "path": m.relative_path,
+                "kind": m.kind,
+                "size": m.size,
+                "large": m.large,
+            }))
+            .collect::<Vec<_>>()),
         json!({"mirrored": memories.len()}),
     );
 
@@ -152,7 +169,10 @@ pub fn run(reason: Reason, observed_from: Option<&str>, as_json: bool) -> Result
     );
     for m in &memories {
         let marker = if m.large { " [LARGE]" } else { "" };
-        println!("  {} · {}{} ({} chars)", m.relative_path, m.kind, marker, m.size);
+        println!(
+            "  {} · {}{} ({} chars)",
+            m.relative_path, m.kind, marker, m.size
+        );
     }
     if let Some(report) = &drift_report {
         println!(

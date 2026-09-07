@@ -39,8 +39,8 @@
 //! workspace and NO xtask present (a leaked `[workspace]` table referencing a
 //! missing `xtask` member fails `cargo build` for plugin users). So the
 //! mirrored manifest is the tracer package manifest with its `[workspace]`
-//! table stripped, and the mirrored lock is resolved from that stripped
-//! manifest — not the workspace lock, which carries xtask and its deps.
+//! table stripped, while the canonical workspace lock is copied byte-identically
+//! and validated against that standalone manifest.
 
 use sha2::{Digest, Sha256};
 use std::fs;
@@ -133,12 +133,8 @@ fn sync_dist(check: bool) -> ExitCode {
         if mirror_matches(&src_root, &mirror, &manifest, &lock) {
             ExitCode::SUCCESS
         } else {
-            eprintln!(
-                "xtask sync-dist: DRIFT — packages/claude/bin/tracer-dist/crate is"
-            );
-            eprintln!(
-                "out of sync with tools/tracer. crate/ is generated; do not hand-edit."
-            );
+            eprintln!("xtask sync-dist: DRIFT — packages/claude/bin/tracer-dist/crate is");
+            eprintln!("out of sync with tools/tracer. crate/ is generated; do not hand-edit.");
             eprintln!("Run: cargo xtask sync-dist   (from tools/tracer)");
             ExitCode::from(1)
         }
@@ -165,7 +161,6 @@ fn build_bin(check: bool) -> ExitCode {
             return ExitCode::from(1);
         }
     };
-
     if check {
         let stale = stale_prebuilts(&bin, &stamp);
         if stale.is_empty() {
@@ -328,9 +323,9 @@ fn rustup_cargo() -> Command {
     cmd
 }
 
-/// sha256 over the mirror crate: for every file in sorted relative-path order,
-/// the path bytes, a zero byte, the file bytes, a zero byte. `target/` is
-/// excluded — it is build output, not input. `scripts/tracer.py` recomputes
+/// sha256 over the standalone crate: for every file in sorted relative-path
+/// order, the path bytes, a zero byte, the file bytes, a zero byte. `target/`
+/// is excluded — it is build output, not input. `scripts/tracer.py` recomputes
 /// this exact rule, so the pre-commit path checks the stamp with no cargo, no
 /// Rust toolchain, and no network round trip.
 fn crate_stamp(mirror: &Path) -> Result<String, String> {
@@ -349,6 +344,226 @@ fn crate_stamp(mirror: &Path) -> Result<String, String> {
         hasher.update([0u8]);
     }
     Ok(format!("{:x}", hasher.finalize()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    static CARGO_ENV: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    #[test]
+    fn stamps_and_manifest_have_the_pinned_consumer_contract() {
+        let root = std::env::temp_dir().join(format!("tracer-xtask-stamp-{}", std::process::id()));
+        let source = root.join("source");
+        let mirror = root.join("mirror");
+        fs::create_dir_all(source.join("src")).unwrap();
+        fs::create_dir_all(mirror.join("src")).unwrap();
+        fs::write(
+            source.join("Cargo.toml"),
+            "[workspace]\nmembers = [\"xtask\"]\n\n[package]\nname = \"tracer\"\n",
+        )
+        .unwrap();
+        fs::write(source.join("Cargo.lock"), "workspace lock\n").unwrap();
+        fs::write(source.join("src/main.rs"), "fn main() {}\n").unwrap();
+        fs::write(mirror.join("Cargo.toml"), "[package]\nname = \"tracer\"\n").unwrap();
+        fs::write(mirror.join("Cargo.lock"), "workspace lock\n").unwrap();
+        fs::write(mirror.join("src/main.rs"), "fn main() {}\n").unwrap();
+
+        assert_eq!(
+            build_standalone_manifest(&source).unwrap(),
+            fs::read_to_string(mirror.join("Cargo.toml")).unwrap()
+        );
+        assert_eq!(
+            crate_stamp(&mirror).unwrap(),
+            "8c3e50358c46b79f00f11255434efec52a62b056153500da0a87a7ff5e581ccd"
+        );
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn standalone_lock_keeps_canonical_bytes() {
+        let _cargo_env = CARGO_ENV.lock().unwrap();
+        let source = tracer_root();
+        let manifest = build_standalone_manifest(&source).unwrap();
+        let canonical = fs::read_to_string(source.join("Cargo.lock")).unwrap();
+        let standalone = build_standalone_lock(&source, &manifest).unwrap();
+
+        assert_eq!(standalone, canonical);
+    }
+
+    #[test]
+    fn local_git_lock_keeps_the_pinned_commit() {
+        let _cargo_env = CARGO_ENV.lock().unwrap();
+        let root =
+            std::env::temp_dir().join(format!("tracer-xtask-git-fixture-{}", std::process::id()));
+        let cargo_home = root.join("cargo-home");
+        fs::create_dir_all(&cargo_home).unwrap();
+        let previous_cargo_home = std::env::var_os("CARGO_HOME");
+        std::env::set_var("CARGO_HOME", &cargo_home);
+        let dependency = root.join("dependency");
+        fs::create_dir_all(dependency.join("src")).unwrap();
+        fs::write(
+            dependency.join("Cargo.toml"),
+            "[package]\nname = \"probe-dependency\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+        )
+        .unwrap();
+        fs::write(
+            dependency.join("src/lib.rs"),
+            "pub fn version() -> u8 { 1 }\n",
+        )
+        .unwrap();
+        git(&dependency, &["init"]);
+        git(&dependency, &["add", "."]);
+        git(
+            &dependency,
+            &[
+                "-c",
+                "user.name=test",
+                "-c",
+                "user.email=test@example.com",
+                "commit",
+                "-m",
+                "old",
+            ],
+        );
+        let old = git_output(&dependency, &["rev-parse", "HEAD"]);
+
+        let source = root.join("workspace");
+        fs::create_dir_all(source.join("src")).unwrap();
+        fs::create_dir_all(source.join("xtask/src")).unwrap();
+        fs::write(source.join("src/main.rs"), "fn main() {}\n").unwrap();
+        fs::write(source.join("xtask/src/lib.rs"), "\n").unwrap();
+        fs::write(
+            source.join("xtask/Cargo.toml"),
+            "[package]\nname = \"xtask\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+        )
+        .unwrap();
+        let dependency_url = format!("file://{}", dependency.display());
+        let manifest = format!("[workspace]\nmembers = [\"xtask\"]\n\n[package]\nname = \"probe-consumer\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nprobe-dependency = {{ git = \"{dependency_url}\" }}\n");
+        fs::write(source.join("Cargo.toml"), &manifest).unwrap();
+        cargo_generate(&source);
+
+        fs::write(
+            dependency.join("Cargo.toml"),
+            "[package]\nname = \"probe-dependency\"\nversion = \"0.2.0\"\nedition = \"2021\"\n",
+        )
+        .unwrap();
+        fs::write(
+            dependency.join("src/lib.rs"),
+            "pub fn version() -> u8 { 2 }\n",
+        )
+        .unwrap();
+        git(&dependency, &["add", "."]);
+        git(
+            &dependency,
+            &[
+                "-c",
+                "user.name=test",
+                "-c",
+                "user.email=test@example.com",
+                "commit",
+                "-m",
+                "new",
+            ],
+        );
+        let new = git_output(&dependency, &["rev-parse", "HEAD"]);
+
+        let standalone_manifest = build_standalone_manifest(&source).unwrap();
+        let lock = build_standalone_lock(&source, &standalone_manifest).unwrap();
+        let consumer = root.join("consumer");
+        fs::create_dir_all(&consumer).unwrap();
+        fs::write(consumer.join("Cargo.toml"), &standalone_manifest).unwrap();
+        fs::write(consumer.join("Cargo.lock"), lock).unwrap();
+        copy_tree(&source.join("src"), &consumer.join("src")).unwrap();
+        let pinned = cargo_tree(&consumer);
+        assert_eq!(
+            pinned,
+            format!(
+                "probe-consumer v0.1.0 ({})\n└── probe-dependency v0.1.0 ({dependency_url}#{})\n",
+                consumer.display(),
+                &old[..8]
+            )
+        );
+
+        let inconsistent_manifest = standalone_manifest.replace(
+            &format!("git = \"{dependency_url}\""),
+            &format!("git = \"{dependency_url}\", version = \"0.2\""),
+        );
+        assert!(build_standalone_lock(&source, &inconsistent_manifest).is_err());
+
+        let fresh = root.join("fresh");
+        fs::create_dir_all(&fresh).unwrap();
+        fs::write(fresh.join("Cargo.toml"), &standalone_manifest).unwrap();
+        copy_tree(&source.join("src"), &fresh.join("src")).unwrap();
+        cargo_generate(&fresh);
+        assert_eq!(
+            fs::read(fresh.join("Cargo.toml")).unwrap(),
+            fs::read(consumer.join("Cargo.toml")).unwrap()
+        );
+        let fresh_tree = cargo_tree(&fresh);
+        assert_eq!(
+            fresh_tree,
+            format!(
+                "probe-consumer v0.1.0 ({})\n└── probe-dependency v0.2.0 ({dependency_url}#{})\n",
+                fresh.display(),
+                &new[..8]
+            )
+        );
+        assert_eq!(
+            fs::read_to_string(source.join("Cargo.toml")).unwrap(),
+            manifest
+        );
+        match previous_cargo_home {
+            Some(value) => std::env::set_var("CARGO_HOME", value),
+            None => std::env::remove_var("CARGO_HOME"),
+        }
+        let _ = fs::remove_dir_all(root);
+    }
+
+    fn cargo_generate(root: &Path) {
+        let status = Command::new(cargo())
+            .args(["generate-lockfile", "--manifest-path"])
+            .arg(root.join("Cargo.toml"))
+            .status()
+            .unwrap();
+        assert!(status.success());
+    }
+
+    fn git(root: &Path, args: &[&str]) {
+        assert!(Command::new("git")
+            .args(args)
+            .current_dir(root)
+            .status()
+            .unwrap()
+            .success());
+    }
+
+    fn git_output(root: &Path, args: &[&str]) -> String {
+        String::from_utf8(
+            Command::new("git")
+                .args(args)
+                .current_dir(root)
+                .output()
+                .unwrap()
+                .stdout,
+        )
+        .unwrap()
+        .trim()
+        .to_string()
+    }
+
+    fn cargo_tree(root: &Path) -> String {
+        let mut command = Command::new(cargo());
+        command.args(["tree", "--offline", "--locked"]);
+        let output = command
+            .arg("--manifest-path")
+            .arg(root.join("Cargo.toml"))
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        String::from_utf8(output.stdout).unwrap()
+    }
 }
 
 /// The tracer manifest with its `[workspace]` table removed. The mirror is
@@ -381,30 +596,33 @@ fn build_standalone_manifest(src_root: &Path) -> Result<String, String> {
     Ok(format!("{}\n", out.trim_start_matches('\n').trim_end()))
 }
 
-/// A `Cargo.lock` that resolves exactly the standalone (workspace-stripped)
-/// manifest's dependency graph — the lock plugin users build against. Produced
-/// by resolving the stripped manifest in an isolated temp tree so the
-/// workspace lock (which carries `xtask` and its deps) never leaks in.
+/// The canonical `Cargo.lock`, verified against the standalone manifest without
+/// resolving newer registry versions. Cargo allows unrelated workspace package
+/// rows in a lockfile; they are not part of the standalone consumer's graph.
 fn build_standalone_lock(src_root: &Path, manifest: &str) -> Result<String, String> {
+    static SCRATCH_SEQUENCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let sequence = SCRATCH_SEQUENCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let scratch = std::env::temp_dir().join(format!(
-        "tracer-xtask-lock-{}",
+        "tracer-xtask-lock-{}-{sequence}",
         std::process::id()
     ));
-    let _ = fs::remove_dir_all(&scratch);
-    fs::create_dir_all(scratch.join("src"))
-        .map_err(|e| format!("create scratch dir: {e}"))?;
+    fs::create_dir_all(scratch.join("src")).map_err(|e| format!("create scratch dir: {e}"))?;
 
     fs::write(scratch.join("Cargo.toml"), manifest)
         .map_err(|e| format!("write scratch manifest: {e}"))?;
+    fs::copy(src_root.join("Cargo.lock"), scratch.join("Cargo.lock"))
+        .map_err(|e| format!("copy tools/tracer/Cargo.lock: {e}"))?;
     copy_tree(&src_root.join("src"), &scratch.join("src"))?;
 
     let status = Command::new(cargo())
-        .args(["generate-lockfile", "--manifest-path"])
+        .args(["tree", "--locked", "--offline", "--manifest-path"])
         .arg(scratch.join("Cargo.toml"))
+        .stdout(std::process::Stdio::null())
         .status()
-        .map_err(|e| format!("run cargo generate-lockfile: {e}"))?;
+        .map_err(|e| format!("run cargo tree: {e}"))?;
     if !status.success() {
-        return Err("cargo generate-lockfile failed for the standalone manifest".into());
+        let _ = fs::remove_dir_all(&scratch);
+        return Err("cargo rejected the standalone Cargo.lock".into());
     }
 
     let lock = fs::read_to_string(scratch.join("Cargo.lock"))
@@ -415,12 +633,7 @@ fn build_standalone_lock(src_root: &Path, manifest: &str) -> Result<String, Stri
 
 /// Regenerate the mirror: src tree, standalone manifest, standalone lock.
 /// Idempotent — a second run leaves the mirror byte-identical.
-fn regenerate(
-    src_root: &Path,
-    mirror: &Path,
-    manifest: &str,
-    lock: &str,
-) -> Result<(), String> {
+fn regenerate(src_root: &Path, mirror: &Path, manifest: &str, lock: &str) -> Result<(), String> {
     fs::create_dir_all(mirror).map_err(|e| format!("create mirror dir: {e}"))?;
 
     let mirror_src = mirror.join("src");
@@ -437,14 +650,15 @@ fn regenerate(
 
 /// True when the on-disk mirror already equals what `regenerate` would write —
 /// the drift guard's core comparison (src tree + manifest + lock).
-fn mirror_matches(
-    src_root: &Path,
-    mirror: &Path,
-    manifest: &str,
-    lock: &str,
-) -> bool {
-    fs::read_to_string(mirror.join("Cargo.toml")).ok().as_deref() == Some(manifest)
-        && fs::read_to_string(mirror.join("Cargo.lock")).ok().as_deref() == Some(lock)
+fn mirror_matches(src_root: &Path, mirror: &Path, manifest: &str, lock: &str) -> bool {
+    fs::read_to_string(mirror.join("Cargo.toml"))
+        .ok()
+        .as_deref()
+        == Some(manifest)
+        && fs::read_to_string(mirror.join("Cargo.lock"))
+            .ok()
+            .as_deref()
+            == Some(lock)
         && trees_equal(&src_root.join("src"), &mirror.join("src"))
 }
 
@@ -499,9 +713,7 @@ fn list_files(root: &Path) -> Result<Vec<PathBuf>, String> {
         for entry in fs::read_dir(dir).map_err(|e| format!("read {}: {e}", dir.display()))? {
             let entry = entry.map_err(|e| format!("dir entry: {e}"))?;
             let path = entry.path();
-            let ty = entry
-                .file_type()
-                .map_err(|e| format!("file type: {e}"))?;
+            let ty = entry.file_type().map_err(|e| format!("file type: {e}"))?;
             if ty.is_dir() {
                 walk(base, &path, out)?;
             } else {

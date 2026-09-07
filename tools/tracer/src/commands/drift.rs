@@ -99,19 +99,22 @@ pub fn parse_observed(raw: &str) -> Result<Option<Observed>> {
     if trimmed.is_empty() {
         return Ok(None);
     }
-    let value: Value = serde_json::from_str(trimmed)
-        .context("--observed-from input is not valid JSON")?;
-    let obj = value
-        .as_object()
-        .ok_or_else(|| anyhow!("--observed-from input must be a JSON object with a `paths` array"))?;
+    let value: Value =
+        serde_json::from_str(trimmed).context("--observed-from input is not valid JSON")?;
+    let obj = value.as_object().ok_or_else(|| {
+        anyhow!("--observed-from input must be a JSON object with a `paths` array")
+    })?;
     let paths_value = obj
         .get("paths")
         .ok_or_else(|| anyhow!("--observed-from input is missing the `paths` array"))?;
-    let docs: Vec<ObservedDoc> = serde_json::from_value(paths_value.clone())
-        .context("--observed-from `paths` must be an array of {path, content_hash, size?} objects")?;
+    let docs: Vec<ObservedDoc> = serde_json::from_value(paths_value.clone()).context(
+        "--observed-from `paths` must be an array of {path, content_hash, size?} objects",
+    )?;
     for doc in &docs {
         if doc.path.is_empty() {
-            return Err(anyhow!("--observed-from contains an entry with an empty path"));
+            return Err(anyhow!(
+                "--observed-from contains an entry with an empty path"
+            ));
         }
         if !doc.content_hash.starts_with("sha256:") {
             return Err(anyhow!(
@@ -130,8 +133,7 @@ pub fn parse_observed(raw: &str) -> Result<Option<Observed>> {
 /// event emission entirely on no-drift, so the log stays append-only
 /// with one event per real divergence.
 pub fn detect(predicted: &BTreeSet<String>, observed: &Observed) -> Option<Report> {
-    let observed_paths: BTreeSet<String> =
-        observed.paths.iter().map(|d| d.path.clone()).collect();
+    let observed_paths: BTreeSet<String> = observed.paths.iter().map(|d| d.path.clone()).collect();
     let missing: Vec<String> = predicted.difference(&observed_paths).cloned().collect();
     let extra: Vec<String> = observed_paths.difference(predicted).cloned().collect();
     if missing.is_empty() && extra.is_empty() {

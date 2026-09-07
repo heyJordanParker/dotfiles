@@ -198,7 +198,10 @@ fn php_function_signature(n: Node, source: &[u8]) -> Value {
         .child_by_field_name("parameters")
         .or_else(|| find_child(n, "formal_parameters"));
     if let Some(params) = params_node {
-        m.insert("parameters".into(), Value::Array(php_parameters(params, source)));
+        m.insert(
+            "parameters".into(),
+            Value::Array(php_parameters(params, source)),
+        );
     }
     let ret_node = n.child_by_field_name("return_type").or_else(|| {
         // method_declaration places the return type as a direct child after
@@ -276,16 +279,11 @@ fn php_properties(n: Node, source: &[u8]) -> Vec<(String, i64, Value)> {
                 visibility = Some(v.clone());
                 modifiers.push(v);
             }
-            "static_modifier"
-            | "readonly_modifier"
-            | "abstract_modifier"
-            | "final_modifier" => modifiers.push(text(child, source)),
-            "primitive_type"
-            | "named_type"
-            | "nullable_type"
-            | "union_type"
-            | "intersection_type"
-            | "optional_type" => {
+            "static_modifier" | "readonly_modifier" | "abstract_modifier" | "final_modifier" => {
+                modifiers.push(text(child, source))
+            }
+            "primitive_type" | "named_type" | "nullable_type" | "union_type"
+            | "intersection_type" | "optional_type" => {
                 type_text = Some(text(child, source));
             }
             "property_hook_list" => {
@@ -331,9 +329,7 @@ fn php_properties(n: Node, source: &[u8]) -> Vec<(String, i64, Value)> {
         let bare = nn
             .child_by_field_name("name")
             .map(|nm| text(nm, source))
-            .unwrap_or_else(|| {
-                text(nn, source).trim_start_matches('$').to_string()
-            });
+            .unwrap_or_else(|| text(nn, source).trim_start_matches('$').to_string());
         let l = line(nn);
         let mut m = Map::new();
         if !attrs.is_empty() {
@@ -386,9 +382,7 @@ fn php_parameters(params: Node, source: &[u8]) -> Vec<Value> {
     let mut c = params.walk();
     for child in params.children(&mut c) {
         match child.kind() {
-            "simple_parameter"
-            | "variadic_parameter"
-            | "property_promotion_parameter" => {
+            "simple_parameter" | "variadic_parameter" | "property_promotion_parameter" => {
                 out.push(php_parameter(child, source));
             }
             _ => {}
@@ -422,12 +416,8 @@ fn php_parameter(p: Node, source: &[u8]) -> Value {
                 modifiers.push(v);
             }
             "readonly_modifier" => modifiers.push(text(child, source)),
-            "primitive_type"
-            | "named_type"
-            | "nullable_type"
-            | "union_type"
-            | "intersection_type"
-            | "optional_type" => {
+            "primitive_type" | "named_type" | "nullable_type" | "union_type"
+            | "intersection_type" | "optional_type" => {
                 type_text = Some(text(child, source));
             }
             "variable_name" => {
@@ -437,9 +427,7 @@ fn php_parameter(p: Node, source: &[u8]) -> Value {
                 let bare = child
                     .child_by_field_name("name")
                     .map(|nm| text(nm, source))
-                    .unwrap_or_else(|| {
-                        text(child, source).trim_start_matches('$').to_string()
-                    });
+                    .unwrap_or_else(|| text(child, source).trim_start_matches('$').to_string());
                 name_text = Some(bare);
             }
             "..." => variadic = true,
@@ -557,7 +545,6 @@ fn extract_attribute_list(list: Node, source: &[u8]) -> Vec<Value> {
     out
 }
 
-
 // ---------- TypeScript / JavaScript ----------
 
 fn extract_ts(source: &[u8], is_tsx: bool) -> Vec<Signature> {
@@ -578,12 +565,12 @@ fn extract_ts(source: &[u8], is_tsx: bool) -> Vec<Signature> {
                 Some(("class", ts_class_signature(n, source)))
             }
             "interface_declaration" => Some(("interface", ts_interface_signature(n, source))),
-            "function_declaration"
-            | "generator_function_declaration"
-            | "function_signature" => Some(("function", ts_function_signature(n, source))),
-            "method_definition"
-            | "method_signature"
-            | "abstract_method_signature" => Some(("function", ts_method_signature(n, source))),
+            "function_declaration" | "generator_function_declaration" | "function_signature" => {
+                Some(("function", ts_function_signature(n, source)))
+            }
+            "method_definition" | "method_signature" | "abstract_method_signature" => {
+                Some(("function", ts_method_signature(n, source)))
+            }
             "public_field_definition" | "property_signature" => {
                 Some(("property", ts_field_signature(n, source)))
             }
@@ -742,7 +729,10 @@ fn ts_function_signature(n: Node, source: &[u8]) -> Value {
         m.insert("type_parameters".into(), json!(text(tp, source)));
     }
     if let Some(params) = n.child_by_field_name("parameters") {
-        m.insert("parameters".into(), Value::Array(ts_parameters(params, source)));
+        m.insert(
+            "parameters".into(),
+            Value::Array(ts_parameters(params, source)),
+        );
     }
     if let Some(ret) = n.child_by_field_name("return_type") {
         m.insert(
@@ -955,7 +945,10 @@ fn py_function_signature(n: Node, source: &[u8]) -> Value {
         m.insert("type_parameters".into(), json!(text(tp, source)));
     }
     if let Some(params) = n.child_by_field_name("parameters") {
-        m.insert("parameters".into(), Value::Array(py_parameters(params, source)));
+        m.insert(
+            "parameters".into(),
+            Value::Array(py_parameters(params, source)),
+        );
     }
     if let Some(ret) = n.child_by_field_name("return_type") {
         m.insert("return_type".into(), json!(text(ret, source)));
@@ -1043,7 +1036,10 @@ fn go_function_signature(n: Node, source: &[u8]) -> Value {
         m.insert("type_parameters".into(), json!(text(tp, source)));
     }
     if let Some(params) = n.child_by_field_name("parameters") {
-        m.insert("parameters".into(), Value::Array(go_parameters(params, source)));
+        m.insert(
+            "parameters".into(),
+            Value::Array(go_parameters(params, source)),
+        );
     }
     // `result` is a bare type for one return value and a `parameter_list`
     // for several, so a multi-return function reads as `(T, error)`.
@@ -1077,9 +1073,7 @@ fn go_parameters(params: Node, source: &[u8]) -> Vec<Value> {
         if !variadic && child.kind() != "parameter_declaration" {
             continue;
         }
-        let type_text = child
-            .child_by_field_name("type")
-            .map(|t| text(t, source));
+        let type_text = child.child_by_field_name("type").map(|t| text(t, source));
         let mut names: Vec<String> = Vec::new();
         let mut nc = child.walk();
         for sub in child.children(&mut nc) {

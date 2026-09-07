@@ -34,11 +34,7 @@ impl<F: Formatter> Formatter for AsciiEscaper<F> {
     fn write_f64<W: ?Sized + Write>(&mut self, w: &mut W, v: f64) -> io::Result<()> {
         self.inner.write_f64(w, v)
     }
-    fn write_number_str<W: ?Sized + Write>(
-        &mut self,
-        w: &mut W,
-        v: &str,
-    ) -> io::Result<()> {
+    fn write_number_str<W: ?Sized + Write>(&mut self, w: &mut W, v: &str) -> io::Result<()> {
         self.inner.write_number_str(w, v)
     }
     fn begin_string<W: ?Sized + Write>(&mut self, w: &mut W) -> io::Result<()> {
@@ -97,11 +93,7 @@ impl<F: Formatter> Formatter for AsciiEscaper<F> {
     fn end_array<W: ?Sized + Write>(&mut self, w: &mut W) -> io::Result<()> {
         self.inner.end_array(w)
     }
-    fn begin_array_value<W: ?Sized + Write>(
-        &mut self,
-        w: &mut W,
-        first: bool,
-    ) -> io::Result<()> {
+    fn begin_array_value<W: ?Sized + Write>(&mut self, w: &mut W, first: bool) -> io::Result<()> {
         self.inner.begin_array_value(w, first)
     }
     fn end_array_value<W: ?Sized + Write>(&mut self, w: &mut W) -> io::Result<()> {
@@ -113,11 +105,7 @@ impl<F: Formatter> Formatter for AsciiEscaper<F> {
     fn end_object<W: ?Sized + Write>(&mut self, w: &mut W) -> io::Result<()> {
         self.inner.end_object(w)
     }
-    fn begin_object_key<W: ?Sized + Write>(
-        &mut self,
-        w: &mut W,
-        first: bool,
-    ) -> io::Result<()> {
+    fn begin_object_key<W: ?Sized + Write>(&mut self, w: &mut W, first: bool) -> io::Result<()> {
         self.inner.begin_object_key(w, first)
     }
     fn end_object_key<W: ?Sized + Write>(&mut self, w: &mut W) -> io::Result<()> {
@@ -143,10 +131,7 @@ pub fn write_pretty<W: io::Write, T: serde::Serialize + ?Sized>(
     value: &T,
 ) -> io::Result<()> {
     let pretty = serde_json::ser::PrettyFormatter::with_indent(b"  ");
-    let mut ser = serde_json::Serializer::with_formatter(
-        w,
-        AsciiEscaper { inner: pretty },
-    );
+    let mut ser = serde_json::Serializer::with_formatter(w, AsciiEscaper { inner: pretty });
     value.serialize(&mut ser).map_err(io::Error::other)
 }
 
@@ -173,22 +158,14 @@ pub fn to_compact(value: &Value) -> String {
 struct CompactSeparatorFormatter;
 
 impl Formatter for CompactSeparatorFormatter {
-    fn begin_array_value<W: ?Sized + Write>(
-        &mut self,
-        w: &mut W,
-        first: bool,
-    ) -> io::Result<()> {
+    fn begin_array_value<W: ?Sized + Write>(&mut self, w: &mut W, first: bool) -> io::Result<()> {
         if first {
             Ok(())
         } else {
             w.write_all(b", ")
         }
     }
-    fn begin_object_key<W: ?Sized + Write>(
-        &mut self,
-        w: &mut W,
-        first: bool,
-    ) -> io::Result<()> {
+    fn begin_object_key<W: ?Sized + Write>(&mut self, w: &mut W, first: bool) -> io::Result<()> {
         if first {
             Ok(())
         } else {

@@ -39,16 +39,14 @@ const SKIP_DIRS: &[&str] = &[
 /// SKIP_DIRS- and hidden-dir-bounded filesystem walk (the non-git fallback).
 fn walk(base: &Path, include_dirs: bool) -> Vec<PathBuf> {
     let mut out = Vec::new();
-    let walker = walkdir::WalkDir::new(base)
-        .into_iter()
-        .filter_entry(|e| {
-            if e.file_type().is_dir() && e.path() != base {
-                let name = e.file_name().to_string_lossy();
-                !SKIP_DIRS.contains(&name.as_ref()) && !name.starts_with('.')
-            } else {
-                true
-            }
-        });
+    let walker = walkdir::WalkDir::new(base).into_iter().filter_entry(|e| {
+        if e.file_type().is_dir() && e.path() != base {
+            let name = e.file_name().to_string_lossy();
+            !SKIP_DIRS.contains(&name.as_ref()) && !name.starts_with('.')
+        } else {
+            true
+        }
+    });
     for entry in walker.flatten() {
         if entry.path() == base {
             continue;
@@ -182,13 +180,20 @@ pub fn run(
     // Canonicalized base path, printed verbatim in output.
     let base_abs = abs.canonicalize().unwrap_or(abs);
     let base_path = base_abs.clone();
-    let repo_root = cache::worktree_root_for(&base_abs).unwrap_or_else(|| cache::display_root(&base_abs));
+    let repo_root =
+        cache::worktree_root_for(&base_abs).unwrap_or_else(|| cache::display_root(&base_abs));
     let include_dirs = type_filter.to_lowercase() == "d";
     let candidates = list_files(&repo_root, &base_abs, include_dirs);
 
     let candidates: Vec<PathBuf> = candidates
         .into_iter()
-        .filter(|p| if include_dirs { p.is_dir() } else { p.is_file() })
+        .filter(|p| {
+            if include_dirs {
+                p.is_dir()
+            } else {
+                p.is_file()
+            }
+        })
         .collect();
 
     let by_path = path_matcher(pattern);
@@ -219,78 +224,61 @@ pub fn run(
         shoulder: Option<String>,
         last_modified: Option<String>,
     }
-    // SINGLE batch over all file matches (was per-match file_facts::get —
-    // each a cold read+hash+extract+write; same defect class as the old
-    // `list` per-file loop). get_batch hoists bulk maps once with the
-    // in-memory mtime fast-path. No lite-facts: real extraction preserved,
-    // just batched.
-    let file_matches: Vec<std::path::PathBuf> = if include_dirs {
-        Vec::new()
-    } else {
-        matched.iter().cloned().collect()
-    };
-    let facts_map = if file_matches.is_empty() {
-        std::collections::HashMap::new()
-    } else {
-        file_facts::get_batch(&file_matches, &repo_root)
-    };
-
     let mut entries: Vec<E> = Vec::new();
-    for path in &matched {
-        // Relative path against the UNRESOLVED repo root — symlinked dirs
-        // keep their tracked name and are not collapsed onto their target.
-        let relative = path
-            .strip_prefix(&root_resolved)
-            .map(|p| p.to_string_lossy().to_string())
-            .unwrap_or_else(|_| path.to_string_lossy().to_string());
-        if include_dirs {
-            entries.push(E {
-                path: relative,
-                kind: "directory",
-                ccn_total: 0,
-                ccn_rank: None,
-                shoulder: None,
-                last_modified: None,
-            });
-            continue;
-        }
-        let fkey = cache::relative_to_root(path, &repo_root);
-        match facts_map.get(&fkey) {
-            None => entries.push(E {
-                path: relative,
-                kind: "file",
-                ccn_total: 0,
-                ccn_rank: Some("unknown".to_string()),
-                shoulder: None,
-                last_modified: None,
-            }),
-            Some(f) => entries.push(E {
-                path: relative,
-                kind: "file",
-                ccn_total: f.cyclomatic_complexity_total,
-                ccn_rank: Some(f.rank.clone()),
-                shoulder: Some(passive_context::render_compact(f)),
-                last_modified: f.last_modified.clone(),
-            }),
+    for chunk in matched.chunks(file_facts::RESOLVE_CHUNK) {
+        let facts = if include_dirs {
+            std::collections::HashMap::new()
+        } else {
+            file_facts::get_batch(chunk, &repo_root)
+        };
+        for path in chunk {
+            // Relative path against the UNRESOLVED repo root — symlinked dirs
+            // keep their tracked name and are not collapsed onto their target.
+            let relative = path
+                .strip_prefix(&root_resolved)
+                .map(|p| p.to_string_lossy().to_string())
+                .unwrap_or_else(|_| path.to_string_lossy().to_string());
+            if include_dirs {
+                entries.push(E {
+                    path: relative,
+                    kind: "directory",
+                    ccn_total: 0,
+                    ccn_rank: None,
+                    shoulder: None,
+                    last_modified: None,
+                });
+                continue;
+            }
+            let fkey = cache::relative_to_root(path, &repo_root);
+            match facts.get(&fkey) {
+                None => entries.push(E {
+                    path: relative,
+                    kind: "file",
+                    ccn_total: 0,
+                    ccn_rank: Some("unknown".to_string()),
+                    shoulder: None,
+                    last_modified: None,
+                }),
+                Some(f) => entries.push(E {
+                    path: relative,
+                    kind: "file",
+                    ccn_total: f.cyclomatic_complexity_total,
+                    ccn_rank: Some(f.rank.clone()),
+                    shoulder: Some(passive_context::render_compact(f)),
+                    last_modified: f.last_modified.clone(),
+                }),
+            }
         }
     }
 
     match sort.as_str() {
         "complexity" => {
-            entries.sort_by(|a, b| {
-                (-(a.ccn_total), &a.path).cmp(&(-(b.ccn_total), &b.path))
-            });
+            entries.sort_by(|a, b| (-(a.ccn_total), &a.path).cmp(&(-(b.ccn_total), &b.path)));
         }
         "recent" => {
             entries.sort_by(|a, b| {
-                let ka = (
-                    a.last_modified.clone().unwrap_or_default(),
-                    a.path.clone(),
-                );
-                let kb = (
-                    b.last_modified.clone().unwrap_or_default(),
-                    b.path.clone(),
-                );
+                let ka = (a.last_modified.clone().unwrap_or_default(), a.path.clone());
+                let kb = (b.last_modified.clone().unwrap_or_default(), b.path.clone());
                 kb.cmp(&ka)
             });
         }
@@ -363,11 +351,7 @@ pub fn run(
             entries.len()
         );
     } else {
-        println!(
-            "{} matches under {}:",
-            total,
-            base_path.to_string_lossy()
-        );
+        println!("{} matches under {}:", total, base_path.to_string_lossy());
     }
     for e in &entries {
         if e.kind == "directory" {
@@ -383,7 +367,10 @@ pub fn run(
         );
     }
     if truncated {
-        println!("... {} more (see all: --limit {total})", total - entries.len());
+        println!(
+            "... {} more (see all: --limit {total})",
+            total - entries.len()
+        );
     }
     Ok(value)
 }

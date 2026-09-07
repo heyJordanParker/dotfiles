@@ -2,7 +2,7 @@
 //! `paths:` frontmatter promotion, and the freshness contract.
 //!
 //! The doc graph is built in memory on every call and persists nothing.
-//! The walk covers doc files only, so there is nothing worth caching and
+//! Discovery covers doc files only, so there is nothing worth caching and
 //! no cached entry that can go stale. These tests pin both halves: the
 //! answer always reflects the current tree, and no cache entry is written.
 
@@ -173,4 +173,115 @@ fn conditional_rule_frontmatter_promotes_kind_and_attaches_globs() {
         .expect("unconditional rule missing");
     assert_eq!(uncond["kind"].as_str().unwrap(), "rules_unconditional");
     assert!(uncond["paths_globs"].is_null());
+}
+
+#[test]
+fn ignored_docs_stay_out_until_git_intends_to_add_them() {
+    let f = Fixture::new();
+    f.write(".gitignore", "ignored/\n");
+    f.write("Claude.md", "# top\n");
+    f.commit("seed docs and ignore");
+    f.write("ignored/Claude.md", "# ignored\n");
+
+    let graph = f.trace(&["docs", "--graph", "--json"]).ok().view();
+    let paths: Vec<&str> = graph["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|node| node["path"].as_str().unwrap())
+        .collect();
+    assert!(
+        !paths.contains(&"ignored/Claude.md"),
+        "an ignored rules document entered the graph: {graph}"
+    );
+
+    let primer_run = f.trace(&["context"]);
+    let primer = primer_run.ok();
+    assert!(
+        !primer.stdout.contains("ignored/Claude.md"),
+        "an ignored rules document entered the primer's Rules section: {}",
+        primer.stdout
+    );
+
+    f.git(&["add", "-N", "-f", "ignored/Claude.md"]);
+    let graph = f.trace(&["docs", "--graph", "--json"]).ok().view();
+    assert!(
+        graph["nodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|node| node["path"].as_str() == Some("ignored/Claude.md")),
+        "a git-intended rules document is absent from the graph: {graph}"
+    );
+}
+
+#[test]
+fn untracked_non_ignored_agents_doc_is_discovered() {
+    let f = Fixture::new();
+    f.write("tracked.txt", "tracked\n");
+    f.commit("seed repository");
+    f.write("sub/AGENTS.md", "# agents\n");
+
+    let graph = f.trace(&["docs", "--graph", "--json"]).ok().view();
+    assert!(
+        graph["nodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|node| node["path"].as_str() == Some("sub/AGENTS.md")),
+        "an untracked non-ignored AGENTS.md is absent from the graph: {graph}"
+    );
+}
+
+#[test]
+fn only_claude_rules_ancestor_documents_are_discovered() {
+    let f = Fixture::new();
+    f.write(".claude/rules/foo.md", "# Claude rule\n");
+    f.write("docs/rules/foo.md", "# ordinary documentation\n");
+    f.commit("seed rule directories");
+
+    let graph = f.trace(&["docs", "--graph", "--json"]).ok().view();
+    let paths: Vec<&str> = graph["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|node| node["path"].as_str().unwrap())
+        .collect();
+    assert!(paths.contains(&".claude/rules/foo.md"), "missing Claude rule: {graph}");
+    assert!(
+        !paths.contains(&"docs/rules/foo.md"),
+        "a non-Claude rules document entered the graph: {graph}"
+    );
+}
+
+#[test]
+fn standalone_directories_keep_rules_documents() {
+    let root = std::env::temp_dir().join(format!(
+        "trace-docs-graph-standalone-{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(root.join(".claude/rules")).unwrap();
+    std::fs::create_dir_all(root.join("build")).unwrap();
+    std::fs::write(root.join("Claude.md"), "# top\n").unwrap();
+    std::fs::write(root.join(".claude/rules/foo.md"), "# rule\n").unwrap();
+    std::fs::write(root.join("build/Claude.md"), "# build\n").unwrap();
+
+    let graph = tracer_cli_tests::trace(&root, ["docs", "--graph", "--json"])
+        .ok()
+        .view();
+    let paths: Vec<&str> = graph["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|node| node["path"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        paths,
+        vec![".claude/rules/foo.md", "Claude.md", "build/Claude.md"]
+    );
+
+    std::fs::remove_dir_all(root).unwrap();
 }

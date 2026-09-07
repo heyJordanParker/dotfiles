@@ -9,7 +9,7 @@
 //! named at the site). Ruby constructs via `Foo.new`, a member call on the
 //! constant, so construction is not a separate reference shape here.
 
-use crate::extraction::{Declaration, Export, ExtractionResult, Import, Reference, RefShape};
+use crate::extraction::{Declaration, Export, ExtractionResult, Import, RefShape, Reference};
 use tree_sitter::{Node, Parser};
 
 fn empty() -> ExtractionResult {
@@ -81,6 +81,7 @@ fn walk_imports(root: Node, source: &[u8]) -> Vec<Import> {
                             out.push(Import {
                                 module,
                                 symbol: None,
+                                locals: Vec::new(),
                                 line: n.start_position().row as i64 + 1,
                             });
                         }

@@ -1,7 +1,7 @@
 //! `trace tree` — recursive annotated file tree with complexity ranks.
 //! Discovery via `repo_files::tracked_files` inside a git repo,
 //! `walk_files` outside; both honor SKIP_DIRS. Per-file facts come from
-//! `file_facts::get`, which always does real extraction (no lite-facts).
+//! bounded `file_facts::get_batch` calls, which always do real extraction.
 
 use crate::{cache, file_facts, passive_context, repo_context, repo_files};
 use anyhow::Result;
@@ -52,7 +52,7 @@ fn entry_from(full: &Path, facts: Option<&file_facts::FileFacts>) -> Entry {
 fn walk(base: &Path, max_depth: usize) -> Vec<Entry> {
     let repo_root = cache::worktree_root_for(base).unwrap_or_else(|| cache::display_root(base));
     let base_abs = base.canonicalize().unwrap_or_else(|_| base.to_path_buf());
-    let tracked = repo_files::tracked_files(&repo_root, Some(base));
+    let tracked = repo_files::tracked_files(&repo_root, (base_abs != repo_root).then_some(base));
 
     let mut entries: Vec<Entry> = Vec::new();
     // Collect the depth-filtered file set first, then ONE get_batch over
@@ -61,12 +61,9 @@ fn walk(base: &Path, max_depth: usize) -> Vec<Entry> {
     let mut selected: Vec<std::path::PathBuf> = Vec::new();
     match &tracked {
         Some(rels) => {
-            let mut rels = rels.clone();
-            rels.sort();
-            for rel in &rels {
+            for rel in rels.iter() {
                 let full = repo_root.join(rel);
-                let resolved =
-                    full.canonicalize().unwrap_or_else(|_| full.clone());
+                let resolved = full.canonicalize().unwrap_or_else(|_| full.clone());
                 let under = match resolved.strip_prefix(&base_abs) {
                     Ok(u) => u.to_string_lossy().to_string(),
                     Err(_) => continue,
@@ -97,10 +94,12 @@ fn walk(base: &Path, max_depth: usize) -> Vec<Entry> {
     // exists (symlink / `..` normalization, e.g. a symlink into a deeper
     // dir), else the lexical join (keeps indexed-but-deleted files).
     // Applied above when building `selected`.
-    let facts_map = file_facts::get_batch(&selected, &repo_root);
-    for full in &selected {
-        let rel = cache::relative_to_root(full, &repo_root);
-        entries.push(entry_from(full, facts_map.get(&rel)));
+    for chunk in selected.chunks(file_facts::RESOLVE_CHUNK) {
+        let facts_map = file_facts::get_batch(chunk, &repo_root);
+        for full in chunk {
+            let rel = cache::relative_to_root(full, &repo_root);
+            entries.push(entry_from(full, facts_map.get(&rel)));
+        }
     }
     entries
 }

@@ -142,7 +142,7 @@ fn whole_file_payload(file: &Path, repo_root: &Path) -> Value {
         "top_blame_authors": blame_top_authors(repo_root, file, 5),
         "rename_chain": rename_chain(repo_root, &relative),
         "co_changed": activity.co_changed.iter()
-            .map(|(p, n)| json!({"path": p, "commits": n})).collect::<Vec<_>>(),
+            .map(|(p, n)| json!({"path": p.as_ref(), "commits": n})).collect::<Vec<_>>(),
     })
 }
 
@@ -242,12 +242,7 @@ fn render_whole_file(p: &Value) {
 
 // ---------- mode 2: function-level ----------
 
-fn function_history(
-    repo_root: &Path,
-    relative: &str,
-    symbol: &str,
-    n: i64,
-) -> Result<Vec<Value>> {
+fn function_history(repo_root: &Path, relative: &str, symbol: &str, n: i64) -> Result<Vec<Value>> {
     let out = Command::new("git")
         .args([
             "log",
@@ -268,20 +263,19 @@ fn function_history(
     let mut current: Option<(String, String, String, String)> = None;
     let mut hunk_lines: Vec<String> = Vec::new();
 
-    let flush =
-        |commits: &mut Vec<Value>,
-         current: &Option<(String, String, String, String)>,
-         hunk_lines: &[String]| {
-            if let Some((sha, author, date, subject)) = current {
-                commits.push(json!({
-                    "sha": sha,
-                    "author": author,
-                    "date": date,
-                    "subject": subject,
-                    "hunk": hunk_lines.join("\n").trim_end().to_string(),
-                }));
-            }
-        };
+    let flush = |commits: &mut Vec<Value>,
+                 current: &Option<(String, String, String, String)>,
+                 hunk_lines: &[String]| {
+        if let Some((sha, author, date, subject)) = current {
+            commits.push(json!({
+                "sha": sha,
+                "author": author,
+                "date": date,
+                "subject": subject,
+                "hunk": hunk_lines.join("\n").trim_end().to_string(),
+            }));
+        }
+    };
 
     for line in stdout.split('\n') {
         if let Some(rest) = line.strip_prefix("\u{0}COMMIT\u{0}") {
@@ -436,10 +430,7 @@ fn enclosing_symbol(blob: &[u8], path: &str, line: i64) -> Option<String> {
         .and_then(|e| e.to_str())
         .map(|e| format!(".{e}"))
         .unwrap_or_else(|| ".txt".into());
-    let mut tmp = tempfile::Builder::new()
-        .suffix(&suffix)
-        .tempfile()
-        .ok()?;
+    let mut tmp = tempfile::Builder::new().suffix(&suffix).tempfile().ok()?;
     use std::io::Write;
     tmp.write_all(blob).ok()?;
     let tmp_path = tmp.path().to_path_buf();
@@ -604,7 +595,13 @@ fn commit_payload(reference: &str, repo_root: &Path) -> Result<Value> {
         .collect();
 
     let patch = Command::new("git")
-        .args(["show", "--unified=3", "--no-color", "--pretty=format:", reference])
+        .args([
+            "show",
+            "--unified=3",
+            "--no-color",
+            "--pretty=format:",
+            reference,
+        ])
         .current_dir(repo_root)
         .output()?;
     let lines = String::from_utf8_lossy(&patch.stdout).trim().to_string();
@@ -729,7 +726,8 @@ pub fn run(
     let file_path = file
         .canonicalize()
         .unwrap_or_else(|_| cache::absolutize(file));
-    let repo_root = cache::worktree_root_for(&file_path).unwrap_or_else(|| cache::display_root(&file_path));
+    let repo_root =
+        cache::worktree_root_for(&file_path).unwrap_or_else(|| cache::display_root(&file_path));
 
     if let Some(sym) = symbol {
         let relative = cache::relative_to_root(&file_path, &repo_root);

@@ -24,13 +24,13 @@ use crate::git_activity::{self, GitActivity};
 use crate::{memo, repo_context};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Map, Value};
+use serde_json::Value;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileFacts {
     pub path: String,
     pub language: Option<String>,
@@ -39,20 +39,34 @@ pub struct FileFacts {
     pub cyclomatic_complexity_total: i64,
     pub cyclomatic_complexity_max: i64,
     pub rank: String,
-    pub extraction: Option<ExtractionResult>,
+    pub functions: Vec<ccn::FunctionFact>,
+    #[serde(skip)]
     pub last_modified: Option<String>,
+    #[serde(skip)]
     pub last_author: Option<String>,
+    #[serde(skip)]
     pub commits_30d: i64,
+    #[serde(skip)]
     pub first_seen: Option<String>,
+    #[serde(skip)]
     pub commit_count: i64,
+    #[serde(skip)]
+    pub commit_count_is_floor: bool,
+    #[serde(skip)]
     pub rename_from: Option<String>,
+    #[serde(skip)]
     pub working_state: Option<String>,
-    pub present_in: Vec<String>,
+    #[serde(skip)]
+    pub present_in: Vec<&'static str>,
+    #[serde(skip)]
     pub last_subject: Option<String>,
+    #[serde(skip)]
     pub top_author: Option<String>,
-    pub co_changed: Vec<(String, i64)>,
+    #[serde(skip)]
+    pub co_changed: Vec<(Arc<str>, i64)>,
     pub mtime_ns: i64,
     pub size_bytes: i64,
+    pub extraction: Option<ExtractionResult>,
 }
 
 /// Files resolved per `get_batch` call. The bulk resolver returns every
@@ -67,73 +81,41 @@ pub struct FileFacts {
 /// relations index build — walks its inputs through it.
 pub const RESOLVE_CHUNK: usize = 512;
 
-fn opt(o: &Option<String>) -> Value {
-    match o {
-        Some(s) => json!(s),
-        None => Value::Null,
-    }
-}
-
 impl FileFacts {
     /// All scalar fields, then `extraction` appended last.
     pub fn to_json(&self) -> Value {
-        let mut m = Map::new();
-        m.insert("path".into(), json!(self.path));
-        m.insert("language".into(), opt(&self.language));
-        m.insert("loc".into(), json!(self.loc));
-        m.insert("function_count".into(), json!(self.function_count));
-        m.insert(
-            "cyclomatic_complexity_total".into(),
-            json!(self.cyclomatic_complexity_total),
-        );
-        m.insert(
-            "cyclomatic_complexity_max".into(),
-            json!(self.cyclomatic_complexity_max),
-        );
-        m.insert("rank".into(), json!(self.rank));
-        m.insert("mtime_ns".into(), json!(self.mtime_ns));
-        m.insert("size_bytes".into(), json!(self.size_bytes));
-        m.insert(
-            "extraction".into(),
-            match &self.extraction {
-                Some(e) => e.to_json(),
-                None => Value::Null,
-            },
-        );
-        Value::Object(m)
+        serde_json::to_value(self).expect("FileFacts is serializable")
     }
 
-    pub fn from_json(v: &Value) -> Option<FileFacts> {
-        let s = |k: &str| v.get(k).and_then(|x| x.as_str()).map(|x| x.to_string());
-        let n = |k: &str| v.get(k).and_then(|x| x.as_i64()).unwrap_or(0);
-        Some(FileFacts {
-            path: s("path")?,
-            language: s("language"),
-            loc: n("loc"),
-            function_count: n("function_count"),
-            cyclomatic_complexity_total: n("cyclomatic_complexity_total"),
-            cyclomatic_complexity_max: n("cyclomatic_complexity_max"),
-            rank: s("rank").unwrap_or_else(|| "unknown".into()),
-            extraction: v
-                .get("extraction")
-                .filter(|e| !e.is_null())
-                .map(ExtractionResult::from_json),
-            // Git fields are not in the entry; `with_git` fills them from the
-            // HEAD-keyed map on every resolve path.
-            last_modified: None,
-            last_author: None,
-            commits_30d: 0,
-            first_seen: None,
-            commit_count: 0,
-            rename_from: None,
-            working_state: None,
-            present_in: Vec::new(),
-            last_subject: None,
-            top_author: None,
-            co_changed: Vec::new(),
-            mtime_ns: n("mtime_ns"),
-            size_bytes: n("size_bytes"),
-        })
+    fn from_bytes(bytes: &[u8]) -> Option<FileFacts> {
+        let facts: FileFacts = serde_json::from_slice(bytes).ok()?;
+        if facts.rank != rank(facts.cyclomatic_complexity_total) {
+            return None;
+        }
+        if facts.functions.is_empty() {
+            if facts.function_count != 0 || facts.cyclomatic_complexity_max != 0 {
+                return None;
+            }
+        } else {
+            let total: i64 = facts
+                .functions
+                .iter()
+                .map(|function| function.cyclomatic_complexity)
+                .sum();
+            let max = facts
+                .functions
+                .iter()
+                .map(|function| function.cyclomatic_complexity)
+                .max()
+                .unwrap_or(0);
+            if facts.function_count != facts.functions.len() as i64
+                || facts.cyclomatic_complexity_total != total
+                || facts.cyclomatic_complexity_max != max
+            {
+                return None;
+            }
+        }
+        Some(facts)
     }
 }
 
@@ -142,11 +124,7 @@ impl FileFacts {
 /// fresh extraction alike. A path the map does not carry — no history, no
 /// working-tree state, no deploy-branch presence — keeps the empty values,
 /// which render as `no-history`.
-fn with_git(
-    mut facts: FileFacts,
-    rel: &str,
-    git_map: &HashMap<String, GitActivity>,
-) -> FileFacts {
+fn with_git(mut facts: FileFacts, rel: &str, git_map: &HashMap<String, GitActivity>) -> FileFacts {
     let git = match git_map.get(rel) {
         Some(g) => g,
         None => return facts,
@@ -156,6 +134,7 @@ fn with_git(
     facts.commits_30d = git.commits_30d;
     facts.first_seen = git.first_seen.clone();
     facts.commit_count = git.commit_count;
+    facts.commit_count_is_floor = git.commit_count_is_floor;
     facts.rename_from = git.rename_from.clone();
     facts.working_state = git.working_state.clone();
     facts.present_in = git.present_in.clone();
@@ -183,24 +162,29 @@ pub fn rank(complexity: i64) -> &'static str {
 /// is zero.
 fn ccn_scalars(
     functions: &[ccn::FunctionFact],
-    scc_data: &Value,
+    scc_data: Option<&repo_context::FileMetrics>,
 ) -> (i64, i64, i64, i64) {
     if !functions.is_empty() {
-        let ccn_total: i64 =
-            functions.iter().map(|f| f.cyclomatic_complexity).sum();
+        let ccn_total: i64 = functions.iter().map(|f| f.cyclomatic_complexity).sum();
         let ccn_max: i64 = functions
             .iter()
             .map(|f| f.cyclomatic_complexity)
             .max()
             .unwrap_or(0);
         let loc_sum: i64 = functions.iter().map(|f| f.nloc).sum();
-        let scc_loc = scc_data.get("loc").and_then(|x| x.as_i64()).unwrap_or(0);
+        let scc_loc = scc_data.map(|data| data.loc).unwrap_or(0);
         let loc = if loc_sum != 0 { loc_sum } else { scc_loc };
         return (ccn_total, ccn_max, loc, functions.len() as i64);
     }
-    let scc_ccn = scc_data.get("ccn").and_then(|x| x.as_i64()).unwrap_or(0);
-    let scc_loc = scc_data.get("loc").and_then(|x| x.as_i64()).unwrap_or(0);
+    let scc_ccn = scc_data.map(|data| data.ccn).unwrap_or(0);
+    let scc_loc = scc_data.map(|data| data.loc).unwrap_or(0);
     (scc_ccn, 0, scc_loc, 0)
+}
+
+fn requires_scc(functions: &[ccn::FunctionFact], extraction: &Option<ExtractionResult>) -> bool {
+    functions.is_empty()
+        || functions.iter().map(|function| function.nloc).sum::<i64>() == 0
+        || extraction.is_none()
 }
 
 /// Extract per-file facts. `git` is precomputed by the caller.
@@ -215,7 +199,7 @@ fn extract_facts(
     path: &Path,
     repo_root: &Path,
     git: &GitActivity,
-    scc_data: &Value,
+    scc_data: Option<&repo_context::FileMetrics>,
     source_bytes: &[u8],
 ) -> FileFacts {
     let relative = cache::relative_to_root(path, repo_root);
@@ -230,8 +214,7 @@ fn extract_facts(
                 if parser.set_language(&language).is_err() {
                     (Vec::new(), None)
                 } else if let Some(tree) = parser.parse(source_bytes, None) {
-                    let facts =
-                        ccn::facts_from_tree(&tree, source_bytes, lang_name);
+                    let facts = ccn::facts_from_tree(&tree, source_bytes, lang_name);
                     // Reuse the tree for extraction whenever the extractor
                     // uses the same grammar `ccn::lang_for_path` resolved —
                     // every supported extension now shares its CCN grammar
@@ -240,22 +223,15 @@ fn extract_facts(
                     let lower = path_str.to_lowercase();
                     let extr = if extraction::is_supported(path) {
                         if lower.ends_with(".py") {
-                            Some(extraction::python::extract_from_tree(
-                                &tree,
-                                source_bytes,
-                            ))
+                            Some(extraction::python::extract_from_tree(&tree, source_bytes))
                         } else if lower.ends_with(".php") {
-                            Some(extraction::php::extract_from_tree(
-                                &tree,
-                                source_bytes,
-                            ))
+                            Some(extraction::php::extract_from_tree(&tree, source_bytes))
                         } else if lower.ends_with(".ts")
                             || lower.ends_with(".js")
                             || lower.ends_with(".tsx")
                             || lower.ends_with(".jsx")
                         {
-                            let is_tsx = lower.ends_with(".tsx")
-                                || lower.ends_with(".jsx");
+                            let is_tsx = lower.ends_with(".tsx") || lower.ends_with(".jsx");
                             Some(extraction::typescript::extract_from_tree(
                                 &tree,
                                 source_bytes,
@@ -298,8 +274,7 @@ fn extract_facts(
             }
         };
 
-    let (ccn_total, ccn_max, loc, function_count) =
-        ccn_scalars(&functions, scc_data);
+    let (ccn_total, ccn_max, loc, function_count) = ccn_scalars(&functions, scc_data);
 
     let (mtime_ns, size_bytes) = match fs::metadata(path) {
         Ok(md) => (mtime_ns_of(&md), md.len() as i64),
@@ -309,12 +284,7 @@ fn extract_facts(
     let language = extraction
         .as_ref()
         .map(|e| e.language.clone())
-        .or_else(|| {
-            scc_data
-                .get("language")
-                .and_then(|x| x.as_str())
-                .map(|s| s.to_string())
-        });
+        .or_else(|| scc_data.map(|data| data.language.clone()));
 
     FileFacts {
         path: relative,
@@ -324,12 +294,13 @@ fn extract_facts(
         cyclomatic_complexity_total: ccn_total,
         cyclomatic_complexity_max: ccn_max,
         rank: rank(ccn_total).to_string(),
-        extraction,
+        functions,
         last_modified: git.last_modified.clone(),
         last_author: git.last_author.clone(),
         commits_30d: git.commits_30d,
         first_seen: git.first_seen.clone(),
         commit_count: git.commit_count,
+        commit_count_is_floor: git.commit_count_is_floor,
         rename_from: git.rename_from.clone(),
         working_state: git.working_state.clone(),
         present_in: git.present_in.clone(),
@@ -338,6 +309,7 @@ fn extract_facts(
         co_changed: git.co_changed.clone(),
         mtime_ns,
         size_bytes,
+        extraction,
     }
 }
 
@@ -533,24 +505,23 @@ pub fn get(path: &Path, repo_root: &Path) -> Option<FileFacts> {
 /// never rebuilt per-iteration (the loop hot-path ban in Claude.md).
 ///
 /// Fix, with no lite-facts shortcut:
-///   - git map, scc map, mtime index, working-state: loaded ONCE.
+///   - supplied or complete git map, scc map, mtime index: loaded ONCE.
 ///   - in-memory mtime fast-path: unchanged files skip read+hash+extract.
 ///   - parallel extraction for true misses only.
 ///   - the mtime index is written ONCE at the end (no per-file rewrite,
 ///     no rayon write race), atomically via the existing cache::save.
 /// Returns rel -> FileFacts for every readable input path.
-pub fn get_batch(
-    paths: &[PathBuf],
-    repo_root: &Path,
-) -> HashMap<String, FileFacts> {
+pub fn get_batch(paths: &[PathBuf], repo_root: &Path) -> HashMap<String, FileFacts> {
+    let can_persist = repo_root.join(".git").exists();
     let git_map = git_activity::bulk_cached(repo_root);
-    let scc = repo_context::metrics(repo_root);
+    let scc: OnceLock<Arc<repo_context::Payload>> = OnceLock::new();
     let index = mtime_index_load(repo_root);
 
     #[derive(Clone)]
     struct Job {
         abs: PathBuf,
         rel: String,
+        git_rel: String,
         stamp: Stamp,
     }
     let mut jobs: Vec<Job> = Vec::with_capacity(paths.len());
@@ -567,8 +538,18 @@ pub fn get_batch(
             Ok(m) if m.is_file() => m,
             _ => continue,
         };
+        let git_rel = abs
+            .canonicalize()
+            .ok()
+            .and_then(|path| {
+                path.strip_prefix(repo_root)
+                    .ok()
+                    .map(|path| path.to_string_lossy().to_string())
+            })
+            .unwrap_or_else(|| rel.clone());
         jobs.push(Job {
             rel,
+            git_rel,
             stamp: stamp_of(&md),
             abs,
         });
@@ -577,81 +558,63 @@ pub fn get_batch(
     // Parallel resolve. Each job yields (rel, FileFacts, Option<new index
     // entry>). Index entries are merged single-threaded afterward and the
     // index is persisted exactly once.
-    let resolved: Vec<(String, FileFacts, Option<(String, Stamp, String)>)> =
-        jobs
-            .par_iter()
-            .filter_map(|j| {
-                // (1) in-memory stat fast-path — no I/O beyond the cached
-                // entry load when the stamp matches the once-loaded index.
-                if let Some(k) =
-                    index.get(&j.rel).and_then(|e| stamp_matches(e, &j.stamp))
-                {
-                    if let Some(cv) =
-                        cache::load(cache::NAMESPACE_FILE, k, repo_root)
-                    {
-                        if let Some(f) = FileFacts::from_json(&cv) {
-                            return Some((
-                                j.rel.clone(),
-                                with_git(f, &j.rel, &git_map),
-                                None,
-                            ));
-                        }
+    let resolved: Vec<(String, FileFacts, Option<(String, Stamp, String)>)> = jobs
+        .par_iter()
+        .filter_map(|j| {
+            // (1) in-memory stat fast-path — no I/O beyond the cached
+            // entry load when the stamp matches the once-loaded index.
+            if let Some(k) = index.get(&j.rel).and_then(|e| stamp_matches(e, &j.stamp)) {
+                if let Some(bytes) = cache::load_bytes(cache::NAMESPACE_FILE, k, repo_root) {
+                    if let Some(f) = FileFacts::from_bytes(&bytes) {
+                        return Some((j.rel.clone(), with_git(f, &j.git_rel, &git_map), None));
                     }
                 }
-                // (2) content-hash cache hit.
-                let data = fs::read(&j.abs).ok()?;
-                let key =
-                    cache::file_hash_from_bytes(&data, &j.abs, repo_root);
-                if let Some(cv) =
-                    cache::load(cache::NAMESPACE_FILE, &key, repo_root)
-                {
-                    if let Some(f) = FileFacts::from_json(&cv) {
-                        return Some((
-                            j.rel.clone(),
-                            with_git(f, &j.rel, &git_map),
-                            Some((j.rel.clone(), j.stamp, key)),
-                        ));
-                    }
+            }
+            // (2) content-hash cache hit.
+            let data = fs::read(&j.abs).ok()?;
+            let key = cache::file_hash_from_bytes(&data, &j.abs, repo_root);
+            if let Some(bytes) = cache::load_bytes(cache::NAMESPACE_FILE, &key, repo_root) {
+                if let Some(f) = FileFacts::from_bytes(&bytes) {
+                    return Some((
+                        j.rel.clone(),
+                        with_git(f, &j.git_rel, &git_map),
+                        Some((j.rel.clone(), j.stamp, key)),
+                    ));
                 }
-                // (3) fresh real extraction (no lite-facts).
-                let git = git_map
-                    .get(&j.rel)
-                    .cloned()
-                    .unwrap_or_else(GitActivity::empty);
-                let scc_data = scc
-                    .per_file
-                    .get(&j.rel)
-                    .cloned()
-                    .unwrap_or_else(|| json!({}));
-                let facts = extract_facts(
-                    &j.abs, repo_root, &git, &scc_data, &data,
-                );
-                let _ = cache::save(
-                    cache::NAMESPACE_FILE,
-                    &key,
-                    &facts.to_json(),
-                    repo_root,
-                );
-                Some((
-                    j.rel.clone(),
-                    facts,
-                    Some((j.rel.clone(), j.stamp, key)),
-                ))
-            })
-            .collect();
+            }
+            // (3) fresh real extraction (no lite-facts).
+            let git = git_map
+                .get(&j.git_rel)
+                .cloned()
+                .unwrap_or_else(GitActivity::empty);
+            let scc_data = scc
+                .get_or_init(|| repo_context::metrics(repo_root))
+                .per_file
+                .get(&j.git_rel);
+            let facts = extract_facts(&j.abs, repo_root, &git, scc_data, &data);
+            if !can_persist
+                || (requires_scc(&facts.functions, &facts.extraction)
+                    && !scc.get().unwrap().available)
+            {
+                return Some((j.rel.clone(), facts, None));
+            }
+            let _ = cache::save(cache::NAMESPACE_FILE, &key, &facts.to_json(), repo_root);
+            Some((j.rel.clone(), facts, Some((j.rel.clone(), j.stamp, key))))
+        })
+        .collect();
 
     // Merge index updates and persist ONCE (was the O(N²) fsync storm).
-    let mut new_index = (*index).clone();
+    let mut new_index: Option<MtimeIndex> = None;
     let mut out = HashMap::with_capacity(resolved.len());
-    let mut dirty = false;
     for (rel, facts, upd) in resolved {
         if let Some((r, stamp, key)) = upd {
-            new_index.insert(r, stamp_entry(&stamp, &key));
-            dirty = true;
+            new_index
+                .get_or_insert_with(|| (*index).clone())
+                .insert(r, stamp_entry(&stamp, &key));
         }
         out.insert(rel, facts);
     }
-    if dirty {
+    if let Some(new_index) = new_index {
         mtime_index_store(repo_root, new_index);
     }
     out
@@ -666,7 +629,7 @@ pub fn get_batch(
 /// long-standing `relative_to_root` fallback so out-of-root inputs behave
 /// unchanged. The lexical strip uses `repo_root` as given; callers pass the
 /// worktree root, which is already canonical from `worktree_root_for`.
-fn resolve_under_root(p: &Path, repo_root: &Path) -> (PathBuf, String) {
+pub(crate) fn resolve_under_root(p: &Path, repo_root: &Path) -> (PathBuf, String) {
     let abs = if p.is_absolute() {
         p.to_path_buf()
     } else {
@@ -709,7 +672,9 @@ pub fn file_hashes_for(
     let hashed: Vec<(String, String)> = misses
         .par_iter()
         .filter_map(|(p, rel)| {
-            cache::file_hash(p, repo_root).ok().map(|h| (rel.clone(), h))
+            cache::file_hash(p, repo_root)
+                .ok()
+                .map(|h| (rel.clone(), h))
         })
         .collect();
     for (rel, h) in hashed {

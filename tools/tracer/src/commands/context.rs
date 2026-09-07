@@ -15,12 +15,12 @@ use crate::{
     cache, docs_graph, file_facts, git_activity, passive_context, relations, repo_context,
     repo_files,
 };
-use anyhow::Result;
+use anyhow::{bail, Result};
 use rayon::prelude::*;
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::Write as _;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -32,9 +32,22 @@ const PRIMER_APPLICABLE_RULES_LIMIT: usize = 10;
 const PRIMER_BRANCH_STALE_DAYS: i64 = 21;
 
 const FEATURE_PREFIXES: &[&str] = &[
-    "feat/", "feature/", "fix/", "bugfix/", "hotfix/", "chore/", "refactor/",
-    "docs/", "test/", "tests/", "ci/", "build/", "wip/", "experiment/",
-    "spike/", "release/",
+    "feat/",
+    "feature/",
+    "fix/",
+    "bugfix/",
+    "hotfix/",
+    "chore/",
+    "refactor/",
+    "docs/",
+    "test/",
+    "tests/",
+    "ci/",
+    "build/",
+    "wip/",
+    "experiment/",
+    "spike/",
+    "release/",
 ];
 
 /// (filename, manager label). List order is significant: every present
@@ -69,14 +82,40 @@ const PACKAGE_CONFIGS: &[(&str, &str)] = &[
 ];
 
 const TOOL_CONFIGS: &[&str] = &[
-    "vite.config.js", "vite.config.ts", "webpack.config.js", "webpack.config.ts",
-    "rollup.config.js", "rollup.config.ts", "esbuild.config.js", "esbuild.config.ts",
-    "tsconfig.json", "jsconfig.json", "playwright.config.ts", "playwright.config.js",
-    "vitest.config.ts", "vitest.config.js", "jest.config.js", "jest.config.ts",
-    "phpunit.xml", "phpunit.xml.dist", "pytest.ini", "tox.ini", "biome.json",
-    ".eslintrc.json", ".eslintrc.js", "prettier.config.js", ".prettierrc",
-    "pint.json", ".rubocop.yml", "Dockerfile", "docker-compose.yml",
-    "compose.yaml", "compose.yml", ".lando.yml", "wp-cli.yml", "Makefile",
+    "vite.config.js",
+    "vite.config.ts",
+    "webpack.config.js",
+    "webpack.config.ts",
+    "rollup.config.js",
+    "rollup.config.ts",
+    "esbuild.config.js",
+    "esbuild.config.ts",
+    "tsconfig.json",
+    "jsconfig.json",
+    "playwright.config.ts",
+    "playwright.config.js",
+    "vitest.config.ts",
+    "vitest.config.js",
+    "jest.config.js",
+    "jest.config.ts",
+    "phpunit.xml",
+    "phpunit.xml.dist",
+    "pytest.ini",
+    "tox.ini",
+    "biome.json",
+    ".eslintrc.json",
+    ".eslintrc.js",
+    "prettier.config.js",
+    ".prettierrc",
+    "pint.json",
+    ".rubocop.yml",
+    "Dockerfile",
+    "docker-compose.yml",
+    "compose.yaml",
+    "compose.yml",
+    ".lando.yml",
+    "wp-cli.yml",
+    "Makefile",
 ];
 
 const CI_MARKERS: &[(&str, &str)] = &[
@@ -91,9 +130,16 @@ const CI_MARKERS: &[(&str, &str)] = &[
 ];
 
 const TEST_CONFIG_NAMES: &[&str] = &[
-    "phpunit.xml", "phpunit.xml.dist", "pytest.ini", "tox.ini",
-    "vitest.config.ts", "vitest.config.js", "jest.config.js", "jest.config.ts",
-    "playwright.config.ts", "playwright.config.js",
+    "phpunit.xml",
+    "phpunit.xml.dist",
+    "pytest.ini",
+    "tox.ini",
+    "vitest.config.ts",
+    "vitest.config.js",
+    "jest.config.js",
+    "jest.config.ts",
+    "playwright.config.ts",
+    "playwright.config.js",
 ];
 
 const COMMON_KINDS: &[&str] = &[
@@ -123,7 +169,7 @@ fn read_range(offset: Option<usize>, limit: Option<usize>) -> Option<(usize, usi
     }
 }
 
-fn file_mode(p: &Path, lines: Option<(usize, usize)>, record: bool) -> Result<()> {
+fn file_mode(p: &Path, lines: Option<(usize, usize)>, record: bool) -> Result<String> {
     // Record that the agent just Read this file, and which line range it read.
     // Enables cross-tool dedup (a later doc-injection or read against the same
     // content returns "already loaded" without re-emitting) and accumulates
@@ -136,42 +182,63 @@ fn file_mode(p: &Path, lines: Option<(usize, usize)>, record: bool) -> Result<()
     // function of genuine reads alone. With no record there is no view to dedup
     // against, so the file surfaces fully (first_touch = true) — the same shape
     // the no-session standalone path takes.
-    let first_touch = if record {
-        session_log::record_read(p, "agent_read", lines)
-    } else {
-        true
+    let (first_touch, read_failed) = match std::fs::read(p) {
+        Ok(content) if record => {
+            let content = String::from_utf8_lossy(&content).into_owned();
+            let hash = session_log::content_hash(&content);
+            (
+                session_log::record_read(
+                    p,
+                    "agent_read",
+                    &hash,
+                    content.len(),
+                    content.lines().count(),
+                    lines,
+                ),
+                false,
+            )
+        }
+        Ok(_) => (true, false),
+        Err(_) => (false, true),
     };
 
     let repo_root = cache::worktree_root_for(p).unwrap_or_else(|| cache::display_root(p));
-    let facts = match file_facts::get(p, &repo_root) {
-        Some(f) => f,
-        None => return Ok(()),
-    };
     let relative = cache::relative_to_root(p, &repo_root);
-    let gc = relations::get(&repo_root).module_counts(&relative);
-    let line = passive_context::render(&facts, gc.as_ref());
-    if !line.is_empty() {
-        println!("{line}");
+    let mut out = String::new();
+    if let Some(facts) = file_facts::get(p, &repo_root) {
+        let gc = relations::get(&repo_root).module_counts(&relative);
+        let line = passive_context::render(&facts, gc.as_ref());
+        if !line.is_empty() {
+            writeln!(out, "{line}").ok();
+        }
+    } else if read_failed {
+        let activity = git_activity::bulk_cached(&repo_root);
+        if let Some(line) = activity.get(&relative).and_then(passive_context::git_group) {
+            writeln!(out, "[git: {line} · loc: unavailable · ccn: unavailable]").ok();
+        }
     }
     let docs_line = docs_awareness_line(p, &repo_root);
     if !docs_line.is_empty() {
-        println!("{docs_line}");
+        writeln!(out, "{docs_line}").ok();
     }
     // First touch of this file: surface its symbol surface so one read gives
     // the agent the file's shape without a second `trace structure` call.
     if first_touch {
         let line = symbols_line(p);
         if !line.is_empty() {
-            println!("{line}");
+            writeln!(out, "{line}").ok();
         }
     }
     // First touch of the file's immediate parent directory: surface that one
     // directory's file listing so the agent sees the file's neighbours.
     // Parent only — never the ancestor chain.
     if let Some(parent) = p.parent() {
-        emit_directory_line_on_first_touch(parent);
+        let directory_line = directory_line_on_first_touch(parent);
+        if !directory_line.is_empty() {
+            writeln!(out, "{directory_line}").ok();
+        }
     }
-    Ok(())
+    Ok(out)
 }
 
 /// One-line symbol surface for a file: every declared symbol rendered with
@@ -284,14 +351,11 @@ fn render_parameter(p: &Value) -> String {
 /// side effect) for the listing and `session_log::record_directory_touch` for
 /// the per-session first-touch dedup. Silent when the directory was already
 /// surfaced, has no files, or the listing fails.
-fn emit_directory_line_on_first_touch(directory: &Path) {
+fn directory_line_on_first_touch(directory: &Path) -> String {
     if !session_log::record_directory_touch(directory, "agent_read") {
-        return;
+        return String::new();
     }
-    let line = directory_files_line(directory);
-    if !line.is_empty() {
-        println!("{line}");
-    }
+    directory_files_line(directory)
 }
 
 /// One-line listing of a single directory's contents (one level,
@@ -314,8 +378,10 @@ fn directory_files_line(directory: &Path) -> String {
             })
             .unwrap_or_default()
     };
-    let mut entries: Vec<String> =
-        names_of("directories").into_iter().map(|d| format!("{d}/")).collect();
+    let mut entries: Vec<String> = names_of("directories")
+        .into_iter()
+        .map(|d| format!("{d}/"))
+        .collect();
     entries.extend(names_of("files"));
     if entries.is_empty() {
         return String::new();
@@ -356,29 +422,96 @@ fn docs_awareness_line(file_path: &Path, repo_root: &Path) -> String {
 // --- Primer mode --------------------------------------------------------
 
 pub fn run(
-    path: Option<&Path>,
+    paths: &[PathBuf],
     force_directory: bool,
     offset: Option<usize>,
     limit: Option<usize>,
     record: bool,
-) -> Result<()> {
-    match path {
-        None => {
+    json: bool,
+) -> Result<Value> {
+    if json && paths.is_empty() {
+        bail!("context --json requires at least one path");
+    }
+    if paths.len() > 1 && record {
+        bail!("multiple paths require --no-record");
+    }
+    if paths.len() > 1 && (force_directory || offset.is_some() || limit.is_some()) {
+        bail!("multiple paths cannot be combined with --directory, --offset, or --limit");
+    }
+    match paths {
+        [] => {
             if force_directory {
-                return Ok(());
+                return Ok(crate::output::document(
+                    serde_json::json!({"paths": []}),
+                    serde_json::json!({}),
+                    serde_json::json!([]),
+                    serde_json::json!({"files": 0, "unavailable": 0}),
+                ));
             }
-            primer_mode()
+            primer_mode()?;
+            Ok(crate::output::document(
+                serde_json::json!({"paths": []}),
+                serde_json::json!({}),
+                serde_json::json!([]),
+                serde_json::json!({"files": 0, "unavailable": 0}),
+            ))
         }
-        Some(path) => {
-            let p = cache::absolutize(path);
-            if !p.exists() {
-                return Ok(());
+        _ => {
+            let mut rows = Vec::with_capacity(paths.len());
+            let mut unavailable = 0usize;
+            for requested in paths {
+                let p = cache::absolutize(requested);
+                let (content, error) = if !p.exists() {
+                    unavailable += 1;
+                    (
+                        String::new(),
+                        Some(format!("path is unavailable: {}", requested.display())),
+                    )
+                } else if force_directory || p.is_dir() {
+                    (directory_line_on_first_touch(&p), None)
+                } else {
+                    match file_mode(&p, read_range(offset, limit), record) {
+                        Ok(content) if content.is_empty() => {
+                            unavailable += 1;
+                            (
+                                content,
+                                Some(format!("context is unavailable: {}", requested.display())),
+                            )
+                        }
+                        Ok(content) => (content, None),
+                        Err(err) => {
+                            unavailable += 1;
+                            (String::new(), Some(err.to_string()))
+                        }
+                    }
+                };
+                if !json {
+                    if paths.len() == 1 {
+                        print!("{content}");
+                    } else {
+                        println!("== {} ==", requested.display());
+                        if let Some(message) = &error {
+                            println!("[unavailable: {message}]");
+                        } else {
+                            print!("{content}");
+                            if !content.ends_with('\n') {
+                                println!();
+                            }
+                        }
+                    }
+                }
+                rows.push(serde_json::json!({
+                    "file": requested.to_string_lossy(),
+                    "content": content,
+                    "error": error,
+                }));
             }
-            if force_directory || p.is_dir() {
-                emit_directory_line_on_first_touch(&p);
-                return Ok(());
-            }
-            file_mode(&p, read_range(offset, limit), record)
+            Ok(crate::output::document(
+                serde_json::json!({"paths": paths.iter().map(|p| p.to_string_lossy()).collect::<Vec<_>>() }),
+                serde_json::json!({}),
+                Value::Array(rows),
+                serde_json::json!({"files": paths.len(), "unavailable": unavailable}),
+            ))
         }
     }
 }
@@ -448,8 +581,16 @@ fn environment_section(repo_root: &Path) -> String {
     let _ = writeln!(out, "## Environment");
     let _ = writeln!(out, "  cwd: {cwd}");
     let _ = writeln!(out, "  repo root: {}", repo_root.to_string_lossy());
-    let _ = writeln!(out, "  git repository: {}", if is_git { "yes" } else { "no" });
-    let _ = writeln!(out, "  worktree: {}", if is_worktree { "yes" } else { "no" });
+    let _ = writeln!(
+        out,
+        "  git repository: {}",
+        if is_git { "yes" } else { "no" }
+    );
+    let _ = writeln!(
+        out,
+        "  worktree: {}",
+        if is_worktree { "yes" } else { "no" }
+    );
     let _ = writeln!(out, "  platform: {}", os_system().to_lowercase());
     let _ = writeln!(out, "  shell: {shell}");
     let _ = writeln!(out, "  os version: {} {}", os_system(), os_release);
@@ -514,21 +655,10 @@ fn identity_section(repo_root: &Path) -> String {
         let _ = writeln!(out, "  (scc unavailable or empty result)");
         return out;
     }
-    let total_files: i64 = languages
-        .iter()
-        .map(|l| l.get("Count").and_then(|x| x.as_i64()).unwrap_or(0))
-        .sum();
-    let total_loc: i64 = languages
-        .iter()
-        .map(|l| l.get("Code").and_then(|x| x.as_i64()).unwrap_or(0))
-        .sum();
+    let total_files: i64 = languages.iter().map(|language| language.count).sum();
+    let total_loc: i64 = languages.iter().map(|language| language.code).sum();
     let mut sorted = languages.clone();
-    sorted.sort_by(|a, b| {
-        b.get("Code")
-            .and_then(|x| x.as_i64())
-            .unwrap_or(0)
-            .cmp(&a.get("Code").and_then(|x| x.as_i64()).unwrap_or(0))
-    });
+    sorted.sort_by(|a, b| b.code.cmp(&a.code));
 
     let _ = writeln!(out, "  Files: {total_files}  Lines of code: {total_loc}");
     let _ = writeln!(out, "  Languages:");
@@ -536,10 +666,7 @@ fn identity_section(repo_root: &Path) -> String {
         let _ = writeln!(
             out,
             "    {:<20} files={:<5} loc={:<8} complexity={}",
-            lang.get("Name").and_then(|x| x.as_str()).unwrap_or("?"),
-            lang.get("Count").and_then(|x| x.as_i64()).unwrap_or(0),
-            lang.get("Code").and_then(|x| x.as_i64()).unwrap_or(0),
-            lang.get("Complexity").and_then(|x| x.as_i64()).unwrap_or(0),
+            lang.name, lang.count, lang.code, lang.complexity,
         );
     }
     let extra = sorted.len() as i64 - PRIMER_LANGUAGE_LIMIT as i64;
@@ -591,7 +718,8 @@ fn tech_stack_section(repo_root: &Path) -> String {
 
 fn layout_section(repo_root: &Path, tracked: &[String]) -> String {
     let skip = repo_files::skip_dirs();
-    let mut by_top: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    let mut by_top: BTreeMap<String, (usize, i64, Option<String>, bool)> = BTreeMap::new();
+    let git_map = git_activity::bulk_cached(repo_root);
     for rel in tracked {
         let head = match rel.split_once('/') {
             Some((h, _)) => h,
@@ -600,7 +728,28 @@ fn layout_section(repo_root: &Path, tracked: &[String]) -> String {
         if head.starts_with('.') || skip.contains(head) {
             continue;
         }
-        by_top.entry(head.to_string()).or_default().push(rel.clone());
+        let summary = by_top.entry(head.to_string()).or_default();
+        summary.0 += 1;
+        if let Some(activity) = git_map.get(rel) {
+            if let Some(modified) = &activity.last_modified {
+                if summary
+                    .2
+                    .as_ref()
+                    .map(|latest| modified > latest)
+                    .unwrap_or(true)
+                {
+                    summary.2 = Some(modified.clone());
+                }
+            }
+            if activity
+                .working_state
+                .as_deref()
+                .map(|state| DIRTY_STATES.contains(&state))
+                .unwrap_or(false)
+            {
+                summary.3 = true;
+            }
+        }
     }
 
     let mut out = String::new();
@@ -610,40 +759,39 @@ fn layout_section(repo_root: &Path, tracked: &[String]) -> String {
         return out;
     }
 
-    let source_exts: std::collections::HashSet<&str> =
-        crate::extraction::supported_extensions().iter().copied().collect();
-    let git_map = git_activity::bulk_cached(repo_root);
-
-    // SINGLE batch over every source file across all top-dirs (was per-file
-    // get() in aggregate_paths — the same O(N²)+fsync-storm class as the
-    // old `list` 62s defect; this is the `context` primer hot regression).
-    // get_batch hoists bulk maps once with an in-memory mtime fast-path so
-    // warm is fast; cold inherits the accepted no-lite-facts floor
-    // (documented), but the hot path is now competitive.
-    let all_source: Vec<std::path::PathBuf> = tracked
+    let source_exts: std::collections::HashSet<&str> = crate::extraction::supported_extensions()
         .iter()
-        .filter(|r| {
-            Path::new(r)
-                .extension()
-                .and_then(|e| e.to_str())
-                .map(|e| source_exts.contains(e.to_lowercase().as_str()))
-                .unwrap_or(false)
-        })
-        .map(|r| repo_root.join(r))
+        .copied()
         .collect();
-    let facts_map = file_facts::get_batch(&all_source, repo_root);
+    for chunk in tracked.chunks(file_facts::RESOLVE_CHUNK) {
+        let source: Vec<PathBuf> = chunk
+            .iter()
+            .filter(|rel| {
+                Path::new(rel)
+                    .extension()
+                    .and_then(|extension| extension.to_str())
+                    .map(|extension| source_exts.contains(extension.to_lowercase().as_str()))
+                    .unwrap_or(false)
+            })
+            .map(|rel| repo_root.join(rel))
+            .collect();
+        let facts = file_facts::get_batch(&source, repo_root);
+        for (rel, fact) in facts {
+            if let Some((head, _)) = rel.split_once('/') {
+                if let Some(summary) = by_top.get_mut(head) {
+                    summary.1 += fact.cyclomatic_complexity_total;
+                }
+            }
+        }
+    }
 
     // Case-insensitive sort by lowercased key.
     let mut names: Vec<&String> = by_top.keys().collect();
     names.sort_by_key(|n| n.to_lowercase());
 
     for name in names {
-        let paths = &by_top[name];
-        let summary = aggregate_paths(paths, &git_map, &facts_map);
-        let mut bits = vec![
-            format!("{} files", summary.0),
-            format!("ccn={}", summary.1),
-        ];
+        let summary = &by_top[name];
+        let mut bits = vec![format!("{} files", summary.0), format!("ccn={}", summary.1)];
         if let Some(lm) = &summary.2 {
             bits.push(format!("last: {lm}"));
         }
@@ -653,38 +801,6 @@ fn layout_section(repo_root: &Path, tracked: &[String]) -> String {
         let _ = writeln!(out, "  📁 {name}/  ({})", bits.join(" · "));
     }
     out
-}
-
-/// Per-subdir aggregation. Complexity comes from the per-file facts (only
-/// source files are batched, so the rest contribute 0); last_modified and
-/// working_state come from the bulk-cached git map that owns them.
-fn aggregate_paths(
-    relative_paths: &[String],
-    git_map: &HashMap<String, git_activity::GitActivity>,
-    facts_map: &HashMap<String, file_facts::FileFacts>,
-) -> (usize, i64, Option<String>, bool) {
-    let mut ccn_total = 0i64;
-    let mut last_modified: Option<String> = None;
-    let mut has_uncommitted = false;
-
-    for rel in relative_paths {
-        ccn_total += facts_map
-            .get(rel)
-            .map(|f| f.cyclomatic_complexity_total)
-            .unwrap_or(0);
-        let activity = git_map.get(rel);
-        let modified = activity.and_then(|a| a.last_modified.clone());
-        let state = activity.and_then(|a| a.working_state.clone());
-        if let Some(m) = &modified {
-            if last_modified.as_ref().map(|lm| m > lm).unwrap_or(true) {
-                last_modified = Some(m.clone());
-            }
-        }
-        if state.as_deref().map(|s| DIRTY_STATES.contains(&s)).unwrap_or(false) {
-            has_uncommitted = true;
-        }
-    }
-    (relative_paths.len(), ccn_total, last_modified, has_uncommitted)
 }
 
 // --- Section: Common Directories ---------------------------------------
@@ -712,7 +828,11 @@ fn common_directories_section(repo_root: &Path) -> String {
             if !child.is_dir() {
                 continue;
             }
-            let n = child.file_name().unwrap_or_default().to_string_lossy().to_string();
+            let n = child
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string();
             if n.starts_with('.') || skip.contains(n.as_str()) {
                 continue;
             }
@@ -727,7 +847,11 @@ fn common_directories_section(repo_root: &Path) -> String {
                     if !sub.is_dir() {
                         continue;
                     }
-                    let sn = sub.file_name().unwrap_or_default().to_string_lossy().to_string();
+                    let sn = sub
+                        .file_name()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                        .to_string();
                     if sn.starts_with('.') || skip.contains(sn.as_str()) {
                         continue;
                     }
@@ -748,7 +872,10 @@ fn common_directories_section(repo_root: &Path) -> String {
             if !seen.insert(key) {
                 continue;
             }
-            classifications.get_mut(kind).unwrap().push((rel.clone(), marker));
+            classifications
+                .get_mut(kind)
+                .unwrap()
+                .push((rel.clone(), marker));
         }
     }
 
@@ -782,7 +909,11 @@ fn classify_directory(directory: &Path) -> Vec<(&'static str, String)> {
     for entry in &entries {
         if entry.is_file() {
             file_names.push(
-                entry.file_name().unwrap_or_default().to_string_lossy().to_string(),
+                entry
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string(),
             );
             let ext = entry
                 .extension()
@@ -801,12 +932,14 @@ fn classify_directory(directory: &Path) -> Vec<(&'static str, String)> {
     }
 
     let mut backend: Vec<String> = Vec::new();
-    let name_set: std::collections::HashSet<&str> =
-        file_names.iter().map(|s| s.as_str()).collect();
+    let name_set: std::collections::HashSet<&str> = file_names.iter().map(|s| s.as_str()).collect();
     if name_set.contains("artisan") {
         backend.push("Laravel".into());
     }
-    if ["manage.py", "wsgi.py", "asgi.py"].iter().any(|n| name_set.contains(n)) {
+    if ["manage.py", "wsgi.py", "asgi.py"]
+        .iter()
+        .any(|n| name_set.contains(n))
+    {
         backend.push("Django/Flask".into());
     }
     if name_set.contains("config.ru")
@@ -818,9 +951,7 @@ fn classify_directory(directory: &Path) -> Vec<(&'static str, String)> {
     let php_count = ec(".php");
     if php_count >= 3
         && file_names.iter().any(|n| {
-            n.ends_with("Controller.php")
-                || n.ends_with("Model.php")
-                || n.ends_with("Service.php")
+            n.ends_with("Controller.php") || n.ends_with("Model.php") || n.ends_with("Service.php")
         })
     {
         backend.push(format!("{php_count} PHP files (controller/model/service)"));
@@ -923,7 +1054,12 @@ fn git_section(repo_root: &Path) -> String {
     // candidates needs origin_head, ahead_behind needs origin_head + current,
     // so they resolve once wave 1 lands.
     let ((origin_head, current), (dirty, commits)) = rayon::join(
-        || rayon::join(|| origin_head_branch(repo_root), || current_branch(repo_root)),
+        || {
+            rayon::join(
+                || origin_head_branch(repo_root),
+                || current_branch(repo_root),
+            )
+        },
         || {
             rayon::join(
                 || git_activity::working_tree_state(repo_root),
@@ -968,10 +1104,7 @@ fn git_section(repo_root: &Path) -> String {
     out
 }
 
-fn primary_branch_candidates(
-    repo_root: &Path,
-    origin_head: Option<&str>,
-) -> Vec<(String, String)> {
+fn primary_branch_candidates(repo_root: &Path, origin_head: Option<&str>) -> Vec<(String, String)> {
     let stdout = match git_str(
         repo_root,
         &[
@@ -1072,33 +1205,29 @@ fn ahead_behind(repo_root: &Path, current: &str, base: Option<&str>) -> String {
     if parts.len() != 2 {
         return String::new();
     }
-    format!(
-        "ahead: {}, behind: {} vs origin/{base}",
-        parts[1], parts[0]
-    )
+    format!("ahead: {}, behind: {} vs origin/{base}", parts[1], parts[0])
 }
 
 fn render_dirty(repo_root: &Path, dirty: &HashMap<String, String>) -> Vec<String> {
     let index = relations::get(repo_root);
-    // One batch resolve for every dirty file — a single mtime-index load plus
-    // parallel extraction — instead of a per-file get() loop that reloaded
-    // the whole mtime index for each dirty file (the dominant primer cost on
-    // a repo with many uncommitted files).
-    let existing: Vec<std::path::PathBuf> = dirty
-        .keys()
-        .map(|p| repo_root.join(p))
-        .filter(|abs| abs.exists())
-        .collect();
-    let facts_map = file_facts::get_batch(&existing, repo_root);
     let mut scored: Vec<(i64, i64, String, String)> = Vec::new();
-    for (path, state) in dirty {
-        let callers = index.importers_of(path).len() as i64;
-        let rel = cache::relative_to_root(&repo_root.join(path), repo_root);
-        let ccn = facts_map
-            .get(&rel)
-            .map(|f| f.cyclomatic_complexity_total)
-            .unwrap_or(0);
-        scored.push((callers, ccn, state.clone(), path.clone()));
+    let dirty_files: Vec<(&String, &String)> = dirty.iter().collect();
+    for chunk in dirty_files.chunks(file_facts::RESOLVE_CHUNK) {
+        let existing: Vec<PathBuf> = chunk
+            .iter()
+            .map(|(path, _)| repo_root.join(path))
+            .filter(|absolute| absolute.exists())
+            .collect();
+        let facts = file_facts::get_batch(&existing, repo_root);
+        for (path, state) in chunk {
+            let callers = index.importers_of(path).len() as i64;
+            let rel = cache::relative_to_root(&repo_root.join(path), repo_root);
+            let ccn = facts
+                .get(&rel)
+                .map(|fact| fact.cyclomatic_complexity_total)
+                .unwrap_or(0);
+            scored.push((callers, ccn, (*state).clone(), (*path).clone()));
+        }
     }
     // Rank by callers then ccn, both descending. Pre-sort by path so the
     // stable primary/secondary sort is fully deterministic.
@@ -1108,9 +1237,7 @@ fn render_dirty(repo_root: &Path, dirty: &HashMap<String, String>) -> Vec<String
     let mut lines: Vec<String> = scored
         .iter()
         .take(PRIMER_DIRTY_LIMIT)
-        .map(|(c, ccn, state, path)| {
-            format!("{state:<10} {path}  (callers={c}, ccn={ccn})")
-        })
+        .map(|(c, ccn, state, path)| format!("{state:<10} {path}  (callers={c}, ccn={ccn})"))
         .collect();
     if scored.len() > PRIMER_DIRTY_LIMIT {
         lines.push(format!("… {} more", scored.len() - PRIMER_DIRTY_LIMIT));
@@ -1265,7 +1392,12 @@ fn applicable_unloaded_rules(repo_root: &Path) -> Vec<(String, String)> {
     let conditional: Vec<&docs_graph::DocNode> = docs
         .nodes
         .iter()
-        .filter(|n| n.paths_globs.as_ref().map(|g| !g.is_empty()).unwrap_or(false))
+        .filter(|n| {
+            n.paths_globs
+                .as_ref()
+                .map(|g| !g.is_empty())
+                .unwrap_or(false)
+        })
         .collect();
     if conditional.is_empty() {
         return vec![];
@@ -1337,7 +1469,9 @@ fn collect_claude_md(tracked: &[String]) -> Vec<String> {
         if basename.to_lowercase() != "claude.md" {
             continue;
         }
-        by_key.entry(rel.to_lowercase()).or_insert_with(|| rel.clone());
+        by_key
+            .entry(rel.to_lowercase())
+            .or_insert_with(|| rel.clone());
     }
     let mut values: Vec<String> = by_key.into_values().collect();
     values.sort();
@@ -1365,6 +1499,7 @@ fn spine_section(repo_root: &Path) -> String {
         i64::MAX,
         PRIMER_SPINE_LIMIT,
         relations::Reach::Importers,
+        None,
         repo_root,
     );
     if ranked.is_empty() {
@@ -1374,7 +1509,7 @@ fn spine_section(repo_root: &Path) -> String {
         );
         return out;
     }
-    let languages = relations::languages(repo_root);
+    let index = relations::get(repo_root);
 
     let _ = writeln!(out, "  Top {} most-depended-on nodes:", ranked.len());
     let _ = writeln!(
@@ -1383,13 +1518,10 @@ fn spine_section(repo_root: &Path) -> String {
         "#", "direct", "transitive", "kind"
     );
     for (rank, row) in ranked.iter().enumerate() {
-        let language = languages.get(&row.file).cloned().flatten();
+        let language = index.language(&row.file);
         let (label, kind) = match &row.symbol {
             Some(symbol) => (symbol.clone(), "symbol"),
-            None => (
-                relations::file_to_module(&row.file, language.as_deref()),
-                "module",
-            ),
+            None => (relations::file_to_module(&row.file, language), "module"),
         };
         let _ = writeln!(
             out,
@@ -1501,7 +1633,10 @@ mod tests {
             "expected helper's full signature, got: {line}"
         );
         // Per-method cyclomatic complexity is joined in, as in the structure view.
-        assert!(line.contains("ccn="), "expected per-method ccn, got: {line}");
+        assert!(
+            line.contains("ccn="),
+            "expected per-method ccn, got: {line}"
+        );
     }
 
     // The directory listing surfaces sub-directories alongside files: each
@@ -1524,11 +1659,17 @@ mod tests {
         assert!(line.contains("sub_one/"), "expected sub_one/, got: {line}");
         assert!(line.contains("sub_two/"), "expected sub_two/, got: {line}");
         // Files still present.
-        assert!(line.contains("readme.md"), "expected readme.md, got: {line}");
+        assert!(
+            line.contains("readme.md"),
+            "expected readme.md, got: {line}"
+        );
         assert!(line.contains("other.rs"), "expected other.rs, got: {line}");
         // Sub-directories ordered ahead of files.
         let sub_one = line.find("sub_one/").unwrap();
         let readme = line.find("readme.md").unwrap();
-        assert!(sub_one < readme, "sub-dirs should precede files, got: {line}");
+        assert!(
+            sub_one < readme,
+            "sub-dirs should precede files, got: {line}"
+        );
     }
 }

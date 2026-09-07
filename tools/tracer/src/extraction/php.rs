@@ -1,6 +1,6 @@
 //! PHP tree-sitter extraction: `use` statements and class/interface/function defs.
 
-use crate::extraction::{Declaration, Export, ExtractionResult, Import, Reference, RefShape};
+use crate::extraction::{Declaration, Export, ExtractionResult, Import, RefShape, Reference};
 use std::collections::HashMap;
 use tree_sitter::{Node, Parser, Query, QueryCursor, StreamingIterator};
 
@@ -46,10 +46,7 @@ pub fn extract(source: &[u8]) -> ExtractionResult {
 /// Imports/exports from an already-parsed PHP tree. Decoupled from the
 /// parse for single-parse. Caller guarantees `tree` came from the PHP
 /// grammar.
-pub fn extract_from_tree(
-    tree: &tree_sitter::Tree,
-    source: &[u8],
-) -> ExtractionResult {
+pub fn extract_from_tree(tree: &tree_sitter::Tree, source: &[u8]) -> ExtractionResult {
     let lang: tree_sitter::Language = tree_sitter_php::LANGUAGE_PHP.into();
     let query = match Query::new(&lang, QUERY_SRC) {
         Ok(q) => q,
@@ -109,6 +106,7 @@ pub fn extract_from_tree(
                     imports.push(Import {
                         module,
                         symbol,
+                        locals: Vec::new(),
                         line: c.line,
                     });
                 }
@@ -359,9 +357,7 @@ fn walk_references(root: Node, source: &[u8]) -> Vec<Reference> {
             // parameter sits inside the declaring function, so its type use
             // belongs to that function (`child_enclosing` of the function is
             // already in scope here as `enclosing`).
-            "simple_parameter"
-            | "variadic_parameter"
-            | "property_promotion_parameter" => {
+            "simple_parameter" | "variadic_parameter" | "property_promotion_parameter" => {
                 if let Some(type_node) = n.child_by_field_name("type") {
                     push_named_type(type_node, source, enclosing.as_deref(), &mut out);
                 }
@@ -381,7 +377,12 @@ fn walk_references(root: Node, source: &[u8]) -> Vec<Reference> {
                 for child in n.children(&mut c) {
                     if matches!(
                         child.kind(),
-                        "named_type" | "primitive_type" | "union_type" | "nullable_type" | "intersection_type" | "optional_type"
+                        "named_type"
+                            | "primitive_type"
+                            | "union_type"
+                            | "nullable_type"
+                            | "intersection_type"
+                            | "optional_type"
                     ) {
                         push_named_type(child, source, enclosing.as_deref(), &mut out);
                     }

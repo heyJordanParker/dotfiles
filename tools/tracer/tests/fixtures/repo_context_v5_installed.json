@@ -1,0 +1,1 @@
+{"available": true, "summary": {"total_files": 1, "median_file_ccn": 0, "complexity_p95": 0}, "per_file": {"sample.rs": {"ccn": 0, "loc": 0, "language": "Rust"}}, "languages": [{"Name": "Rust", "Count": 1, "Code": 0, "Complexity": 0}]}

@@ -71,11 +71,11 @@ pub fn run(
     // the log is `already_loaded`, anything else is newly
     // surfaced.
     let mut empty_dedupe: BTreeSet<String> = BTreeSet::new();
-    let full =
-        nested_memory::load_for_file(&target, &repo_root, &mut empty_dedupe, scope_dir);
+    let full = nested_memory::load_for_file(&target, &repo_root, &mut empty_dedupe, scope_dir);
 
-    let (new_docs, skipped): (Vec<_>, Vec<_>) =
-        full.into_iter().partition(|m| !pre_loaded.contains(&m.path));
+    let (new_docs, skipped): (Vec<_>, Vec<_>) = full
+        .into_iter()
+        .partition(|m| !pre_loaded.contains(&m.path));
 
     session_log::record_emission(&new_docs, source);
 
@@ -106,13 +106,16 @@ pub fn run(
             "triggering_command": triggering_command,
         }),
         json!({"already_loaded": already_loaded.clone()}),
-        json!(new_docs.iter().map(|m| json!({
-            "path": m.relative_path,
-            "kind": m.kind,
-            "size": m.size,
-            "large": m.large,
-            "content": m.content,
-        })).collect::<Vec<_>>()),
+        json!(new_docs
+            .iter()
+            .map(|m| json!({
+                "path": m.relative_path,
+                "kind": m.kind,
+                "size": m.size,
+                "large": m.large,
+                "content": m.content,
+            }))
+            .collect::<Vec<_>>()),
         json!({"docs": new_docs.len(), "skipped": already_loaded.len()}),
     );
 
@@ -201,9 +204,8 @@ fn run_status_path(
     let source_map = source_map(loaded_entries);
     let loaded_set: BTreeSet<String> = loaded_entries.iter().map(|e| e.path.clone()).collect();
 
-    let (loaded_chain, not_loaded_chain): (Vec<_>, Vec<_>) = chain
-        .iter()
-        .partition(|m| loaded_set.contains(&m.path));
+    let (loaded_chain, not_loaded_chain): (Vec<_>, Vec<_>) =
+        chain.iter().partition(|m| loaded_set.contains(&m.path));
 
     let loaded_json: Vec<Value> = loaded_chain
         .iter()
@@ -332,7 +334,8 @@ fn resolve_target(target_raw: &Path, directory_mode: bool) -> (PathBuf, PathBuf,
         eprintln!("Error: path not found: {}", target_raw.display());
         std::process::exit(2);
     }
-    let repo_root = cache::worktree_root_for(&target).unwrap_or_else(|| cache::display_root(&target));
+    let repo_root =
+        cache::worktree_root_for(&target).unwrap_or_else(|| cache::display_root(&target));
     let scope_dir = directory_mode || target.is_dir();
     (target, repo_root, scope_dir)
 }
@@ -365,7 +368,11 @@ fn print_human(
     if scope_dir {
         header += " (directory-scoped)";
     }
-    header += &format!(" · docs {} · already_loaded {}", new_docs.len(), already_loaded.len());
+    header += &format!(
+        " · docs {} · already_loaded {}",
+        new_docs.len(),
+        already_loaded.len()
+    );
     println!("{header}");
     if new_docs.is_empty() && already_loaded.is_empty() {
         println!("  (no project docs for this path)");
@@ -418,7 +425,10 @@ fn print_status_session_human(
         println!("# docs status · no active session (log is empty)");
         return;
     }
-    println!("# docs status · session manifest · {} loaded", entries.len());
+    println!(
+        "# docs status · session manifest · {} loaded",
+        entries.len()
+    );
     if entries.is_empty() {
         println!("  (no docs loaded in this session yet)");
         return;

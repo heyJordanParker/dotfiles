@@ -21,11 +21,7 @@ pub type Memo<T> = OnceLock<Mutex<HashMap<PathBuf, Arc<T>>>>;
 /// The lock is deliberately held across `build`: these builds shell out to
 /// git, and two threads racing the same `git status` contend on `index.lock`
 /// rather than doing half the work each.
-pub fn get_or_build<T>(
-    memo: &Memo<T>,
-    repo_root: &Path,
-    build: impl FnOnce() -> T,
-) -> Arc<T> {
+pub fn get_or_build<T>(memo: &Memo<T>, repo_root: &Path, build: impl FnOnce() -> T) -> Arc<T> {
     let cell = memo.get_or_init(|| Mutex::new(HashMap::new()));
     let mut guard = cell.lock().unwrap();
     if let Some(hit) = guard.get(repo_root) {

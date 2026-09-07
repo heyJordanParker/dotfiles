@@ -634,12 +634,15 @@ pub fn run(
             "until": until_stamp.as_ref().map(stamp_str),
         }),
         json!({"files_scanned": scanned}),
-        json!(entries.iter().map(|e| json!({
-            "file": e.file,
-            "line": e.line,
-            "stamp": e.stamp.as_ref().map(stamp_str),
-            "text": e.text,
-        })).collect::<Vec<_>>()),
+        json!(entries
+            .iter()
+            .map(|e| json!({
+                "file": e.file,
+                "line": e.line,
+                "stamp": e.stamp.as_ref().map(stamp_str),
+                "text": e.text,
+            }))
+            .collect::<Vec<_>>()),
         json!({"entries": entries.len(), "files": files_matched}),
     );
 

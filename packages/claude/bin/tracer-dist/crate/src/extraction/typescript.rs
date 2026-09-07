@@ -4,7 +4,7 @@
 //! `#eq?` text predicates, so the `(#eq? @_fn "require")` predicate is
 //! enforced manually below.
 
-use crate::extraction::{Declaration, Export, ExtractionResult, Import, Reference, RefShape};
+use crate::extraction::{Declaration, Export, ExtractionResult, Import, RefShape, Reference};
 use std::collections::HashMap;
 use tree_sitter::{Node, Parser, Query, QueryCursor, StreamingIterator};
 
@@ -104,6 +104,7 @@ pub fn extract_from_tree(
         /// 'm'` has the module string AFTER the specifiers, so a
         /// byte-distance heuristic resolves it to the wrong module).
         owner_module: Option<String>,
+        locals: Vec<String>,
     }
     let mut caps: Vec<Cap> = Vec::new();
     let mut cursor = QueryCursor::new();
@@ -133,11 +134,17 @@ pub fn extract_from_tree(
             } else {
                 None
             };
+            let locals = match name {
+                "import.module" => import_clause_bindings(node, source),
+                "import.symbol" => import_specifier_binding(node, source).into_iter().collect(),
+                _ => Vec::new(),
+            };
             caps.push(Cap {
                 name: name.to_string(),
                 text: node.utf8_text(source).unwrap_or("").to_string(),
                 line: node.start_position().row as i64 + 1,
                 owner_module,
+                locals,
             });
         }
     }
@@ -157,11 +164,14 @@ pub fn extract_from_tree(
     for name in &order {
         for c in &groups[name] {
             match c.name.as_str() {
-                "import.module" => imports.push(Import {
-                    module: c.text.clone(),
-                    symbol: None,
-                    line: c.line,
-                }),
+                "import.module" => {
+                    imports.push(Import {
+                        module: c.text.clone(),
+                        symbol: None,
+                        locals: c.locals.clone(),
+                        line: c.line,
+                    });
+                }
                 "import.symbol" => {
                     let module = c
                         .owner_module
@@ -170,6 +180,7 @@ pub fn extract_from_tree(
                     imports.push(Import {
                         module,
                         symbol: Some(c.text.clone()),
+                        locals: c.locals.clone(),
                         line: c.line,
                     });
                 }
@@ -253,12 +264,11 @@ fn walk_declarations(root: Node, source: &[u8]) -> Vec<Declaration> {
                         let line = name_node.start_position().row as i64 + 1;
                         // A method's container is the enclosing class; every
                         // other declaration is a top-level / free symbol.
-                        let decl_container =
-                            if k == "function" && n.kind() == "method_definition" {
-                                container.clone()
-                            } else {
-                                None
-                            };
+                        let decl_container = if k == "function" && n.kind() == "method_definition" {
+                            container.clone()
+                        } else {
+                            None
+                        };
                         if k == "class" {
                             child_container = Some(name.to_string());
                         }
@@ -431,10 +441,7 @@ fn enclosing_import_module(node: tree_sitter::Node, source: &[u8]) -> Option<Str
             let mut c = src.walk();
             for child in src.children(&mut c) {
                 if child.kind() == "string_fragment" {
-                    return child
-                        .utf8_text(source)
-                        .ok()
-                        .map(|s| s.to_string());
+                    return child.utf8_text(source).ok().map(|s| s.to_string());
                 }
             }
             return None;
@@ -442,4 +449,51 @@ fn enclosing_import_module(node: tree_sitter::Node, source: &[u8]) -> Option<Str
         cur = n.parent();
     }
     None
+}
+
+fn import_specifier_binding(node: tree_sitter::Node, source: &[u8]) -> Option<String> {
+    let specifier = node.parent()?;
+    specifier
+        .child_by_field_name("alias")
+        .unwrap_or(node)
+        .utf8_text(source)
+        .ok()
+        .map(str::to_string)
+}
+
+fn import_clause_bindings(node: tree_sitter::Node, source: &[u8]) -> Vec<String> {
+    let mut current = node.parent();
+    while let Some(parent) = current {
+        if parent.kind() == "import_statement" {
+            let mut statement_cursor = parent.walk();
+            let Some(clause) = parent
+                .children(&mut statement_cursor)
+                .find(|child| child.kind() == "import_clause")
+            else {
+                return Vec::new();
+            };
+            let mut bindings = Vec::new();
+            let mut clause_cursor = clause.walk();
+            for child in clause.children(&mut clause_cursor) {
+                if child.kind() == "identifier" {
+                    if let Ok(binding) = child.utf8_text(source) {
+                        bindings.push(binding.to_string());
+                    }
+                }
+                if child.kind() == "namespace_import" {
+                    let mut namespace_cursor = child.walk();
+                    let binding_node = child
+                        .children(&mut namespace_cursor)
+                        .find(|part| part.kind() == "identifier");
+                    if let Some(binding) = binding_node.and_then(|part| part.utf8_text(source).ok())
+                    {
+                        bindings.push(binding.to_string());
+                    }
+                }
+            }
+            return bindings;
+        }
+        current = parent.parent();
+    }
+    Vec::new()
 }

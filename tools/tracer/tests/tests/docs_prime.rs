@@ -24,6 +24,8 @@
 //! when tests share the same `HOME`.
 
 use std::collections::BTreeSet;
+use std::fs;
+use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -132,7 +134,11 @@ fn single_project_claude_md_records_one_event() {
     assert_eq!(mirrored[0]["path"], "CLAUDE.md");
 
     let events = read_events(&home, &sid);
-    assert_eq!(events.len(), 1, "one event per mirrored doc, got {events:?}");
+    assert_eq!(
+        events.len(),
+        1,
+        "one event per mirrored doc, got {events:?}"
+    );
     let ev = &events[0];
     assert_eq!(ev["kind"], "doc_injection");
     assert_eq!(ev["source"], "context_prime_session_start");
@@ -374,10 +380,7 @@ fn agents_md_and_claude_md_both_surface_with_distinct_kinds() {
     run.ok();
 
     let v = run.view();
-    assert_eq!(
-        v["mirrored"], 2,
-        "both rules files must surface: {v}"
-    );
+    assert_eq!(v["mirrored"], 2, "both rules files must surface: {v}");
 
     let by_path: std::collections::BTreeMap<String, String> = v["results"]
         .as_array()
@@ -390,8 +393,14 @@ fn agents_md_and_claude_md_both_surface_with_distinct_kinds() {
             )
         })
         .collect();
-    assert_eq!(by_path.get("CLAUDE.md").map(String::as_str), Some("claude_md"));
-    assert_eq!(by_path.get("AGENTS.md").map(String::as_str), Some("agents_md"));
+    assert_eq!(
+        by_path.get("CLAUDE.md").map(String::as_str),
+        Some("claude_md")
+    );
+    assert_eq!(
+        by_path.get("AGENTS.md").map(String::as_str),
+        Some("agents_md")
+    );
 }
 
 #[test]
@@ -462,4 +471,100 @@ fn lowercase_agents_md_casing_is_also_recognized() {
         "mixed-case Agents.md must surface under an agents.md path: {}",
         v["results"][0]["path"]
     );
+}
+
+#[test]
+fn primer_preserves_layout_and_dirty_ranking_across_fact_chunks() {
+    let f = Fixture::new();
+    for directory in ["alpha", "beta"] {
+        for number in 0..260 {
+            f.write(
+                &format!("{directory}/file{number:03}.py"),
+                &format!("def file_{number}():\n    return {number}\n"),
+            );
+        }
+    }
+    f.commit("seed more than one facts chunk");
+
+    for directory in ["alpha", "beta"] {
+        for number in 0..260 {
+            f.write(
+                &format!("{directory}/file{number:03}.py"),
+                &format!("# changed\ndef file_{number}():\n    return {number}\n"),
+            );
+        }
+    }
+
+    let run = f.trace(&["context"]);
+    run.ok();
+
+    let layout: Vec<String> = run
+        .stdout
+        .lines()
+        .filter(|line| line.contains("📁 alpha/") || line.contains("📁 beta/"))
+        .map(|line| {
+            let (before, after) = line.split_once(" · last: ").expect("layout has git date");
+            let (_, suffix) = after.split_once(" · ").expect("layout has dirty flag");
+            format!("{before} · {suffix}")
+        })
+        .collect();
+    assert_eq!(
+        layout,
+        [
+            "  📁 alpha/  (260 files · ccn=260 · uncommitted)",
+            "  📁 beta/  (260 files · ccn=260 · uncommitted)",
+        ],
+        "chunking must preserve normalized directory summaries and order"
+    );
+
+    let dirty: Vec<&str> = run
+        .stdout
+        .lines()
+        .skip_while(|line| !line.contains("Dirty files (520):"))
+        .skip(1)
+        .take(11)
+        .collect();
+    let mut expected: Vec<String> = (0..10)
+        .map(|number| format!("    modified   alpha/file{number:03}.py  (callers=0, ccn=1)"))
+        .collect();
+    expected.push("    … 510 more".to_string());
+    assert_eq!(
+        dirty,
+        expected.iter().map(String::as_str).collect::<Vec<_>>(),
+        "chunking must preserve the exact selected dirty rows and order"
+    );
+}
+
+#[test]
+fn unreadable_context_file_keeps_passive_context() {
+    let f = Fixture::new();
+    f.write("Claude.md", "# Fixture rules\n");
+    let locked = f.write("locked.py", "def locked():\n    return 1\n");
+    f.commit("add unreadable context fixture");
+    f.trace(&["cache", "build", "."]).ok();
+    f.trace(&["info", "locked.py", "--json"]).ok();
+
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+    let recorded = f.trace(&["context", "locked.py"]);
+    let unrecorded = f.trace(&["context", "locked.py", "--no-record"]);
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o644)).unwrap();
+
+    for run in [recorded, unrecorded] {
+        run.ok();
+        assert!(
+            run.stdout.contains("[git:"),
+            "unreadable files still carry their passive-context shoulder: {}",
+            run.stdout
+        );
+        assert!(
+            run.stdout.contains("[docs:"),
+            "unreadable files still carry their docs line: {}",
+            run.stdout
+        );
+        assert!(
+            run.stdout.contains("[dir "),
+            "unreadable files still carry their parent-directory line: {}",
+            run.stdout
+        );
+    }
 }

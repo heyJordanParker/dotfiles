@@ -3,7 +3,7 @@
 
 use crate::relations;
 use serde_json::{json, Value};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 
@@ -83,9 +83,7 @@ pub fn leading_comment(path: &Path, max_lines: usize) -> Option<String> {
     }
 
     let mut i = 0;
-    while i < lines.len()
-        && (lines[i].trim().is_empty() || lines[i].starts_with("#!"))
-    {
+    while i < lines.len() && (lines[i].trim().is_empty() || lines[i].starts_with("#!")) {
         i += 1;
     }
     if i < lines.len() && lines[i].trim_start().starts_with("<?") {
@@ -207,21 +205,28 @@ pub fn leading_comment(path: &Path, max_lines: usize) -> Option<String> {
 pub fn top_callers(
     index: &relations::Relations,
     relative_file: &str,
-    languages: &HashMap<String, Option<String>>,
     repo_root: Option<&Path>,
     limit: usize,
 ) -> Vec<Value> {
     let mut out = Vec::new();
-    let mut seen: Vec<&str> = Vec::new();
-    for importer in index.importers_of(relative_file) {
-        if seen.contains(&&*importer.file) {
-            continue;
-        }
-        seen.push(&importer.file);
-        let language = languages.get(&*importer.file).cloned().flatten();
+    let mut importers: Vec<&str> = index
+        .importers_of(relative_file)
+        .iter()
+        .map(|importer| &*importer.file)
+        .collect();
+    importers.sort_by(|a, b| {
+        index
+            .importers_of(b)
+            .len()
+            .cmp(&index.importers_of(a).len())
+            .then_with(|| a.cmp(b))
+    });
+    importers.dedup();
+    for importer in importers {
+        let language = index.language(importer);
         let mut summary: Option<String> = None;
         if let Some(root) = repo_root {
-            let caller_path = root.join(&*importer.file);
+            let caller_path = root.join(importer);
             if caller_path.is_file() {
                 if let Some(c) = leading_comment(&caller_path, 15) {
                     if let Some(first) = c.lines().next() {
@@ -234,9 +239,9 @@ pub fn top_callers(
             }
         }
         out.push(json!({
-            "source_file": &*importer.file,
+            "source_file": importer,
             "source_line": Value::Null,
-            "label": relations::file_to_module(&importer.file, language.as_deref()),
+            "label": relations::file_to_module(importer, language),
             "kind": "module",
             "summary": summary,
         }));
@@ -252,24 +257,32 @@ pub fn top_callers(
 pub fn immediate_dependencies(
     index: &relations::Relations,
     relative_file: &str,
-    languages: &HashMap<String, Option<String>>,
     limit: usize,
 ) -> Vec<Value> {
-    let mut out = Vec::new();
-    let mut seen: Vec<&str> = Vec::new();
+    let mut dependencies: BTreeMap<&str, &str> = BTreeMap::new();
     for (target, importer) in index.import_edges() {
-        if &*importer.file != relative_file || seen.contains(&target) {
-            continue;
-        }
-        seen.push(target);
-        let language = languages.get(target).cloned().flatten();
-        out.push(json!({
-            "module": relations::file_to_module(target, language.as_deref()),
-            "confidence": importer.confidence,
-        }));
-        if out.len() >= limit {
-            break;
+        if &*importer.file == relative_file {
+            dependencies
+                .entry(target)
+                .and_modify(|confidence| {
+                    if relations::confidence_code(importer.confidence)
+                        < relations::confidence_code(confidence)
+                    {
+                        *confidence = importer.confidence;
+                    }
+                })
+                .or_insert(importer.confidence);
         }
     }
-    out
+    dependencies
+        .into_iter()
+        .take(limit)
+        .map(|(target, confidence)| {
+            let language = index.language(target);
+            json!({
+                "module": relations::file_to_module(target, language),
+                "confidence": confidence,
+            })
+        })
+        .collect()
 }
