@@ -6,6 +6,7 @@ brew "mosh"
 brew "neovim"
 brew "tmux"
 brew "zellij"
+brew "herdr"
 brew "btop"
 
 # Shell

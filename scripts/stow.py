@@ -26,8 +26,9 @@ TARGETS = {
 
 # packages that each land in their own ~/.config/<pkg> directory
 CONFIG = [
-    "atuin", "bat", "borders", "btop", "bun", "delta", "ghostty", "hunk",
-    "karabiner", "lazygit", "nvim", "opencode", "superfile", "zed", "zellij",
+    "atuin", "bat", "borders", "btop", "bun", "delta", "ghostty", "herdr",
+    "hunk", "karabiner", "lazygit", "nvim", "opencode", "superfile", "zed",
+    "zellij",
 ]
 
 # Entries stow must not lay down, per package. The claude package's `skills`,

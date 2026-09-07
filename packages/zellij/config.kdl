@@ -15,6 +15,7 @@ scrollback_editor "/usr/bin/env nvim"
 // Original value: pane_frames false (thin inter-pane separators only, no title text).
 pane_frames true
 simplified_ui false
+support_kitty_graphics_protocol true
 
 // Rounded frame corners (╭╮╰╯ instead of ┌┐└┘). Only takes effect when
 // pane_frames=true. REVERT: flip `true` → `false` or delete the block.

@@ -11,7 +11,7 @@ Purpose-built Zellij plugin that owns the tmux-parity tab-bar and status-bar beh
 - Indicator mode normalizes tab names and owns waiting and completed attention icons.
 - RenameTab and RenameSession modes share the same line editor.
 - ReloadConfig mode reads `~/.config/zellij/config.kdl` and hands the contents to `reconfigure`.
-- `Cargo.toml` depends on `zellij-tile` version `0.44.1`.
+- `Cargo.toml` depends on `zellij-tile` version `0.45.1`.
 - `setup.sh` builds the plugin with `cargo build --target wasm32-wasip1 --release`.
 - `setup.sh` copies `target/wasm32-wasip1/release/muxline.wasm` into `~/.config/zellij/plugins/`.
 - `packages/zellij/config.kdl` declares the `muxline` plugin.
