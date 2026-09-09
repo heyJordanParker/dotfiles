@@ -140,7 +140,7 @@ Pattern the repository already used to solve a similar problem. Agents start wor
 ## Prompting
 
 **Prompt**:
-Instructions from the Architect to the Agent. Every documentation file is a Prompt: Claude.md, Domain.md, Skills, References, etc.
+Instructions for an Agent. Every documentation file is a Prompt: Claude.md, Domain.md, Skills, Rules, References, etc.
 _Avoid_: message, request, query, command, instruction
 
 **Rule**:
