@@ -521,15 +521,6 @@
         ]
       },
       {
-        "matcher": "compact",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 ~/.agents/hooks/inject_mode_skills.py"
-          }
-        ]
-      },
-      {
         "matcher": "startup|resume|clear|compact",
         "hooks": [
           {
@@ -541,6 +532,15 @@
             "type": "command",
             "command": "python3 ~/.agents/hooks/reload_harness_context.py",
             "timeout": 20
+          }
+        ]
+      },
+      {
+        "matcher": "compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ~/.agents/hooks/reload_stale_skills.py"
           }
         ]
       }
@@ -724,6 +724,16 @@
             "type": "command",
             "command": "python3 ~/.agents/hooks/update_goal.py",
             "timeout": 70
+          }
+        ]
+      }
+    ],
+    "PostToolBatch": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ~/.agents/hooks/reload_stale_skills.py"
           }
         ]
       }

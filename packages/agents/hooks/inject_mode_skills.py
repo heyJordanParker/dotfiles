@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-"""SessionStart on `compact`: name the session's mode and state Skills again.
+"""SessionStart on `compact`, codex only: name the session's mode and state Skills again.
 
 Compaction replaces the conversation with a summary, and every Skill in it goes
 with the conversation. The mode Skill and the state Skill are the two that must
 not: they say how the session works, and the gates keep enforcing both axes off
 session_state either way.
 
-Nothing else was naming them. `classify_intent.directive` emits its order only on
-a turn that types /orchestrate, /build, /interview, /propose or /execute — every
-other turn resolves an empty mode and emits nothing — so the Skills arrived once
-per typed command and never came back.
+On Claude, reload_stale_skills owns this: it names every Skill in use after a
+compaction, the mode and state Skills included, and it reads Claude's transcript
+to do it. Codex has no PostToolBatch and no Claude transcript, so this hook keeps
+the mode and state order there.
 
 The directive text keeps its one home in classify_intent. This hook resolves which
 Skills govern — `session_mode.resolve` for the mode and `session_mode.state` for
@@ -30,7 +30,7 @@ from lib.session_mode import resolve, state
 
 BINDING = {
     "events": {"SessionStart": ["compact"]},
-    "harness": "all",
+    "harness": "codex",
 }
 
 PREAMBLE = ("### Use the Skills the compaction dropped\n"

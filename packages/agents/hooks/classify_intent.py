@@ -107,8 +107,9 @@ def forced_commands(prompt):
 def directive(forced_state, forced_mode, governing_mode=None):
     """The skill-load directives for one turn's control axes.
 
-    Called on a typed command, and by inject_mode_skills after a compaction drops
-    the skills a live session is still gated by.
+    Called on a typed command, and after a compaction drops the skills a live
+    session is still gated by: by reload_stale_skills on Claude and by
+    inject_mode_skills on codex.
 
     The mode line names `governing_mode` — what lib.session_mode.resolve answers
     for this event after the write landed — so the skill the agent uses and the

@@ -148,9 +148,12 @@ _ARCHITECT_ORIGINATORS = ("codex_work_desktop",)
 # The record a Skill's own arrival writes, named because two readers key on it:
 # the machine-authored test below, and `skill_arrivals`.
 SKILL_PREAMBLE = "Base directory for this skill:"
+# The summary the harness writes where it compacted the conversation: everything
+# before it is out of the model's sight.
+COMPACT_MARKER = "This session is being continued"
 
 _MACHINE_PREAMBLES = (
-    "This session is being continued",
+    COMPACT_MARKER,
     SKILL_PREAMBLE,
     "Stop hook feedback:",
     "Another Claude session sent a message:",
@@ -310,15 +313,46 @@ def awaits_async_work(lines):
     return False
 
 
-def skill_arrivals(recs):
+# The tag reload_stale_skills wraps its orders in, and the one sentence shape an
+# order takes: `Use /a, /b now`. Only that sentence names what was ordered — the
+# same block mentions other Skills in passing, such as `escalate with /pcc`.
+RELOAD_TAG = "<reload_stale_skills_agent>"
+_ORDER = re.compile(r"\bUse ((?:/[a-z0-9][a-z0-9-]*(?:, )?)+) now\b")
+_SKILL_NAME = re.compile(r"/([a-z0-9][a-z0-9-]*)")
+
+
+def ordered_skills(record):
+    """The Skills a reload_stale_skills order named, or [] for any other record.
+
+    The harness stores a hook's context as an `attachment` record with the text
+    under `attachment.content`, one string per hook. Only the refresher's own tag
+    counts: classify_intent orders Skills too, and those are a typed command
+    expanding in the same turn, which `skill_arrivals` already sees.
+    """
+    if record.get("type") != "attachment":
+        return []
+    attachment = record.get("attachment") or {}
+    if attachment.get("type") != "hook_additional_context":
+        return []
+    out = []
+    for text in attachment.get("content") or []:
+        if isinstance(text, str) and RELOAD_TAG in text:
+            for named in _ORDER.findall(text):
+                out.extend(_SKILL_NAME.findall(named))
+    return out
+
+
+def skill_arrivals(recs, orders=True):
     """Skill name -> index of the record that last brought it into the conversation.
 
-    Two ways in, because there are two ways to ask for one. The architect types
-    /<name> and the harness expands the Skill itself, writing the
-    `Base directory for this skill:` record `_MACHINE_PREAMBLES` already knows.
-    The agent uses the Skill through the Skill tool, whose call stays in the
-    transcript whatever the tool answers — and a second use answers
-    `instructions unchanged`, so the call is the only record of it.
+    Three ways in. The architect types /<name> and the harness expands the Skill
+    itself, writing the `Base directory for this skill:` record
+    `_MACHINE_PREAMBLES` already knows. The agent uses the Skill through the Skill
+    tool, whose call stays in the transcript whatever the tool answers — and a
+    second use answers `instructions unchanged`, so the call is the only record of
+    it. And reload_stale_skills orders one, which counts so that an overdue Skill is
+    ordered once per distance rather than before every model request; pass
+    `orders=False` to see only the uses, which is what "in use" means.
 
     A Skill absent here was never used, which is what makes this the whole answer
     to which Processes govern: no list is kept beside it.
@@ -329,6 +363,9 @@ def skill_arrivals(recs):
         if text.startswith(SKILL_PREAMBLE):
             out[os.path.basename(text.splitlines()[0].rstrip())] = i
             continue
+        if orders:
+            for name in ordered_skills(record):
+                out[name] = i
         for block in blocks(record, "tool_use"):
             if block.get("name") == "Skill":
                 name = (block.get("input") or {}).get("skill")
