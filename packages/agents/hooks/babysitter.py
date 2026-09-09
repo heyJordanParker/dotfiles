@@ -743,16 +743,6 @@ KNOWINGLY_WRONG_DELIVERABLE = (
     "is bad obliges the redo before stopping."
 )
 
-STRANDED_DELIVERABLE = (
-    "### Name a deliverable stranded in an earlier response\n"
-    "The agent sent more than one response this turn and the final message drops the "
-    "reply an earlier one already gave. He acts on the last message, so a deliverable "
-    "left in an earlier response is undelivered. Compare the turn content above "
-    "against the last message: the substantive deliverable living only in an earlier "
-    "response, or the last message pointing at it with \"above\", \"earlier\", or "
-    "\"the list below\" while that content is not inside it, is this."
-)
-
 CON_HE_MUST_ACCEPT = (
     "### Name a con framed as something he must accept\n"
     "The agent frames a downside as something he should accept, absorb, or live with, "
@@ -929,7 +919,6 @@ def _rules(intent, current_state, mode, can_write=True,
         (THINKING_LOG, None),
         (REPETITION, None),
         (FILLER_OPTION, None),
-        (STRANDED_DELIVERABLE, None),
         (POINTER_NOT_CONTENT, None),
         (UNVERIFIED_CLAIM, None),
         (UNREAD_CODE_CLAIM, None),
@@ -1010,8 +999,8 @@ def _eval_prompt(request, last_msg, intent, current_state, mode, can_write,
     if turn_evidence:
         turn_block = (
             "This turn's responses in full, thinking as size markers, and every tool "
-            "call with its real outcome, chronological — so a deliverable stranded in "
-            "an earlier response and a failed edit are both visible:\n%s\n---\n"
+            "call with its real outcome, chronological — so a failed edit is "
+            "visible:\n%s\n---\n"
         ) % turn_evidence
     return (
         "Judge the agent's last message to the architect.\n\n"
