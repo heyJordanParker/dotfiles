@@ -34,6 +34,12 @@ SERVICES_DIR="$HOME/Developer/services"
 echo "==> Creating Developer directories..."
 mkdir -p "$HOME/Developer/references" "$SERVICES_DIR"
 
+# brew bundle passes no formula names, so a non-official tap it reads is untrusted
+echo "==> Trusting third-party taps..."
+brew trust --formula rjyo/moshi/moshi-hook zippoxer/tap/recall tobi/try/try \
+  tw93/tap/mole oven-sh/bun/bun modem-dev/tap/hunk roots/tap/trellis-cli \
+  felixkratz/formulae/borders cristianoliveira/tap/aerospace-scratchpad
+
 echo "==> Installing brew packages..."
 brew bundle --file="$DOTFILES_DIR/Brewfile"
 
@@ -73,6 +79,11 @@ echo "==> Installing hcom (agent messaging) from the fork..."
 # branch tag drops the daily version check against upstream; bump the tag here
 # and refresh packages/opencode/plugins/hcom.ts from the same tag together.
 cargo install --git https://github.com/heyJordanParker/hcom.git --tag v0.7.25-jp --locked --root "$HOME/.local" hcom
+
+echo "==> Setting up moshi (mobile terminal for agent sessions)..."
+# `moshi-hook service install` is systemd-only; macOS goes through brew services
+brew services start moshi-hook
+moshi-hook host enable-ssh
 
 echo "==> Setting up services..."
 if [ ! -d "$SERVICES_DIR/drawbridge" ]; then

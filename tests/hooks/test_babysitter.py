@@ -22,6 +22,9 @@ def state_root(tmp_path, monkeypatch):
 
 
 def _run(monkeypatch, capsys, payload, model_result):
+    # The gate is parked — BINDING declares no events and main() yields on that.
+    # These pin what it does when it is wired, so arm it for the call.
+    monkeypatch.setitem(babysitter.BINDING, "events", {"Stop": []})
     monkeypatch.setattr(babysitter, "run_model", lambda *a, **k: model_result)
     monkeypatch.setattr(babysitter, "read_event", lambda: payload)
     rc = babysitter.main()

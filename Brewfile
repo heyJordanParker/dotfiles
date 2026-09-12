@@ -48,6 +48,7 @@ brew "node"
 brew "composer"
 brew "wp-cli"
 brew "roots/tap/trellis-cli"
+brew "rjyo/moshi/moshi-hook"
 
 # Window Management
 cask "BarutSRB/tap/hyprspace"

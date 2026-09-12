@@ -199,6 +199,10 @@ def test_stop_gate_reaches_eval_without_crash(local_llm, state_root, write_trans
     edits files gathers the read-log facts and reaches the full builder; with the LLM
     down the hook returns 0 — it must build that prompt without crashing."""
     sid = "vc_eval"
+    # The gate is parked — BINDING declares no events and main() yields on that
+    # before it builds anything. Arm it, or this asserts a return that never
+    # reached the builder.
+    monkeypatch.setitem(babysitter.BINDING, "events", {"Stop": []})
     _reset_state(state_root, sid, dict(S))
 
     def edit(i):

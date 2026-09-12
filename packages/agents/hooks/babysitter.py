@@ -55,12 +55,15 @@ COVERAGE_FLOOR = 0.5
 # long on every stop, so this file carries its own.
 DRAFT_CEILING = 20000
 
-# Claude only. The judgement is built on Claude's transcript — the turn boundary,
-# the request, the tool evidence — and codex's rollout carries none of those
-# shapes, so on codex it would judge a bare last message with no request and no
-# evidence, at the cost of a model call per stop.
+# Parked: an empty events map wires this gate to nothing, so no stop pays for its
+# model call. Re-arm by putting `"Stop": []` back and running scripts/sync.py.
+#
+# Claude only when armed. The judgement is built on Claude's transcript — the turn
+# boundary, the request, the tool evidence — and codex's rollout carries none of
+# those shapes, so on codex it would judge a bare last message with no request and
+# no evidence, at the cost of a model call per stop.
 BINDING = {
-    "events": {"Stop": []},
+    "events": {},
     "timeout": 90,
     "harness": "claude",
 }
@@ -427,6 +430,14 @@ def _read_facts(edited_facts_block, opened, missing):
 
 def main():
     event = read_event()
+    # A session holds the wiring snapshot it took at its start, so an unwired
+    # BINDING has to hold here too or every live session keeps paying for the call.
+    # Reading the event first leaves the harness's write with somewhere to land;
+    # exit 0 with nothing on stdout is the allow path every yield below takes, so
+    # the stop proceeds untouched. Re-arming `events` re-arms the judgement with it.
+    if not BINDING["events"]:
+        return 0
+
     session_id = field(event, "session_id", "")
     if not session_id or is_dispatched(event):
         return 0

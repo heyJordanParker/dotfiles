@@ -585,11 +585,6 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 ~/.agents/hooks/babysitter.py",
-            "timeout": 90
-          },
-          {
-            "type": "command",
             "command": "python3 ~/.agents/hooks/block_silent_stop.py"
           },
           {
