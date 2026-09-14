@@ -31,6 +31,20 @@ def blocking_model(tmp_path, monkeypatch):
     monkeypatch.setenv("MODEL_CALL_BACKEND", "claude")
 
 
+@pytest.fixture
+def clean_model(tmp_path, monkeypatch):
+    bin_dir = tmp_path / "clean-bin"
+    bin_dir.mkdir()
+    claude = bin_dir / "claude"
+    claude.write_text(
+        "#!/bin/bash\n"
+        "printf '%s\\n' '{\"result\":\"{\\\"block\\\":[],\\\"polish\\\":[]}\"}'\n"
+    )
+    claude.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ['PATH']}")
+    monkeypatch.setenv("MODEL_CALL_BACKEND", "claude")
+
+
 def _run(file_path, cwd):
     payload = json.dumps({
         "tool_name": "Edit",
@@ -69,6 +83,43 @@ def test_prompt_markdown_structural_finding_blocks(tmp_path, blocking_model):
 
     assert result.returncode == 2
     assert "BLOCKED: this edit breaks the Prompt Architecture" in result.stderr
+    assert result.stdout == ""
+
+
+def test_skill_past_the_compaction_limit_warns_without_blocking(tmp_path, clean_model):
+    """A Skill the harness would truncate after a compaction is reported, not refused."""
+    file_path = tmp_path / "skills" / "big" / "SKILL.md"
+    file_path.parent.mkdir(parents=True)
+    file_path.write_text("x" * 20000 + "before")
+
+    result = _run(file_path, tmp_path)
+
+    assert result.returncode == 0
+    assert result.stderr == ""
+    assert "20005 characters, over 20000" in result.stdout
+
+
+def test_size_note_rides_along_on_a_refusal(tmp_path, blocking_model):
+    """One message reaches the agent, so the size joins the review's own refusal."""
+    file_path = tmp_path / "skills" / "big" / "SKILL.md"
+    file_path.parent.mkdir(parents=True)
+    file_path.write_text("x" * 20000 + "before")
+
+    result = _run(file_path, tmp_path)
+
+    assert result.returncode == 2
+    assert "BLOCKED: this edit breaks the Prompt Architecture" in result.stderr
+    assert "20005 characters, over 20000" in result.stderr
+
+
+def test_skill_within_the_compaction_limit_says_nothing(tmp_path, clean_model):
+    file_path = tmp_path / "skills" / "small" / "SKILL.md"
+    file_path.parent.mkdir(parents=True)
+    file_path.write_text("before")
+
+    result = _run(file_path, tmp_path)
+
+    assert result.returncode == 0
     assert result.stdout == ""
 
 

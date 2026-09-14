@@ -137,6 +137,16 @@ JSON_SCHEMA = (
     '"required":["block","polish"]}'
 )
 
+# The harness restores a used Skill after a compaction up to 5,000 tokens and drops
+# the rest of its text for the session, so a longer SKILL.md silently loses its
+# ending in every long run. Four characters per token.
+SKILL_LIMIT = 20000
+
+OVERSIZED_MSG = ("This SKILL.md is %d characters, over %d. After a compaction the "
+                 "harness restores a used Skill up to 5,000 tokens (20,000 characters) "
+                 "and drops the rest for the session, so everything past the limit is "
+                 "gone from that point on.")
+
 
 # --- deterministic context gather ----------------------------------------------
 
@@ -417,13 +427,19 @@ def main():
     root = _repo_root(os.path.dirname(os.path.abspath(file_path)))
     related = _related(file_path, content, root)
 
+    # Non-blocking for now: the size is reported alongside whatever the review
+    # returns, so the hook still emits one message.
+    notes = []
+    if os.path.basename(file_path) == "SKILL.md" and len(content) > SKILL_LIMIT:
+        notes.append(OVERSIZED_MSG % (len(content), SKILL_LIMIT))
+
     prompt = _build_prompt(file_path, content, diff, related, _law(root), exists)
     result = run_model("medium", system_prompt=SYSTEM_PROMPT, user_prompt=prompt,
                        schema=JSON_SCHEMA)
     if not result:
         # Fail open, but never silently: the agent and the architect see that
         # this edit landed unreviewed instead of mistaking the outage for a pass.
-        warn("model unavailable — this prompt-doc edit landed UNREVIEWED")
+        warn("\n\n".join(notes + ["model unavailable — this prompt-doc edit landed UNREVIEWED"]))
         return 0
 
     blocks = result.get("block") or []
@@ -433,10 +449,14 @@ def main():
         report = "BLOCKED: this edit breaks the Prompt Architecture. Fix and retry.\n\n" + _format(blocks)
         if polish:
             report += "\n\nAdvisory (not blocking):\n" + _format(polish)
+        if notes:
+            report += "\n\n" + "\n\n".join(notes)
         return block(report)
 
     if polish:
-        warn("Advisory (not blocking):\n" + _format(polish))
+        notes.append("Advisory (not blocking):\n" + _format(polish))
+    if notes:
+        warn("\n\n".join(notes))
     return 0
 
 

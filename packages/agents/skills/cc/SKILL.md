@@ -9,6 +9,8 @@ reload-every: 20 turns
 - Last synced with Claude Code v2.1.195 (2026-06-28).
 - Every file under `packages/agents/` is a Prompt: instructions that correct the Agent's Disposition toward what the Architect intends.
 - One Process: write or fix a Prompt so every line earns its place.
+- After a compaction the Harness restores each used Skill up to 5,000 tokens (20,000 characters) and drops the rest of its text for the session.
+- It restores the used Skills newest first and stops at 25,000 tokens (100,000 characters) across all of them, so an Agent whose `skills:` total more than that loses its oldest for the session.
 
 ## 1. Understand the problem the Prompt solves
 
