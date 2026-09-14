@@ -408,6 +408,9 @@ enabled = true
 hcom_codex_cli_version = "0.153.4"
 hcom_hook_definition_hash = "sha256:4756f680bdbf8c08ffd60ab4e8f14032dad7300f8a7f8907d69df279511823bf"
 
+[hooks.state."/Users/jordan/.codex/hooks.json:session_start:0:0"]
+trusted_hash = "sha256:77e8d3ba7c5a429afd2dddae1921f9b809bc2696406b77b267b904c2118c521e"
+
 [marketplaces.openai-bundled]
 source_type = "local"
 source = "/Users/jordan/.codex/.tmp/bundled-marketplaces/openai-bundled"
@@ -654,6 +657,7 @@ use_memories = true
 
 [tui.model_availability_nux]
 "gpt-5.5" = 4
+gpt-6-astra = 1
 
 [shell_environment_policy.set]
 NODE_REPL_TRUSTED_BROWSER_CLIENT_SHA256S = "8e86beb821b9afc846211798e0113bd4b9e79312dfcd135eb447bdb154f64071"
