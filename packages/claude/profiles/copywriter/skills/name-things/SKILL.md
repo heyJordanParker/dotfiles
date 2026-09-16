@@ -5,7 +5,7 @@ description: Name ONE thing the market will see — a mechanism, a system, a met
 
 # Name Things
 
-One Process: turn one nameable thing into a set of name options that survived criticism. A name is the compression of the causal chain or outcome into words the buyer repeats — the hardest line in the piece, so it is never one guess. The thing's substance comes first: for a mechanism name, the documented causal chain per /mechanism binds what the name may claim.
+One Process: turn one nameable thing into a set of name options that survived criticism. A name is the compression of the causal chain or outcome into words the buyer repeats — the hardest line in the piece, so it is never one guess. The thing's substance comes first: for a mechanism name, the causal chain /mechanism documents binds what the name may claim.
 
 ## 1. Fix what is being named and what binds it
 

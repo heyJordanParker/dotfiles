@@ -1,6 +1,6 @@
 ---
 name: code-first
-description: Autonomous async Execution. The Architect hands off and walks away; the Agent drives the Task to done — makes every Architectural call via /trace + /pcc + ranking, executes through /delegate, verifies from each implementing Subagent's Evidence (they exercise their own flows, real browser for UI), and returns finished code plus the recorded Decisions for review. TRIGGER when the Architect says "code-first", "/code-first", "execute with /delegate", "execute directly & autonomously", "drive it and report back", "iterate until done", "I'm going to bed", "off to bed", or signals an AFK / overnight handoff. DO NOT TRIGGER when the Architect wants options before action — that is the default mode (propose via /pcc and wait).
+description: Autonomous async Execution. The Architect hands off and walks away; the Agent drives the Task to done — makes every Architectural call by tracing the code and finding every option with /discover, executes through /delegate, verifies from each implementing Subagent's Evidence (they exercise their own flows, real browser for UI), and returns finished code plus the recorded Decisions for review. TRIGGER when the Architect says "code-first", "/code-first", "execute with /delegate", "execute directly & autonomously", "drive it and report back", "iterate until done", "I'm going to bed", "off to bed", or signals an AFK / overnight handoff. DO NOT TRIGGER when the Architect wants a Proposal before action; that is the default mode.
 ---
 
 # Code-First
@@ -19,7 +19,7 @@ Compile, type checks, and confidence numbers are not Verification.
 
 ## 2. Make and record each Architectural call
 
-For every Architectural call: trace the code, run /pcc, rank options against User, Architecture, and WHY, pick the best option, then record the Decision.
+For every Architectural call: trace the code, find every option with /discover, pick the best, then record the Decision.
 
 ### Rank by correctness
 
@@ -38,7 +38,7 @@ Template:
 
 ## 3. Execute through Subagents
 
-Use /delegate for Execution. You are the Orchestrator: hold the Goal and judge each Subagent's Evidence per /orchestrate.
+Use /delegate for Execution. You are the Orchestrator: hold the Goal and use /orchestrate to judge each Subagent's Evidence.
 
 ### Keep issues assigned to the Subagent that owns them
 
@@ -75,7 +75,7 @@ Send a PushNotification naming the blocker and what it blocks, then continue oth
 
 ## 6. Verify the whole changeset
 
-Run the Verification plan from the implementing Subagents' Evidence per /orchestrate, then run /verify-changes, once every Task has landed.
+Use /orchestrate to run the Verification plan from the implementing Subagents' Evidence, then run /verify-changes, once every Task has landed.
 
 ### Done means the Critical Paths are green
 

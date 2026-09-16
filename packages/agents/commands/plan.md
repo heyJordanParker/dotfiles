@@ -47,7 +47,7 @@ Template:
   1. [step]
 
   ## Architecture
-  [annotated file tree, per /show-me]
+  [annotated file tree from /show-me]
 
   ## New Names (using /naming)
   - name — description

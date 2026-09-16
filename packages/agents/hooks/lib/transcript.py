@@ -315,7 +315,7 @@ def awaits_async_work(lines):
 
 # The tag reload_stale_skills wraps its orders in, and the one sentence shape an
 # order takes: `Use /a, /b now`. Only that sentence names what was ordered — the
-# same block mentions other Skills in passing, such as `escalate with /pcc`.
+# same block mentions other Skills in passing, such as `research with /discover`.
 RELOAD_TAG = "<reload_stale_skills_agent>"
 _ORDER = re.compile(r"\bUse ((?:/[a-z0-9][a-z0-9-]*(?:, )?)+) now\b")
 _SKILL_NAME = re.compile(r"/([a-z0-9][a-z0-9-]*)")

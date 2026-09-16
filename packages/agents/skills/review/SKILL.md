@@ -16,7 +16,7 @@ Never: a Review whose every finding arrived in a reviewer's report.
 
 ## 2. Dispatch both reviewers on one target
 
-Send one Claude Subagent per /delegate and one codex Subagent per /codex, in the same message, both given the same target and the same Verification.
+Use /delegate to send one Claude Subagent and /codex to send one codex Subagent, in the same message, both given the same target and the same Verification.
 
 ### Give both reviewers the identical target
 Same diff, same surrounding code, same Prompt. A difference in scope makes the two returns incomparable.

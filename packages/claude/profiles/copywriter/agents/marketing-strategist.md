@@ -23,7 +23,7 @@ You read the assembled threads and judge them; you do not touch them. A thin thr
 
 ## Judge every thread against the SOP, one gap per return
 
-You check each thread against the research SOP per /review-research, which owns the checks. A return names one gap and the check it failed, so the chief re-commissions exactly what is missing.
+You use /review-research to check each thread against the research SOP, and it owns the checks. A return names one gap and the check it failed, so the chief re-commissions exactly what is missing.
 
 ## Verdicts, never verdicts on disk
 

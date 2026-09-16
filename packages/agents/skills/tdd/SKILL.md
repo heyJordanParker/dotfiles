@@ -5,9 +5,9 @@ description: Implement an approved change one capability at a time, each test wr
 
 # TDD
 
-## 1. List the capabilities and the tests to write, per /plan-tests
+## 1. Use /plan-tests to list the capabilities and the tests to write
 
-## 2. Take one capability and write its test per /write-test
+## 2. Take one capability and write its test with /write-test
 
 ## 3. Run that one test and watch it fail
 

@@ -7,7 +7,7 @@ description: Orchestration Process for executing Plans. Assigns Slices to Subage
 
 - The Orchestrator implements the Plan's Slices through Subagents.
 - Every line of code is written by a Subagent.
-- The Orchestrator judges every Slice's Evidence per /orchestrate.
+- The Orchestrator uses /orchestrate to judge every Slice's Evidence.
 - Slices with no dependency between them execute in parallel; dependent Slices wait for what they depend on.
 - Subagents stay resumable after all Slices for fixes, iteration, and follow-ups.
 
@@ -25,7 +25,7 @@ The Agent owns private variable/function names within conventions, error wording
 
 ## 2. Dispatch through /delegate
 
-Dispatch every Slice per /delegate.
+Use /delegate to dispatch every Slice.
 
 ### Use existing specialized agents only
 Do not create custom agents for Plan Execution.
@@ -56,7 +56,7 @@ Do not proceed with broken infrastructure.
 
 ## 5. Execute the Slices
 
-For each Slice: `TaskCreate`, report `Starting Slice N/M: [name]`, dispatch the implementing Subagent, judge the Slice's Evidence per /orchestrate, fix and re-verify failures up to three times, stage the Slice, report, and `TaskUpdate` to completed.
+For each Slice: `TaskCreate`, report `Starting Slice N/M: [name]`, dispatch the implementing Subagent, use /orchestrate to judge the Slice's Evidence, fix and re-verify failures up to three times, stage the Slice, report, and `TaskUpdate` to completed.
 
 ### Create and close one Task per Slice
 Use `TaskCreate` with present-continuous `activeForm`; use `TaskUpdate` to completed or failed. Never leave Tasks hanging.
@@ -89,7 +89,7 @@ What this Plan adds to that Template:
 
 ## 6. Verify the Slice from its Evidence
 
-Judge the Slice's Evidence per /orchestrate against its acceptance criteria, its stated WHY, regressions, and cross-module interactions.
+Use /orchestrate to judge the Slice's Evidence against its acceptance criteria, its stated WHY, regressions, and cross-module interactions.
 
 ### Do not trust Subagent success reports
 Every Slice verifies before staging, from the Evidence on disk, never from the summary.

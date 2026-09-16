@@ -15,13 +15,13 @@ Ask the Architect one self-contained Architecture Decision question at a time.
 3. Remove tactical decisions you own.
 4. Rank the remaining options by correctness, best first.
 5. Ask one question at a time.
-6. Show the full Context in the question, per /show-me.
+6. Show the full Context in the question with /show-me.
 7. Collect every answer before continuing.
 
 Template:
   ## Architecture
 
-  [annotated file tree, per /show-me]
+  [annotated file tree from /show-me]
 
   src/
   ├── auth/
@@ -39,7 +39,7 @@ Template:
   Context: [WHY this matters in 1-2 sentences]
 
   Current state:
-  [the view per /show-me: annotated lines, a tree, or a diagram]
+  [what /show-me draws for this: annotated lines, a tree, or a diagram]
 
   Proposed change:
   [the same view after the change, or a diff]

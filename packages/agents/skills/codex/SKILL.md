@@ -177,6 +177,6 @@ Never: Edit, Write, or NotebookEdit while orchestrating.
 ## 7. Synthesize yourself
 
 ### Use the /orchestrate ranking Process
-Strip codex-run recommendations, keep facts, rank with /pcc, and present your own judgment.
+Strip codex-run recommendations, keep facts, rank them yourself, and present your own judgment.
 
 Never: forwarding a run's ranking or recommendation.

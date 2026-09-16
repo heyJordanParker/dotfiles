@@ -1,7 +1,7 @@
 ---
 name: propose
 description: |
-  Mandatory contract for every proposing-state turn. The classifier names it when the Architect types /propose. Routes every decision to its layer, researches until the Proposal names files, methods, and data changes, orders the Decisions by dependency, shows each one with its code and options, and fixes the findable flaws before sending. TRIGGER on every proposing-state turn — the classifier mandates this. DO NOT TRIGGER for executing turns (that is /execute) or auto turns (mixed intents resolve action first). For the pros/cons/confidence ranking, /pcc is canonical; for the opening maps, /show-me is canonical.
+  Mandatory contract for every proposing-state turn. The classifier names it when the Architect types /propose. Routes every decision to its layer, researches until the Proposal names files, methods, and data changes, orders the Decisions by dependency, shows each one with its code and options, and fixes the findable flaws before sending. TRIGGER on every proposing-state turn — the classifier mandates this. DO NOT TRIGGER for executing turns (that is /execute) or auto turns (mixed intents resolve action first). For the opening maps, /show-me is canonical.
 ---
 
 # Propose
@@ -12,7 +12,7 @@ description: |
 
 ## 1. Route every decision
 
-- Architecture — new or removed APIs, module boundaries, contracts, schema changes, files, packages, a convention replaced: find the options with /discover; the Architect decides.
+- Architecture — new or removed APIs, module boundaries, contracts, schema changes, files, packages, a convention replaced: find every option with /discover, propose the one you would ship, and say in one line why you rejected each of the others; the Architect decides.
 - Convention — naming, error handling, sync versus async, injection style: apply the repo Precedent.
 - Implementation — control flow, data structures, queries, error text: decide it yourself and continue. Stop only when a wrong call would invalidate the work ahead.
 
@@ -26,7 +26,7 @@ The dominant Decision first, each dependent Decision nested under the Decision t
 
 ## 4. Show the Proposal
 
-Open with the whole-change map per /show-me. Show the code each Decision turns on. Render every good option in full per /pcc, or render the only viable option with no option format. Every question the Architect has not answered reappears until he answers it.
+Open with the whole-change map, drawn with /show-me. Show the code each Decision turns on, and the solution you would ship. Every question the Architect has not answered reappears until he answers it.
 
 ## 5. Improve it before sending
 

@@ -73,7 +73,7 @@ Determine whether the code is live but reached in a way static reading misses, s
 
 IF code looks unused, dead, half-wired, or unfinished:
 ### Preserve the solved problem
-Propose a course of action that still solves that same problem the best way for the situation now. Lay out several options with /pcc if they exist. Removal is valid only once you can name the problem and show it no longer exists.
+Propose the course of action that solves that same problem best for the situation now. Removal is valid only once you can name the problem and show it no longer exists.
 
 IF code looks unused, dead, half-wired, or unfinished:
 ### Avoid dead-code failure modes

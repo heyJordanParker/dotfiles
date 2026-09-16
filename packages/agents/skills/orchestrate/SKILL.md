@@ -20,7 +20,7 @@ He reports what he sees without reading the code. What his statement reaches, wh
 Never: his words in a message to a Subagent.
 Never: a flag, a branch, or a second surface added so his words and the working system can both be true.
 
-### Attack a returned diff per /architecture
+### Use /architecture to attack a returned diff
 The consumer missed, the case narrowed, the capability dropped, the boundary that does not hold. A return that proves a line of architecture.md wrong corrects the line before any fix dispatch; a return that confirms it touches nothing. Finish attacking it before you dispatch anything else on that surface. Findings go out by surface as fresh single-Task dispatches, one message; the end gate is the only step that runs alone.
 
 ### Send back a fix that works by narrowing the problem
@@ -52,7 +52,7 @@ Use /prove for what counts as an observed run, what report.md carries, and the b
 A work item moves to fixed or closed only with the Evidence path that proves it; a status that moves backward gets a one-line written cause.
 
 ### Rank returned options yourself
-A Subagent saw a Slice; the Orchestrator holds the project, its Rules, the Architect's prior calls, and sibling code. Its recommendation is one finding, not a verdict. Re-dispatch every gap in parallel and re-run Subagents that returned insufficient Evidence; stop when nothing is left to investigate, never when the batch returns. Drop every option that breaks a standard, convention, or Rule, then rank survivors with /pcc and recommend one in your own voice.
+A Subagent saw a Slice; the Orchestrator holds the project, its Rules, the Architect's prior calls, and sibling code. Its recommendation is one finding, not a verdict. Re-dispatch every gap in parallel and re-run Subagents that returned insufficient Evidence; stop when nothing is left to investigate, never when the batch returns. Drop every option that breaks a standard, convention, or Rule, then pick one in your own voice.
 Never: "the Agent recommends", "per the research", "based on the findings X is best".
 
 Template for the research dispatch:
@@ -70,7 +70,7 @@ Never: verify a pushback as if it were completed work, or negotiate with the Sub
 Name the mechanism, every consumer it reaches — caller, boot path, render surface — and the expected effect on each. Observed behavior outranks reading, and reading outranks inference: trace it read-only, or dispatch an explorer. The Architecture is the standard everything after is judged against, and a suite is one consumer's view of it. Reading is cheap and reversible; a dispatch is not.
 
 Make every Decision the change needs: the contract, the boundary, the data shape. A Subagent sees one Task and nothing around it. A Decision you leave open gets made by the least-informed Agent in the system.
-Write the Architecture to docs/agents/<NNN>-<slug>/architecture.md, drawn per /show-me: the shape the system has once this change lands, stated as facts — the contracts, the boundaries, the data shapes, and which way each dependency runs. Nothing undecided reaches it, because an undecided thing holds the dispatch instead. Nothing the tree already states reaches it either, since a file list or a signature copied out of the tree goes stale while the tree moves.
+Write the Architecture to docs/agents/<NNN>-<slug>/architecture.md, drawn with /show-me: the shape the system has once this change lands, stated as facts — the contracts, the boundaries, the data shapes, and which way each dependency runs. Nothing undecided reaches it, because an undecided thing holds the dispatch instead. Nothing the tree already states reaches it either, since a file list or a signature copied out of the tree goes stale while the tree moves.
 
 ## 3. Dispatch through /delegate
 
@@ -95,7 +95,7 @@ Implementation and research go to codex. User Interface, User experience, Cascad
 
 ## 4. Escalate the Decision only the product vision can make
 
-Two options that both hold Architecturally, where only the product vision picks, go to the Architect with /pcc. Every other Decision is yours.
+Two solutions that both hold Architecturally, where only the product vision picks, go to the Architect, each shown as the change it makes. Every other Decision is yours.
 
 ## 5. Review through /review
 

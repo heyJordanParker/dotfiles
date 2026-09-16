@@ -76,7 +76,7 @@ Never: hover content authored for one state only, or a signature not read from t
 ## 4. Carry the Decisions
 
 ### Give every Decision its options, the pick, and the reason
-Each Decision shows the options considered in the /pcc shape, which one was picked, and why.
+Each Decision shows which option was picked, what it rejected, and why.
 Never: the picked option alone.
 
 ## 5. Design the page

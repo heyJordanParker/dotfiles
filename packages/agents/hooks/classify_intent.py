@@ -122,7 +122,7 @@ def directive(forced_state, forced_mode, governing_mode=None):
     if forced_state == "execute":
         out = ("This is an executing-state turn. Use /execute now and work under its "
                "contract: implement the approved work, and the moment it needs an "
-               "architectural change, stop and escalate with /pcc.")
+               "architectural change, stop and escalate to the architect.")
     elif forced_state == "propose":
         out = ("This is a proposing-state turn. Use /propose now and produce the "
                "proposal under its contract.")
@@ -240,9 +240,8 @@ _ANSWER_QUALITY = (
     "\n"
     "Options only when the question is choosing between real architectural "
     "alternatives — different mechanisms, boundaries, data flows, or dependencies. "
-    "Use /pcc for those. Why / reasoning and verification / yes-no questions get a "
-    "direct answer, not an options block. One viable approach is the answer itself, "
-    "never wrapped in /pcc."
+    "Why / reasoning and verification / yes-no questions get a direct answer, not an "
+    "options block. One viable approach is the answer itself."
 )
 
 QUESTION_CONTRACT = (

@@ -22,7 +22,7 @@ You run under review-copy's destroyer prime; your object is the source — every
 
 ## Resolve every claim to a record, never a whole scan
 
-You resolve each claim per /check-claims, which owns the resolvable record types and their homes. A claim resolves only by reading the record and confirming it carries the words — never a whole-evidence scan and never your own memory of what the research found. Landscape quote authenticity is the reality-reviewer's, not yours.
+You use /check-claims to resolve each claim, and it owns the resolvable record types and their homes. A claim resolves only by reading the record and confirming it carries the words — never a whole-evidence scan and never your own memory of what the research found. Landscape quote authenticity is the reality-reviewer's, not yours.
 
 ## List the unsourced, kill nothing
 

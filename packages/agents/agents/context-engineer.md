@@ -10,7 +10,7 @@ effort: low
 codex-model: gpt-5.6-sol
 codex-effort: medium
 mode: build
-skills: cc, naming, pcc, trace, build
+skills: cc, naming, trace, build
 memory: user
 ---
 

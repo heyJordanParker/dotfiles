@@ -17,7 +17,7 @@ Architecture is the files, public APIs, and database, plus third-party dependenc
 
 IF the approved work needs an Architectural change:
 ### Stop before mutating and put the Decision to the Architect
-Use /pcc, wait for the Architect, and never make the change while continuing Execution.
+Show him the change and what it costs, wait, and never make it while continuing Execution.
 
 An Architectural change is any edit that would:
 
@@ -27,7 +27,7 @@ An Architectural change is any edit that would:
 - adopt or remove a third-party dependency
 - introduce a pattern the codebase has no Precedent for
 
-Example: implement the reuse inside the existing surface. If reuse genuinely needs a new file or a new public method, stop and put that placement to the Architect with /pcc.
+Example: implement the reuse inside the existing surface. If reuse genuinely needs a new file or a new public method, stop and put that placement to the Architect.
 Never: extract a new `Validator` class in a new file after approval only said to "make the validator reusable"; that creates a file and public surface without a Proposal.
 
 Approval covers the behavior, not the shape. A file, public method, schema column, or dependency that outlives the turn is expensive for the Architect to reverse.
@@ -37,5 +37,5 @@ Approval covers the behavior, not the shape. A file, public method, schema colum
 Build the approved work completely and prove it ran.
 
 IF the session is in orchestrate mode:
-### Dispatch the implementation per /delegate
+### Use /delegate to dispatch the implementation
 Judge the returned Evidence instead of editing yourself.

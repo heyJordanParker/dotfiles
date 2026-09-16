@@ -66,10 +66,6 @@ IF no alternative to a word survives the scrub:
 ### Fix that word and spend the slate on the rest
 Say in one clause that the word is settled, then change every other word across the slate. Settling is rare. A word stays open unless you can name why each alternative fails. The `use` that opens a Hook name is one of the few words already settled elsewhere in this Skill.
 
-IF the caller co-tags `/pcc`:
-### Keep the slate and change each candidate's shape
-Each candidate becomes a `### name` section with a diff block for pros and cons and a `Confidence: N%.` line. The recommendation and runner-up still follow.
-
 ## 4. Scrub each candidate
 
 Replace dead candidates before they reach the slate.

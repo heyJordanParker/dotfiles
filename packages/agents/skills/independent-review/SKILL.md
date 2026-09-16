@@ -52,7 +52,7 @@ Never: assigning different lenses, files, or specialties to each Subagent.
 
 ## 4. Dispatch N Subagents in parallel
 
-Dispatch every reviewer in one message, per /delegate. Each returns its report on its own; collect all of them before synthesizing.
+Use /delegate to dispatch every reviewer in one message. Each returns its report on its own; collect all of them before synthesizing.
 
 ### Keep the Skill Task neutral
 

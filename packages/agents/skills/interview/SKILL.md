@@ -27,8 +27,8 @@ A question whose answer depends on an unanswered one waits for the next round.
 
 ## 3. Ask
 
-### Give every question its answers, ranked per /pcc
-Evaluate the options per /pcc, then show each option with its confidence percentage and nothing else. Pros and cons about the Architect's own domain are invented and cost him reading.
+### Give every question its answers, ranked
+Use /rank on the answers.
 
 ### Number the questions
 The Architect answers by number.

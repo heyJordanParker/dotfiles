@@ -17,7 +17,7 @@ Create `research/competitors/<competitor>/` before dispatching. If it exists, re
 
 ## 2. Dispatch one agent per capture, in parallel
 
-Dispatch five single-task agents at once, one per capture below, per /research-thread's dispatch shape. Each dispatch carries only the competitor's name and its one task, nothing from a sibling capture. Each agent runs /research, RETURNS its capture, and leaves its records unjudged; the thread orchestrator files every return at its topic path itself, trailers stripped — assistants never write the thread's files.
+Use the dispatch shape /research-thread owns to dispatch five single-task agents at once, one for each capture below. Each dispatch carries only the competitor's name and its one task, nothing from a sibling capture. Each agent runs /research, RETURNS its capture, and leaves its records unjudged; the thread orchestrator files every return at its topic path itself, trailers stripped — assistants never write the thread's files.
 
 ### a. Capture the landing page
 Read the competitor's landing page through browse for its full visible copy, written verbatim into `landing.md`, AND capture a full-page screenshot through screenshot into the thread folder, the screenshot filename recorded in `landing.md`. A company landing page rarely walls, so both normally succeed; if a bot wall blocks the screenshot, keep the browse text capture and record the gap.

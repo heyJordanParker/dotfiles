@@ -27,7 +27,7 @@ When code and documentation disagree, the code is authoritative. Architecture.md
 For each named system, show its shape: the public surface (`trace structure`), what depends on it (`trace usages`), what it depends on (`trace dependencies`), and where its boundary with each neighbor sits.
 
 ### Show each system as an annotated file tree
-One tree per system, per /show-me: each file with a role note under nine words, contracts and boundaries named in the notes.
+One tree per system, drawn with /show-me: each file with a role note under nine words, contracts and boundaries named in the notes.
 
 ### Name the contracts between systems
 For each pair of systems that touch, state the contract in one sentence: who calls whom, with what, and who owns the data.

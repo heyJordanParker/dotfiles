@@ -20,7 +20,7 @@ ONE ASSISTANT = ONE TASK. A discovery search is one assistant dispatch carrying 
 
 ## 3. File every return yourself
 
-You file what the assistants return — discovery lists per /discover, records per /research — at the contract paths the axis skill names. An assistant return is a claim: verify it against the cached page before filing, and re-dispatch thin work.
+You file what the assistants return at the contract paths the axis skill names: the discovery lists from /discover and the records from /research. An assistant return is a claim: verify it against the cached page before filing, and re-dispatch thin work.
 
 ## 4. Close under the contract review
 

@@ -43,13 +43,13 @@ Never: grading by reviewer confidence, finding count, or how alarming the wordin
 
 ## 6. Act on the gate
 
-Only findings confirmed in step 2 pass the gate. Blocking fails the run: route each Blocking finding to the Subagent that owns the fix, per /delegate, before anything is presented as done. Important is reported to the Architect. Polish is noted and does not block.
+Only findings confirmed in step 2 pass the gate. Blocking fails the run: use /delegate to route each Blocking finding to the Subagent that owns the fix, before anything is presented as done. Important is reported to the Architect. Polish is noted and does not block.
 
 ### Route the cause /5-whys reaches, never the finding as it arrived
 A fix dispatched at a symptom returns the same cause as a new finding next round.
 
 IF the fix needs an Architectural change:
-### Take it to the Architect with /pcc
+### Take it to the Architect
 The Architect owns the Architecture, so the gate stops at the Decision instead of making it.
 
 ## 7. Report grouped by who it affects

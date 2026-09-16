@@ -1,6 +1,6 @@
 ---
 name: discover
-description: Find every option that solves a problem and return them ranked per /pcc. TRIGGER on "options", "approaches", "what are the ways", "how could we", and before proposing an Architecture Decision. DO NOT TRIGGER to rank options already found; use /pcc.
+description: Find every option that solves a problem, so the one you propose is the best one and not the first one you thought of. TRIGGER before every Architecture Decision, and on "options", "approaches", "what are the ways", "how could we". DO NOT TRIGGER to score options already found; use /rank.
 ---
 
 # Discover
@@ -13,9 +13,9 @@ An option stays one line until every option is written. Sources: the Precedent i
 ## 2. Understand every option
 
 ### Give every option the same depth
-For each option, trace the files it touches, the callers it changes, and the Precedent it builds on. For an external option, read a dated source. Find its failures per /architecture step 2.
+For each option, trace the files it touches, the callers it changes, and the Precedent it builds on. For an external option, read a dated source. Use /architecture step 2 to find its failures.
 
-## 3. Rank per /pcc
+## 3. Rank and pick
 
-### Rank every option from step 2 per /pcc
-No option is left out before /pcc runs.
+### Rank every option from step 2, then propose one
+Use /rank on every option, then propose the one you would ship.

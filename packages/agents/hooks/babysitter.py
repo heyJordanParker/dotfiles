@@ -784,7 +784,7 @@ PROPOSAL_FAILURE = (
     "- contradiction-elision: two requirements conflict, or a requirement contradicts "
     "the code, and the proposal picks a side instead of surfacing the conflict as his "
     "decision.\n"
-    "- mixed-layer-pcc: the proposal asks him to decide several things where one "
+    "- stacked-decisions: the proposal asks him to decide several things where one "
     "answer obliterates the others. Surface only the gate.\n"
     "- hedged-proposal: 'likely', 'may', 'should' in the expected-behavior sense, "
     "'probably', 'might', 'could', 'perhaps', 'I would expect', 'it appears that'. A "

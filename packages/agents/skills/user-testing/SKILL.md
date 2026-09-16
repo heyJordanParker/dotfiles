@@ -86,12 +86,12 @@ Template:
   ```markdown
   Process addition: For each step, perform the action in the browser, screenshot the result to the Evidence directory (docs/agents/<NNN>-<task-slug>/[critical-path]-step-[N].png), evaluate whether the User Interface reflects the expected state, evaluate whether the step is clear and consistent, and report visual bugs, confusing interactions, and /design findings.
 
-  Verification addition: Each step screenshotted and visually verified; User experience evaluated per /design Skill Principles; visual bugs and interaction issues listed separately.
+  Verification addition: Each step screenshotted and visually verified; User experience evaluated against the /design Principles; visual bugs and interaction issues listed separately.
   ```
 
 ## 4. Evaluate returned gaps
 
-After all Subagents return, evaluate the overall implementation with /pcc, then triage the returned findings with /triage: the assessment against the code, the one-line finding shape, duplicate merge, the severity grades, the gate, and the report shape all live there.
+After all Subagents return, evaluate the overall implementation, then triage the returned findings with /triage: the assessment against the code, the one-line finding shape, duplicate merge, the severity grades, the gate, and the report shape all live there.
 
 ## 5. Report without modifying code
 

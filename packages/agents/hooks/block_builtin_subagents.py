@@ -44,7 +44,7 @@ A specialist gives better domain framing, the right tool set, and Opus-level rea
   tester             — feature verification: API curls, UI walks, flow tracing (read-only)
   ux-tester          — pure user-perspective UX walkthroughs (no code reading)
   context-engineer   — Claude.md maintenance, hooks, skills, plugin work
-Set subagent_type to one of the above. Brief with the Story / Business / Goal / Verification / Architecture / Process Template per /delegate."""
+Set subagent_type to one of the above. Use /delegate and brief with its Story / Business / Goal / Verification / Architecture / Process Template."""
 
 PLAN_MSG = """BLOCKED: Built-in Plan is replaced by the architect agent.
 

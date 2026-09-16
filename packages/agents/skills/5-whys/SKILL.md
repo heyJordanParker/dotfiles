@@ -1,6 +1,6 @@
 ---
 name: 5-whys
-description: Find the Architectural cause of a problem by asking why until the answer names Architecture — a missing public API, a wrong Owner, or a Decision nobody made — with every answer settled before it is kept. TRIGGER on "root cause", "5 whys", "why does this keep happening", a defect that returns after a fix, and whenever /debug reaches an Architectural cause. DO NOT TRIGGER for a runtime failure that still needs reproduction and Evidence (that is /debug), or for drawing the finished chain (that is /show-me).
+description: Find the Architectural cause of a problem by asking why until the answer names Architecture, meaning a missing public API, a wrong Owner, or a Decision nobody made, with every answer settled before it is kept. TRIGGER on "root cause", "5 whys", "why does this keep happening", a defect that returns after a fix, and whenever /debug reaches an Architectural cause. DO NOT TRIGGER for a runtime failure that still needs reproduction and Evidence; that is /debug.
 reload-every: 5 turns
 ---
 
@@ -8,7 +8,6 @@ reload-every: 5 turns
 
 - An answer you did not read in the code is a guess, however well the sentence reads.
 - The chain ends at Architecture, never at a person or a habit.
-- /show-me owns the because-chain this Process renders as.
 
 ## 1. State the problem
 
@@ -37,7 +36,7 @@ The answer names the mechanism one level under the subject: the call, the missin
 Never: an answer written from the names alone.
 
 ### Read the commits behind the line, not only the line
-Commit messages carry the Architectural intent the code cannot show — what the change was for, what it replaced, and what it was chosen over. Use /trace for the history of the file and the symbol.
+Commit messages carry the Architectural intent the code cannot show: what the change was for, what it replaced, and what it was chosen over. Use /trace for the history of the file and the symbol.
 Example: `CreateTenant` carries its approved crossing in a comment, and the commit that added it says why the alternative was worse.
 Never: treating current code as the whole record when the question is why it is shaped this way.
 
@@ -77,8 +76,16 @@ Never: "a Decision nobody made", "a wrong Owner", or "a missing public API" writ
 
 ## 6. Report
 
-### Put the chain first
-The chain is the answer, so nothing precedes it. Draw it per /show-me.
+### Draw the chain first
+The chain is the answer, so nothing precedes it. Each line opens with `└─ because`, sits two spaces deeper than the line it explains, and names the mechanism that produced it. The line where that design was chosen ends with `(commit 6dd00f39)` or `(uncommitted)`, and every other line ends bare. One line under the problem is the whole chain when one line answers the question.
+Never: a bullet list, a numbered list, a line ending in a full stop, or a first line carrying a path or a tooling detail.
+Example:
+  ```
+  Platform code is supposed to stay out of WordPress, but something in provisioning reaches into it
+    └─ because `CreateTenant` constructs `InstallTenant`, which invokes `WordPressService::installTenant` (commit e151c713)
+      └─ because `CreateTenant` owns the install-and-configure dispatch instead of only the Platform tenant lifecycle
+        └─ because no public contract lets Platform request tenant setup without importing Tenant jobs
+  ```
 
 ### Write a line after the chain only when it changes what happens next
 One line earns its place when it changes what the Architect does next, or kills an answer he would otherwise reach for himself.
