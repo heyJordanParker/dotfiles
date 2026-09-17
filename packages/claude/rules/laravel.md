@@ -2,10 +2,6 @@
 paths: "**/*.php"
 ---
 
-IF the project is Laravel:
-### Use /laravel proactively
-Use /laravel.
-
 ### Match project patterns first
 Consistency outranks correctness. Match existing project patterns before applying any Rule.
 
