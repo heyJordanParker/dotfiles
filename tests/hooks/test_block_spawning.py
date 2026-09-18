@@ -164,6 +164,12 @@ def test_typed_build_session_does_not_spawn(tmp_path, monkeypatch):
                 dispatched=False) == BLOCK
 
 
+def test_build_session_schedules_its_own_next_turn(tmp_path, monkeypatch):
+    """/loop 15m re-prompts this session through CronCreate. It starts no agent."""
+    assert _run({"tool_name": "CronCreate", "tool_input": {"cron": "*/15 * * * *"}},
+                tmp_path, monkeypatch, dispatched=False) == ALLOW
+
+
 def test_typed_orchestrate_session_spawns(tmp_path, monkeypatch):
     assert _run({"tool_name": "Agent", "tool_input": {}}, tmp_path, monkeypatch,
                 mode="orchestrate", dispatched=False) == ALLOW

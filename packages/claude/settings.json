@@ -336,7 +336,7 @@
         ]
       },
       {
-        "matcher": "Bash|Agent|Workflow|CronCreate|RemoteTrigger",
+        "matcher": "Bash|Agent|Workflow|RemoteTrigger",
         "hooks": [
           {
             "type": "command",

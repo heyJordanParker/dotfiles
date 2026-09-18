@@ -7,7 +7,7 @@ from lib.event import canonical_tool, command_str, read_event
 from lib.session_mode import permits, resolve
 
 BINDING = {
-    "events": {"PreToolUse": ["Bash", "Agent", "Workflow", "CronCreate", "RemoteTrigger"]},
+    "events": {"PreToolUse": ["Bash", "Agent", "Workflow", "RemoteTrigger"]},
     "harness": "all",
     "timeout": 5,
 }

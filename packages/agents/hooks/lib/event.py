@@ -109,10 +109,9 @@ _CANONICAL_TOOL = {
     "NotebookEdit": "write",
     "apply_patch": "write",
     "Agent": "agent",
-    # Claude's other routes to a running agent: now, on a schedule, or on another
-    # machine. Each starts one, so each answers to whatever gates a spawn.
+    # Claude's other routes to a new agent: a Workflow now, a cloud routine on
+    # another machine. CronCreate is absent: it re-prompts this same session.
     "Workflow": "agent",
-    "CronCreate": "agent",
     "RemoteTrigger": "agent",
     "AskUserQuestion": "ask",
     "request_user_input": "ask",
