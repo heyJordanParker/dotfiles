@@ -28,10 +28,54 @@ use std::process::Command;
 pub const CACHE_DIR_NAME: &str = ".tracer-cache";
 pub const NAMESPACE_FILE: &str = "file";
 
+/// The one cross-process maintenance lock: `file/.maintain.lock`, held with
+/// an exclusive `flock` across every repo-wide index update. A process that
+/// finds its index fresh never takes it; one that finds it stale takes it,
+/// re-reads the index the holder just wrote, and does only what is left.
+/// Without it eight concurrent calls after one saved file each rebuilt the
+/// index and overwrote each other's write.
+///
+/// Reentrant per process: the relations update calls `get_batch`, which
+/// stores the mtime index, which takes this lock again. `flock` on a second
+/// descriptor in the same process would block forever, so the depth counter
+/// hands a nested caller the lock the process already holds.
+pub struct Maintenance;
+
+#[allow(non_upper_case_globals)]
+static maintenance: std::sync::Mutex<(usize, Option<fs::File>)> = std::sync::Mutex::new((0, None));
+
+pub fn maintain(repo_root: &Path) -> Option<Maintenance> {
+    let mut held = maintenance.lock().unwrap();
+    if held.0 == 0 {
+        let dir = namespace_dir(NAMESPACE_FILE, repo_root).ok()?;
+        let lock = fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(dir.join(".maintain.lock"))
+            .ok()?;
+        rustix::fs::flock(&lock, rustix::fs::FlockOperation::LockExclusive).ok()?;
+        held.1 = Some(lock);
+    }
+    held.0 += 1;
+    Some(Maintenance)
+}
+
+impl Drop for Maintenance {
+    fn drop(&mut self) {
+        let mut held = maintenance.lock().unwrap();
+        held.0 -= 1;
+        if held.0 == 0 {
+            // Closing the descriptor releases the flock.
+            held.1 = None;
+        }
+    }
+}
+
 /// Bump whenever extraction, the `FileFacts` shape, or a repo-wide index
 /// shape changes — old entries become unreachable automatically across all
 /// namespaces.
-pub const SCHEMA_VERSION: u32 = 18;
+pub const SCHEMA_VERSION: u32 = 19;
 
 /// Active CCN backend. There is exactly one backend — the tree-sitter
 /// AST decision-node walker — so cache identity is unconditionally
@@ -171,6 +215,9 @@ pub fn load_bytes(namespace: &str, key: &str, repo_root: &Path) -> Option<Vec<u8
 
 /// Atomic save: write a temp file in the same dir, fsync, rename into place.
 /// Serialized as a single line (no indent) via the `jsonfmt` byte format.
+/// Returns whether the key was new, which is the one moment a caller sweeps
+/// its superseded keys: a stable key exists after its first write, so the
+/// whole-directory sweep stops running on every write.
 ///
 /// Hard-gated on `worktree_root_for(repo_root)` returning `Some` — the
 /// single chokepoint that enforces "tracer caches live only at a worktree
@@ -183,7 +230,12 @@ pub fn load_bytes(namespace: &str, key: &str, repo_root: &Path) -> Option<Vec<u8
 /// the same invariant `worktree_root_for` enforces, but the assert fires
 /// the moment a caller passes a non-worktree path so the wrong call site
 /// is named in tests rather than silently no-op'd.
-pub fn save(namespace: &str, key: &str, value: &serde_json::Value, repo_root: &Path) -> Result<()> {
+pub fn save<T: serde::Serialize + ?Sized>(
+    namespace: &str,
+    key: &str,
+    value: &T,
+    repo_root: &Path,
+) -> Result<bool> {
     debug_assert!(
         repo_root.join(".git").exists(),
         "cache::save called with non-worktree repo_root: {}",
@@ -194,10 +246,11 @@ pub fn save(namespace: &str, key: &str, value: &serde_json::Value, repo_root: &P
     // save is a silent no-op so standalone use outside a git repo keeps
     // working without persisting state.
     if !repo_root.join(".git").exists() {
-        return Ok(());
+        return Ok(false);
     }
     let dir = namespace_dir(namespace, repo_root)?;
     let entry = dir.join(format!("{key}.json"));
+    let new = !entry.exists();
     // Unique temp per call: process id plus a monotonic sequence number,
     // so concurrent rayon writers in get_batch never collide on one temp
     // path (a collision is both a concurrency hazard and a write
@@ -213,7 +266,16 @@ pub fn save(namespace: &str, key: &str, value: &serde_json::Value, repo_root: &P
         // per-entry fsync eliminates the 1000+-fsync cold-`list` stall.
     }
     fs::rename(&tmp, &entry)?;
-    Ok(())
+    Ok(new)
+}
+
+/// Remove one entry. The mtime index calls this for the per-file key it just
+/// superseded, so the namespace holds one entry per file instead of one per
+/// version ever written: dotfiles had reached 17,736 entries for 795 files.
+pub fn remove(namespace: &str, key: &str, repo_root: &Path) {
+    if let Ok(dir) = namespace_dir(namespace, repo_root) {
+        let _ = fs::remove_file(dir.join(format!("{key}.json")));
+    }
 }
 
 /// Delete every `{prefix}*` entry in `namespace` except `keep`.

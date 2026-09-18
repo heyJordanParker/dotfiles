@@ -29,17 +29,19 @@
 //! Storage follows `file_facts`'s `mtime_index_v2__` precedent exactly: one
 //! mutable index in the `file/` namespace over immutable content-addressed
 //! entries. Each row records the file it came from, so a changed file's symbol
-//! rows are filtered out and re-added from its fresh extraction. When a file
-//! or declaration change can alter resolution, importer rows are re-derived
-//! from the unchanged files' cached imports — source is never re-extracted,
-//! and there is no global fingerprint.
+//! rows are filtered out and re-added from its fresh extraction. The index
+//! also keeps each file's import rows, so when a file or declaration change
+//! can alter resolution the importer inversion is re-derived in memory from
+//! those rows: an added file used to force every entry to be read back, which
+//! eight concurrent calls repeated eight times. Nothing is re-extracted, and
+//! there is no global fingerprint.
 
 use crate::extraction::{Declaration, ExtractionResult, RefShape};
 use crate::file_facts::{self, FileFacts};
 use crate::{cache, extraction, memo};
 use rayon::prelude::*;
-use serde::Deserialize;
-use serde_json::{json, Map, Value};
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -67,6 +69,11 @@ pub struct Relations {
     file_table_hash: String,
     symbols: OnceLock<HashMap<String, (Vec<u32>, Vec<u32>)>>,
     importers: HashMap<Arc<str>, Vec<Importer>>,
+    /// Each file's import rows as extracted, the source the importer
+    /// inversion is derived from. Stored in their own entry and loaded only
+    /// for an update, the way the symbol map is loaded only for a symbol
+    /// query: a warm call never needs them. Files with no imports are absent.
+    imports: HashMap<Arc<str>, Vec<extraction::Import>>,
     built_from: BTreeMap<Arc<str>, Built>,
     repo_root: PathBuf,
 }
@@ -83,7 +90,7 @@ struct Built {
 }
 
 /// The index exactly as it sits on disk, so reading it allocates the rows
-/// and nothing else. `to_json` writes this shape.
+/// and nothing else. `stored_forms` writes this shape.
 #[derive(Deserialize)]
 struct StoredEdges {
     files: Vec<String>,
@@ -95,6 +102,35 @@ struct StoredEdges {
 struct StoredSymbols {
     table: String,
     symbols: HashMap<String, (Vec<u32>, Vec<u32>)>,
+}
+
+#[derive(Deserialize)]
+struct StoredImports {
+    table: String,
+    imports: Vec<Vec<extraction::Import>>,
+}
+
+/// The same three shapes on the way out, borrowing the rows they write so
+/// a save serializes the index once, straight to bytes: building a JSON
+/// value tree first cost 86ms per update on 37,000 import rows. Sorted maps
+/// keep the bytes stable across writes of an unchanged index.
+#[derive(Serialize)]
+struct EdgesEntry<'a> {
+    files: Vec<&'a str>,
+    built: Vec<(&'a str, Option<&'a str>)>,
+    importers: BTreeMap<String, Vec<(u32, u64, Option<&'a str>)>>,
+}
+
+#[derive(Serialize)]
+struct SymbolsEntry<'a> {
+    table: &'a str,
+    symbols: BTreeMap<&'a str, (Vec<u32>, Vec<u32>)>,
+}
+
+#[derive(Serialize)]
+struct ImportsEntry<'a> {
+    table: &'a str,
+    imports: Vec<&'a [extraction::Import]>,
 }
 
 /// One file that imports another, and how surely the import resolved.
@@ -255,6 +291,7 @@ impl Relations {
             list.retain(|i| &*i.file != file);
         }
         self.importers.retain(|_, list| !list.is_empty());
+        self.imports.remove(file);
         self.built_from.remove(file);
     }
 
@@ -275,6 +312,10 @@ impl Relations {
             Some(e) => e,
             None => return,
         };
+        if !extraction.imports.is_empty() {
+            self.imports
+                .insert(Arc::clone(&path), extraction.imports.clone());
+        }
         for declaration in &extraction.declarations {
             let row = self
                 .symbols_mut()
@@ -449,51 +490,68 @@ impl Relations {
     /// each one in full made laravel-framework's entry 7.0 MB, and parsing it
     /// cost 81 MB of resident memory before a single query ran. One path
     /// table plus integer references carries the identical index in 1.1 MB.
-    fn to_json(&self) -> (Value, Value) {
+    fn stored_forms(&self) -> (EdgesEntry<'_>, SymbolsEntry<'_>, ImportsEntry<'_>) {
         // `built_from` holds every indexed file, and no row can name a file
         // outside it: rows are absorbed per file and `forget` drops both.
         let paths: Vec<&str> = self.built_from.keys().map(|p| &**p).collect();
-        let slot: HashMap<&str, usize> = paths.iter().enumerate().map(|(i, p)| (*p, i)).collect();
+        let slot: HashMap<&str, u32> = paths
+            .iter()
+            .enumerate()
+            .map(|(i, p)| (*p, i as u32))
+            .collect();
         let at = |p: &str| slot.get(p).copied();
 
-        let built: Vec<Value> = self
+        let built: Vec<(&str, Option<&str>)> = self
             .built_from
             .values()
-            .map(|b| json!([b.key, b.language]))
+            .map(|b| (b.key.as_str(), b.language.as_deref()))
+            .collect();
+        let imports: Vec<&[extraction::Import]> = paths
+            .iter()
+            .map(|p| self.imports.get(*p).map(Vec::as_slice).unwrap_or(&[]))
             .collect();
 
         let old_paths: Vec<&str> = self.files.iter().map(|path| &**path).collect();
-        let mut symbols =
-            Map::with_capacity(self.symbols.get_or_init(|| self.load_symbols()).len());
-        for (name, (defined_in, used_in)) in self.symbols.get().expect("symbols initialized") {
-            let remap = |indexes: &[u32]| {
-                indexes
-                    .iter()
-                    .filter_map(|index| old_paths.get(*index as usize).and_then(|path| at(path)))
-                    .collect::<Vec<_>>()
-            };
-            symbols.insert(name.clone(), json!([remap(defined_in), remap(used_in)]));
-        }
+        let remap = |indexes: &[u32]| {
+            indexes
+                .iter()
+                .filter_map(|index| old_paths.get(*index as usize).and_then(|path| at(path)))
+                .collect::<Vec<_>>()
+        };
+        let symbols: BTreeMap<&str, (Vec<u32>, Vec<u32>)> = self
+            .symbols
+            .get_or_init(|| self.load_symbols())
+            .iter()
+            .map(|(name, (defined_in, used_in))| {
+                (name.as_str(), (remap(defined_in), remap(used_in)))
+            })
+            .collect();
 
-        let mut importers = Map::with_capacity(self.importers.len());
+        let mut importers = BTreeMap::new();
         for (target, list) in &self.importers {
             let Some(t) = at(target) else { continue };
-            let rows: Vec<Value> = list
+            let rows: Vec<(u32, u64, Option<&str>)> = list
                 .iter()
                 .filter_map(|i| {
-                    Some(json!([
+                    Some((
                         at(&i.file)?,
                         confidence_code(i.confidence),
-                        i.symbol
-                    ]))
+                        i.symbol.as_deref(),
+                    ))
                 })
                 .collect();
-            importers.insert(t.to_string(), Value::Array(rows));
+            importers.insert(t.to_string(), rows);
         }
 
+        let table = self.file_table_hash.as_str();
         (
-            json!({"files": paths, "built": built, "importers": Value::Object(importers)}),
-            json!({"table": self.file_table_hash, "symbols": Value::Object(symbols)}),
+            EdgesEntry {
+                files: paths,
+                built,
+                importers,
+            },
+            SymbolsEntry { table, symbols },
+            ImportsEntry { table, imports },
         )
     }
 
@@ -549,7 +607,13 @@ impl Relations {
             return symbols;
         }
         let symbols = self.rebuild_symbols();
-        let document = json!({"table": table, "symbols": symbols});
+        let document = SymbolsEntry {
+            table,
+            symbols: symbols
+                .iter()
+                .map(|(name, rows)| (name.as_str(), rows.clone()))
+                .collect(),
+        };
         let _ = cache::save(
             cache::NAMESPACE_FILE,
             &symbols_key(),
@@ -557,6 +621,43 @@ impl Relations {
             &self.repo_root,
         );
         symbols
+    }
+
+    /// Every indexed file's import rows into `imports`: from the stored entry
+    /// when its table matches this index, otherwise read back out of every
+    /// file's per-file entry, which is the cost the stored entry exists to
+    /// pay once. Called before an update, with `files` still in stored order.
+    fn load_imports(&mut self) {
+        let table = &self.file_table_hash;
+        if let Some(stored) =
+            cache::load_bytes(cache::NAMESPACE_FILE, &imports_key(), &self.repo_root)
+                .as_deref()
+                .and_then(|bytes| serde_json::from_slice::<StoredImports>(bytes).ok())
+                .filter(|stored| stored.table == *table)
+        {
+            for (index, rows) in stored.imports.into_iter().enumerate() {
+                if let (false, Some(file)) = (rows.is_empty(), self.files.get(index)) {
+                    self.imports.insert(Arc::clone(file), rows);
+                }
+            }
+            return;
+        }
+        let files: Vec<Arc<str>> = self.built_from.keys().cloned().collect();
+        for chunk in files.chunks(file_facts::RESOLVE_CHUNK) {
+            let paths: Vec<PathBuf> = chunk
+                .iter()
+                .map(|path| self.repo_root.join(&**path))
+                .collect();
+            let mut facts = file_facts::get_batch(&paths, &self.repo_root);
+            for path in chunk {
+                let Some(extraction) = facts.remove(&**path).and_then(|f| f.extraction) else {
+                    continue;
+                };
+                if !extraction.imports.is_empty() {
+                    self.imports.insert(Arc::clone(path), extraction.imports);
+                }
+            }
+        }
     }
 
     fn rebuild_symbols(&self) -> HashMap<String, (Vec<u32>, Vec<u32>)> {
@@ -624,12 +725,23 @@ struct ModulePaths {
     /// honest same-language ambiguity without making exact imports scan the
     /// repository.
     exact: HashMap<String, Vec<usize>>,
+    /// Final path segment to positions in `entries`. A suffix match ends at
+    /// the entry's end, so the segments agree, and the fallback reads this
+    /// list instead of every entry: re-resolving 37,000 imports against
+    /// 2,600 files cost 880ms per update through the full scan.
+    tails: HashMap<String, Vec<usize>>,
+}
+
+/// The final segment of a module path, past the last `.` or `/`.
+fn tail(module: &str) -> &str {
+    module.rsplit(['.', '/']).next().unwrap_or(module)
 }
 
 impl ModulePaths {
     fn new(files: &[(String, Option<String>)]) -> Self {
         let mut entries = Vec::with_capacity(files.len());
         let mut exact: HashMap<String, Vec<usize>> = HashMap::with_capacity(files.len());
+        let mut tails: HashMap<String, Vec<usize>> = HashMap::with_capacity(files.len());
         for (path, language) in files {
             let mut module = file_to_module(path, language.as_deref());
             if language.as_deref() == Some("php") {
@@ -637,9 +749,14 @@ impl ModulePaths {
             }
             let position = entries.len();
             exact.entry(module.clone()).or_default().push(position);
+            tails.entry(tail(&module).to_string()).or_default().push(position);
             entries.push((module, path.clone(), language.clone()));
         }
-        Self { entries, exact }
+        Self {
+            entries,
+            exact,
+            tails,
+        }
     }
 
     /// The compatible-language files an import may name. Explicit relative
@@ -693,8 +810,11 @@ impl ModulePaths {
         }
 
         let mut suffixes: Vec<String> = self
-            .entries
-            .iter()
+            .tails
+            .get(tail(&compared))
+            .into_iter()
+            .flatten()
+            .filter_map(|position| self.entries.get(*position))
             .filter(|(module, _, entry_language)| {
                 if !compatible(entry_language) {
                     return false;
@@ -750,6 +870,10 @@ fn symbols_key() -> String {
     format!("relations_symbols_v1__schema{}", cache::SCHEMA_VERSION)
 }
 
+fn imports_key() -> String {
+    format!("relations_imports_v1__schema{}", cache::SCHEMA_VERSION)
+}
+
 fn table_hash<'a>(paths: impl IntoIterator<Item = &'a str>) -> String {
     let mut hasher = Sha256::new();
     for path in paths {
@@ -765,33 +889,31 @@ static MEMO: memo::Memo<Relations> = OnceLock::new();
 ///
 /// Loads the stored index, compares its `built_from` against the per-file
 /// content hashes on disk, and re-absorbs declarations for files that moved.
-/// When files or declarations move, imports are re-resolved from cached
-/// per-file extraction so unchanged importers follow the new declarations. A
-/// first call on a cold cache absorbs everything, which is the same work the
-/// graph build did minus reference resolution.
+/// When files or declarations move, imports are re-resolved from the stored
+/// import rows so unchanged importers follow the new declarations. A first
+/// call on a cold cache absorbs everything, which is the same work the graph
+/// build did minus reference resolution.
 pub fn get(repo_root: &Path) -> Arc<Relations> {
     memo::get_or_build(&MEMO, repo_root, || load_and_update(repo_root))
 }
 
-fn load_and_update(repo_root: &Path) -> Relations {
-    let Some(files) = discover_files(repo_root) else {
-        return cache::load_bytes(cache::NAMESPACE_FILE, &edges_key(), repo_root)
-            .as_deref()
-            .and_then(|bytes| Relations::from_bytes(bytes, repo_root))
-            .unwrap_or_else(|| Relations {
-                repo_root: repo_root.to_path_buf(),
-                ..Default::default()
-            });
-    };
-    let hashes = file_facts::file_hashes_for(&files, repo_root);
-    let mut relations = cache::load_bytes(cache::NAMESPACE_FILE, &edges_key(), repo_root)
+fn stored(repo_root: &Path) -> Relations {
+    cache::load_bytes(cache::NAMESPACE_FILE, &edges_key(), repo_root)
         .as_deref()
         .and_then(|bytes| Relations::from_bytes(bytes, repo_root))
         .unwrap_or_else(|| Relations {
             repo_root: repo_root.to_path_buf(),
             ..Default::default()
-        });
+        })
+}
 
+/// The files the index no longer covers and the files whose content key
+/// differs from the one their rows were absorbed from, or None when the
+/// index is current.
+fn stale(
+    relations: &Relations,
+    hashes: &BTreeMap<String, String>,
+) -> Option<(Vec<String>, Vec<String>)> {
     let gone: Vec<String> = relations
         .built_from
         .keys()
@@ -803,162 +925,165 @@ fn load_and_update(repo_root: &Path) -> Relations {
         .filter(|(path, key)| relations.built_from.get(path.as_str()).map(|b| &b.key) != Some(*key))
         .map(|(path, _)| path.clone())
         .collect();
-    if gone.is_empty() && moved.is_empty() {
+    (!gone.is_empty() || !moved.is_empty()).then_some((gone, moved))
+}
+
+fn load_and_update(repo_root: &Path) -> Relations {
+    let Some(files) = discover_files(repo_root) else {
+        return stored(repo_root);
+    };
+    let hashes = file_facts::file_hashes_for(&files, repo_root);
+    let relations = stored(repo_root);
+    if stale(&relations, &hashes).is_none() {
         return relations;
     }
-    for path in &gone {
+
+    // One maintainer at a time. The holder may have absorbed exactly this
+    // change while we waited, so the index is read again under the lock and
+    // compared afresh: what it left is what remains. A file that moves
+    // between the hash sweep and here is absorbed under its earlier key,
+    // which the next call sees as moved again and corrects.
+    let _lock = cache::maintain(repo_root);
+    let mut relations = stored(repo_root);
+    let Some((gone, moved)) = stale(&relations, &hashes) else {
+        return relations;
+    };
+
+    // A content change re-absorbs the files that moved. When a file appears
+    // or disappears, or a touched file's declarations changed, module-path
+    // and symbol-fallback resolution can shift for importers that never
+    // changed, so the importers whose rows name an affected module tail or
+    // symbol are re-resolved from their stored import rows. Nothing but the
+    // touched files is read back.
+    let added: Vec<String> = moved
+        .iter()
+        .filter(|path| !relations.built_from.contains_key(path.as_str()))
+        .cloned()
+        .collect();
+    relations.symbols.get_or_init(|| relations.load_symbols());
+    relations.load_imports();
+    let moved_files: HashSet<&str> = moved.iter().map(String::as_str).collect();
+    let touched_files: HashSet<&str> = moved_files
+        .iter()
+        .copied()
+        .chain(gone.iter().map(String::as_str))
+        .collect();
+    let declarations_of = |relations: &Relations, files: &HashSet<&str>| -> BTreeSet<(String, String)> {
+        relations
+            .symbols
+            .get()
+            .expect("symbols loaded before the update")
+            .iter()
+            .flat_map(|(name, (defined_in, _))| {
+                defined_in
+                    .iter()
+                    .filter_map(|index| relations.files.get(*index as usize))
+                    .filter(|file| files.contains::<str>(file.as_ref()))
+                    .map(|file| (name.clone(), file.to_string()))
+            })
+            .collect()
+    };
+    let declarations_before = declarations_of(&relations, &touched_files);
+
+    for path in gone.iter().chain(moved.iter()) {
         relations.forget(path);
     }
-
-    // Adding or removing a file moves module-path resolution for every file,
-    // so the whole index is rebuilt. A content-only change re-absorbs the
-    // files that moved. If their declarations moved too, every import is
-    // re-resolved from cached extraction because symbol fallback depends on
-    // declarations in files the importer never opened.
-    let structural = !gone.is_empty()
-        || moved
-            .iter()
-            .any(|path| !relations.built_from.contains_key(path.as_str()));
-    let moved_files: HashSet<&str> = moved.iter().map(String::as_str).collect();
-    if !structural {
-        relations.symbols.get_or_init(|| relations.load_symbols());
-    }
-    let declarations_before: BTreeSet<(String, String)> = if structural {
-        BTreeSet::new()
-    } else {
-        relations
-            .symbols
-            .get()
-            .expect("symbols loaded before incremental update")
-            .iter()
-            .flat_map(|(name, (defined_in, _))| {
-                defined_in
-                    .iter()
-                    .filter_map(|index| relations.files.get(*index as usize))
-                    .filter(|file| moved_files.contains::<str>(file.as_ref()))
-                    .map(|file| (name.clone(), file.to_string()))
-            })
-            .collect()
-    };
-    let touched: Vec<String> = if structural {
-        hashes.keys().cloned().collect()
-    } else {
-        moved.clone()
-    };
-
-    if structural {
-        relations = Relations {
-            repo_root: repo_root.to_path_buf(),
-            ..Default::default()
-        };
-        relations
-            .symbols
-            .set(HashMap::new())
-            .expect("new symbols cell is empty");
-    } else {
-        for path in &moved {
-            relations.forget(path);
-        }
-    }
-
-    // Declarations first, across every touched file, then imports: an import
-    // that misses on module path falls back to the symbol map, so no file's
-    // imports can resolve until every file's declarations have landed.
-    //
-    // The passes are split by what they need, not by reading each file twice.
-    // Pass one walks the files a chunk at a time and keeps only each one's
-    // imports — a handful of rows against the hundreds of references in the
-    // same extraction — so the chunk's facts are dropped before the next
-    // chunk is read. Holding every file's facts at once instead cost 848 MB
-    // on next.js (22,702 files); the whole import set there is 36,957 rows.
-    let mut imports_by_file: BTreeMap<String, (Option<String>, Vec<extraction::Import>)> =
-        BTreeMap::new();
-    for chunk in touched.chunks(file_facts::RESOLVE_CHUNK) {
+    for chunk in moved.chunks(file_facts::RESOLVE_CHUNK) {
         let needed: Vec<PathBuf> = chunk.iter().map(|rel| repo_root.join(rel)).collect();
-        let mut facts = file_facts::get_batch(&needed, repo_root);
+        let facts = file_facts::get_batch(&needed, repo_root);
         for path in chunk {
-            let (Some(f), Some(key)) = (facts.remove(path), hashes.get(path)) else {
+            let (Some(f), Some(key)) = (facts.get(path), hashes.get(path)) else {
                 continue;
             };
-            relations.absorb_symbols(&f, key);
-            if let Some(extraction) = f.extraction {
-                if !extraction.imports.is_empty() {
-                    imports_by_file.insert(f.path, (f.language, extraction.imports));
-                }
-            }
+            relations.absorb_symbols(f, key);
         }
     }
 
-    let declarations_after: BTreeSet<(String, String)> = if structural {
-        BTreeSet::new()
-    } else {
-        relations
-            .symbols
-            .get()
-            .expect("symbols loaded before incremental update")
-            .iter()
-            .flat_map(|(name, (defined_in, _))| {
-                defined_in
-                    .iter()
-                    .filter_map(|index| relations.files.get(*index as usize))
-                    .filter(|file| moved_files.contains::<str>(file.as_ref()))
-                    .map(|file| (name.clone(), file.to_string()))
-            })
-            .collect()
-    };
-    let rebuild_importers = structural || declarations_before != declarations_after;
-    if rebuild_importers {
-        relations.importers.clear();
-        let already_loaded: HashSet<&str> = touched.iter().map(String::as_str).collect();
-        let untouched: Vec<String> = hashes
-            .keys()
-            .filter(|path| !already_loaded.contains(path.as_str()))
-            .cloned()
-            .collect();
-        for chunk in untouched.chunks(file_facts::RESOLVE_CHUNK) {
-            let needed: Vec<PathBuf> = chunk.iter().map(|rel| repo_root.join(rel)).collect();
-            let mut facts = file_facts::get_batch(&needed, repo_root);
-            for path in chunk {
-                let Some(f) = facts.remove(path) else {
-                    continue;
-                };
-                if let Some(extraction) = f.extraction {
-                    if !extraction.imports.is_empty() {
-                        imports_by_file.insert(f.path, (f.language, extraction.imports));
-                    }
-                }
-            }
+    // Declarations first, then imports: an import that misses on module path
+    // falls back to the symbol map, so no file's imports can resolve until
+    // every touched file's declarations have landed.
+    //
+    // An importer is affected when one of its rows names a module whose
+    // final segment is an added or removed file's stem, which is the only way
+    // module-path resolution can gain or lose a candidate, or names a symbol
+    // that a touched file declared before or declares now, which is the only
+    // way symbol fallback can move. Re-resolving every row instead cost 140ms
+    // per update on 37,000 rows.
+    let declarations_after = declarations_of(&relations, &moved_files);
+    let mut stems: HashSet<String> = HashSet::new();
+    for path in gone.iter().chain(added.iter()) {
+        if let Some(stem) = Path::new(path).file_stem().and_then(|stem| stem.to_str()) {
+            stems.insert(stem.to_string());
+            stems.insert(stem.to_lowercase());
         }
     }
-
-    // The module map is a pure function of the file list and each file's
-    // language, both of which the index carries for every indexed file.
+    let names: HashSet<&str> = declarations_before
+        .iter()
+        .chain(declarations_after.iter())
+        .map(|(name, _)| name.as_str())
+        .collect();
+    let imports = std::mem::take(&mut relations.imports);
+    let affected: HashSet<Arc<str>> = imports
+        .iter()
+        .filter(|(path, rows)| {
+            relations.importers.is_empty()
+                || moved_files.contains::<str>(path.as_ref())
+                || rows.iter().any(|row| {
+                    let module = row.module.replace('\\', "/");
+                    let end = tail(&module);
+                    // A named import can resolve to the symbol's own file
+                    // (Python's `from pkg import helper` reaching
+                    // `pkg/helper.py`), so the symbol is checked as a stem
+                    // as well as a name.
+                    stems.contains(end)
+                        || stems.contains(&end.to_lowercase())
+                        || row.symbol.as_deref().is_some_and(|symbol| {
+                            let lower = symbol.to_lowercase();
+                            names.contains(lower.as_str())
+                                || stems.contains(symbol)
+                                || stems.contains(&lower)
+                        })
+                })
+        })
+        .map(|(path, _)| Arc::clone(path))
+        .collect();
     let modules = ModulePaths::new(&relations.listing());
-    for (path, (language, imports)) in &imports_by_file {
-        relations.absorb_imports(path, language.as_deref(), imports, &modules);
+    for list in relations.importers.values_mut() {
+        list.retain(|importer| !affected.contains(&importer.file));
     }
+    relations.importers.retain(|_, list| !list.is_empty());
+    for path in &affected {
+        let Some(rows) = imports.get(path) else { continue };
+        let language = relations.language(path).map(str::to_string);
+        relations.absorb_imports(path, language.as_deref(), rows, &modules);
+    }
+    relations.imports = imports;
 
-    relations.file_table_hash = table_hash(relations.files.iter().map(|path| &**path));
-    let (edges, symbols) = relations.to_json();
+    // The table is hashed in stored order, which `from_bytes` reproduces;
+    // `files` itself appends each newly interned path at the end.
+    relations.file_table_hash = table_hash(relations.built_from.keys().map(|path| &**path));
+    let (edges, symbols, imports) = relations.stored_forms();
     let edges_key = edges_key();
     let symbols_key = symbols_key();
+    let imports_key = imports_key();
     let _ = cache::save(cache::NAMESPACE_FILE, &symbols_key, &symbols, repo_root);
-    let _ = cache::save(cache::NAMESPACE_FILE, &edges_key, &edges, repo_root);
-    // A schema bump rotates the key, so the prior version's index would sit
-    // in the namespace forever without this sweep.
-    cache::evict_prefixed(
-        cache::NAMESPACE_FILE,
-        "relations_edges_v1_",
-        &edges_key,
-        repo_root,
-    );
-    cache::evict_prefixed(
-        cache::NAMESPACE_FILE,
-        "relations_symbols_v1_",
-        &symbols_key,
-        repo_root,
-    );
-    cache::evict_prefixed(cache::NAMESPACE_FILE, "relations_v", "", repo_root);
+    let _ = cache::save(cache::NAMESPACE_FILE, &imports_key, &imports, repo_root);
+    // A schema bump rotates the keys, so the prior version's index would sit
+    // in the namespace forever without this sweep. The keys are otherwise
+    // stable, so the sweep runs once per rotation, never per write. The
+    // edges entry is written only here, so it is the one whose first write
+    // marks the rotation: `load_symbols` may have written the symbols entry
+    // already.
+    if let Ok(true) = cache::save(cache::NAMESPACE_FILE, &edges_key, &edges, repo_root) {
+        for (prefix, keep) in [
+            ("relations_edges_v1_", edges_key.as_str()),
+            ("relations_symbols_v1_", symbols_key.as_str()),
+            ("relations_imports_v1_", imports_key.as_str()),
+            ("relations_v", ""),
+        ] {
+            cache::evict_prefixed(cache::NAMESPACE_FILE, prefix, keep, repo_root);
+        }
+    }
     relations
 }
 
@@ -1157,8 +1282,9 @@ pub fn ranked_by_reach(
     let mut direct = vec![0i64; files.len()];
     // The ranked file is the TARGET there, and the edge's symbol lives in the
     // target, so the row can name what is actually depended on rather than
-    // the file that holds it.
-    let mut named: Vec<Option<&String>> = vec![None; files.len()];
+    // the file that holds it. The importer with the lowest path names it, so
+    // the label does not drift with the order rows were absorbed in.
+    let mut named: Vec<Option<(&str, &String)>> = vec![None; files.len()];
     for (target, importer) in relations.import_edges() {
         let target = identity[target];
         let importer_file = identity[&*importer.file];
@@ -1170,7 +1296,10 @@ pub fn ranked_by_reach(
         direct[node] += 1;
         if matches!(reach, Reach::Importers) {
             if let Some(symbol) = importer.symbol.as_ref() {
-                named[target].get_or_insert(symbol);
+                let file: &str = &importer.file;
+                if named[target].map_or(true, |(known, _)| file < known) {
+                    named[target] = Some((file, symbol));
+                }
             }
         }
     }
@@ -1227,7 +1356,7 @@ pub fn ranked_by_reach(
                 }
                 Ranked {
                     file: files[file].to_string(),
-                    symbol: named[file].cloned(),
+                    symbol: named[file].map(|(_, symbol)| symbol.clone()),
                     direct: direct[file],
                     transitive,
                 }

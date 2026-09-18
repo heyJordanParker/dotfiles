@@ -77,6 +77,37 @@ fn def_files(v: &serde_json::Value) -> Vec<(String, i64)> {
 
 // ---------------------------------------------------------------------------
 // Python — every declaration kind, every confidence
+
+/// A file that appears after its importer resolves that importer's existing
+/// import: the update re-resolves every importer whose rows name the new
+/// file's stem, from the stored import rows, without re-reading the tree.
+#[test]
+fn an_added_file_resolves_the_importer_already_naming_it() {
+    let f = Fixture::new();
+    f.write("pkg/__init__.py", "");
+    f.write(
+        "pkg/late.py",
+        "from thing import go\n\ndef run():\n    return go()\n",
+    );
+    f.commit("importer first");
+    f.trace(&["cache", "build", "."]).ok();
+
+    f.write("pkg/thing.py", "def go():\n    return 1\n");
+    f.commit("dependency later");
+    let r = f.trace(&["usages", "go", "--json"]);
+    r.ok();
+    let v = r.view();
+
+    let dependents = symbol(&v, "pkg/thing.py::go")["dependents"]
+        .as_array()
+        .unwrap_or_else(|| panic!("dependents must be a row list: {v}"));
+    assert!(
+        dependents
+            .iter()
+            .any(|d| d["source_file"].as_str() == Some("pkg/late.py")),
+        "pkg/late.py imports the added file by suffix and must depend on it: {v}"
+    );
+}
 // ---------------------------------------------------------------------------
 
 #[test]

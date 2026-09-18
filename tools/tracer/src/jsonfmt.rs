@@ -10,7 +10,6 @@
 //! Functional content is unchanged — this is representation only.
 
 use serde_json::ser::{CharEscape, Formatter};
-use serde_json::Value;
 use std::io::{self, Write};
 
 /// Escape policy: every non-ASCII scalar emitted as a `\uXXXX` escape.
@@ -139,7 +138,7 @@ pub fn write_pretty<W: io::Write, T: serde::Serialize + ?Sized>(
 /// `", "` and `": "`. serde_json's built-in CompactFormatter uses "," and
 /// ":", which does not match this format, so we wrap a separator-faithful
 /// formatter.
-pub fn to_compact(value: &Value) -> String {
+pub fn to_compact<T: serde::Serialize + ?Sized>(value: &T) -> String {
     let mut buf = Vec::new();
     let mut ser = serde_json::Serializer::with_formatter(
         &mut buf,

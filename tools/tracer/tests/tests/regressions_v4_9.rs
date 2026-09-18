@@ -129,7 +129,7 @@ fn the_relations_index_rebuilds_after_schema_shape_change() {
     );
 
     // Eviction: the prior schema's index is gone, and the namespace holds
-    // exactly two current relations-index entries.
+    // exactly three current relations-index entries: edges, symbols, imports.
     assert!(
         !stale_index.exists(),
         "the prior schema's relations index survived the rebuild — a schema \
@@ -147,8 +147,8 @@ fn the_relations_index_rebuilds_after_schema_shape_change() {
         .collect();
     assert_eq!(
         indexes.len(),
-        2,
-        "the file namespace must hold exactly two relations-index entries after the \
+        3,
+        "the file namespace must hold exactly three relations-index entries after the \
          rebuild; got {indexes:?}"
     );
 }

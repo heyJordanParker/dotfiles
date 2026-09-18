@@ -14,6 +14,7 @@ Black-box behavior contract for the `trace` binary, pinning the observable surfa
 - `tests/worktree_anchoring.rs` pins the worktree-anchored `.tracer-cache/` contract.
 - `tests/cache_and_backend.rs` pins the cache lifecycle and the single AST complexity backend.
 - `tests/freshness.rs` pins that every call reflects the bytes on disk when it runs.
+- `tests/concurrency.rs` pins that concurrent calls serialize index maintenance onto one update and all answer cleanly.
 - `tests/architecture_commands.rs` and `tests/declarations_and_references.rs` pin the relations commands and the resolution model.
 - `tests/docs_load.rs` and `tests/docs_graph.rs` pin doc-graph recognition.
 - `tests/docs_prime.rs` pins the context-primer auto-load set.

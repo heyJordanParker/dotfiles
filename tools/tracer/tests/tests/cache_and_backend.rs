@@ -30,7 +30,7 @@ fn file_cache_key(schema_version: u32, file_bytes: &[u8], relpath: &str) -> Stri
 /// schema-bump test plants a poison entry at this version's key (proving
 /// the cache IS consulted by this exact schema-versioned key) and at a
 /// neighbor version's key (proving it is unreachable).
-const PUBLISHED_SCHEMA_VERSION: u32 = 18;
+const PUBLISHED_SCHEMA_VERSION: u32 = 19;
 
 #[test]
 fn typescript_import_bindings_are_cached_without_changing_structure_output() {
@@ -235,7 +235,7 @@ fn repo_context_snapshot_tracks_filesystem_inputs_but_not_tracer_cache() {
         2,
         "an added source did not refresh scc"
     );
-    assert_eq!(entries_with_prefix(&f, "repo_context_v5_"), 1);
+    assert_eq!(entries_with_prefix(&f, "repo_context_v6"), 1);
 
     Command::new("touch")
         .args(["-t", "202001010000", "u.py"])
@@ -399,7 +399,7 @@ fn a_failed_status_keeps_warm_repo_and_relations_caches() {
         failed.stderr
     );
     assert_eq!(invocation_count(&scc_count), before_scc, "status failure reran scc");
-    assert_eq!(entries_with_prefix(&f, "repo_context_v5_"), 1);
+    assert_eq!(entries_with_prefix(&f, "repo_context_v6"), 1);
     let after_edges = fs::read(
         f.root
             .join(".tracer-cache/file")
@@ -451,7 +451,7 @@ fn failed_repo_context_output_is_not_cached_and_the_next_call_recovers() {
         "{}",
         failed.stderr
     );
-    assert_eq!(entries_with_prefix(&f, "repo_context_v5_"), 0);
+    assert_eq!(entries_with_prefix(&f, "repo_context_v6"), 0);
 
     fs::write(&wrapper, "#!/bin/sh\nprintf 'backend broke' >&2\nexit 9\n").unwrap();
     fs::set_permissions(&wrapper, fs::Permissions::from_mode(0o755)).unwrap();
@@ -462,7 +462,7 @@ fn failed_repo_context_output_is_not_cached_and_the_next_call_recovers() {
         "{}",
         backend_failed.stderr
     );
-    assert_eq!(entries_with_prefix(&f, "repo_context_v5_"), 0);
+    assert_eq!(entries_with_prefix(&f, "repo_context_v6"), 0);
 
     let real = Command::new("which").arg("scc").output().unwrap().stdout;
     let real = String::from_utf8(real).unwrap().trim().to_string();
@@ -476,7 +476,7 @@ fn failed_repo_context_output_is_not_cached_and_the_next_call_recovers() {
         1,
         "the same-byte functionless file retained fabricated fallback LOC"
     );
-    assert_eq!(entries_with_prefix(&f, "repo_context_v5_"), 1);
+    assert_eq!(entries_with_prefix(&f, "repo_context_v6"), 1);
 }
 
 #[test]
@@ -574,19 +574,22 @@ fn an_ignored_unreadable_tree_cannot_erase_uncached_repo_context() {
     assert_eq!(failed.view()["loc"], 1);
     assert_eq!(failed.view()["repo"]["total_files"], 1);
     assert_eq!(invocation_count(&count), 1);
-    assert_eq!(entries_with_prefix(&f, "repo_context_v5_"), 1);
+    assert_eq!(entries_with_prefix(&f, "repo_context_v6"), 1);
 
+    // The tree is readable again and `build/private.py` is a path the
+    // snapshot has never seen, but `.sccignore` says the walk would skip it,
+    // so nothing is recounted.
     let recovered = f.trace_env(&["info", "u.py", "--json"], &[("PATH", &path)]);
     recovered.ok();
     assert_eq!(recovered.view()["repo"]["total_files"], 1);
-    assert_eq!(invocation_count(&count), 2);
-    assert_eq!(entries_with_prefix(&f, "repo_context_v5_"), 1);
+    assert_eq!(invocation_count(&count), 1);
+    assert_eq!(entries_with_prefix(&f, "repo_context_v6"), 1);
 
     f.trace_env(&["info", "u.py", "--json"], &[("PATH", &path)])
         .ok();
     assert_eq!(
         invocation_count(&count),
-        2,
+        1,
         "stable snapshot was not reused"
     );
 }
@@ -611,13 +614,13 @@ fn a_repo_context_scan_error_cannot_publish_freshness() {
     );
     assert_eq!(failed.view()["repo"]["total_files"], 1);
     assert_eq!(invocation_count(&count), 1);
-    assert_eq!(entries_with_prefix(&f, "repo_context_v5_"), 1);
+    assert_eq!(entries_with_prefix(&f, "repo_context_v6"), 1);
 
     let recovered = f.trace_env(&["info", "u.py", "--json"], &[("PATH", &path)]);
     recovered.ok();
     assert_eq!(recovered.view()["repo"]["total_files"], 2);
     assert_eq!(invocation_count(&count), 2);
-    assert_eq!(entries_with_prefix(&f, "repo_context_v5_"), 1);
+    assert_eq!(entries_with_prefix(&f, "repo_context_v6"), 1);
 }
 
 #[test]
@@ -641,20 +644,25 @@ fn repo_context_uses_the_same_executable_for_identity_and_execution() {
     );
 }
 
+/// A file edited while scc runs is counted by the next call, because the
+/// snapshot is keyed by the stamps the call started from and that file's
+/// stamp has moved. The call itself stays quiet: the explorer read the old
+/// "inputs changed while scc was running" line as a failure and stopped.
 #[test]
-fn changing_inputs_during_scc_does_not_publish_a_snapshot() {
+fn a_file_edited_while_scc_runs_is_recounted_by_the_next_call() {
     let f = Fixture::new();
     f.write(".gitignore", ".tracer-cache/\ntest-bin/\n");
     f.write("u.py", "value = 1\n");
     f.commit("seed");
-    let (path, _) = counting_scc(&f);
+    let (path, count) = counting_scc(&f);
     let wrapper = f.root.join("test-bin/scc");
     let real = Command::new("which").arg("scc").output().unwrap().stdout;
     let real = String::from_utf8(real).unwrap().trim().to_string();
     fs::write(
         &wrapper,
         format!(
-            "#!/bin/sh\nprintf 'value = 2\\n' > '{}'\nexec '{}' \"$@\"\n",
+            "#!/bin/sh\nprintf x >> '{}'\nprintf 'value = 2\\nother = 3\\n' > '{}'\nexec '{}' \"$@\"\n",
+            f.root.join(".tracer-cache/scc-count").display(),
             f.root.join("u.py").display(),
             real
         ),
@@ -664,21 +672,21 @@ fn changing_inputs_during_scc_does_not_publish_a_snapshot() {
 
     let unstable = f.trace_env(&["info", "u.py", "--json"], &[("PATH", &path)]);
     unstable.ok();
-    assert!(
-        unstable
-            .stderr
-            .contains("inputs changed while scc was running"),
-        "{}",
-        unstable.stderr
-    );
-    assert_eq!(entries_with_prefix(&f, "repo_context_v5_"), 0);
+    assert_eq!(unstable.stderr, "", "an edit during scc was reported as an error");
+    assert_eq!(invocation_count(&count), 1);
+    assert_eq!(entries_with_prefix(&f, "repo_context_v6"), 1);
 
-    fs::write(&wrapper, format!("#!/bin/sh\nexec '{}' \"$@\"\n", real)).unwrap();
+    fs::write(&wrapper, format!("#!/bin/sh\nprintf x >> '{}'\nexec '{}' \"$@\"\n", f.root.join(".tracer-cache/scc-count").display(), real)).unwrap();
     fs::set_permissions(&wrapper, fs::Permissions::from_mode(0o755)).unwrap();
-    let stable = f.trace_env(&["info", "u.py", "--json"], &[("PATH", &path)]);
-    stable.ok();
-    assert_eq!(stable.view()["repo"]["total_files"], 1);
-    assert_eq!(entries_with_prefix(&f, "repo_context_v5_"), 1);
+    let next = f.trace_env(&["info", "u.py", "--json"], &[("PATH", &path)]);
+    next.ok();
+    assert_eq!(
+        invocation_count(&count),
+        2,
+        "the file edited during scc was not recounted"
+    );
+    assert_eq!(next.view()["loc"], 2, "the recount did not read the edited bytes");
+    assert_eq!(entries_with_prefix(&f, "repo_context_v6"), 1);
 }
 
 #[test]
@@ -697,7 +705,7 @@ fn malformed_cached_repo_context_is_recomputed() {
             entry
                 .file_name()
                 .to_string_lossy()
-                .starts_with("repo_context_v5_")
+                .starts_with("repo_context_v6")
         })
         .unwrap();
     fs::write(
@@ -724,33 +732,57 @@ fn cache_build_populates_the_file_namespace() {
     let stats = f.trace(&["cache", "stats", "--json"]);
     stats.ok();
     let v = stats.view();
-    // `cache build .` over standard_repo() populates exactly 10 file/
+    // `cache build .` over standard_repo() populates exactly 11 file/
     // entries for this fixed tree: six per-file entries, the mtime index,
-    // the git-activity map, and the two relations-index entries.
+    // the git-activity map, and the three relations-index entries.
     assert_eq!(
         v["file"]["entries"].as_i64().unwrap(),
-        10,
-        "file namespace must hold exactly 10 entries after build: {}",
+        11,
+        "file namespace must hold exactly 11 entries after build: {}",
         stats.stdout
     );
     assert_eq!(
         relations_entry_count(&f),
-        2,
-        "build must leave exactly two relations-index entries: {}",
+        3,
+        "build must leave exactly three relations-index entries: {}",
         stats.stdout
     );
 }
 
-/// Count the two relations-index entries in the file namespace. Each entry is
-/// keyed by schema alone and rewritten in place rather than rotated.
+/// Editing a file replaces its per-file entry instead of leaving the old one
+/// beside it: the mtime index update deletes the entry it supersedes, so the
+/// namespace does not grow with every edit an agent makes.
+#[test]
+fn editing_a_file_leaves_the_entry_count_unchanged() {
+    let f = standard_repo();
+    f.trace(&["cache", "build", "."]).ok();
+    let before = f.trace(&["cache", "stats", "--json"]).view()["file"]["entries"]
+        .as_i64()
+        .unwrap();
+
+    f.write("src/util.py", "def helper(v):\n    return v + 2\n");
+    f.trace(&["info", "src/util.py", "--json"]).ok();
+
+    let after = f.trace(&["cache", "stats", "--json"]).view()["file"]["entries"]
+        .as_i64()
+        .unwrap();
+    assert_eq!(
+        after, before,
+        "an edit left the superseded per-file entry in the namespace"
+    );
+}
+
+/// Count the three relations-index entries in the file namespace: edges,
+/// symbols, and import rows. Each entry is keyed by schema alone and
+/// rewritten in place rather than rotated.
 fn relations_entry_count(f: &Fixture) -> usize {
     entries_with_prefix(f, "relations_")
 }
 
-/// The relations index is two mutable entries per repo, and it always answers
-/// from the current tree. Across a doc change, a code change, and a new
-/// file — each with a HEAD move — the namespace must still hold exactly two
-/// entries, and they must report the edit rather than the prior state.
+/// The relations index is three mutable entries per repo, and it always
+/// answers from the current tree. Across a doc change, a code change, and a
+/// new file — each with a HEAD move — the namespace must still hold exactly
+/// three entries, and they must report the edit rather than the prior state.
 #[test]
 fn the_relations_index_stays_single_and_current_across_builds() {
     let f = standard_repo();
@@ -760,8 +792,8 @@ fn the_relations_index_stays_single_and_current_across_builds() {
     f.trace(&["cache", "build", "."]).ok();
     assert_eq!(
         relations_entry_count(&f),
-        2,
-        "first build must leave exactly two relations-index entries"
+        3,
+        "first build must leave exactly three relations-index entries"
     );
 
     // A doc change + HEAD move: neither touches code relations.
@@ -770,7 +802,7 @@ fn the_relations_index_stays_single_and_current_across_builds() {
     f.trace(&["cache", "build", "."]).ok();
     assert_eq!(
         relations_entry_count(&f),
-        2,
+        3,
         "a doc change must not add an index"
     );
 
@@ -780,7 +812,7 @@ fn the_relations_index_stays_single_and_current_across_builds() {
     f.trace(&["cache", "build", "."]).ok();
     assert_eq!(
         relations_entry_count(&f),
-        2,
+        3,
         "a code change must not add an index"
     );
     let renamed = f.trace(&["defines", "renamed_helper", "--json"]);
@@ -804,7 +836,7 @@ fn the_relations_index_stays_single_and_current_across_builds() {
     f.trace(&["cache", "build", "."]).ok();
     assert_eq!(
         relations_entry_count(&f),
-        2,
+        3,
         "a new file must not add an index"
     );
     let added = f.trace(&["defines", "extra_fn", "--json"]);

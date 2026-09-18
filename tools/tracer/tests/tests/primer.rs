@@ -121,13 +121,13 @@ fn primer_warms_cache_as_side_effect() {
     f.trace(&["context"]).ok();
     let v = f.trace(&["cache", "stats", "--json"]).view();
     // The primer warms the file cache over standard_repo()'s fixed tree:
-    // exactly 10 entries — six per-file entries, the mtime index, the
-    // git-activity map, and the two relations-index entries. A primer that stopped
-    // warming, or warmed a different file set, fails this.
+    // exactly 11 entries — six per-file entries, the mtime index, the
+    // git-activity map, and the three relations-index entries. A primer that
+    // stopped warming, or warmed a different file set, fails this.
     assert_eq!(
         v["file"]["entries"].as_i64().unwrap(),
-        10,
-        "primer must warm exactly 10 file-cache entries: {v}"
+        11,
+        "primer must warm exactly 11 file-cache entries: {v}"
     );
 }
 

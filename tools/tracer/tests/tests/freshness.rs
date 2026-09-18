@@ -108,20 +108,43 @@ fn declaration_edits_reresolve_an_untouched_importer() {
     );
     f.commit("initial declarations");
     f.trace(&["cache", "build", "."]).ok();
+    // The warm update re-resolves untouched importers from the import rows
+    // the index stores; a rebuild from scratch reads them back out of the
+    // per-file entries. Both copies are poisoned so that each path is
+    // proven to read its cache and never the source.
     let importer_entry = file_fact_entry(&f, "caller.py");
     let mut cached_importer: serde_json::Value = serde_json::from_slice(
         &std::fs::read(&importer_entry).expect("cached importer is readable"),
     )
     .expect("cached importer is JSON");
+    // Only the module is poisoned: the symbol `selected` is what the
+    // declaration edits below move, and it is what marks this importer as
+    // one whose resolution the edits can change.
     cached_importer["extraction"]["imports"][0]["module"] =
         serde_json::Value::String("cached".to_string());
-    cached_importer["extraction"]["imports"][0]["symbol"] =
-        serde_json::Value::String("cached_target".to_string());
     std::fs::write(
         &importer_entry,
         serde_json::to_vec(&cached_importer).expect("cached importer serializes"),
     )
     .expect("cached importer is distinguishable from source");
+    let edges: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(relations_entry(&f)).expect("edges readable"))
+            .expect("edges are JSON");
+    let importer_index = edges["files"]
+        .as_array()
+        .and_then(|files| files.iter().position(|path| path == "caller.py"))
+        .expect("edges table includes caller.py");
+    let imports_entry = relations_imports_entry(&f);
+    let mut stored_imports: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&imports_entry).expect("imports readable"))
+            .expect("imports are JSON");
+    stored_imports["imports"][importer_index][0]["module"] =
+        serde_json::Value::String("cached".to_string());
+    std::fs::write(
+        &imports_entry,
+        serde_json::to_vec(&stored_imports).expect("stored imports serialize"),
+    )
+    .expect("stored imports are distinguishable from source");
 
     let before = f.trace(&["callers", "left", "--json"]);
     before.ok();
@@ -238,6 +261,20 @@ fn relations_entry(fixture: &Fixture) -> std::path::PathBuf {
                 .starts_with("relations_edges_v1__")
         })
         .expect("relations index exists")
+}
+
+fn relations_imports_entry(fixture: &Fixture) -> std::path::PathBuf {
+    std::fs::read_dir(fixture.root.join(".tracer-cache/file"))
+        .expect("file cache exists")
+        .flatten()
+        .map(|entry| entry.path())
+        .find(|path| {
+            path.file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .starts_with("relations_imports_v1__")
+        })
+        .expect("relations imports entry exists")
 }
 
 fn relations_symbols_entry(fixture: &Fixture) -> std::path::PathBuf {
@@ -367,17 +404,21 @@ fn a_relations_update_rewrites_both_entries() {
     f.trace(&["defines", "helper", "--json"]).code_is(2);
 }
 
+/// A prior binary's index sits under a key this one never reads. The sweep
+/// runs when this binary writes its own key for the first time, which is
+/// the moment after an upgrade, and not on every later write: a stable key
+/// is rewritten on every update, and scanning the whole namespace each
+/// time cost a directory listing of thousands of entries per call.
 #[test]
 fn a_legacy_relations_entry_is_swept_without_being_read() {
     let f = standard_repo();
-    f.trace(&["cache", "build"]).ok();
     let legacy = f
         .root
         .join(".tracer-cache/file/relations_v3__schema18.json");
+    std::fs::create_dir_all(legacy.parent().unwrap()).expect("cache namespace");
     std::fs::write(&legacy, b"not-json").expect("plant legacy entry");
 
-    f.write("src/util.py", "def legacy_sweep(v):\n    return v + 1\n");
-    f.trace(&["defines", "legacy_sweep", "--json"]).ok();
+    f.trace(&["cache", "build"]).ok();
     assert!(!legacy.exists(), "legacy relations entry was not swept");
 }
 

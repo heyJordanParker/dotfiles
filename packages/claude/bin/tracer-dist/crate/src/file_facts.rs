@@ -461,22 +461,35 @@ fn mtime_index_load(repo_root: &Path) -> Arc<MtimeIndex> {
     })
 }
 
-/// Persist `index` and make it the memo's current value under the same lock,
-/// so no reader can observe the pre-write index after the write returns.
+/// Merge `updates` into the index on disk and make the result the memo's
+/// current value, all under the cross-process maintenance lock.
 ///
-/// The index is wrapped for the save and unwrapped for the memo rather than
-/// cloned for one of them: on a repo with thousands of entries this runs on
-/// every single-file cache miss.
-fn mtime_index_store(repo_root: &Path, index: MtimeIndex) {
+/// The merge base is re-read from disk under the lock, never the memo: two
+/// processes that each merged into the index they loaded at start overwrote
+/// each other, and the loser's files read as moved again on the next call.
+/// The per-file entry a path's previous key named is removed, so the
+/// namespace holds one entry per file rather than one per version written.
+fn mtime_index_store(repo_root: &Path, updates: Vec<(String, Stamp, String)>) {
+    let _lock = cache::maintain(repo_root);
     let key = mtime_index_key();
-    if let Ok(document) = serde_json::to_value(&index) {
-        let _ = cache::save(cache::NAMESPACE_FILE, &key, &document, repo_root);
+    let mut index: MtimeIndex = cache::load_bytes(cache::NAMESPACE_FILE, &key, repo_root)
+        .and_then(|b| serde_json::from_slice::<MtimeIndex>(&b).ok())
+        .unwrap_or_default();
+    for (rel, stamp, content_key) in updates {
+        if let Some(previous) = index.insert(rel, stamp_entry(&stamp, &content_key)) {
+            if previous.key != content_key && !previous.key.is_empty() {
+                cache::remove(cache::NAMESPACE_FILE, &previous.key, repo_root);
+            }
+        }
     }
-    // Same sweep the relations index and the git-activity map run: the key
-    // carries a schema and a backend, so a bump rotates it and leaves the
-    // superseded index in the namespace forever. next.js was carrying a
-    // 4.4 MB orphan beside its live 5.7 MB index.
-    cache::evict_prefixed(cache::NAMESPACE_FILE, "mtime_index_", &key, repo_root);
+    if let Ok(document) = serde_json::to_value(&index) {
+        // The key carries a schema and a backend, so a bump rotates it and
+        // would leave the superseded index in the namespace forever: next.js
+        // was carrying a 4.4 MB orphan beside its live 5.7 MB index.
+        if let Ok(true) = cache::save(cache::NAMESPACE_FILE, &key, &document, repo_root) {
+            cache::evict_prefixed(cache::NAMESPACE_FILE, "mtime_index_", &key, repo_root);
+        }
+    }
     memo::replace(&MTIME_MEMO, repo_root, index);
 }
 
@@ -604,18 +617,14 @@ pub fn get_batch(paths: &[PathBuf], repo_root: &Path) -> HashMap<String, FileFac
         .collect();
 
     // Merge index updates and persist ONCE (was the O(N²) fsync storm).
-    let mut new_index: Option<MtimeIndex> = None;
+    let mut updates = Vec::new();
     let mut out = HashMap::with_capacity(resolved.len());
     for (rel, facts, upd) in resolved {
-        if let Some((r, stamp, key)) = upd {
-            new_index
-                .get_or_insert_with(|| (*index).clone())
-                .insert(r, stamp_entry(&stamp, &key));
-        }
+        updates.extend(upd);
         out.insert(rel, facts);
     }
-    if let Some(new_index) = new_index {
-        mtime_index_store(repo_root, new_index);
+    if !updates.is_empty() {
+        mtime_index_store(repo_root, updates);
     }
     out
 }

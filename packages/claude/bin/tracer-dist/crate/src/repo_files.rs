@@ -15,7 +15,7 @@ use std::process::Command;
 use std::sync::{Arc, OnceLock};
 use std::thread;
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct Stamp {
     pub mode: u32,
     pub size: u64,
@@ -103,12 +103,19 @@ pub fn tracked_files(repo_root: &Path, base: Option<&Path>) -> Option<Arc<Tracke
 }
 
 pub(crate) fn stamped_files_uncached(repo_root: &Path) -> Option<TrackedFiles> {
-    let args = ["ls-files", "--cached", "-z"];
-    let out = Command::new("git")
-        .args(args)
-        .current_dir(repo_root)
-        .output()
-        .ok()?;
+    // The index listing and the porcelain status are two git subprocesses
+    // that read the same index and never wait on each other.
+    let (out, working) = rayon::join(
+        || {
+            Command::new("git")
+                .args(["ls-files", "--cached", "-z"])
+                .current_dir(repo_root)
+                .output()
+                .ok()
+        },
+        || crate::git_activity::working_paths(repo_root),
+    );
+    let out = out?;
     if !out.status.success() {
         return None;
     }
@@ -118,7 +125,7 @@ pub(crate) fn stamped_files_uncached(repo_root: &Path) -> Option<TrackedFiles> {
         .filter(|path| !path.is_empty())
         .map(|path| String::from_utf8_lossy(path).into_owned())
         .collect();
-    paths.extend(crate::git_activity::working_paths(repo_root)?);
+    paths.extend(working?);
     let mut paths: Vec<String> = paths
         .into_iter()
         .filter(|path| !is_tracer_cache(path))

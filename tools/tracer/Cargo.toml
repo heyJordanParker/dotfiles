@@ -33,6 +33,7 @@ tree-sitter-c = "0.24"
 walkdir = "2"
 flate2 = "1"
 globset = "0.4"
+ignore = "0.4"
 tempfile = "3"
 regex = "1"
 rustix = { version = "1", features = ["fs"] }

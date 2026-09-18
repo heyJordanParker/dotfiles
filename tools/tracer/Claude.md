@@ -20,14 +20,18 @@ Local code-intelligence command-line interface for Agents working in a repositor
 - `memo.rs` owns every per-repo memo, so an index or map is read and parsed at most once per invocation.
 - `repo_context::metrics` hands every caller one shared handle to the scc payload.
 - `cache clear` empties the `file/` namespace, and `--all` removes the whole tree.
-- Every repo-wide index sweeps its superseded keys with `cache::evict_prefixed` on write.
+- Every repo-wide index sweeps its superseded keys with `cache::evict_prefixed` on the write that creates its key.
+- `cache::maintain` is the cross-process lock every repo-wide index update holds, so concurrent calls serialize onto one update and read its result.
+- The mtime index update deletes the per-file entry it supersedes.
+- The scc snapshot `file/repo_context_v6.json` keeps per-file rows beside the stamps they were counted at, recounts a changed or new file alone, and walks the whole tree only when an ignore file or the scc binary changes.
+- A new path is tested against the tracked `.sccignore`, `.gitignore`, and `.ignore` files through the `ignore` crate, so a path the walk would skip stays uncounted.
 - The per-file entry is keyed by contents and path, so it holds no git facts.
 - `git_activity` owns every git fact; its disk-cached bulk map keys only history-derived facts by HEAD and the 30-day cutoff date.
 - Working-tree state is always recomputed fresh, and deploy-branch presence is cached separately, keyed by the present deploy branches' tip commit ids.
 - `file_facts::with_git` joins the git facts onto per-file facts on every resolve.
 - `relations.rs` owns the two inversions and the on-demand resolver.
 - The inversions are `name -> {defined_in, used_in}` and `file -> [importer]`.
-- `file/relations_edges_v1__schema<N>.json` holds the file table, provenance, and importer inversion; `file/relations_symbols_v1__schema<N>.json` holds the name inversion and is parsed only for a symbol query.
+- `file/relations_edges_v1__schema<N>.json` holds the file table, provenance, and importer inversion; `file/relations_symbols_v1__schema<N>.json` holds the name inversion and is parsed only for a symbol query; `file/relations_imports_v1__schema<N>.json` holds every file's import rows and is parsed only for an update.
 - The index writes every path once into a table and references it by position.
 - In memory a path is one shared handle, and every list that names a file holds a clone of it.
 - The index is mutable and rewritten in place, so its key carries no fingerprint.
@@ -42,7 +46,7 @@ Local code-intelligence command-line interface for Agents working in a repositor
 - `file_facts::RESOLVE_CHUNK` bounds how many files' full extracted facts one `get_batch` resolve holds resident at a time; it is not a byte-level or total-repository memory guarantee.
 - Every caller that can span a whole repository walks its inputs through `RESOLVE_CHUNK`.
 - `file_facts::get_batch` is the only correct resolver for a command that touches more than one file.
-- Adding or removing a file rebuilds the index whole, because it moves module-path resolution for every file.
+- Adding, removing, or editing a file re-resolves only the importers whose stored import rows name its module tail or a symbol its declarations moved.
 - The `sessions/` namespace stores session-context events and the materialized session view.
 - `commands::session_log` is the single owner of session-context state.
 - Recognized project-doc files include `CLAUDE.md`, `Claude.md`, `AGENTS.md`, `Agents.md`, their `.local.md` peers, and `.claude/rules/*.md`.

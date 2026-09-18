@@ -315,11 +315,18 @@ fn complete_cached(repo_root: &Path) -> Arc<HashMap<String, GitActivity>> {
 /// today's date: keyed by HEAD alone, a branch that sits idle keeps serving
 /// the velocity it had on the day the entry was written.
 fn bulk_cached_uncached(repo_root: &Path) -> HashMap<String, GitActivity> {
-    compose_live(
-        cached_history(repo_root),
-        working_tree_state(repo_root),
-        presence_by_path(repo_root),
-    )
+    // Three sources, each behind its own git subprocess, and none of them
+    // depends on another: they run side by side instead of in a row.
+    let (history, (working, presence)) = rayon::join(
+        || cached_history(repo_root),
+        || {
+            rayon::join(
+                || working_tree_state(repo_root),
+                || presence_by_path(repo_root),
+            )
+        },
+    );
+    compose_live(history, working, presence)
 }
 
 fn cached_history(repo_root: &Path) -> HashMap<String, GitActivity> {
@@ -336,10 +343,12 @@ fn cached_history(repo_root: &Path) -> HashMap<String, GitActivity> {
     let history = historical(repo_root);
     // `working_state` is `skip_serializing`, so the entry holds only the
     // HEAD-keyed facts the key actually determines.
-    if let Ok(payload) = serde_json::to_value(&history) {
-        let _ = cache::save(cache::NAMESPACE_FILE, &key, &payload, repo_root);
+    if let Some(true) = serde_json::to_value(&history)
+        .ok()
+        .and_then(|payload| cache::save(cache::NAMESPACE_FILE, &key, &payload, repo_root).ok())
+    {
+        cache::evict_prefixed(cache::NAMESPACE_FILE, "git_activity", &key, repo_root);
     }
-    cache::evict_prefixed(cache::NAMESPACE_FILE, "git_activity", &key, repo_root);
     history
 }
 
@@ -860,8 +869,9 @@ fn presence_by_path(repo_root: &Path) -> HashMap<String, Vec<&'static str>> {
 
     let computed = compute_presence(repo_root, &present);
     let payload = json!(computed);
-    let _ = cache::save(cache::NAMESPACE_FILE, &key, &payload, repo_root);
-    cache::evict_prefixed(cache::NAMESPACE_FILE, "git_presence", &key, repo_root);
+    if let Ok(true) = cache::save(cache::NAMESPACE_FILE, &key, &payload, repo_root) {
+        cache::evict_prefixed(cache::NAMESPACE_FILE, "git_presence", &key, repo_root);
+    }
     computed
 }
 
