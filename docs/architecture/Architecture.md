@@ -10,7 +10,7 @@ The Architect-approved architecture for the prompt system: agents, skills, hooks
 - **`packages/agents/commands/<name>.md`** — a Skill's shape; the Architect fires it.
 - **`packages/claude/rules/<topic>.md`** — Rules logically grouped by purpose. The `paths:` glob is the file's centralized Condition; any individual Rule may carry its own Condition when it needs one ("When X:", markdown only, no XML) — less common precisely because the glob already scoped the file. A Condition may also name a Skill when the Rules behind it are a whole Process. A rules file may open with the Principles its Rules serve, written to the Agent as "you", before the first Rule.
 - **`packages/agents/hooks/<module>.py`** — per-turn and at-action Rules. Deterministic Hook = one Rule, is the Rule; LLM Hook = that event's Rules batched; fail-open Hooks keep a prose fallback.
-- **`Claude.md`** — the folder's WHY, and it loads the relevant references: its Decisions (`docs/architecture/decisions/`), a Design.md, whatever record the WHY rests on. Never Rules, Process, vocabulary, or inline Decisions.
+- **`Claude.md`** — the folder's WHY, the Principles every Agent working under it shares, and the references the WHY rests on: its Decisions (`docs/architecture/decisions/`), a Design.md. Never Rules, Process, vocabulary, or inline Decisions. A Principle says how to think and holds in every situation, and it may be phrased as an instruction; a Rule names one specific action in one specific situation, and it lives in a rules file, a Hook, or a Skill step.
 - **`Domain.md`** — the domain's words, nothing else.
 
 ## Structure carries the Decision Hierarchy
@@ -37,7 +37,7 @@ A block has exactly one home. Every other Prompt that needs it names that home i
 
 | block | home |
 |---|---|
-| Frame, Principles | agent file; Principles shared by every Agent open the rules file whose Rules they serve |
+| Frame, Principles | agent file, for one Agent's own; the Claude.md above them, for Principles every Agent shares; the top of a rules file, for a Principle its own Rules sit under |
 | Rule | rules file (grouped by purpose), Hook (per-turn/at-action), or Skill step (part of a Process) — with a Condition wherever needed |
 | Example, Template | beside its Rule or step |
 | Condition | the glob for a whole rules file; inline on any Rule; on a Skill step; or a rules-file line naming a Skill |
