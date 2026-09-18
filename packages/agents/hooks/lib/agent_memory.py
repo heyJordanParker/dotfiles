@@ -46,12 +46,15 @@ def definition_path(name):
     """The definition file governing the running agent, or "" when none does.
 
     A codex run carries its own path, exported by its launcher, which is the
-    identity that run was founded on. On Claude the name resolves under the
-    *active* config root, because a profile carries its own agents/ directory and
-    a name means whichever file that root holds.
+    identity that run was founded on. An agent codex spawns inside that run shares
+    its process and so its environment, and is told apart only by the role codex
+    names on the payload, so the exported path answers for the founding agent's own
+    name alone. Every other name resolves under the *active* config root, because
+    a profile carries its own agents/ directory and a name means whichever file
+    that root holds.
     """
     exported = os.environ.get(AGENT_FILE_VAR, "")
-    if exported:
+    if exported and name in ("", os.path.basename(exported)[:-len(".md")]):
         return exported
     if not name:
         return ""

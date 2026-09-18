@@ -35,6 +35,10 @@ def test_allows_a_harness_backgrounded_run(monkeypatch):
     assert _run(monkeypatch, 'codex-run @ponytail "x"', run_in_background=True) == 0
 
 
+def test_allows_a_foreground_read_back(monkeypatch):
+    assert _run(monkeypatch, "codex-run status") == 0
+
+
 
 
 

@@ -86,7 +86,7 @@ import threading
 import time
 from glob import glob
 
-from lib import agent_memory, session_state
+from lib import agent_memory, session_mode, session_state
 
 AGENTS_DIR = os.path.expanduser("~/.agents/agents")
 
@@ -176,31 +176,36 @@ def _definition_path(name):
     return None if directory is None else os.path.join(directory, name + ".md")
 
 
-def _declares_blank_memory(name):
-    """Whether `<name>.md` declares `memory: none`.
-
-    The same declaration the Claude-side gate reads, through the same parser."""
-    path = _definition_path(name)
-    return False if path is None else agent_memory.denies_memory(path)
-
-
-def _declaration(name, key):
-    """What `<name>.md` declares for `key`, or None when it declares nothing."""
-    path = _definition_path(name)
+def _declaration(path, key):
+    """What the definition at `path` declares for `key`, or None when it declares nothing."""
     return None if path is None else agent_memory.declaration(path, key)
 
 
-def _codex_model(name):
-    """The codex model `name` runs on: its `codex-model` declaration, or _MODEL.
+def _declared_config(path):
+    """The codex config the definition at `path` adds to a run of its agent.
+
+    `memory: none` switches off codex's own memory, and a mode that may not spawn
+    switches off codex's agent tools. A missing definition declares nothing, so it
+    runs the defaults with the build mode's fallback."""
+    config = {}
+    if path is not None and agent_memory.denies_memory(path):
+        config.update(_NO_MEMORY_CONFIG)
+    if not session_mode.POLICY[session_mode.declared_by(path)]["spawn"]:
+        config.update(_NO_AGENTS_CONFIG)
+    return config
+
+
+def _codex_model(path):
+    """The codex model an agent runs on: its `codex-model` declaration, or _MODEL.
 
     The value is passed to codex unvalidated: codex owns which model names exist,
     an allowlist here would go stale every release, and a name codex rejects fails
     the run loudly with its own error already surfaced."""
-    return _declaration(name, "codex-model") or _MODEL
+    return _declaration(path, "codex-model") or _MODEL
 
 
-def _codex_effort(name):
-    """The reasoning effort `name` runs at: `codex-effort`, then `effort`, then _EFFORT.
+def _codex_effort(path):
+    """The reasoning effort an agent runs at: `codex-effort`, then `effort`, then _EFFORT.
 
     `effort` is one field across both harnesses — Claude reads the declaration
     natively and codex takes the same word verbatim, so declaring `high` cannot
@@ -210,15 +215,15 @@ def _codex_effort(name):
     Unlike the model, the value is checked: the vocabulary is closed and shared,
     so a word outside it is a typo in the definition rather than a level either
     harness has."""
-    declared = _declaration(name, "codex-effort") or _declaration(name, "effort")
+    declared = _declaration(path, "codex-effort") or _declaration(path, "effort")
     if not declared:
         # A key with no value is an undeclared key, the same reading `codex-model`
         # gives it — two adjacent declarations of the same shape must not resolve
         # a blank in opposite directions.
         return _EFFORT
     if declared not in _EFFORTS:
-        raise ValueError("agent %r declares unknown effort %r; valid: %s"
-                         % (name, declared, ", ".join(_EFFORTS)))
+        raise ValueError("%s declares unknown effort %r; valid: %s"
+                         % (path, declared, ", ".join(_EFFORTS)))
     return declared
 
 
@@ -280,6 +285,13 @@ _CONFIG = {"bypass_hook_trust": True,
 # `generate_memories` covers the write direction too, so a one-shot run cannot
 # deposit anything for a later run to read.
 _NO_MEMORY_CONFIG = {"memories": {"use_memories": False, "generate_memories": False}}
+
+# A definition whose mode may not spawn runs with codex's agent tools off.
+# `agents.enabled` is the only switch above the model's own multi-agent
+# version, and it yields to `multi_agent_v2`, so both go off — the pair
+# codex turns off for its own review sub-agent.
+_NO_AGENTS_CONFIG = {"agents": {"enabled": False},
+                     "features": {"multi_agent_v2": False}}
 
 # A request codex has not answered in this long is a wedge, not slow work: every
 # one of these is a handshake or a thread call, none of which waits on a model.
@@ -879,13 +891,13 @@ class _Job:
         mine, theirs = self.record.get("thread"), params.get("threadId")
         return mine is None or theirs is None or theirs == mine
 
-def _refuse_harness(agent):
+def _refuse_harness(agent, definition):
     """The refusal a `harness` declaration earns this run, or None.
 
     The two refusals are separate because their fixes are: a claude-only agent is
     dispatched elsewhere, while an unrecognized value is a broken definition and
     runs nowhere — sending that one to Claude would only earn a second refusal."""
-    declared = _declaration(agent, "harness")
+    declared = _declaration(definition, "harness")
     if declared is None or declared in _HERE:
         return None
     if declared == "claude":
@@ -933,18 +945,19 @@ def _dispatch(agent, prompt, resume=None, model=None, effort=None):
         print("codex-run: unknown agent '@%s'. Available: %s"
               % (agent, ", ".join(_available_agents())))
         return 1
+    definition = _definition_path(agent)
     try:
-        refusal = _refuse_harness(agent)
+        refusal = _refuse_harness(agent, definition)
         if refusal:
             print(refusal)
             return 1
-        model = model or (resume or {}).get("model") or _codex_model(agent)
-        effort = effort or (resume or {}).get("effort") or _codex_effort(agent)
+        # Read only when nothing above them answers, so an invocation's --effort
+        # still runs an agent whose own effort declaration is broken.
+        model = model or (resume or {}).get("model") or _codex_model(definition)
+        effort = effort or (resume or {}).get("effort") or _codex_effort(definition)
         with open(prompt_path, encoding="utf-8") as fh:
             instructions = fh.read()
-        config = dict(_CONFIG)
-        if _declares_blank_memory(agent):
-            config = {**config, **_NO_MEMORY_CONFIG}
+        config = {**_CONFIG, **_declared_config(definition)}
     except (OSError, UnicodeDecodeError, ValueError) as exc:
         try:
             job = _Job(agent, _MODEL, _EFFORT, prompt,
@@ -965,7 +978,6 @@ def _dispatch(agent, prompt, resume=None, model=None, effort=None):
         _print_trailer(job.record)
         return 1
     env = dict(os.environ)
-    definition = _definition_path(agent)
     if definition:
         # The path rather than the name on purpose: the roster resolution that
         # produced it is subtle, and a hook re-deriving it would be a second
@@ -1343,13 +1355,19 @@ _ONE_JOB = {"result": _cmd_result, "log": _cmd_log, "events": _cmd_events,
             "history": _cmd_history, "cancel": _cmd_cancel}
 
 
+def launches(action):
+    """Whether `codex-run <action>` starts a codex turn. Every other action reads
+    records back, cancels, or prints usage."""
+    return action == "resume" or action.startswith("@")
+
+
 def main(argv):
     # Every message — errors included — goes to stdout so the result reads
     # cleanly with no downstream parsing.
     command = argv[0] if argv else ""
 
     overrides = {}
-    if command == "resume" or command.startswith("@"):
+    if launches(command):
         try:
             tail, overrides = _pop_overrides(argv[1:])
         except ValueError as exc:

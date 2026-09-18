@@ -17,15 +17,14 @@ POLICY = {
 }
 
 
-def declared_mode(event):
-    """The event agent's declaration, with build as the omission fallback.
+def declared_by(path):
+    """The mode the definition at `path` declares, with build as the omission fallback.
 
     The fallback is the strict answer on both surfaces: build writes and never
     spawns, so an agent name with no readable definition behind it is refused the
     spawn — for a dispatch and for a teammate alike. Every roster agent declares
     `mode`, so the fallback only ever governs a name that is not ours.
     """
-    path = agent_memory.definition_path(agent_name(event))
     if not path:
         return "build"
     try:
@@ -33,6 +32,10 @@ def declared_mode(event):
     except OSError:
         return "build"
     return value if value in MODES else "build"
+
+
+def declared_mode(event):
+    return declared_by(agent_memory.definition_path(agent_name(event)))
 
 
 def is_dispatched(event):

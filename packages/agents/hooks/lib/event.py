@@ -95,8 +95,9 @@ def patch_target(event):
 # event. This table is the single owner of the translation — we never route
 # through a harness's own Claude-compat aliasing, so a harness renaming a tool is
 # corrected here and nowhere else. Claude emits the left names; codex emits its native names
-# (shell_command/apply_patch/spawn_agent/request_user_input) plus, for the shell
-# tool, the compat-aliased "Bash" — all map here.
+# (shell_command/apply_patch/request_user_input) plus, for the shell tool, the
+# compat-aliased "Bash" — all map here. codex's spawn tool is the one exception,
+# recognized by name in `canonical_tool`.
 _CANONICAL_TOOL = {
     "Bash": "shell",
     "shell_command": "shell",
@@ -108,7 +109,6 @@ _CANONICAL_TOOL = {
     "NotebookEdit": "write",
     "apply_patch": "write",
     "Agent": "agent",
-    "spawn_agent": "agent",
     # Claude's other routes to a running agent: now, on a schedule, or on another
     # machine. Each starts one, so each answers to whatever gates a spawn.
     "Workflow": "agent",
@@ -121,7 +121,13 @@ _CANONICAL_TOOL = {
 
 def canonical_tool(event):
     """The canonical tool name for this event, or '' when the tool is unmapped."""
-    return _CANONICAL_TOOL.get(field(event, "tool_name", ""), "")
+    name = field(event, "tool_name", "")
+    # codex names a namespaced tool namespace+name with no separator, and the
+    # multi-agent namespace is configurable, so its spawn tool is known by the
+    # name it ends with.
+    if name.endswith("spawn_agent"):
+        return "agent"
+    return _CANONICAL_TOOL.get(name, "")
 
 
 def is_subagent(event):
@@ -144,8 +150,9 @@ def agent_name(event):
     Memory is stored per agent, so every write and every read needs the running
     agent's name. Claude puts it on the payload as `agent_type` — on a subagent
     event, and on the main thread of a session started with `--agent`, correct
-    for both. Codex names it nowhere in the payload, so the run's own definition
-    path answers instead, the same variable the codex-side gates read.
+    for both. Codex names it the same way for an agent it spawned, as the role it
+    spawned under, and nowhere for a run's founding thread, so the run's own
+    definition path answers there, the same variable the codex-side gates read.
 
     The environment is not consulted on Claude: `CLAUDE_CODE_AGENT` inside a
     subagent still holds the dispatching agent's name, verified live from a

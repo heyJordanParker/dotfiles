@@ -28,6 +28,13 @@ def test_unmapped_tool_is_empty(payload):
     assert canonical_tool(payload) == ""
 
 
+@pytest.mark.parametrize("tool_name", ["spawn_agent", "collaborationspawn_agent"])
+def test_codex_spawn_tool_is_an_agent_under_any_namespace(tool_name):
+    """codex names a namespaced tool namespace+name, so the spawn tool of its
+    `collaboration` namespace reached every gate unmapped and spawned freely."""
+    assert canonical_tool({"tool_name": tool_name}) == "agent"
+
+
 def test_a_codex_patch_carries_no_shell_command():
     """codex sends the patch body under the same `command` key the shell tool
     uses, so every command guard read the diff's own text as commands."""

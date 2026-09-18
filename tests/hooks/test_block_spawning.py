@@ -17,8 +17,8 @@ so the two gates cannot drift apart. This file pins both halves of that answer:
 The shell shapes themselves — a leading space, a second line, `env FOO=1`, an
 absolute path, `bash -c '…'`, `sudo`, `timeout`, a command named in an argument —
 are lib.command's contract and are asserted string by string in
-test_command_parsing. The hook's own contribution is one membership test against
-`_SPAWNS`, so only the cases that reach a decision of its own live here.
+test_command_parsing. The hook's own contribution is `_spawns`, which tells a
+launch from a read-back, so only the cases that reach a decision of its own live here.
 
 Each case calls the guard's main() against an isolated CLAUDE_DATA_ROOT; the guard
 resolves its session and its dispatch marker from os.environ at call time. Two
@@ -99,6 +99,20 @@ def test_executor_is_blocked_from_the_agent_tool(tmp_path, monkeypatch):
     """Spawned: the blocking exit code the harness reads off this guard."""
     assert _run({"tool_name": "Agent", "tool_input": {}}, tmp_path, monkeypatch,
                 spawn=True) == BLOCK
+
+
+def test_executor_is_blocked_from_codex_namespaced_spawn_tool(tmp_path, monkeypatch):
+    """A backend-engineer codex run spawned eight workers through this name."""
+    assert _run({"tool_name": "collaborationspawn_agent", "tool_input": {}},
+                tmp_path, monkeypatch) == BLOCK
+
+
+def test_executor_reads_back_but_never_launches(tmp_path, monkeypatch):
+    for command in ("codex-run status --all", "codex-run result abc",
+                    "codex --version", "claude --version"):
+        assert _run(_bash(command), tmp_path, monkeypatch) == ALLOW, command
+    for command in ('codex-run resume abc "m"', "codex-run cancel abc", "codex exec x", "codex"):
+        assert _run(_bash(command), tmp_path, monkeypatch) == BLOCK, command
 
 
 

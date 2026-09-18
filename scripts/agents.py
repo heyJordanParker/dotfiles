@@ -1,16 +1,21 @@
 """Generate codex artifacts from the shared agent definitions.
 
-Reads packages/agents/agents/*.md and writes two siblings beside each definition:
-<name>.toml (the subagent definition codex auto-discovers) and <name>.prompt.md
-(the frontmatter-stripped body, sent inline as a run's baseInstructions by
-codex-run and pointed at by config.toml's model_instructions_file for the
-interactive session).
-Frontmatter name/description map across; named skills are inlined into the body,
-which becomes developer_instructions. model/tools/color are dropped — codex has no
-key for them, and `model` names a Claude model. memory, codex-model, effort, and
-codex-effort are dropped here too but are not lost: codex-run reads them straight
-off the definition file at run time, so they reach a resumed run as well as a
-founding one. Both artifacts are gitignored; this regenerates them.
+Reads packages/agents/agents/*.md and writes <name>.prompt.md beside each
+definition: the frontmatter-stripped body with its named skills inlined, sent
+inline as a run's baseInstructions by codex-run and pointed at by config.toml's
+model_instructions_file for the interactive session. model/tools/color are
+dropped — codex has no key for them, and `model` names a Claude model.
+
+No `<name>.toml` role artifact is written. codex spawns a sub-agent under an
+`agent_type`, and a role backed by a `config_file` — declared in config.toml or
+discovered in ~/.codex/agents — fails to apply in codex 0.153.4: the spawn
+answers `agent type is currently not available`, while a built-in role with no
+config file spawns. A role file would therefore govern nothing, and its presence
+shadowed codex's own `explorer` role. What governs a codex sub-agent instead is
+the role name codex puts on every hook payload, which `lib/agent_memory.py`
+resolves to that agent's definition.
+
+The artifact is gitignored; this regenerates it.
 """
 
 import glob
@@ -40,9 +45,6 @@ def generate(agents_dir):
         fields, body = frontmatter.parse(_read(md))
         name = fields.get("name") or os.path.splitext(os.path.basename(md))[0]
         body = _compose(body, _load_skills(name, fields.get("skills"), skills_dir))
-        out = os.path.splitext(md)[0] + ".toml"
-        _write(out, _render(name, fields.get("description", ""), body))
-        written.append(out)
         prompt = os.path.splitext(md)[0] + ".prompt.md"
         _write(prompt, body.strip() + "\n")
         written.append(prompt)
@@ -50,10 +52,10 @@ def generate(agents_dir):
 
 
 def generate_profiles(profiles_dir):
-    """Generate the same artifacts for each profile's own agents.
+    """Generate the same artifact for each profile's own agents.
 
     A profile is its own config root with its own roster, and `codex-run`
-    resolves against the active root, so a profile agent needs the artifacts a
+    resolves against the active root, so a profile agent needs the artifact a
     shared one has or it is Claude-only. A symlinked agents/ is the shared roster
     under another name and is skipped — it generates where it really lives.
     """
@@ -106,30 +108,6 @@ def _compose(body, skills):
         for name, skill_body in skills:
             sections.append(f"### /{name}\n\n{skill_body.strip()}")
     return "\n\n".join(section for section in sections if section).strip()
-
-
-def _render(name, description, body):
-    return (
-        f"name = {_basic(name)}\n"
-        f"description = {_basic(description)}\n\n"
-        f"developer_instructions = {_multiline(body)}\n"
-    )
-
-
-def _basic(s):
-    s = s.replace("\\", "\\\\").replace('"', '\\"')
-    return '"' + s.replace("\n", "\\n").replace("\t", "\\t") + '"'
-
-
-def _multiline(body):
-    # Literal multiline preserves the body verbatim (markdown is full of
-    # backslashes); only escape into a basic block if the body itself holds the
-    # literal delimiter.
-    body = body.rstrip("\n")
-    if "'''" not in body:
-        return f"'''\n{body}\n'''"
-    esc = body.replace("\\", "\\\\").replace('"""', '\\"\\"\\"')
-    return f'"""\n{esc}\n"""'
 
 
 def _read(path):

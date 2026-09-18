@@ -5,7 +5,7 @@ import os
 import sys
 
 from lib import feedback
-from lib.codex_run import _ONE_JOB
+from lib.codex_run import launches
 from lib.command import command_head, tokenize
 from lib.event import command_str, field, is_subagent, read_event
 
@@ -17,7 +17,6 @@ BINDING = {
 }
 
 _WRAPPER_WORDS = {"time", "exec", "command"}
-_READ_BACK = set(_ONE_JOB) | {"status", "watch"}
 
 FOREGROUND_MSG = """BLOCKED: codex-run is foreground.
 
@@ -58,7 +57,7 @@ def main():
                 if os.path.basename(word.strip("\"'")) == "codex-run"
             )
             action = segment[command_index + 1] if len(segment) > command_index + 1 else ""
-            if action in _READ_BACK or (action != "resume" and not action.startswith("@")):
+            if not launches(action):
                 continue
             if token == "&":
                 return feedback.block("enforce_background_codex_run", SHELL_BACKGROUND_MSG)

@@ -169,6 +169,38 @@ def _wait_for_record(tmp_path, status, seconds):
     raise AssertionError("no %s job record appeared under %s" % (status, tmp_path))
 
 
+def _declare_mode(agents, name, mode):
+    (agents / (name + ".md")).write_text("---\nname: %s\nmode: %s\n---\n" % (name, mode))
+
+
+def test_an_agent_that_may_not_spawn_runs_without_codex_agent_tools(monkeypatch, tmp_path):
+    """A backend-engineer run had spawn_agent and forked eight workers with it."""
+    agents = _pin_agents(monkeypatch, tmp_path, ["backend-engineer"])
+    _declare_mode(agents, "backend-engineer", "build")
+    log = _stub_codex(monkeypatch, tmp_path)
+    assert codex_run.main(["@backend-engineer", "do x"]) == 0
+    config = _sent(log, "thread/start")["config"]
+    assert config["agents"] == {"enabled": False}
+    assert config["features"] == {"multi_agent_v2": False}
+
+
+def test_an_orchestrator_keeps_codex_agent_tools(monkeypatch, tmp_path):
+    agents = _pin_agents(monkeypatch, tmp_path, ["cto"])
+    _declare_mode(agents, "cto", "orchestrate")
+    log = _stub_codex(monkeypatch, tmp_path)
+    assert codex_run.main(["@cto", "do x"]) == 0
+    config = _sent(log, "thread/start")["config"]
+    assert "agents" not in config and "features" not in config
+
+
+def test_an_invocation_effort_overrides_a_broken_effort_declaration(monkeypatch, tmp_path):
+    agents = _pin_agents(monkeypatch, tmp_path, ["architect"])
+    (agents / "architect.md").write_text("---\nname: architect\neffort: bogus\n---\n")
+    log = _stub_codex(monkeypatch, tmp_path)
+    assert codex_run.main(["@architect", "--effort", "high", "do x"]) == 0
+    assert _sent(log, "turn/start")["effort"] == "high"
+
+
 def test_answer_is_ok(monkeypatch, tmp_path, capsys):
     _pin_agents(monkeypatch, tmp_path, ["architect"])
     _stub_codex(monkeypatch, tmp_path)

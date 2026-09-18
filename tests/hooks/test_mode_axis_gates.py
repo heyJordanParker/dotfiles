@@ -65,7 +65,7 @@ def session(tmp_path, monkeypatch):
         return name, str(path)
 
     def run(hook, tool_name, tool_input, dispatched_as=..., sidechain_as=...,
-            teammate=False, teammate_as=..., missing_agent="", spawn=False):
+            teammate=False, teammate_as=..., missing_agent="", spawn=False, child_as=...):
         """Run one gate against one shape of caller.
 
         `dispatched_as` names the mode a codex run declares, `sidechain_as` the mode
@@ -75,6 +75,8 @@ def session(tmp_path, monkeypatch):
         teammate with an agent named on the payload, the way the harness names one a
         session was started on, declaring the given mode. Pass none of them for the
         architect's own plain session. `spawn` runs the gate as its own process.
+        `child_as` is an agent codex spawned inside the `dispatched_as` run: codex
+        names its role on the payload as `agent_type`, declaring the given mode.
 
         Every environment variable is set or deleted on each call, never left from
         the last one, because monkeypatch holds its writes for the whole test.
@@ -96,7 +98,11 @@ def session(tmp_path, monkeypatch):
         if missing_agent:
             payload["isSidechain"] = True
             payload["agent_type"] = missing_agent
-        if sidechain_as is not ... or missing_agent or teammate_as is not ...:
+        if child_as is not ...:
+            payload["agent_id"] = "01a0-child"
+            payload["agent_type"] = agent_file(child_as)[0]
+        if (sidechain_as is not ... or missing_agent or teammate_as is not ...
+                or child_as is not ...):
             monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "config"))
         else:
             monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
@@ -143,6 +149,16 @@ def test_dispatched_executor_writes(session):
     session(state="propose", mode="orchestrate", mode_typed=True)
     assert session.run(WRITES, "Write", {"file_path": os.path.join(REPO, "note.txt")},
                        dispatched_as="build") == ALLOW
+
+
+def test_codex_child_of_an_orchestrator_is_gated_as_its_own_role(session):
+    """codex runs a spawned child in its parent's process, so the parent's exported
+    definition gated every child as the orchestrator: no writes, free spawns."""
+    session(state="execute", mode="build", mode_typed=True)
+    assert session.run(WRITES, "Write", {"file_path": os.path.join(REPO, "note.txt")},
+                       dispatched_as="orchestrate", child_as="build") == ALLOW
+    assert session.run(SPAWNING, "collaborationspawn_agent", {},
+                       dispatched_as="orchestrate", child_as="build") == BLOCK
 
 
 def test_dispatched_executor_does_not_spawn(session):
