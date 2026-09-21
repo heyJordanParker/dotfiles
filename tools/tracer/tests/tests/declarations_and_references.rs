@@ -707,6 +707,47 @@ fn php_inferred_reference_resolves_without_target_module() {
     );
 }
 
+#[test]
+fn php_attribute_application_is_a_caller_of_the_attribute_class() {
+    // `#[Encrypted]` names the attribute class at the site. A file in the
+    // same namespace applies it with no `use` line, so the import graph
+    // never sees it; the reference does, on the class, the method, and the
+    // property that carry it.
+    let f = Fixture::new();
+    f.write(
+        "Encrypted.php",
+        "<?php\nnamespace App;\n#[\\Attribute]\nfinal class Encrypted {}\n",
+    );
+    f.write(
+        "Ledger.php",
+        concat!(
+            "<?php\n",
+            "namespace App;\n",
+            "#[Encrypted(reason: 'whole record')]\n",
+            "final class Ledger {\n",
+            "  #[Encrypted]\n",
+            "  public string $token = '';\n",
+            "  #[Encrypted]\n",
+            "  public function post(): void {}\n",
+            "}\n",
+        ),
+    );
+    f.commit("php attribute without import");
+    f.trace(&["cache", "build", "."]).ok();
+    let r = f.trace(&["callers", "Encrypted", "--json"]);
+    r.ok();
+    let v = r.view();
+    let rows = caller_rows(&v, "Encrypted.php::Encrypted");
+    for line in [3, 5, 7] {
+        assert!(
+            rows.iter()
+                .any(|(f, l, c)| f == "Ledger.php" && *l == line && c == "INFERRED"),
+            "Ledger.php:{line} applies #[Encrypted] and must be a caller — got {:?}",
+            rows
+        );
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Cross-language resolution is impossible — the headline guarantee
 // ---------------------------------------------------------------------------

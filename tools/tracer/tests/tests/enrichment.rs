@@ -645,6 +645,45 @@ fn read_method_scopes_to_one_function() {
 }
 
 #[test]
+fn read_method_bare_name_reaches_a_php_method_with_its_markers() {
+    // The function table names a PHP method `Class::name`. The bare name an
+    // Agent types must reach it, and the span must start at the attribute
+    // above the signature with the docblock pulled in, and stop there: the
+    // member above opens with a one-line docblock and is code, not comment.
+    let f = Fixture::new();
+    f.write(
+        "src/Account.php",
+        concat!(
+            "<?php\n",
+            "final class Account {\n",
+            "  /** @internal */ public function id(): int { return 1; }\n",
+            "\n",
+            "  /** @internal */\n",
+            "  #[Internal]\n",
+            "  public function rename(string $name): void {\n",
+            "    $this->name = $name;\n",
+            "  }\n",
+            "}\n",
+        ),
+    );
+    f.commit("php method");
+    let r = f.trace(&["read", "src/Account.php", "--method", "rename", "--json"]);
+    r.ok();
+    let body = r.view()["results"][0]["content"].as_str().unwrap().to_string();
+    assert_eq!(
+        body,
+        concat!(
+            "L5:   /** @internal */\n",
+            "L6:   #[Internal]\n",
+            "L7:   public function rename(string $name): void {\n",
+            "L8:     $this->name = $name;\n",
+            "L9:   }\n",
+        ),
+        "bare-name method read returned the wrong span:\n{body:?}"
+    );
+}
+
+#[test]
 fn read_method_at_ref_extracts_committed_body() {
     // The method must be carved out of the *committed* file, not the
     // worktree: the worktree version of fn has a different body and an
@@ -2906,6 +2945,110 @@ fn structure_php_84_hooked_property_surfaces_with_attribute_and_accessors() {
     assert_eq!(accessors, vec!["get", "set"], "{}", prop);
 }
 
+/// A PHP class whose members carry the access markers an Agent must not
+/// miss: a docblock `@internal`, attributes on the class, a property and a
+/// method (one spanning lines), and a plain public member beside them.
+fn php_markers_repo() -> Fixture {
+    let f = Fixture::new();
+    f.write(
+        "src/Account.php",
+        concat!(
+            "<?php\n",
+            "namespace App;\n",
+            "/**\n",
+            " * An account.\n",
+            " *\n",
+            " * @internal only Billing constructs this\n",
+            " */\n",
+            "#[Internal(reason: 'billing only')]\n",
+            "final class Account {\n",
+            "  #[Encrypted]\n",
+            "  public string $secret = '';\n",
+            "  /** @deprecated use rename() */\n",
+            "  public string $name = '';\n",
+            "  #[Internal(\n",
+            "    reason: 'admin console only',\n",
+            "  )]\n",
+            "  public function rename(string $name): void { $this->name = $name; }\n",
+            "  public function exportSecret(): string { return $this->secret; }\n",
+            "}\n",
+        ),
+    );
+    f.commit("php access markers");
+    f
+}
+
+#[test]
+fn structure_php_json_carries_doc_tags() {
+    let f = php_markers_repo();
+    let r = f.trace(&["structure", "src/Account.php", "--json"]);
+    r.ok();
+    let v = r.view();
+    let cls = find_symbol(&v, "Account");
+    assert_eq!(
+        cls["doc_tags"].as_array().unwrap(),
+        &vec![serde_json::json!("@internal only Billing constructs this")],
+        "{}",
+        cls
+    );
+    let name = find_symbol(&v, "name");
+    assert_eq!(
+        name["doc_tags"].as_array().unwrap(),
+        &vec![serde_json::json!("@deprecated use rename()")],
+        "{}",
+        name
+    );
+    let plain = find_symbol(&v, "exportSecret");
+    assert!(plain.get("doc_tags").is_none(), "{}", plain);
+}
+
+#[test]
+fn structure_php_text_shows_markers_types_and_return_types() {
+    // The text view an Agent reads must carry what the JSON carries: the
+    // marker prefix, a property's type, a method's return type, and the
+    // complexity of a method whose span starts at its attribute rather than
+    // at the line ctags reports.
+    let f = php_markers_repo();
+    let r = f.trace(&["structure", "src/Account.php"]);
+    r.ok();
+    for expected in [
+        "@internal #[Internal(reason: 'billing only')] final Account",
+        "#[Encrypted] public string secret",
+        "@deprecated public string name",
+        "#[Internal( reason: 'admin console only', )] public rename(string $name) -> void ccn=1",
+        "public exportSecret() -> string ccn=1",
+    ] {
+        assert!(
+            r.stdout.contains(expected),
+            "structure text must carry {expected:?}:\n{}",
+            r.stdout
+        );
+    }
+}
+
+#[test]
+fn first_touch_of_a_php_file_surfaces_its_access_markers() {
+    // The briefing line is the surface most Agents act on. A member that
+    // reads as plain `public` there, when the source marks it #[Internal]
+    // or @deprecated, misleads every Agent that trusts the line.
+    let f = php_markers_repo();
+    let sid = fresh_session_id("php-markers");
+    let env = [("CLAUDE_CODE_SESSION_ID", sid.as_str())];
+    let r = f.trace_env(&["context", "src/Account.php"], &env);
+    r.ok();
+    assert!(
+        r.stdout.contains(concat!(
+            "@internal #[Internal(reason: 'billing only')] final Account; ",
+            "#[Encrypted] public string secret; ",
+            "@deprecated public string name; ",
+            "#[Internal( reason: 'admin console only', )] public rename(string $name) -> void ccn=1; ",
+            "public exportSecret() -> string ccn=1",
+        )),
+        "the briefing line must carry every access marker in source order:\n{}",
+        r.stdout
+    );
+}
+
 #[test]
 fn structure_ts_class_carries_decorators_generics_and_implements() {
     let f = Fixture::new();
@@ -2979,6 +3122,45 @@ fn structure_ts_class_carries_decorators_generics_and_implements() {
         m
     );
     assert_eq!(params[1]["optional"].as_bool().unwrap(), true, "{}", m);
+}
+
+#[test]
+fn structure_ts_member_decorators_stay_on_their_own_member() {
+    // A member's decorators belong to that member alone: an inline
+    // `@Input() name` keeps its decorator, a decorator above `run` does not
+    // leak onto the undecorated `make` below it.
+    let f = Fixture::new();
+    f.write(
+        "src/widget.ts",
+        concat!(
+            "export class Widget {\n",
+            "  @Input() name: string = '';\n",
+            "  @HostListener('click')\n",
+            "  public async run(a: string): Promise<void> {}\n",
+            "  static make(): Widget { return new Widget(); }\n",
+            "}\n",
+        ),
+    );
+    f.commit("ts member decorators");
+    let r = f.trace(&["structure", "src/widget.ts", "--json"]);
+    r.ok();
+    let v = r.view();
+    let name = find_symbol(&v, "name");
+    assert_eq!(
+        name["decorators"][0]["source"].as_str().unwrap(),
+        "@Input()",
+        "{}",
+        name
+    );
+    let run = find_symbol(&v, "run");
+    assert_eq!(
+        run["decorators"][0]["source"].as_str().unwrap(),
+        "@HostListener('click')",
+        "{}",
+        run
+    );
+    let make = find_symbol(&v, "make");
+    assert!(make.get("decorators").is_none(), "{}", make);
 }
 
 #[test]

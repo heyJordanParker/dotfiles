@@ -371,10 +371,13 @@ fn extract_method_from_source<'a>(
     method_name: &str,
 ) -> Option<Vec<SourceLine<'a>>> {
     let functions = ccn::analyze(source.as_bytes(), file_for_language)?;
-    let suffix = format!(".{method_name}");
+    // PHP qualifies a method as `Class::name`, the other languages as
+    // `Class.name`; a bare name reaches either.
+    let dotted = format!(".{method_name}");
+    let scoped = format!("::{method_name}");
     let target = functions
         .iter()
-        .find(|f| f.name == method_name || f.name.ends_with(&suffix))?;
+        .find(|f| f.name == method_name || f.name.ends_with(&dotted) || f.name.ends_with(&scoped))?;
     let lines: Vec<SourceLine<'a>> = source_lines(source).collect();
     let mut start = (target.start_line - 1).max(0) as usize;
     let end_line = target.start_line + target.nloc - 1;
@@ -387,7 +390,14 @@ fn extract_method_from_source<'a>(
     // being dragged in as if it were a leading comment.
     let is_comment = |s: &str| {
         let t = s.trim();
-        t.starts_with('#') || t.starts_with("//") || t.starts_with('*') || t.starts_with("/*")
+        // `/** @internal */ public function x()` opens a comment and then
+        // declares the neighbour above, so a closed block comment counts
+        // only when nothing follows it on the line.
+        t.starts_with('#')
+            || t.starts_with("//")
+            || t.starts_with('*')
+            || (t.starts_with("/*")
+                && t.split_once("*/").is_none_or(|(_, after)| after.trim().is_empty()))
     };
     while start > 0 {
         let prev = lines[start - 1].1;

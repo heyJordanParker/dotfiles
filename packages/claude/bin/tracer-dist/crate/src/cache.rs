@@ -75,7 +75,7 @@ impl Drop for Maintenance {
 /// Bump whenever extraction, the `FileFacts` shape, or a repo-wide index
 /// shape changes — old entries become unreachable automatically across all
 /// namespaces.
-pub const SCHEMA_VERSION: u32 = 19;
+pub const SCHEMA_VERSION: u32 = 20;
 
 /// Active CCN backend. There is exactly one backend — the tree-sitter
 /// AST decision-node walker — so cache identity is unconditionally

@@ -124,6 +124,10 @@ fn extract_php(source: &[u8]) -> Vec<Signature> {
 
 fn php_class_signature(n: Node, source: &[u8]) -> Value {
     let mut m = Map::new();
+    let doc_tags = php_doc_tags(n, source);
+    if !doc_tags.is_empty() {
+        m.insert("doc_tags".into(), Value::Array(doc_tags));
+    }
     let (attrs, modifiers) = php_attrs_and_modifiers(n, source);
     if !attrs.is_empty() {
         m.insert("attributes".into(), Value::Array(attrs));
@@ -174,6 +178,10 @@ fn php_class_signature(n: Node, source: &[u8]) -> Value {
 
 fn php_function_signature(n: Node, source: &[u8]) -> Value {
     let mut m = Map::new();
+    let doc_tags = php_doc_tags(n, source);
+    if !doc_tags.is_empty() {
+        m.insert("doc_tags".into(), Value::Array(doc_tags));
+    }
     let (attrs, modifiers) = php_attrs_and_modifiers(n, source);
     if !attrs.is_empty() {
         m.insert("attributes".into(), Value::Array(attrs));
@@ -265,6 +273,7 @@ fn php_properties(n: Node, source: &[u8]) -> Vec<(String, i64, Value)> {
     let mut modifiers: Vec<String> = Vec::new();
     let mut type_text: Option<String> = None;
     let mut attrs: Vec<Value> = Vec::new();
+    let doc_tags = php_doc_tags(n, source);
     let mut hook_list: Option<Node> = None;
     let mut cur = n.walk();
     for child in n.children(&mut cur) {
@@ -332,6 +341,9 @@ fn php_properties(n: Node, source: &[u8]) -> Vec<(String, i64, Value)> {
             .unwrap_or_else(|| text(nn, source).trim_start_matches('$').to_string());
         let l = line(nn);
         let mut m = Map::new();
+        if !doc_tags.is_empty() {
+            m.insert("doc_tags".into(), Value::Array(doc_tags.clone()));
+        }
         if !attrs.is_empty() {
             m.insert("attributes".into(), Value::Array(attrs.clone()));
         }
@@ -486,6 +498,43 @@ fn php_parameter(p: Node, source: &[u8]) -> Value {
     Value::Object(m)
 }
 
+/// The access markers in the docblock directly above a declaration:
+/// `@internal`, `@deprecated`, and `@api`, each with the rest of its line.
+/// PHPStan, Psalm, and Laravel read these as access levels, so a member
+/// that carries one is not the ordinary `public` its modifier says.
+/// tree-sitter-php places the docblock as the declaration's previous
+/// sibling, with the attribute_list inside the declaration, so the sibling
+/// is the comment whether or not attributes sit between them.
+fn php_doc_tags(n: Node, source: &[u8]) -> Vec<Value> {
+    let Some(comment) = n.prev_named_sibling().filter(|s| s.kind() == "comment") else {
+        return Vec::new();
+    };
+    let body = text(comment, source);
+    if !body.starts_with("/**") {
+        return Vec::new();
+    }
+    body.lines()
+        // A one-line docblock keeps its `/**` and `*/` on the tag's own line.
+        .map(|l| {
+            l.trim()
+                .trim_start_matches('/')
+                .trim_start_matches('*')
+                .trim()
+                .trim_end_matches("*/")
+                .trim()
+        })
+        .filter(|l| {
+            ["@internal", "@deprecated", "@api"]
+                .iter()
+                .any(|tag| {
+                    l.strip_prefix(tag)
+                        .is_some_and(|rest| rest.chars().next().is_none_or(char::is_whitespace))
+                })
+        })
+        .map(|l| json!(l))
+        .collect()
+}
+
 /// Walk children of a class/method/function/property declaration and
 /// collect (attributes, modifiers). tree-sitter-php places these as
 /// direct children of the declaration node, in source order.
@@ -595,38 +644,21 @@ fn extract_ts(source: &[u8], is_tsx: bool) -> Vec<Signature> {
 }
 
 fn ts_decorators_before(n: Node, source: &[u8]) -> Vec<Value> {
-    // Decorators on a class declaration appear inside the wrapping
-    // `export_statement`, not as siblings of the class node. Walk siblings
-    // of whichever node is positioned in the surrounding scope.
-    let target = match n.parent() {
-        Some(p) if p.kind() == "export_statement" => p
-            .children(&mut p.walk())
-            .find(|c| c.id() == n.id())
-            .unwrap_or(n),
-        _ => n,
-    };
-    // Sibling walk: collect every leading `decorator` node up to the target.
-    let parent = target.parent();
-    let mut decorators: Vec<Node> = Vec::new();
-    if let Some(par) = parent {
-        let mut c = par.walk();
-        for child in par.children(&mut c) {
-            if child.id() == target.id() {
-                break;
-            }
-            if child.kind() == "decorator" {
-                decorators.push(child);
-            }
-        }
-    } else {
-        let mut cur = target.prev_sibling();
-        while let Some(s) = cur {
-            if s.kind() == "decorator" {
-                decorators.push(s);
-                cur = s.prev_sibling();
-            } else {
-                break;
-            }
+    // tree-sitter-typescript puts an inline `@Input() name` decorator inside
+    // the field node, and a decorator on its own line above a member or a
+    // class beside it as a sibling, before the `export` keyword for an
+    // exported class. Only the named siblings directly above belong to this
+    // node; walking every decorator before it in the class body handed a
+    // member the listener written above its neighbour.
+    let mut decorators: Vec<Node> = n
+        .children(&mut n.walk())
+        .filter(|c| c.kind() == "decorator")
+        .collect();
+    if decorators.is_empty() {
+        let mut cur = n.prev_named_sibling();
+        while let Some(s) = cur.filter(|s| s.kind() == "decorator") {
+            decorators.push(s);
+            cur = s.prev_named_sibling();
         }
         decorators.reverse();
     }

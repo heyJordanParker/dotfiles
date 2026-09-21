@@ -6,10 +6,11 @@
 //! start_line, giving per-symbol complexity where a function starts there.
 
 use crate::commands::{enrich, signatures};
-use crate::{cache, file_facts, relations};
+use crate::{cache, ccn, file_facts, relations};
 use anyhow::Result;
 use serde_json::{json, Map, Value};
 use std::collections::{BTreeMap, HashSet};
+use std::fmt::Write;
 use std::path::Path;
 use std::process::Command;
 
@@ -172,6 +173,129 @@ fn symbol_to_json(s: &Symbol) -> Value {
     Value::Object(m)
 }
 
+/// One symbol row as an Agent reads it, on the structure text view and on
+/// the file briefing alike: the access markers, the declared type, the name,
+/// the parameter and return signature, and the complexity. One renderer, so
+/// the two surfaces cannot disagree about a member.
+pub fn render_row(s: &Value) -> String {
+    let mut text = marker_prefix(s);
+    if let Some(t) = s.get("type").and_then(|v| v.as_str()) {
+        text.push_str(t);
+        text.push(' ');
+    }
+    text.push_str(s.get("name").and_then(|n| n.as_str()).unwrap_or(""));
+    text.push_str(&signature_surface(s));
+    if let Some(ccn) = s.get("cyclomatic_complexity").and_then(|c| c.as_i64()) {
+        let _ = write!(text, " ccn={ccn}");
+    }
+    text
+}
+
+/// The access markers in front of a symbol's name, in source order: docblock
+/// tags, then attributes or decorators, then modifiers (or the bare
+/// visibility where a language emits no modifier list). Ends with a space
+/// when non-empty.
+fn marker_prefix(s: &Value) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    let strings = |key: &str| -> Vec<String> {
+        s.get(key)
+            .and_then(|v| v.as_array())
+            .map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).collect())
+            .unwrap_or_default()
+    };
+    // The tag is the access signal; the sentence after it stays in the JSON.
+    parts.extend(
+        strings("doc_tags")
+            .iter()
+            .filter_map(|t| t.split_whitespace().next().map(str::to_string)),
+    );
+    let one_line = |src: &str| src.split_whitespace().collect::<Vec<_>>().join(" ");
+    if let Some(attrs) = s.get("attributes").and_then(|v| v.as_array()) {
+        for a in attrs {
+            if let Some(src) = a.get("source").and_then(|v| v.as_str()) {
+                parts.push(format!("#[{}]", one_line(src)));
+            }
+        }
+    }
+    if let Some(decorators) = s.get("decorators").and_then(|v| v.as_array()) {
+        for d in decorators {
+            if let Some(src) = d.get("source").and_then(|v| v.as_str()) {
+                parts.push(one_line(src));
+            }
+        }
+    }
+    let modifiers = strings("modifiers");
+    if modifiers.is_empty() {
+        if let Some(vis) = s.get("visibility").and_then(|v| v.as_str()) {
+            parts.push(vis.to_string());
+        }
+    } else {
+        parts.extend(modifiers);
+    }
+    if parts.is_empty() {
+        String::new()
+    } else {
+        parts.join(" ") + " "
+    }
+}
+
+/// The parameter + return portion of a symbol's signature. Prefers the ctags
+/// `signature` string. When ctags left it null, reconstructs `(type name, …)`
+/// from the tree-sitter `parameters` array so PHP / TypeScript / Python
+/// symbols carry their surface rather than degrading to a bare name. ctags
+/// writes a signature as its parameters alone, so one that ends at the
+/// parenthesis takes ` -> <return_type>` from tree-sitter. Empty string for
+/// symbols with neither (e.g. a property or class node with no callable
+/// shape).
+fn signature_surface(s: &Value) -> String {
+    let ret = s
+        .get("return_type")
+        .and_then(|r| r.as_str())
+        .map(|r| r.trim_start_matches(':').trim())
+        .filter(|r| !r.is_empty());
+    let mut out = String::new();
+    match s.get("signature").and_then(|v| v.as_str()).filter(|sig| !sig.is_empty()) {
+        Some(sig) => {
+            if !sig.starts_with('(') {
+                out.push(' ');
+            }
+            out.push_str(sig);
+            if !sig.ends_with(')') {
+                return out;
+            }
+        }
+        None => {
+            if let Some(params) = s.get("parameters").and_then(|p| p.as_array()) {
+                let rendered: Vec<String> = params.iter().map(render_parameter).collect();
+                out.push('(');
+                out.push_str(&rendered.join(", "));
+                out.push(')');
+            }
+        }
+    }
+    if let Some(ret) = ret {
+        let _ = write!(out, " -> {ret}");
+    }
+    out
+}
+
+/// One parameter from a tree-sitter `parameters` entry as `type name` (either
+/// part may be absent). A trailing `= default` is appended when present.
+fn render_parameter(p: &Value) -> String {
+    let type_part = p.get("type").and_then(|t| t.as_str()).unwrap_or("");
+    let name_part = p.get("name").and_then(|n| n.as_str()).unwrap_or("");
+    let mut out = match (type_part.is_empty(), name_part.is_empty()) {
+        (false, false) => format!("{type_part} {name_part}"),
+        (true, false) => name_part.to_string(),
+        (false, true) => type_part.to_string(),
+        (true, true) => String::new(),
+    };
+    if let Some(default) = p.get("default").and_then(|d| d.as_str()) {
+        let _ = write!(out, " = {default}");
+    }
+    out
+}
+
 pub fn run(path: &Path, as_json: bool) -> Result<Value> {
     crate::pathval::require_file(path, "PATH");
     let p = cache::absolutize(path);
@@ -206,16 +330,30 @@ pub fn run(path: &Path, as_json: bool) -> Result<Value> {
     // Per-method CCN: match ctags symbol lines to the AST per-function
     // list, keyed by the function's start_line. The source is read once and
     // reused for the signature extraction pass below.
-    let function_count = facts.as_ref().map(|f| f.function_count).unwrap_or(0);
+    let functions: &[ccn::FunctionFact] = facts.as_ref().map(|f| f.functions.as_slice()).unwrap_or(&[]);
     let mut by_line: BTreeMap<i64, i64> = BTreeMap::new();
     let source = std::fs::read(&p).unwrap_or_default();
-    if function_count > 0 {
-        if let Some(facts) = &facts {
-            for f in &facts.functions {
-                by_line.insert(f.start_line, f.cyclomatic_complexity);
-            }
-        }
+    for f in functions {
+        by_line.insert(f.start_line, f.cyclomatic_complexity);
     }
+    // An attribute or decorator above the signature starts the function's
+    // span before the line ctags reports, so a symbol its line does not hit
+    // takes the function whose span holds that line and whose qualified name
+    // ends in the symbol's.
+    let ccn_for = |name: &str, line: i64| -> Option<i64> {
+        by_line.get(&line).copied().or_else(|| {
+            functions
+                .iter()
+                .find(|f| {
+                    f.start_line <= line
+                        && line < f.start_line + f.nloc
+                        && (f.name == name
+                            || f.name.ends_with(&format!("::{name}"))
+                            || f.name.ends_with(&format!(".{name}")))
+                })
+                .map(|f| f.cyclomatic_complexity)
+        })
+    };
     // Per-symbol signatures (visibility, return types, attributes, params,
     // property hooks, class extends/implements). Matched to existing
     // ctags-found symbols by (line, name); any signature not matched is
@@ -228,7 +366,9 @@ pub fn run(path: &Path, as_json: bool) -> Result<Value> {
             Some(l) => l,
             None => continue,
         };
-        if let Some(c) = by_line.get(&line) {
+        if matches!(s.kind.as_str(), "function" | "method") {
+            s.cyclomatic_complexity = ccn_for(&s.name, line);
+        } else if let Some(c) = by_line.get(&line) {
             s.cyclomatic_complexity = Some(*c);
         }
         for (i, sig) in sigs.iter().enumerate() {
@@ -246,7 +386,11 @@ pub fn run(path: &Path, as_json: bool) -> Result<Value> {
         if matched.contains(&i) {
             continue;
         }
-        let ccn = by_line.get(&sig.line).copied();
+        let ccn = if sig.kind == "function" {
+            ccn_for(&sig.name, sig.line)
+        } else {
+            by_line.get(&sig.line).copied()
+        };
         symbols.push(Symbol {
             name: sig.name.clone(),
             kind: sig.kind.clone(),
@@ -380,33 +524,26 @@ pub fn run(path: &Path, as_json: bool) -> Result<Value> {
         }
         println!();
     }
-    // Text output iterates kinds in sorted order.
+    // Text output iterates kinds in sorted order, off the JSON rows built
+    // above, so the text and the briefing render one row the same way.
     for kind in by_kind.keys() {
         println!("{kind}s:");
-        for s in &by_kind[kind] {
-            let ccn_str = s
-                .cyclomatic_complexity
-                .map(|c| format!(" cyclomatic_complexity={c}"))
-                .unwrap_or_default();
-            let sig = s
-                .signature
-                .as_ref()
-                .filter(|x| !x.is_empty())
-                .map(|x| format!(" {x}"))
-                .unwrap_or_default();
-            let scope = s
-                .scope
-                .as_ref()
+        let rows = out["results"]["symbols_by_kind"][kind]
+            .as_array()
+            .map(|a| a.as_slice())
+            .unwrap_or_default();
+        for row in rows {
+            let scope = row
+                .get("scope")
+                .and_then(|x| x.as_str())
                 .filter(|x| !x.is_empty())
                 .map(|x| format!(" [in {x}]"))
                 .unwrap_or_default();
             println!(
-                "  L{:<5} {}{}{}{}",
-                s.line.unwrap_or(0),
-                s.name,
-                sig,
-                scope,
-                ccn_str
+                "  L{:<5} {}{}",
+                row.get("line").and_then(|l| l.as_i64()).unwrap_or(0),
+                render_row(row),
+                scope
             );
         }
         println!();

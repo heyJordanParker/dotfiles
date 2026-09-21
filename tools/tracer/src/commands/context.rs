@@ -241,12 +241,10 @@ fn file_mode(p: &Path, lines: Option<(usize, usize)>, record: bool) -> Result<St
     Ok(out)
 }
 
-/// One-line symbol surface for a file: every declared symbol rendered with
-/// its full signature — the same per-method surface `trace structure`
-/// produces, drawn from `structure::run`'s JSON so the signature surface has
-/// one source of truth and isn't recomputed here. Each symbol reads
-/// `[visibility] name<signature> -> <return> [ccn=N]`, joined by `; `. Empty
-/// string when the file has no extracted symbols or structure fails.
+/// One-line symbol surface for a file: every declared symbol rendered by
+/// `structure::render_row` from `structure::run`'s JSON, so the briefing
+/// and the structure text view show one row the same way, joined by `; `.
+/// Empty string when the file has no extracted symbols or structure fails.
 fn symbols_line(path: &Path) -> String {
     let value = match super::structure::run(path, true) {
         Ok(v) => v,
@@ -264,7 +262,7 @@ fn symbols_line(path: &Path) -> String {
         };
         for s in arr {
             let line_no = s.get("line").and_then(|l| l.as_i64()).unwrap_or(0);
-            entries.push((line_no, render_symbol(s)));
+            entries.push((line_no, super::structure::render_row(s)));
         }
     }
     if entries.is_empty() {
@@ -274,76 +272,6 @@ fn symbols_line(path: &Path) -> String {
     entries.sort_by_key(|(line_no, _)| *line_no);
     let rendered: Vec<String> = entries.into_iter().map(|(_, text)| text).collect();
     format!("[symbols: {}]", rendered.join("; "))
-}
-
-/// One symbol from `structure`'s per-symbol JSON rendered to its callable
-/// surface: visibility prefix, name, the parameter/return signature (the
-/// ctags `signature` string when present, else reconstructed from the
-/// tree-sitter `parameters`/`return_type` fields for languages ctags leaves
-/// bare), and cyclomatic complexity. Mirrors the structure text view's
-/// per-symbol line.
-fn render_symbol(s: &Value) -> String {
-    let name = s.get("name").and_then(|n| n.as_str()).unwrap_or("");
-    let mut text = String::new();
-    if let Some(vis) = s.get("visibility").and_then(|v| v.as_str()) {
-        text.push_str(vis);
-        text.push(' ');
-    }
-    text.push_str(name);
-    text.push_str(&signature_surface(s));
-    if let Some(ccn) = s.get("cyclomatic_complexity").and_then(|c| c.as_i64()) {
-        let _ = write!(text, " ccn={ccn}");
-    }
-    text
-}
-
-/// The parameter + return portion of a symbol's signature. Prefers the ctags
-/// `signature` string (already a complete `(params) -> ret` for languages
-/// ctags covers). When ctags left it null, reconstructs `(type name, …)` from
-/// the tree-sitter `parameters` array and ` -> <return_type>` from
-/// `return_type` so PHP / TypeScript / Python symbols carry their surface
-/// rather than degrading to a bare name. Empty string for symbols with
-/// neither (e.g. a property or class node with no callable shape).
-fn signature_surface(s: &Value) -> String {
-    if let Some(sig) = s.get("signature").and_then(|v| v.as_str()) {
-        if !sig.is_empty() {
-            return if sig.starts_with('(') {
-                sig.to_string()
-            } else {
-                format!(" {sig}")
-            };
-        }
-    }
-    let mut out = String::new();
-    if let Some(params) = s.get("parameters").and_then(|p| p.as_array()) {
-        let rendered: Vec<String> = params.iter().map(render_parameter).collect();
-        out.push('(');
-        out.push_str(&rendered.join(", "));
-        out.push(')');
-    }
-    if let Some(ret) = s.get("return_type").and_then(|r| r.as_str()) {
-        if !ret.is_empty() {
-            let _ = write!(out, " -> {}", ret.trim_start_matches(':').trim());
-        }
-    }
-    out
-}
-
-/// One parameter from a tree-sitter `parameters` entry as `type name` (either
-/// part may be absent). A trailing `= default` is appended when present.
-fn render_parameter(p: &Value) -> String {
-    let type_part = p.get("type").and_then(|t| t.as_str()).unwrap_or("");
-    let name_part = p.get("name").and_then(|n| n.as_str()).unwrap_or("");
-    let mut out = match (type_part.is_empty(), name_part.is_empty()) {
-        (false, false) => format!("{type_part} {name_part}"),
-        (true, false) => name_part.to_string(),
-        (false, true) => type_part.to_string(),
-        (true, true) => String::new(),
-    };
-    if let Some(default) = p.get("default").and_then(|d| d.as_str()) {
-        let _ = write!(out, " = {default}");
-    }
-    out
 }
 
 /// Emit the one-level file listing for `directory` the first time it is

@@ -388,6 +388,20 @@ fn walk_references(root: Node, source: &[u8]) -> Vec<Reference> {
                     }
                 }
             }
+            // `#[Foo(...)]` names the attribute class without importing it
+            // when both sit in one namespace, so the class stays reachable
+            // through the site rather than through a `use` line. A method's
+            // attribute_list sits inside the method node, so `enclosing` is
+            // already that method.
+            "attribute" => {
+                let mut c = n.walk();
+                for child in n.children(&mut c) {
+                    if matches!(child.kind(), "name" | "qualified_name") {
+                        push_named_type(child, source, enclosing.as_deref(), &mut out);
+                        break;
+                    }
+                }
+            }
             _ => {}
         }
         let mut c = n.walk();
