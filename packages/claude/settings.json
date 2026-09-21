@@ -15,6 +15,7 @@
     "USER_TYPE": "ant"
   },
   "includeCoAuthoredBy": false,
+  "promptSuggestionEnabled": false,
   "permissions": {
     "allow": [
       "Skill(building-skills)",
