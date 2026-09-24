@@ -1,4 +1,4 @@
-"""The Agent-dispatch gate: which subagent_type, which model, and no teammates."""
+"""The Agent-dispatch gate: which subagent_type and which model."""
 
 import io
 import json
@@ -20,14 +20,6 @@ def _feedback(capsys):
     each test reads it once."""
     captured = capsys.readouterr()
     return captured.out + captured.err
-
-
-def test_named_dispatch_is_blocked(monkeypatch, capsys):
-    """A name makes the dispatch a teammate, and a teammate's report reaches the
-    dispatcher only if it calls SendMessage itself — reports get lost that way."""
-    assert _run(monkeypatch, {"subagent_type": "ponytail", "name": "worker"}) == 2
-    out = _feedback(capsys)
-    assert "teammate" in out and "agentId" in out
 
 
 def test_unnamed_dispatch_passes(monkeypatch):

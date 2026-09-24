@@ -60,9 +60,9 @@ alias vim='nvim'
 alias nvim-lazy='NVIM_APPNAME=nvim-lazy nvim'
 alias nvim-astro='NVIM_APPNAME=nvim-astro nvim'
 alias nvim-chad='NVIM_APPNAME=nvim-chad nvim'
-alias cld="USER_TYPE=ant CLAUDE_CODE_NO_FLICKER=1 CLAUDE_CODE_ENABLE_TASKS=true EDITOR=prompt-editor claude --dangerously-skip-permissions --teammate-mode in-process --agent cto --model fable --effort medium --autocompact 700k"
-alias cldcopy="USER_TYPE=ant CLAUDE_CODE_NO_FLICKER=1 CLAUDE_CODE_ENABLE_TASKS=true EDITOR=prompt-editor CLAUDE_CONFIG_DIR=$HOME/.claude/profiles/copywriter claude --dangerously-skip-permissions --teammate-mode in-process --mcp-config $HOME/.claude/profiles/copywriter/.mcp.json --strict-mcp-config --agent copy-chief --model fable --effort medium --autocompact 700k"
-alias cldexp="USER_TYPE=ant CLAUDE_CODE_NO_FLICKER=1 CLAUDE_CODE_ENABLE_TASKS=true EDITOR=prompt-editor CLAUDE_CONFIG_DIR=$HOME/.claude/profiles/experimental claude --dangerously-skip-permissions --teammate-mode in-process --mcp-config $HOME/.claude/profiles/experimental/.mcp.json"
+alias cld="claude"
+alias cldcopy="CLAUDE_CONFIG_DIR=$HOME/.claude/profiles/copywriter claude --mcp-config $HOME/.claude/profiles/copywriter/.mcp.json --strict-mcp-config"
+alias cldexp="CLAUDE_CONFIG_DIR=$HOME/.claude/profiles/experimental claude"
 alias python='python3'
 alias pip='pip3'
 f() { find . -iname "*$1*" }

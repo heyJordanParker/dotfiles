@@ -6,10 +6,6 @@
   "cleanupPeriodDays": 100000000,
   "skillListingBudgetFraction": 0.02,
   "env": {
-    "CLAUDE_CODE_ENABLE_TASKS": "true",
-    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
-    "CLAUDE_CODE_MAX_SUBAGENTS_PER_SESSION": "1000000",
-    "CLAUDE_CODE_NO_FLICKER": "1",
     "EDITOR": "prompt-editor",
     "HCOM": "hcom",
     "USER_TYPE": "ant"
@@ -748,14 +744,21 @@
   },
   "outputStyle": "Concise",
   "alwaysThinkingEnabled": true,
-  "effortLevel": "medium",
+  "modelSettings": {
+    "fable": {
+      "effortLevel": "medium"
+    },
+    "opus": {
+      "effortLevel": "high"
+    }
+  },
   "agent": "cto",
   "autoUpdatesChannel": "latest",
   "tui": "fullscreen",
   "autoMemoryEnabled": false,
   "skipDangerousModePermissionPrompt": true,
   "fileCheckpointingEnabled": false,
-  "teammateMode": "in-process",
+  "autoCompactWindow": 700000,
   "remoteControlAtStartup": true,
   "voiceEnabled": true
 }

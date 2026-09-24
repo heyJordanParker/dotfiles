@@ -1,7 +1,9 @@
 {
   "autoMemoryEnabled": false,
   "env": {
-    "HCOM": "hcom"
+    "EDITOR": "prompt-editor",
+    "HCOM": "hcom",
+    "USER_TYPE": "ant"
   },
   "hooks": {
     "Notification": [
@@ -255,6 +257,10 @@
       }
     ]
   },
+  "permissions": {
+    "defaultMode": "bypassPermissions"
+  },
   "skipDangerousModePermissionPrompt": true,
-  "theme": "dark"
+  "theme": "dark",
+  "tui": "fullscreen"
 }

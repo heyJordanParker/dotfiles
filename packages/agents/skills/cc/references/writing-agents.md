@@ -145,6 +145,7 @@ Example:
 - Permission Rules can constrain spawns with `Agent(type)` deny Rules, `Agent(x,y)` allowed types, and `Tool(param:value)` matches such as `Agent(model:opus)` (v2.1.178+/v2.1.186+).
 - Every dispatch is async: the call returns an agentId at once and the report arrives later in a completion notification.
 - Agent teams are experimental behind `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`; `TeamCreate` and `TeamDelete` are removed (v2.1.178+), every session has one implicit team, and `team_name` is accepted but ignored.
+- With agent teams off, the Agent tool offers no `name` parameter, so every dispatch runs as a Subagent and returns its report.
 
 ### Continue a previously spawned agent with `SendMessage({to: agentId})`
 The Agent tool no longer accepts a `resume` parameter. Use `SendMessage({to: agentId})` to continue a previously spawned agent.
@@ -157,10 +158,6 @@ The Agent tool no longer accepts a `resume` parameter. Use `SendMessage({to: age
 
 ### Read the background task output file path
 `TaskOutput` is deprecated. Use `Read` on the background task's output file path.
-
-### Never pass the Agent tool's `name` parameter
-`name` makes the dispatch an `in_process_teammate`, whose final text is never returned to the dispatcher — its only channel back is `SendMessage`, which the Subagent must look up before it can call.
-/delegate owns the dispatch mechanics.
 
 ## 5. Preload Skills only when they are visible
 

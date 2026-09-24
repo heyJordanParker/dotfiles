@@ -1,20 +1,31 @@
 {
-  "autoMemoryEnabled": false,
-  "effortLevel": "medium",
-  "env": {
-    "HCOM": "hcom"
-  },
   "fileSuggestion": {
-    "command": "~/.claude/file-suggestion.sh",
-    "type": "command"
+    "type": "command",
+    "command": "~/.claude/file-suggestion.sh"
   },
+  "cleanupPeriodDays": 100000000,
+  "skillListingBudgetFraction": 0.02,
+  "env": {
+    "EDITOR": "prompt-editor",
+    "HCOM": "hcom",
+    "USER_TYPE": "ant"
+  },
+  "includeCoAuthoredBy": false,
+  "permissions": {
+    "deny": [
+      "EnterWorktree",
+      "ExitWorktree"
+    ],
+    "defaultMode": "bypassPermissions"
+  },
+  "model": "opus",
   "hooks": {
     "Notification": [
       {
         "hooks": [
           {
-            "command": "cmd=${HCOM:-hcom}; command -v \"${cmd%% *}\" >/dev/null 2>&1 && exec $cmd notify || exit 0",
-            "type": "command"
+            "type": "command",
+            "command": "cmd=${HCOM:-hcom}; command -v \"${cmd%% *}\" >/dev/null 2>&1 && exec $cmd notify || exit 0"
           }
         ]
       }
@@ -23,8 +34,8 @@
       {
         "hooks": [
           {
-            "command": "cmd=${HCOM:-hcom}; command -v \"${cmd%% *}\" >/dev/null 2>&1 && exec $cmd permission-denied || exit 0",
-            "type": "command"
+            "type": "command",
+            "command": "cmd=${HCOM:-hcom}; command -v \"${cmd%% *}\" >/dev/null 2>&1 && exec $cmd permission-denied || exit 0"
           }
         ]
       }
@@ -33,8 +44,8 @@
       {
         "hooks": [
           {
-            "command": "cmd=${HCOM:-hcom}; command -v \"${cmd%% *}\" >/dev/null 2>&1 && exec $cmd permission-request || exit 0",
-            "type": "command"
+            "type": "command",
+            "command": "cmd=${HCOM:-hcom}; command -v \"${cmd%% *}\" >/dev/null 2>&1 && exec $cmd permission-request || exit 0"
           }
         ]
       }
@@ -43,9 +54,9 @@
       {
         "hooks": [
           {
+            "type": "command",
             "command": "cmd=${HCOM:-hcom}; command -v \"${cmd%% *}\" >/dev/null 2>&1 && exec $cmd post || exit 0",
-            "timeout": 86400,
-            "type": "command"
+            "timeout": 86400
           }
         ]
       },
@@ -64,21 +75,21 @@
       {
         "hooks": [
           {
-            "command": "cmd=${HCOM:-hcom}; command -v \"${cmd%% *}\" >/dev/null 2>&1 && exec $cmd post-failure || exit 0",
-            "type": "command"
+            "type": "command",
+            "command": "cmd=${HCOM:-hcom}; command -v \"${cmd%% *}\" >/dev/null 2>&1 && exec $cmd post-failure || exit 0"
           }
         ]
       }
     ],
     "PreToolUse": [
       {
+        "matcher": "Bash|PowerShell|Agent|Task|Write|Edit",
         "hooks": [
           {
-            "command": "cmd=${HCOM:-hcom}; command -v \"${cmd%% *}\" >/dev/null 2>&1 && exec $cmd pre || exit 0",
-            "type": "command"
+            "type": "command",
+            "command": "cmd=${HCOM:-hcom}; command -v \"${cmd%% *}\" >/dev/null 2>&1 && exec $cmd pre || exit 0"
           }
-        ],
-        "matcher": "Bash|PowerShell|Agent|Task|Write|Edit"
+        ]
       },
       {
         "matcher": "Bash",
@@ -140,8 +151,8 @@
       {
         "hooks": [
           {
-            "command": "cmd=${HCOM:-hcom}; command -v \"${cmd%% *}\" >/dev/null 2>&1 && exec $cmd sessionend || exit 0",
-            "type": "command"
+            "type": "command",
+            "command": "cmd=${HCOM:-hcom}; command -v \"${cmd%% *}\" >/dev/null 2>&1 && exec $cmd sessionend || exit 0"
           }
         ]
       }
@@ -150,8 +161,8 @@
       {
         "hooks": [
           {
-            "command": "cmd=${HCOM:-hcom}; command -v \"${cmd%% *}\" >/dev/null 2>&1 && exec $cmd sessionstart || exit 0",
-            "type": "command"
+            "type": "command",
+            "command": "cmd=${HCOM:-hcom}; command -v \"${cmd%% *}\" >/dev/null 2>&1 && exec $cmd sessionstart || exit 0"
           }
         ]
       },
@@ -169,9 +180,9 @@
       {
         "hooks": [
           {
+            "type": "command",
             "command": "cmd=${HCOM:-hcom}; command -v \"${cmd%% *}\" >/dev/null 2>&1 && exec $cmd poll || exit 0",
-            "timeout": 86400,
-            "type": "command"
+            "timeout": 86400
           }
         ]
       },
@@ -194,8 +205,8 @@
       {
         "hooks": [
           {
-            "command": "cmd=${HCOM:-hcom}; command -v \"${cmd%% *}\" >/dev/null 2>&1 && exec $cmd stop-failure || exit 0",
-            "type": "command"
+            "type": "command",
+            "command": "cmd=${HCOM:-hcom}; command -v \"${cmd%% *}\" >/dev/null 2>&1 && exec $cmd stop-failure || exit 0"
           }
         ]
       }
@@ -204,8 +215,8 @@
       {
         "hooks": [
           {
-            "command": "cmd=${HCOM:-hcom}; command -v \"${cmd%% *}\" >/dev/null 2>&1 && exec $cmd subagent-start || exit 0",
-            "type": "command"
+            "type": "command",
+            "command": "cmd=${HCOM:-hcom}; command -v \"${cmd%% *}\" >/dev/null 2>&1 && exec $cmd subagent-start || exit 0"
           }
         ]
       }
@@ -214,9 +225,9 @@
       {
         "hooks": [
           {
+            "type": "command",
             "command": "cmd=${HCOM:-hcom}; command -v \"${cmd%% *}\" >/dev/null 2>&1 && exec $cmd subagent-stop || exit 0",
-            "timeout": 86400,
-            "type": "command"
+            "timeout": 86400
           }
         ]
       },
@@ -239,8 +250,8 @@
       {
         "hooks": [
           {
-            "command": "cmd=${HCOM:-hcom}; command -v \"${cmd%% *}\" >/dev/null 2>&1 && exec $cmd userpromptsubmit || exit 0",
-            "type": "command"
+            "type": "command",
+            "command": "cmd=${HCOM:-hcom}; command -v \"${cmd%% *}\" >/dev/null 2>&1 && exec $cmd userpromptsubmit || exit 0"
           }
         ]
       },
@@ -260,16 +271,35 @@
       }
     ]
   },
-  "model": "opus",
-  "skipDangerousModePermissionPrompt": true,
-  "statusLine": {
-    "command": "bash ~/.claude/statusline-command.sh",
-    "type": "command"
+  "worktree": {
+    "bgIsolation": "none"
   },
-  "theme": "dark",
+  "statusLine": {
+    "type": "command",
+    "command": "bash ~/.claude/statusline-command.sh"
+  },
+  "alwaysThinkingEnabled": true,
+  "modelSettings": {
+    "fable": {
+      "effortLevel": "medium"
+    },
+    "opus": {
+      "effortLevel": "high"
+    }
+  },
+  "autoCompactWindow": 700000,
+  "promptSuggestionEnabled": false,
+  "agent": "copy-chief",
+  "autoUpdatesChannel": "latest",
+  "tui": "fullscreen",
   "voice": {
     "enabled": true,
     "mode": "hold"
   },
+  "autoMemoryEnabled": false,
+  "skipDangerousModePermissionPrompt": true,
+  "theme": "dark",
+  "fileCheckpointingEnabled": false,
+  "remoteControlAtStartup": true,
   "voiceEnabled": true
 }

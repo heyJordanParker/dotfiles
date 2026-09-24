@@ -11,7 +11,7 @@ auto_subscribe = "collision"
 auto_trust_workspace = true
 
 [launch.claude]
-args = "--dangerously-skip-permissions --teammate-mode in-process --agent cto --model fable --effort medium --autocompact 700k"
+args = ""
 
 [launch.gemini]
 args = ""

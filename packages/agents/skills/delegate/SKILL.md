@@ -111,11 +111,6 @@ One message, multiple Agent calls, each with its own task.md path as the prompt.
 dispatch is already async and parallel, so it returns its agentId at once and you keep
 working. Sequence only when one Task's output feeds the next.
 
-### Dispatch without a name
-An unnamed dispatch returns its report and resumes by agentId; `block_builtin_subagents.py`
-refuses a named one.
-Never: `name`, or `run_in_background`, which the Agent tool has no parameter for.
-
 ### Resume only to finish or correct the dispatched Task
 `SendMessage({to: agentId})` resumes an agent from its transcript, even after it returned,
 using the agentId from its spawn result. The message is the task.md path, and the Queue
