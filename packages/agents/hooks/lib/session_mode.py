@@ -42,16 +42,12 @@ def is_dispatched(event):
     """Whether an agent someone dispatched owns this event, rather than a session
     the architect drives himself.
 
-    A sidechain marker is the only payload evidence of a dispatch. `agentId`
-    alone is not: the architect's own hand-managed teammates are top-level
-    sessions carrying one, and gating on it spawn-blocked his own orchestrators.
-    Codex has no sidechain, so a codex-run agent is named by its exported
-    definition path instead.
+    Claude puts `agent_id` on a payload only inside a Subagent call, so it names a
+    Claude dispatch. A session started with `--agent`, the architect's own
+    teammate, carries `agent_type` without it and stays his. A codex-run agent is
+    named by its exported definition path instead.
     """
-    for key in ("isSidechain", "is_sidechain"):
-        if field(event, key, ""):
-            return True
-    return bool(os.environ.get(agent_memory.AGENT_FILE_VAR))
+    return bool(field(event, "agent_id", "") or os.environ.get(agent_memory.AGENT_FILE_VAR))
 
 
 def resolve(event, session_id=None):

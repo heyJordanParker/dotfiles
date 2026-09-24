@@ -64,14 +64,14 @@ def session(tmp_path, monkeypatch):
         path.write_text(body + "---\n\nFrame.\n")
         return name, str(path)
 
-    def run(hook, tool_name, tool_input, dispatched_as=..., sidechain_as=...,
+    def run(hook, tool_name, tool_input, dispatched_as=..., subagent_as=...,
             teammate=False, teammate_as=..., missing_agent="", spawn=False, child_as=...):
         """Run one gate against one shape of caller.
 
-        `dispatched_as` names the mode a codex run declares, `sidechain_as` the mode
+        `dispatched_as` names the mode a codex run declares, `subagent_as` the mode
         a Claude subagent declares, `missing_agent` names a subagent whose name has
         no roster file behind it, and `teammate` marks a hand-managed top-level
-        agent — an agentId with no sidechain marker. `teammate_as` is that same
+        agent — an agentId with no `agent_id`. `teammate_as` is that same
         teammate with an agent named on the payload, the way the harness names one a
         session was started on, declaring the given mode. Pass none of them for the
         architect's own plain session. `spawn` runs the gate as its own process.
@@ -91,17 +91,16 @@ def session(tmp_path, monkeypatch):
             monkeypatch.setenv("CODEX_RUN_AGENT_FILE", agent_file(dispatched_as)[1])
         else:
             monkeypatch.delenv("CODEX_RUN_AGENT_FILE", raising=False)
-        if sidechain_as is not ...:
-            payload["isSidechain"] = True
-            payload["agentId"] = "agent-abc"
-            payload["agent_type"] = agent_file(sidechain_as)[0]
+        if subagent_as is not ...:
+            payload["agent_id"] = "a6ae6febe3a8e3621"
+            payload["agent_type"] = agent_file(subagent_as)[0]
         if missing_agent:
-            payload["isSidechain"] = True
+            payload["agent_id"] = "a6ae6febe3a8e3621"
             payload["agent_type"] = missing_agent
         if child_as is not ...:
             payload["agent_id"] = "01a0-child"
             payload["agent_type"] = agent_file(child_as)[0]
-        if (sidechain_as is not ... or missing_agent or teammate_as is not ...
+        if (subagent_as is not ... or missing_agent or teammate_as is not ...
                 or child_as is not ...):
             monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "config"))
         else:
@@ -173,8 +172,22 @@ def test_dispatched_executor_does_not_spawn(session):
 
 
 # ---------------------------------------------------------------------------
-# a sidechain agent: the same policy the codex path answers from
+# a Claude subagent: the same policy the codex path answers from
 # ---------------------------------------------------------------------------
+
+def test_claude_subagent_spawns_under_its_own_mode(session):
+    session(state="execute", mode="orchestrate", mode_typed=True)
+    assert session.run(SPAWNING, "Bash", {"command": 'codex-run @cto "y"'},
+                       subagent_as="build") == BLOCK
+    session(state="execute", mode="build", mode_typed=True)
+    assert session.run(SPAWNING, "Bash", {"command": 'codex-run @cto "y"'},
+                       subagent_as="orchestrate") == ALLOW
+
+
+def test_claude_subagent_orchestrator_own_edit_is_blocked(session):
+    session(state="execute", mode="build", mode_typed=True)
+    assert session.run(WRITES, "Edit", {"file_path": os.path.join(REPO, "note.txt")},
+                       subagent_as="orchestrate") == BLOCK
 
 
 

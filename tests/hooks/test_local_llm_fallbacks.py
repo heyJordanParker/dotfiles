@@ -142,17 +142,17 @@ CASES = [
     ("vc_benign", "babysitter.py",
      {"last_assistant_message": "All done.", "transcript_path": ""}, "p_vc1", dict(S),
      (0, "", "", dict(S))),
-    # A dispatch is named by the sidechain marker, not by the session id: a Claude
-    # subagent's payload carries the parent's UUID, so the id cannot tell them apart.
+    # A dispatch is named by `agent_id`, not by the session id: a Claude subagent's
+    # payload carries the parent's UUID, so the id cannot tell them apart.
     ("vc_agent_skip", "babysitter.py",
      {"last_assistant_message": "shall i proceed", "transcript_path": "",
-      "isSidechain": True}, None, None,
+      "agent_id": "a6ae6febe3a8e3621"}, None, None,
      (0, "", "", None)),
     ("vpq_plan_fail", "validate_plan_quality.py",
      {"tool_input": {"plan": "# Plan"}}, "p_vpq1", None,
      (0, "", "", None)),
     ("vpq_agent_skip", "validate_plan_quality.py",
-     {"tool_input": {"plan": "# Plan"}, "isSidechain": True}, None, None,
+     {"tool_input": {"plan": "# Plan"}, "agent_id": "a6ae6febe3a8e3621"}, None, None,
      (0, "", "", None)),
 ]
 
