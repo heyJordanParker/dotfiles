@@ -86,8 +86,9 @@ def permits(event, surface):
     A session that names no agent and typed no mode has no chosen mode to enforce,
     so it spawns.
 
-    Writes outside a dispatch stay on the state axis, where the architect's own
-    sessions sit: proposing holds them back, executing lets them through.
+    Writes outside a dispatch are left to the state axis alone, where the
+    architect's own sessions sit: proposing holds them back, executing lets them
+    through. A dispatch answers to that axis as well, through `state`.
     """
     if is_dispatched(event):
         return POLICY[declared_mode(event)][surface]
@@ -98,13 +99,15 @@ def permits(event, surface):
 
 
 def state(event):
-    """The session state axis, defaulting to propose for an unrecorded session.
+    """The launching session's state axis, which every event answers to.
 
-    A dispatched agent is always executing: its task arrived already scoped and
-    there is no proposal pending for it to hold up. Every other session reads the
-    stage it recorded, the architect's hand-managed teammates included.
+    A dispatched agent inherits its launcher's stage: a codex run exempted from it
+    wrote the repo while the architect was still weighing the proposal. An
+    unrecorded session defaults to propose, except a dispatch with no recorded
+    launcher behind it — a `codex-run` started outside any Claude session — whose
+    task arrived already scoped.
     """
-    if is_dispatched(event):
-        return "execute"
     value = load_state(owner_session(event)).get("state")
-    return value if value in STATES else "propose"
+    if value in STATES:
+        return value
+    return "execute" if is_dispatched(event) else "propose"

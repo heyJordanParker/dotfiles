@@ -146,7 +146,7 @@ def test_dispatched_orchestrator_own_edit_is_blocked(session):
 # ---------------------------------------------------------------------------
 
 def test_dispatched_executor_writes(session):
-    session(state="propose", mode="orchestrate", mode_typed=True)
+    session(state="execute", mode="orchestrate", mode_typed=True)
     assert session.run(WRITES, "Write", {"file_path": os.path.join(REPO, "note.txt")},
                        dispatched_as="build") == ALLOW
 

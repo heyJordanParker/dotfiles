@@ -20,7 +20,7 @@ import sys
 from lib import feedback
 from lib.command import all_segments, git_normalize, is_ours, mutation_targets
 from lib.event import canonical_tool, field, patch_target, read_event
-from lib.session_mode import is_dispatched, permits, state
+from lib.session_mode import permits, state
 
 BINDING = {
     "events": {
@@ -109,11 +109,10 @@ def main():
     # `git status` all run — an orchestrator has to be able to validate what its
     # subagents built — and only a command that changes the tree is refused.
     banned = not permits(event, "write")
-    # The proposing arm governs every session the architect drives himself, his
-    # hand-managed teammates included. A dispatched agent's task arrived already
-    # scoped and there is no proposal pending for it to hold up, so it alone is
-    # exempt — and what counts as dispatched is session_mode's one definition.
-    proposing = not is_dispatched(event) and state(event) == "propose"
+    # The proposing arm governs every event, a dispatched agent's included: it
+    # answers to the stage of the session that launched it, so a codex run under a
+    # proposing launcher writes nothing in the tree either.
+    proposing = state(event) == "propose"
     if not proposing and not banned:
         return 0
     refusal = MODE_MSG if banned else BLOCK_MSG
