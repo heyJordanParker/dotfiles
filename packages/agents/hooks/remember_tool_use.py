@@ -30,6 +30,7 @@ BINDING = {
     "events": {"PostToolUse": ["Bash", "Write", "Edit", "MultiEdit", "Agent"]},
     "timeout": 10,
     "harness": "all",
+    "standalone": True,
     "roots": "all",
 }
 

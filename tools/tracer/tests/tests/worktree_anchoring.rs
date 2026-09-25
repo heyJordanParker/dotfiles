@@ -74,8 +74,8 @@ fn repeated_worktree_root_lookups_share_one_invocation_local_observation() {
     );
     assert_eq!(
         root_observations(&observations),
-        vec![f.root.join("src").canonicalize().unwrap()],
-        "identical lookup directories repeated the Git root observation"
+        Vec::<PathBuf>::new(),
+        "worktree root resolution spawned git"
     );
 
     fs::write(&observations, "").unwrap();
@@ -103,11 +103,8 @@ fn repeated_worktree_root_lookups_share_one_invocation_local_observation() {
     );
     assert_eq!(
         root_observations(&observations),
-        vec![
-            f.root.join("src").canonicalize().unwrap(),
-            linked.join("src").canonicalize().unwrap(),
-        ],
-        "different lookup directories or worktree roots were conflated"
+        Vec::<PathBuf>::new(),
+        "worktree root resolution spawned git"
     );
 
     fs::write(&observations, "").unwrap();
@@ -127,12 +124,57 @@ fn repeated_worktree_root_lookups_share_one_invocation_local_observation() {
     assert_eq!(unrooted.json()["results"][0]["file"], "app.py");
     assert_eq!(
         root_observations(&observations),
-        vec![f.root.join("src").canonicalize().unwrap()],
-        "a later process reused the earlier process's repository observation"
+        Vec::<PathBuf>::new(),
+        "worktree root resolution spawned git"
     );
     assert!(
         !f.root.join("src/.tracer-cache").exists(),
         "the no-root process wrote a cache outside Git"
+    );
+}
+
+#[test]
+fn cache_root_matches_git_for_nested_linked_and_git_paths() {
+    let f = standard_repo();
+    let nested = f.root.join("nested");
+    Command::new("git")
+        .args(["init", "nested"])
+        .current_dir(&f.root)
+        .output()
+        .unwrap();
+    fs::write(nested.join("entry.py"), "value = 1\n").unwrap();
+    let linked = f.add_worktree("linked-wt", "cache-root-worktree");
+
+    let root_for = |path: &Path| {
+        let output = Command::new("git")
+            .args(["rev-parse", "--show-toplevel"])
+            .current_dir(path)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        PathBuf::from(String::from_utf8(output.stdout).unwrap().trim())
+    };
+
+    trace(&nested, &["cache", "build", "."]).ok();
+    assert_eq!(nested.canonicalize().unwrap(), root_for(&nested));
+    assert!(nested.join(".tracer-cache").is_dir());
+
+    trace(&linked, &["cache", "build", "."]).ok();
+    assert_eq!(linked.canonicalize().unwrap(), root_for(&linked));
+    assert!(linked.join(".tracer-cache").is_dir());
+
+    let inside_git = f.root.join(".git");
+    let read = trace(&f.root, &["read", ".git/HEAD"]);
+    read.ok();
+    assert!(root_for(&f.root).is_dir());
+    assert!(inside_git.is_dir());
+    assert!(
+        !f.root.join(".tracer-cache").exists(),
+        "a path inside .git must not create a cache"
     );
 }
 
@@ -225,7 +267,9 @@ fn linked_worktree_caches_are_isolated_from_the_main_worktree() {
     // reflects the file), and reading it from the main worktree's CLI
     // surface fails to locate the path (because it lives only in the
     // linked checkout's filesystem).
-    let info = trace(&wt_root, &["info", "only-in-wt.py", "--json"]).ok().json();
+    let info = trace(&wt_root, &["info", "only-in-wt.py", "--json"])
+        .ok()
+        .json();
     assert!(
         info.get("file").is_some() || info.get("path").is_some() || !info.is_null(),
         "trace info must return data for the wt-only file from inside the worktree: {info}"

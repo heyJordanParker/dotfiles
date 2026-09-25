@@ -129,7 +129,8 @@ fn the_relations_index_rebuilds_after_schema_shape_change() {
     );
 
     // Eviction: the prior schema's index is gone, and the namespace holds
-    // exactly three current relations-index entries: edges, symbols, imports.
+    // exactly four current relations-index entries: edges, symbols, imports,
+    // and directories.
     assert!(
         !stale_index.exists(),
         "the prior schema's relations index survived the rebuild — a schema \
@@ -147,8 +148,8 @@ fn the_relations_index_rebuilds_after_schema_shape_change() {
         .collect();
     assert_eq!(
         indexes.len(),
-        3,
-        "the file namespace must hold exactly three relations-index entries after the \
+        4,
+        "the file namespace must hold exactly four relations-index entries after the \
          rebuild; got {indexes:?}"
     );
 }
@@ -440,8 +441,8 @@ fn structure_reports_nonzero_symbols_for_tsx_file_with_declarations() {
     let r = f.trace(&["structure", "src/comp.tsx"]);
     r.ok();
     assert!(
-        r.stdout.contains("Symbols: ") && !r.stdout.contains("Symbols: 0"),
-        "human output must not say 'Symbols: 0' for a populated TSX file; \
+        r.stdout.contains("\n  symbols: ") && !r.stdout.contains("\n  symbols: 0\n"),
+        "human output must not say 'symbols: 0' for a populated TSX file; \
          got\n{}",
         r.stdout
     );

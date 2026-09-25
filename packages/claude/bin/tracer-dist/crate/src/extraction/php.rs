@@ -5,13 +5,6 @@ use std::collections::HashMap;
 use tree_sitter::{Node, Parser, Query, QueryCursor, StreamingIterator};
 
 const QUERY_SRC: &str = r#"
-        ; use statement: `use App\Models\User;`
-        (namespace_use_declaration
-          (namespace_use_clause (qualified_name) @import.module))
-        ; namespaced names are also captured as `name` in some grammars
-        (namespace_use_declaration
-          (namespace_use_clause (name) @import.module))
-
         ; class / interface / trait / enum / function declarations
         (class_declaration name: (name) @export.class)
         (interface_declaration name: (name) @export.interface)
@@ -83,33 +76,12 @@ pub fn extract_from_tree(tree: &tree_sitter::Tree, source: &[u8]) -> ExtractionR
         groups.entry(c.name.clone()).or_default().push(c);
     }
 
-    let mut imports: Vec<Import> = Vec::new();
+    let imports = use_imports(tree.root_node(), source);
     let mut exports: Vec<Export> = Vec::new();
 
     for name in &order {
         for c in &groups[name] {
             match c.name.as_str() {
-                "import.module" => {
-                    // Collapse escaped namespace separators then split:
-                    // replace "\\\\" (two backslashes) with "\\" (one),
-                    // then split on '\\' (one).
-                    let normalized = c.text.replace("\\\\", "\\");
-                    let segments: Vec<&str> = normalized.split('\\').collect();
-                    let (module, symbol) = if segments.len() > 1 {
-                        (
-                            segments[..segments.len() - 1].join("\\"),
-                            Some(segments[segments.len() - 1].to_string()),
-                        )
-                    } else {
-                        (c.text.clone(), None)
-                    };
-                    imports.push(Import {
-                        module,
-                        symbol,
-                        locals: Vec::new(),
-                        line: c.line,
-                    });
-                }
                 "export.function" => exports.push(Export {
                     name: c.text.clone(),
                     kind: "function".into(),
@@ -142,6 +114,66 @@ pub fn extract_from_tree(tree: &tree_sitter::Tree, source: &[u8]) -> ExtractionR
     }
 }
 
+fn use_imports(root: Node, source: &[u8]) -> Vec<Import> {
+    let mut out = Vec::new();
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        if node.kind() == "namespace_use_declaration" {
+            let text = node.utf8_text(source).unwrap_or("").trim();
+            let text = text
+                .strip_prefix("use ")
+                .unwrap_or(text)
+                .trim_end_matches(';')
+                .trim();
+            if !(text.starts_with("function ") || text.starts_with("const ")) {
+                let line = node.start_position().row as i64 + 1;
+                if let Some((prefix, names)) = text.split_once('{') {
+                    let prefix = prefix.trim().trim_end_matches('\\');
+                    for name in names.trim_end_matches('}').split(',') {
+                        push_use_import(
+                            &mut out,
+                            &format!("{prefix}\\{}", imported_name(name)),
+                            line,
+                        );
+                    }
+                } else {
+                    for name in text.split(',') {
+                        push_use_import(&mut out, imported_name(name), line);
+                    }
+                }
+            }
+            continue;
+        }
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            stack.push(child);
+        }
+    }
+    out.sort_by_key(|import| import.line);
+    out
+}
+
+fn imported_name(text: &str) -> &str {
+    text.trim().split_whitespace().next().unwrap_or("")
+}
+
+fn push_use_import(out: &mut Vec<Import>, name: &str, line: i64) {
+    let name = name.replace("\\\\", "\\");
+    let segments: Vec<&str> = name.split('\\').collect();
+    let (module, symbol) = match segments.split_last() {
+        Some((symbol, module)) if !module.is_empty() => {
+            (module.join("\\"), Some((*symbol).to_string()))
+        }
+        _ => (name, None),
+    };
+    out.push(Import {
+        module,
+        symbol,
+        locals: Vec::new(),
+        line,
+    });
+}
+
 /// Every named declaration: class / interface / trait / enum / function /
 /// method, anywhere in the tree (including methods inside classes and
 /// functions declared inside other functions). A `method_declaration`
@@ -156,17 +188,30 @@ fn walk_declarations(root: Node, source: &[u8]) -> Vec<Declaration> {
             "class_declaration" => Some("class"),
             "interface_declaration" => Some("interface"),
             "trait_declaration" => Some("class"),
-            "enum_declaration" => Some("class"),
+            "enum_declaration" => Some("enum"),
             "function_definition" => Some("function"),
             "method_declaration" => Some("function"),
+            "property_element" | "property_promotion_parameter" | "enum_case" => Some("property"),
+            "const_element" => Some("constant"),
             _ => None,
         };
         let mut child_container = container.clone();
         if let Some(k) = kind {
-            if let Some(name_node) = n.child_by_field_name("name") {
+            let name_node = n
+                .child_by_field_name("name")
+                .or_else(|| php_variable_name(n))
+                .or_else(|| php_constant_name(n));
+            if let Some(name_node) = name_node {
                 if let Ok(name) = name_node.utf8_text(source) {
                     let line = name_node.start_position().row as i64 + 1;
-                    let decl_container = if n.kind() == "method_declaration" {
+                    let decl_container = if matches!(
+                        n.kind(),
+                        "method_declaration"
+                            | "property_element"
+                            | "property_promotion_parameter"
+                            | "enum_case"
+                            | "const_element"
+                    ) {
                         container.clone()
                     } else {
                         None
@@ -185,8 +230,13 @@ fn walk_declarations(root: Node, source: &[u8]) -> Vec<Declaration> {
                         out.push(Declaration {
                             name: name.to_string(),
                             kind: k.to_string(),
+                            header_line: php_header_line(n, source),
                             line,
+                            end_line: php_end_line(n),
                             container: decl_container,
+                            parent: None,
+                            header: php_header(n, source),
+                            annotations: php_annotations(n, source),
                         });
                     }
                 }
@@ -198,7 +248,235 @@ fn walk_declarations(root: Node, source: &[u8]) -> Vec<Declaration> {
         }
     }
     out.sort_by_key(|d| d.line);
+    let parents: std::collections::HashMap<String, u32> = out
+        .iter()
+        .enumerate()
+        .filter(|(_, declaration)| {
+            matches!(declaration.kind.as_str(), "class" | "enum" | "interface")
+        })
+        .map(|(index, declaration)| (declaration.name.clone(), index as u32))
+        .collect();
+    for declaration in &mut out {
+        declaration.parent = declaration
+            .container
+            .as_ref()
+            .and_then(|container| parents.get(container).copied());
+    }
     out
+}
+
+fn php_header_line(node: Node, source: &[u8]) -> i64 {
+    node.prev_named_sibling()
+        .filter(|sibling| sibling.kind() == "comment" && php_access_tag(*sibling, source))
+        .map(|comment| comment.start_position().row as i64 + 1)
+        .unwrap_or_else(|| node.start_position().row as i64 + 1)
+}
+
+fn php_end_line(mut node: Node) -> i64 {
+    if node.kind() == "property_element" || node.kind() == "const_element" {
+        while node.kind() != "property_declaration" && node.kind() != "const_declaration" {
+            let Some(parent) = node.parent() else {
+                break;
+            };
+            node = parent;
+        }
+    }
+    node.end_position().row as i64 + 1
+}
+
+fn php_header(node: Node, source: &[u8]) -> String {
+    if node.kind() == "enum_case" {
+        let start = node.start_byte().saturating_sub(4);
+        let mut builder = crate::extraction::header::Builder::new(source);
+        builder.slice(start, node.end_byte());
+        return builder.finish();
+    }
+    if node.kind() == "property_element" || node.kind() == "const_element" {
+        let mut declaration = node;
+        while declaration.kind() != "property_declaration"
+            && declaration.kind() != "const_declaration"
+        {
+            let Some(parent) = declaration.parent() else {
+                break;
+            };
+            declaration = parent;
+        }
+        let mut cursor = declaration.walk();
+        let first = declaration
+            .named_children(&mut cursor)
+            .find(|child| child.kind() == node.kind())
+            .unwrap_or(node);
+        let mut builder = crate::extraction::header::Builder::new(source);
+        builder
+            .slice(declaration.start_byte(), first.start_byte())
+            .node(node);
+        let mut bodies = Vec::new();
+        collect_hook_bodies(declaration, &mut bodies);
+        bodies.retain(|body| body.start_byte() >= node.end_byte());
+        if !bodies.is_empty() {
+            bodies.sort_by_key(Node::start_byte);
+            let mut start = node.end_byte();
+            for body in bodies {
+                builder.slice(start, body.start_byte());
+                if body.kind() == "compound_statement" {
+                    builder.block(body);
+                } else {
+                    builder.expression(body);
+                }
+                start = body.end_byte();
+            }
+            builder.slice(start, declaration.end_byte());
+            let header = builder.finish();
+            if let Some((before_hooks, hooks)) = header.split_once('{') {
+                return format!(
+                    "{} {{ {}",
+                    before_hooks.trim_end(),
+                    hooks.split_whitespace().collect::<Vec<_>>().join(" ")
+                );
+            }
+            return header;
+        } else if !source
+            .get(node.end_byte().saturating_sub(1)..node.end_byte())
+            .is_some_and(|tail| tail == b";")
+            && source
+                .get(node.end_byte()..declaration.end_byte())
+                .is_some_and(|tail| tail.contains(&b';'))
+        {
+            builder.slice(declaration.end_byte() - 1, declaration.end_byte());
+        }
+        return builder.finish();
+    }
+    let body = node.children(&mut node.walk()).find(|child| {
+        matches!(
+            child.kind(),
+            "declaration_list" | "enum_declaration_list" | "compound_statement"
+        )
+    });
+    let mut builder = crate::extraction::header::Builder::new(source);
+    if let Some(comment) = node
+        .prev_named_sibling()
+        .filter(|sibling| sibling.kind() == "comment" && php_access_tag(*sibling, source))
+    {
+        builder.node(comment);
+    }
+    if let Some(body) = body {
+        builder
+            .slice(node.start_byte(), body.start_byte())
+            .block(body);
+    } else {
+        builder.node(node);
+    }
+    builder.finish()
+}
+
+fn collect_hook_bodies<'a>(node: Node<'a>, out: &mut Vec<Node<'a>>) {
+    if node.kind() == "property_hook" {
+        if let Some(body) = node.child_by_field_name("body") {
+            out.push(body);
+        }
+        return;
+    }
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        collect_hook_bodies(child, out);
+    }
+}
+
+fn php_variable_name(node: Node) -> Option<Node> {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if child.kind() == "variable_name" {
+            return Some(child);
+        }
+        if child.kind() == "property_element" {
+            let mut element_cursor = child.walk();
+            let variable = child
+                .children(&mut element_cursor)
+                .find(|element| element.kind() == "variable_name");
+            if let Some(variable) = variable {
+                return Some(variable);
+            }
+        }
+    }
+    None
+}
+
+fn php_constant_name(node: Node) -> Option<Node> {
+    if node.kind() != "const_element" {
+        return None;
+    }
+    let mut cursor = node.walk();
+    let name = node
+        .named_children(&mut cursor)
+        .find(|child| child.kind() == "name");
+    name
+}
+
+fn php_annotations(mut node: Node, source: &[u8]) -> Vec<String> {
+    if matches!(node.kind(), "property_element" | "const_element") {
+        if let Some(parent) = node.parent() {
+            node = parent;
+        }
+    }
+    let mut annotations = Vec::new();
+    if let Some(comment) = node
+        .prev_named_sibling()
+        .filter(|sibling| sibling.kind() == "comment")
+    {
+        if let Ok(text) = comment.utf8_text(source) {
+            for line in text.lines().map(str::trim) {
+                let source = line
+                    .trim_start_matches('/')
+                    .trim_start_matches('*')
+                    .trim()
+                    .trim_end_matches("*/")
+                    .trim();
+                if let Some(tag) = ["@internal", "@deprecated", "@api"]
+                    .into_iter()
+                    .find(|tag| {
+                        source
+                            .strip_prefix(*tag)
+                            .is_some_and(|rest| rest.chars().next().is_none_or(char::is_whitespace))
+                    })
+                {
+                    annotations.push(tag.to_string());
+                }
+            }
+        }
+    }
+    let mut cursor = node.walk();
+    for list in node
+        .children(&mut cursor)
+        .filter(|child| child.kind() == "attribute_list")
+    {
+        let mut stack = vec![list];
+        while let Some(current) = stack.pop() {
+            if current.kind() == "attribute" {
+                let mut name_cursor = current.walk();
+                let name = current
+                    .children(&mut name_cursor)
+                    .find(|child| matches!(child.kind(), "name" | "qualified_name"))
+                    .and_then(|child| child.utf8_text(source).ok())
+                    .map(|name| name.rsplit('\\').next().unwrap_or(name).to_string())
+                    .unwrap_or_default();
+                annotations.push(name);
+                continue;
+            }
+            let mut cursor = current.walk();
+            for child in current.children(&mut cursor) {
+                stack.push(child);
+            }
+        }
+    }
+    annotations
+}
+
+fn php_access_tag(comment: Node, source: &[u8]) -> bool {
+    comment.utf8_text(source).ok().is_some_and(|text| {
+        ["@internal", "@deprecated", "@api"]
+            .into_iter()
+            .any(|tag| text.contains(tag))
+    })
 }
 
 /// Every function / method / static-method / object-method call plus the
@@ -247,10 +525,10 @@ fn walk_references(root: Node, source: &[u8]) -> Vec<Reference> {
                     }
                 }
             }
-            // `$x->foo()` — a method call on an object value. The receiver
-            // is a variable/expression, never a class name, so it carries
-            // no class to disambiguate against.
-            "member_call_expression" => {
+            // `$x->foo()` and `$x?->foo()` — a method call on an object value.
+            // The receiver is a variable/expression, never a class name, so
+            // it carries no class to disambiguate against.
+            "member_call_expression" | "nullsafe_member_call_expression" => {
                 if let Some(method) = n.child_by_field_name("name") {
                     if let Ok(name) = method.utf8_text(source) {
                         out.push(Reference {

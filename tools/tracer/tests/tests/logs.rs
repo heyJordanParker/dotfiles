@@ -51,7 +51,7 @@ fn entries(v: &serde_json::Value) -> &Vec<serde_json::Value> {
 #[test]
 fn a_gitignored_log_is_searchable() {
     let f = log_repo();
-    let ignored = f.trace(&["grep", "reset-theme", "--path", "storage/logs", "--json"]);
+    let ignored = f.trace(&["grep", "reset-theme", "storage/logs", "--json"]);
     ignored.ok();
     assert_eq!(
         ignored.json()["counts"]["matches"].as_i64().unwrap(),
@@ -82,7 +82,11 @@ fn a_stack_trace_returns_as_one_entry() {
     assert_eq!(e[0]["line"].as_i64().unwrap(), 2);
     assert_eq!(e[0]["stamp"].as_str().unwrap(), "2026-08-15 10:52:01");
     let text = e[0]["text"].as_str().unwrap();
-    assert_eq!(text.lines().count(), 3, "the two frames belong to the entry");
+    assert_eq!(
+        text.lines().count(),
+        3,
+        "the two frames belong to the entry"
+    );
     assert!(text.contains("#1 /app/Kernel.php(12): handle()"), "{text}");
 }
 

@@ -21,6 +21,7 @@ use crate::cache;
 use crate::ccn;
 use crate::extraction::{self, ExtractionResult};
 use crate::git_activity::{self, GitActivity};
+use crate::repo_files::Stamp;
 use crate::{memo, repo_context};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -157,13 +158,12 @@ pub fn rank(complexity: i64) -> &'static str {
     }
 }
 
-/// CCN scalars from already-computed per-function facts. Falls back to scc
-/// when there are no facts, and to `scc_loc` when the per-function loc sum
-/// is zero.
+/// CCN scalars from already-computed per-function facts, falling back to
+/// scc when there are none.
 fn ccn_scalars(
     functions: &[ccn::FunctionFact],
     scc_data: Option<&repo_context::FileMetrics>,
-) -> (i64, i64, i64, i64) {
+) -> (i64, i64, i64) {
     if !functions.is_empty() {
         let ccn_total: i64 = functions.iter().map(|f| f.cyclomatic_complexity).sum();
         let ccn_max: i64 = functions
@@ -171,20 +171,20 @@ fn ccn_scalars(
             .map(|f| f.cyclomatic_complexity)
             .max()
             .unwrap_or(0);
-        let loc_sum: i64 = functions.iter().map(|f| f.nloc).sum();
-        let scc_loc = scc_data.map(|data| data.loc).unwrap_or(0);
-        let loc = if loc_sum != 0 { loc_sum } else { scc_loc };
-        return (ccn_total, ccn_max, loc, functions.len() as i64);
+        return (ccn_total, ccn_max, functions.len() as i64);
     }
-    let scc_ccn = scc_data.map(|data| data.ccn).unwrap_or(0);
-    let scc_loc = scc_data.map(|data| data.loc).unwrap_or(0);
-    (scc_ccn, 0, scc_loc, 0)
+    (scc_data.map(|data| data.ccn).unwrap_or(0), 0, 0)
+}
+
+/// The file's lines as an editor numbers them: a file's `lines` is every
+/// line in it, not the lines inside its functions.
+fn line_count(source_bytes: &[u8]) -> i64 {
+    let pieces = source_bytes.split(|byte| *byte == b'\n').count();
+    (pieces - usize::from(source_bytes.is_empty() || source_bytes.ends_with(b"\n"))) as i64
 }
 
 fn requires_scc(functions: &[ccn::FunctionFact], extraction: &Option<ExtractionResult>) -> bool {
-    functions.is_empty()
-        || functions.iter().map(|function| function.nloc).sum::<i64>() == 0
-        || extraction.is_none()
+    functions.is_empty() || extraction.is_none()
 }
 
 /// Extract per-file facts. `git` is precomputed by the caller.
@@ -274,7 +274,8 @@ fn extract_facts(
             }
         };
 
-    let (ccn_total, ccn_max, loc, function_count) = ccn_scalars(&functions, scc_data);
+    let (ccn_total, ccn_max, function_count) = ccn_scalars(&functions, scc_data);
+    let loc = line_count(source_bytes);
 
     let (mtime_ns, size_bytes) = match fs::metadata(path) {
         Ok(md) => (mtime_ns_of(&md), md.len() as i64),
@@ -327,41 +328,23 @@ fn mtime_ns_of(md: &fs::Metadata) -> i64 {
         .unwrap_or(0)
 }
 
-/// The stat fields the fast path trusts in place of hashing the bytes.
-///
-/// `mtime_ns` and `size` alone can all stay identical across a real content
-/// change: `touch -r`, a timestamp-preserving copy, and two writes inside one
-/// clock tick each produce a same-size file with a restored mtime, and the
-/// index then serves the previous content's facts forever. `ctime_ns` closes
-/// that — the kernel sets it on every inode write and no userland tool can
-/// put it back — and `inode` closes the replace-by-rename case where a new
-/// file takes the old path with a copied timestamp. All four come from the
-/// one `stat` the caller already makes.
-#[derive(Clone, Copy, PartialEq)]
-struct Stamp {
-    mtime_ns: i64,
-    size: i64,
-    ctime_ns: i64,
-    inode: i64,
-}
-
 #[cfg(unix)]
-fn stamp_of(md: &fs::Metadata) -> Stamp {
+fn stamp_of(md: &fs::Metadata) -> crate::repo_files::Stamp {
     use std::os::unix::fs::MetadataExt;
-    Stamp {
-        mtime_ns: mtime_ns_of(md),
-        size: md.len() as i64,
-        ctime_ns: md.ctime() as i64 * 1_000_000_000 + md.ctime_nsec() as i64,
-        inode: md.ino() as i64,
+    crate::repo_files::Stamp {
+        mtime: mtime_ns_of(md),
+        size: md.len(),
+        ctime: md.ctime() * 1_000_000_000 + md.ctime_nsec(),
+        inode: md.ino(),
     }
 }
 
 #[cfg(not(unix))]
-fn stamp_of(md: &fs::Metadata) -> Stamp {
-    Stamp {
-        mtime_ns: mtime_ns_of(md),
-        size: md.len() as i64,
-        ctime_ns: md
+fn stamp_of(md: &fs::Metadata) -> crate::repo_files::Stamp {
+    crate::repo_files::Stamp {
+        mtime: mtime_ns_of(md),
+        size: md.len(),
+        ctime: md
             .created()
             .ok()
             .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
@@ -397,12 +380,12 @@ fn absent() -> i64 {
     -1
 }
 
-fn stamp_entry(s: &Stamp, key: &str) -> IndexEntry {
+fn stamp_entry(s: &crate::repo_files::Stamp, key: &str) -> IndexEntry {
     IndexEntry {
-        mtime_ns: s.mtime_ns,
-        size: s.size,
-        ctime_ns: s.ctime_ns,
-        inode: s.inode,
+        mtime_ns: s.mtime,
+        size: s.size as i64,
+        ctime_ns: s.ctime,
+        inode: s.inode as i64,
         key: key.to_string(),
     }
 }
@@ -410,11 +393,11 @@ fn stamp_entry(s: &Stamp, key: &str) -> IndexEntry {
 /// The entry's cache key when every stamp field matches, else None — the one
 /// predicate all three read paths share, so none of them can drift into
 /// comparing fewer fields than the others.
-fn stamp_matches<'a>(entry: &'a IndexEntry, s: &Stamp) -> Option<&'a str> {
-    if entry.mtime_ns == s.mtime_ns
-        && entry.size == s.size
-        && entry.ctime_ns == s.ctime_ns
-        && entry.inode == s.inode
+fn stamp_matches<'a>(entry: &'a IndexEntry, s: &crate::repo_files::Stamp) -> Option<&'a str> {
+    if entry.mtime_ns == s.mtime
+        && entry.size == s.size as i64
+        && entry.ctime_ns == s.ctime
+        && entry.inode == s.inode as i64
         && !entry.key.is_empty()
     {
         return Some(&entry.key);
@@ -454,10 +437,12 @@ type MtimeIndex = HashMap<String, IndexEntry>;
 static MTIME_MEMO: memo::Memo<MtimeIndex> = OnceLock::new();
 
 fn mtime_index_load(repo_root: &Path) -> Arc<MtimeIndex> {
-    memo::get_or_build(&MTIME_MEMO, repo_root, || {
-        cache::load_bytes(cache::NAMESPACE_FILE, &mtime_index_key(), repo_root)
-            .and_then(|b| serde_json::from_slice::<MtimeIndex>(&b).ok())
-            .unwrap_or_default()
+    crate::timing::phase("freshness", || {
+        memo::get_or_build(&MTIME_MEMO, repo_root, || {
+            cache::load_bytes(cache::NAMESPACE_FILE, &mtime_index_key(), repo_root)
+                .and_then(|b| serde_json::from_slice::<MtimeIndex>(&b).ok())
+                .unwrap_or_default()
+        })
     })
 }
 
@@ -500,11 +485,13 @@ fn mtime_index_store(repo_root: &Path, updates: Vec<(String, Stamp, String)>) {
 /// caller hands over a path a person typed, so it canonicalizes first;
 /// `get_batch`'s own inputs are already tracked paths under the root.
 pub fn get(path: &Path, repo_root: &Path) -> Option<FileFacts> {
-    let p = path.canonicalize().ok()?;
-    if !p.is_file() {
-        return None;
-    }
-    get_batch(&[p], repo_root).into_values().next()
+    crate::timing::phase("facts", || {
+        let p = path.canonicalize().ok()?;
+        if !p.is_file() {
+            return None;
+        }
+        get_batch(&[p], repo_root).into_values().next()
+    })
 }
 
 /// Bulk resolver — the ONLY correct path for directory/repo-wide commands
@@ -525,8 +512,11 @@ pub fn get(path: &Path, repo_root: &Path) -> Option<FileFacts> {
 ///     no rayon write race), atomically via the existing cache::save.
 /// Returns rel -> FileFacts for every readable input path.
 pub fn get_batch(paths: &[PathBuf], repo_root: &Path) -> HashMap<String, FileFacts> {
-    let can_persist = repo_root.join(".git").exists();
-    let git_map = git_activity::bulk_cached(repo_root);
+    crate::timing::phase("facts", || get_batch_inner(paths, repo_root))
+}
+
+fn get_batch_inner(paths: &[PathBuf], repo_root: &Path) -> HashMap<String, FileFacts> {
+    let can_persist = cache::git_dir(repo_root).is_some();
     let scc: OnceLock<Arc<repo_context::Payload>> = OnceLock::new();
     let index = mtime_index_load(repo_root);
 
@@ -567,6 +557,8 @@ pub fn get_batch(paths: &[PathBuf], repo_root: &Path) -> HashMap<String, FileFac
             abs,
         });
     }
+    let git_paths: Vec<String> = jobs.iter().map(|job| job.git_rel.clone()).collect();
+    let git_map = git_activity::for_paths(repo_root, &git_paths);
 
     // Parallel resolve. Each job yields (rel, FileFacts, Option<new index
     // entry>). Index entries are merged single-threaded afterward and the
@@ -591,7 +583,7 @@ pub fn get_batch(paths: &[PathBuf], repo_root: &Path) -> HashMap<String, FileFac
                     return Some((
                         j.rel.clone(),
                         with_git(f, &j.git_rel, &git_map),
-                        Some((j.rel.clone(), j.stamp, key)),
+                        Some((j.rel.clone(), j.stamp.clone(), key)),
                     ));
                 }
             }
@@ -612,7 +604,11 @@ pub fn get_batch(paths: &[PathBuf], repo_root: &Path) -> HashMap<String, FileFac
                 return Some((j.rel.clone(), facts, None));
             }
             let _ = cache::save(cache::NAMESPACE_FILE, &key, &facts.to_json(), repo_root);
-            Some((j.rel.clone(), facts, Some((j.rel.clone(), j.stamp, key))))
+            Some((
+                j.rel.clone(),
+                facts,
+                Some((j.rel.clone(), j.stamp.clone(), key)),
+            ))
         })
         .collect();
 
@@ -651,33 +647,41 @@ pub(crate) fn resolve_under_root(p: &Path, repo_root: &Path) -> (PathBuf, String
     (abs, rel)
 }
 
-/// relpath -> file hash, using the mtime index fast path for unchanged
-/// files.
-pub fn file_hashes_for(
+/// relpath -> file hash using stamps gathered by the shared listing.
+///
+/// `relations::load_and_update` has already paid for this metadata sweep in
+/// `repo_files::tracked_files`; accepting those stamps keeps a warm relations
+/// lookup to one repository-wide stat pass.
+pub fn file_hashes_for_stamped(
     paths: &[PathBuf],
+    stamps: &[Stamp],
+    repo_root: &Path,
+) -> std::collections::BTreeMap<String, String> {
+    crate::timing::phase("freshness", || {
+        file_hashes_for_stamped_inner(paths, stamps, repo_root)
+    })
+}
+
+fn file_hashes_for_stamped_inner(
+    paths: &[PathBuf],
+    stamps: &[Stamp],
     repo_root: &Path,
 ) -> std::collections::BTreeMap<String, String> {
     let idx = mtime_index_load(repo_root);
     let mut out = std::collections::BTreeMap::new();
-    let mut misses: Vec<(PathBuf, String)> = Vec::new();
-    for p in paths {
-        // One stat per path, the way `get_batch` resolves: `is_file()` and
-        // `canonicalize()` were two further syscalls per file, and
-        // `canonicalize` walks every path component. Over a 3,198-file
-        // repository that cost more than the answer, and every caller of this
-        // function pays it on every call — it is the freshness check.
-        let (abs, rel) = resolve_under_root(p, repo_root);
-        let md = match fs::metadata(&abs) {
-            Ok(m) if m.is_file() => m,
-            _ => continue,
-        };
-        let stamp = stamp_of(&md);
-        if let Some(k) = idx.get(&rel).and_then(|e| stamp_matches(e, &stamp)) {
-            out.insert(rel, k.to_string());
-            continue;
-        }
-        misses.push((abs, rel));
-    }
+    let misses = paths
+        .iter()
+        .zip(stamps)
+        .filter_map(|(path, stamp)| {
+            let (path, rel) = resolve_under_root(path, repo_root);
+            if let Some(key) = idx.get(&rel).and_then(|entry| stamp_matches(entry, stamp)) {
+                out.insert(rel, key.to_string());
+                None
+            } else {
+                Some((path, rel))
+            }
+        })
+        .collect::<Vec<_>>();
     let hashed: Vec<(String, String)> = misses
         .par_iter()
         .filter_map(|(p, rel)| {

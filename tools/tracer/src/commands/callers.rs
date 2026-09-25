@@ -9,16 +9,13 @@
 //! out of 3,198, and reads only those.
 
 use crate::commands::enrich;
-use crate::commands::signatures::{self, Signature};
-use crate::{cache, relations};
+use crate::{cache, file_facts, relations, surface};
 use anyhow::Result;
-use rayon::prelude::*;
+use serde::Serialize;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-/// Resolved callers before ambiguous ones, so the rows an agent can trust
-/// come first.
 fn confidence_rank(confidence: &str) -> u8 {
     match confidence {
         relations::CONFIDENCE_EXTRACTED => 0,
@@ -27,100 +24,84 @@ fn confidence_rank(confidence: &str) -> u8 {
     }
 }
 
-/// Every caller file's signature list, parsed once per file and in parallel.
-/// Each file is a tree-sitter parse, and `Collection` on laravel-framework
-/// reaches over a thousand caller rows, so parsing them one after another
-/// was the whole cost of the command.
-fn signature_lists(files: &[String], repo_root: &Path) -> HashMap<String, Vec<Signature>> {
-    let mut wanted: Vec<&String> = files.iter().filter(|f| !f.is_empty()).collect();
-    wanted.sort();
-    wanted.dedup();
-    wanted
-        .par_iter()
-        .map(|file| {
-            let abs: PathBuf = repo_root.join(file);
-            let sigs = match std::fs::read(&abs) {
-                Ok(source) => signatures::extract(&source, &abs),
-                Err(_) => Vec::new(),
-            };
-            ((*file).clone(), sigs)
-        })
-        .collect()
-}
-
-/// The signature `extra` JSON for the calling symbol at `source_file:line`
-/// named `name`, or `Value::Null` when the file's language has no signature
-/// extractor or no signature matches.
-fn signature_for(
-    source_file: &str,
-    source_line: i64,
-    label: &str,
-    cache: &HashMap<String, Vec<Signature>>,
-) -> Value {
-    cache
-        .get(source_file)
-        .into_iter()
-        .flatten()
-        .find(|s| s.line == source_line && s.name == label)
-        .map(|s| s.extra.clone())
-        .unwrap_or(Value::Null)
-}
-
-/// One caller row. The signature is the CALLING symbol's surface, so it is
-/// looked up at that symbol's declaration coordinates, not the use site: a
-/// function called on line 9 may be declared on line 3.
-#[allow(clippy::too_many_arguments)]
-fn caller_row(
+#[derive(Serialize)]
+struct Caller {
     node_id: String,
-    label: &str,
-    kind: &str,
-    declared_in: &str,
-    declared_line: i64,
-    location_file: &str,
-    location_line: i64,
-    relation: &str,
-    confidence: &str,
-    sig_cache: &HashMap<String, Vec<Signature>>,
-) -> Value {
-    let signature = signature_for(declared_in, declared_line, label, sig_cache);
-    json!({
-        "node_id": node_id,
-        "label": label,
-        "kind": kind,
-        "source_file": location_file,
-        "source_line": location_line,
-        "relation": relation,
-        "confidence": confidence,
-        "signature": signature,
-    })
+    label: String,
+    kind: String,
+    source_file: String,
+    source_line: i64,
+    relation: &'static str,
+    confidence: &'static str,
+    declaration: Option<surface::Row>,
 }
 
-/// The rows for one module: the files that import it.
-fn importer_rows(
-    file: &str,
-    index: &relations::Relations,
-    sig_cache: &HashMap<String, Vec<Signature>>,
-) -> Vec<Value> {
+struct Symbol {
+    node_id: String,
+    label: String,
+    kind: String,
+    source_file: String,
+    source_line: i64,
+    callers: Vec<Caller>,
+}
+
+impl Symbol {
+    fn new(node_id: String, label: &str, kind: &str, source_file: &str, source_line: i64, mut callers: Vec<Caller>) -> Self {
+        callers.sort_by(|a, b| {
+            confidence_rank(a.confidence)
+                .cmp(&confidence_rank(b.confidence))
+                .then_with(|| a.source_file.cmp(&b.source_file))
+                .then_with(|| a.source_line.cmp(&b.source_line))
+        });
+        Self {
+            node_id,
+            label: label.to_string(),
+            kind: kind.to_string(),
+            source_file: source_file.to_string(),
+            source_line,
+            callers,
+        }
+    }
+
+    fn ambiguous(&self) -> usize {
+        self.callers
+            .iter()
+            .filter(|caller| caller.confidence == relations::CONFIDENCE_AMBIGUOUS)
+            .count()
+    }
+
+    fn to_value(&self) -> Value {
+        let ambiguous = self.ambiguous();
+        json!({
+            "node_id": self.node_id,
+            "symbol": self.label,
+            "kind": self.kind,
+            "source_file": self.source_file,
+            "source_line": self.source_line,
+            "caller_count": self.callers.len(),
+            "resolved_count": self.callers.len() - ambiguous,
+            "ambiguous_count": ambiguous,
+            "callers": self.callers,
+        })
+    }
+}
+
+fn importers(file: &str, index: &relations::Relations) -> Vec<Caller> {
     index
         .importers_of(file)
         .iter()
         .map(|importer| {
             let language = index.language(&importer.file);
-            let module = relations::file_to_module(&importer.file, language);
-            // A module has no calling-function source, so its row carries the
-            // importing module's own coordinates and a null signature.
-            caller_row(
-                relations::module_id(&importer.file, language),
-                &module,
-                "module",
-                "",
-                0,
-                &importer.file,
-                1,
-                "imports",
-                importer.confidence,
-                sig_cache,
-            )
+            Caller {
+                node_id: relations::module_id(&importer.file, language),
+                label: relations::file_to_module(&importer.file, language),
+                kind: "module".to_string(),
+                source_file: importer.file.to_string(),
+                source_line: 1,
+                relation: "imports",
+                confidence: importer.confidence,
+                declaration: None,
+            }
         })
         .collect()
 }
@@ -129,8 +110,6 @@ pub fn run(symbol: &str, limit: usize, as_json: bool) -> Result<Value> {
     let here = Path::new(".");
     let repo_root = cache::worktree_root_for(here).unwrap_or_else(|| cache::display_root(here));
     let declarations = relations::declarations(symbol, &repo_root);
-    // A name the symbol index does not declare may still name a module, the
-    // way `trace callers app` asks about `src/app.py`.
     let modules = if declarations.is_empty() {
         relations::modules_named(symbol, &repo_root)
     } else {
@@ -141,20 +120,20 @@ pub fn run(symbol: &str, limit: usize, as_json: bool) -> Result<Value> {
         eprintln!("Symbol '{symbol}' not declared anywhere in this repository.");
         std::process::exit(2);
     }
+    if !declarations.is_empty()
+        && declarations
+            .iter()
+            .all(|declaration| declaration.declaration.kind == "property")
+    {
+        eprintln!("a property has readers, not callers; tracer does not extract reads");
+        std::process::exit(2);
+    }
 
     let mut sites = if declarations.is_empty() {
         Vec::new()
     } else {
         relations::use_sites(symbol, &repo_root)
     };
-
-    // Rank before the cut, so the rows that survive it are the ones worth
-    // keeping: resolved before ambiguous, then by file and line. A member
-    // call that matches many same-named methods fans out to one row per
-    // candidate — `get` in laravel-framework is declared 112 times, and its
-    // 2,055 call sites produced 230,000 rows and 276 MB of stdout. The cut is
-    // the same contract `find` carries: `counts.total` and `counts.truncated`
-    // say what was held back, and `--limit` returns it.
     sites.sort_by(|a, b| {
         confidence_rank(a.confidence)
             .cmp(&confidence_rank(b.confidence))
@@ -166,162 +145,92 @@ pub fn run(symbol: &str, limit: usize, as_json: bool) -> Result<Value> {
     sites.truncate(limit);
 
     let index = relations::get(&repo_root);
-
-    // The use-site file is the file the agent would open to read the call, so
-    // its lifecycle state is what each caller row carries.
     let mut row_files: Vec<String> = sites.iter().map(|s| s.file.clone()).collect();
-    for file in &modules {
+    for file in modules.iter().chain(declarations.iter().map(|declaration| &declaration.file)) {
         row_files.extend(index.importers_of(file).iter().map(|i| i.file.to_string()));
     }
-    for declaration in &declarations {
-        row_files.extend(
-            index
-                .importers_of(&declaration.file)
-                .iter()
-                .map(|i| i.file.to_string()),
-        );
-    }
-    let shoulders = enrich::file_shoulders(&row_files, &repo_root);
-    // Every row's signature comes from its calling symbol's own file, and the
-    // row files are exactly that set.
-    let sig_cache = signature_lists(&row_files, &repo_root);
+    row_files.sort();
+    row_files.dedup();
+    let fact_paths: Vec<PathBuf> = row_files.iter().map(|file| repo_root.join(file)).collect();
+    let facts = file_facts::get_batch(&fact_paths, &repo_root);
+    let file_facts_by_path = enrich::facts_of(&facts, &repo_root);
+    let rows: HashMap<&str, Vec<surface::Row>> = sites
+        .iter()
+        .filter(|site| site.caller.is_some())
+        .filter_map(|site| facts.get(&site.file).map(|facts| (site.file.as_str(), facts)))
+        .map(|(file, facts)| (file, surface::rows(facts, None)))
+        .collect();
 
-    let mut symbols: Vec<Value> = Vec::new();
-    let mut headings: Vec<(String, String, String, i64)> = Vec::new();
-
+    let mut symbols: Vec<Symbol> = Vec::new();
     for declaration in &declarations {
-        let mut callers: Vec<Value> = sites
+        let mut callers: Vec<Caller> = sites
             .iter()
-            .filter(|s| {
-                s.target_file == declaration.file && s.target.name == declaration.declaration.name
-            })
-            .map(|s| {
-                // A use site inside a declared function resolves its row to
-                // that calling symbol; one at module top level keeps the
-                // file's own module identity.
-                let (node_id, label, kind, declared_in, declared_line) = match &s.caller {
-                    Some(caller) => (
-                        relations::symbol_id(&s.file, &caller.name),
-                        caller.name.clone(),
-                        caller.kind.clone(),
-                        s.file.clone(),
-                        caller.line,
-                    ),
-                    None => {
-                        let language = index.language(&s.file);
-                        (
-                            relations::module_id(&s.file, language),
-                            relations::file_to_module(&s.file, language),
-                            "module".to_string(),
-                            String::new(),
-                            0,
-                        )
+            .filter(|s| s.target_file == declaration.file && s.target.name == declaration.declaration.name)
+            .map(|s| match &s.caller {
+                Some(caller) => Caller {
+                    node_id: relations::symbol_id(&s.file, &caller.name),
+                    label: caller.name.clone(),
+                    kind: caller.kind.clone(),
+                    source_file: s.file.clone(),
+                    source_line: s.line,
+                    relation: "references",
+                    confidence: s.confidence,
+                    declaration: rows
+                        .get(s.file.as_str())
+                        .and_then(|rows| rows.iter().find(|row| row.line == caller.line && row.name == caller.name))
+                        .cloned(),
+                },
+                None => {
+                    let language = index.language(&s.file);
+                    Caller {
+                        node_id: relations::module_id(&s.file, language),
+                        label: relations::file_to_module(&s.file, language),
+                        kind: "module".to_string(),
+                        source_file: s.file.clone(),
+                        source_line: s.line,
+                        relation: "references",
+                        confidence: s.confidence,
+                        declaration: None,
                     }
-                };
-                caller_row(
-                    node_id,
-                    &label,
-                    &kind,
-                    &declared_in,
-                    declared_line,
-                    &s.file,
-                    s.line,
-                    "references",
-                    s.confidence,
-                    &sig_cache,
-                )
+                }
             })
             .collect();
-
-        // Fallback: a symbol with zero use sites falls back to the importers
-        // of its own file. A class used everywhere through `use App\Models\
-        // User;` has no call site the reference walker can catch, and
-        // returning zero callers for it would be strictly worse.
         if callers.is_empty() {
-            callers = importer_rows(&declaration.file, &index, &sig_cache);
+            callers = importers(&declaration.file, &index);
         }
-
-        push_symbol(
-            &mut symbols,
-            &mut headings,
+        symbols.push(Symbol::new(
             relations::symbol_id(&declaration.file, &declaration.declaration.name),
             &declaration.declaration.name,
             &declaration.declaration.kind,
             &declaration.file,
             declaration.declaration.line,
             callers,
-        );
+        ));
     }
-
     for file in &modules {
         let language = index.language(file);
-        let callers = importer_rows(file, &index, &sig_cache);
-        push_symbol(
-            &mut symbols,
-            &mut headings,
+        symbols.push(Symbol::new(
             relations::module_id(file, language),
             &relations::file_to_module(file, language),
             "module",
             file,
             1,
-            callers,
-        );
+            importers(file, &index),
+        ));
     }
 
     if !as_json {
-        for ((label, kind, source_file, source_line), entry) in headings.iter().zip(symbols.iter())
-        {
-            println!("\n{label} [{kind}] @ {source_file}:{source_line}");
-            let callers = entry["callers"].as_array().unwrap();
-            if callers.is_empty() {
-                println!("  (no callers found)");
-                continue;
-            }
-            println!(
-                "  callers ({}): {} resolved, {} ambiguous",
-                entry["caller_count"].as_i64().unwrap_or(0),
-                entry["resolved_count"].as_i64().unwrap_or(0),
-                entry["ambiguous_count"].as_i64().unwrap_or(0),
-            );
-            for caller in callers {
-                let source_file = caller["source_file"].as_str();
-                let location = match source_file {
-                    Some(f) if !f.is_empty() => format!(
-                        "{f}:{}",
-                        caller["source_line"]
-                            .as_i64()
-                            .map(|l| l.to_string())
-                            .unwrap_or_else(|| "None".into())
-                    ),
-                    _ => "(external)".to_string(),
-                };
-                println!(
-                    "    [{}] {} [{}] @ {}",
-                    caller["confidence"].as_str().unwrap_or(""),
-                    caller["label"].as_str().unwrap_or(""),
-                    caller["kind"].as_str().unwrap_or(""),
-                    location,
-                );
-                if let Some(s) = source_file.and_then(|f| shoulders.get(f)) {
-                    println!("        {s}");
-                }
-            }
+        let sections: Vec<enrich::Section> = symbols.iter().map(section).collect();
+        enrich::render_sections(&sections, &file_facts_by_path, "call site", "call sites");
+        if truncated {
+            println!("\n... {} more (see all: --limit {total_sites})", total_sites - sites.len());
         }
     }
-    if !as_json && truncated {
-        println!(
-            "\n... {} more (see all: --limit {total_sites})",
-            total_sites - sites.len()
-        );
-    }
-    let total: i64 = symbols
-        .iter()
-        .map(|s| s["caller_count"].as_i64().unwrap_or(0))
-        .sum();
+    let total: usize = symbols.iter().map(|symbol| symbol.callers.len()).sum();
     Ok(crate::output::document(
         json!({"symbol": symbol, "limit": limit}),
-        json!({"files": enrich::shoulder_context(&shoulders)}),
-        json!(symbols),
+        json!({"files": enrich::facts_context(&file_facts_by_path)}),
+        Value::Array(symbols.iter().map(Symbol::to_value).collect()),
         json!({
             "symbols": symbols.len(),
             "callers": total,
@@ -331,59 +240,50 @@ pub fn run(symbol: &str, limit: usize, as_json: bool) -> Result<Value> {
     ))
 }
 
-/// Sort one symbol's caller rows and append the result entry.
-#[allow(clippy::too_many_arguments)]
-fn push_symbol(
-    symbols: &mut Vec<Value>,
-    headings: &mut Vec<(String, String, String, i64)>,
-    node_id: String,
-    label: &str,
-    kind: &str,
-    source_file: &str,
-    source_line: i64,
-    mut callers: Vec<Value>,
-) {
-    // Confidence-first ordering: resolved callers ahead of ambiguous ones;
-    // ties broken by file then line so output is deterministic.
-    callers.sort_by(|a, b| {
-        let ra = confidence_rank(a["confidence"].as_str().unwrap_or(""));
-        let rb = confidence_rank(b["confidence"].as_str().unwrap_or(""));
-        ra.cmp(&rb)
-            .then_with(|| {
-                a["source_file"]
-                    .as_str()
-                    .unwrap_or("")
-                    .cmp(b["source_file"].as_str().unwrap_or(""))
+fn section(symbol: &Symbol) -> enrich::Section {
+    let mut heading = format!("\n{} [{}] @ {}:{}", symbol.label, symbol.kind, symbol.source_file, symbol.source_line);
+    if symbol.callers.is_empty() {
+        heading.push_str("\n  (no callers found)");
+    } else {
+        let ambiguous = symbol.ambiguous();
+        heading.push_str(&format!(
+            "\n  callers ({}): {} resolved, {} ambiguous",
+            symbol.callers.len(),
+            symbol.callers.len() - ambiguous,
+            ambiguous,
+        ));
+    }
+    let mut files: Vec<(String, Vec<(String, Vec<String>)>, usize)> = Vec::new();
+    for caller in &symbol.callers {
+        let file = if caller.source_file.is_empty() { "(external)" } else { caller.source_file.as_str() };
+        let rendered = caller
+            .declaration
+            .as_ref()
+            .map_or_else(|| caller.label.clone(), |row| surface::inline(row, file));
+        let text = if caller.confidence == relations::CONFIDENCE_EXTRACTED {
+            format!("      {rendered}")
+        } else {
+            format!("      [{}] {rendered}", caller.confidence)
+        };
+        let line = format!("L{}", caller.source_line);
+        if files.last().is_none_or(|(last, _, _)| last != file) {
+            files.push((file.to_string(), Vec::new(), 0));
+        }
+        let (_, rows, count) = files.last_mut().unwrap();
+        *count += 1;
+        match rows.last_mut() {
+            Some((last, lines)) if *last == text => lines.push(line),
+            _ => rows.push((text, vec![line])),
+        }
+    }
+    enrich::Section {
+        heading,
+        files: files
+            .into_iter()
+            .map(|(file, rows, count)| {
+                let rows = rows.into_iter().map(|(text, lines)| format!("{text} @ {}", lines.join(", "))).collect();
+                (file, rows, count)
             })
-            .then_with(|| {
-                a["source_line"]
-                    .as_i64()
-                    .unwrap_or(0)
-                    .cmp(&b["source_line"].as_i64().unwrap_or(0))
-            })
-    });
-
-    let caller_count = callers.len() as i64;
-    let ambiguous_count = callers
-        .iter()
-        .filter(|c| c["confidence"].as_str() == Some(relations::CONFIDENCE_AMBIGUOUS))
-        .count() as i64;
-
-    headings.push((
-        label.to_string(),
-        kind.to_string(),
-        source_file.to_string(),
-        source_line,
-    ));
-    symbols.push(json!({
-        "node_id": node_id,
-        "symbol": label,
-        "kind": kind,
-        "source_file": source_file,
-        "source_line": source_line,
-        "caller_count": caller_count,
-        "resolved_count": caller_count - ambiguous_count,
-        "ambiguous_count": ambiguous_count,
-        "callers": callers,
-    }));
+            .collect(),
+    }
 }

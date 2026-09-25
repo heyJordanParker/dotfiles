@@ -173,19 +173,26 @@ fn walk_declarations(root: Node, source: &[u8]) -> Vec<Declaration> {
     // Carries the enclosing class name only when the parent is a class body
     // — a function nested inside another function is not a method, so the
     // container resets to None when descending into a function.
-    let mut stack: Vec<(Node, Option<String>)> = vec![(root, None)];
-    while let Some((n, container)) = stack.pop() {
+    let mut parent_keys = HashMap::new();
+    let mut stack: Vec<(Node, Option<String>, Option<(String, i64)>)> =
+        vec![(root, None, None)];
+    while let Some((n, container, lexical_parent)) = stack.pop() {
         let kind = match n.kind() {
             "function_definition" => Some("function"),
             "class_definition" => Some("class"),
+            "assignment" | "expression_statement" if python_is_member_assignment(n) => {
+                Some("property")
+            }
             _ => None,
         };
         let mut child_container = container.clone();
+        let mut child_parent = lexical_parent.clone();
         if let Some(k) = kind {
-            if let Some(name_node) = n.child_by_field_name("name") {
+            if let Some(name_node) = python_name_node(n) {
                 if let Ok(name) = name_node.utf8_text(source) {
                     let line = name_node.start_position().row as i64 + 1;
-                    let decl_container = if n.kind() == "function_definition" {
+                    let decl_container = if matches!(n.kind(), "function_definition" | "assignment")
+                    {
                         container.clone()
                     } else {
                         None
@@ -198,12 +205,22 @@ fn walk_declarations(root: Node, source: &[u8]) -> Vec<Declaration> {
                         "function_definition" => None,
                         _ => container.clone(),
                     };
-                    if seen.insert((name.to_string(), line)) {
+                    let key = (name.to_string(), line);
+                    if matches!(n.kind(), "function_definition" | "class_definition") {
+                        child_parent = Some(key.clone());
+                    }
+                    if seen.insert(key.clone()) {
+                        parent_keys.insert(key, lexical_parent.clone());
                         out.push(Declaration {
                             name: name.to_string(),
                             kind: k.to_string(),
+                            header_line: python_header_line(n),
                             line,
+                            end_line: n.end_position().row as i64 + 1,
                             container: decl_container,
+                            parent: None,
+                            header: python_header(n, source),
+                            annotations: python_annotations(n, source),
                         });
                     }
                 }
@@ -211,11 +228,123 @@ fn walk_declarations(root: Node, source: &[u8]) -> Vec<Declaration> {
         }
         let mut c = n.walk();
         for child in n.children(&mut c) {
-            stack.push((child, child_container.clone()));
+            stack.push((child, child_container.clone(), child_parent.clone()));
         }
     }
     out.sort_by_key(|d| d.line);
+    let parents: HashMap<(String, i64), u32> = out
+        .iter()
+        .enumerate()
+        .map(|(index, declaration)| ((declaration.name.clone(), declaration.line), index as u32))
+        .collect();
+    for declaration in &mut out {
+        declaration.parent = parent_keys
+            .get(&(declaration.name.clone(), declaration.line))
+            .and_then(|parent| parent.as_ref())
+            .and_then(|parent| parents.get(parent).copied());
+    }
     out
+}
+
+fn python_is_member_assignment(node: Node) -> bool {
+    if node.kind() == "expression_statement" {
+        let mut cursor = node.walk();
+        return node
+            .named_children(&mut cursor)
+            .any(|child| child.kind() == "assignment")
+            && node.parent().is_some_and(|parent| {
+                parent.kind() == "module"
+                    || parent.kind() == "block"
+                        && parent
+                            .parent()
+                            .is_some_and(|node| node.kind() == "class_definition")
+            });
+    }
+    let Some(parent) = node.parent() else {
+        return false;
+    };
+    parent.kind() == "module"
+        || parent.kind() == "block"
+            && parent
+                .parent()
+                .is_some_and(|node| node.kind() == "class_definition")
+}
+
+fn python_name_node(node: Node) -> Option<Node> {
+    if node.kind() == "expression_statement" {
+        let mut cursor = node.walk();
+        return node
+            .named_children(&mut cursor)
+            .find(|child| child.kind() == "assignment")
+            .and_then(python_name_node);
+    }
+    if node.kind() != "assignment" {
+        return node.child_by_field_name("name");
+    }
+    node.child_by_field_name("left").or_else(|| {
+        let mut cursor = node.walk();
+        let name = node
+            .named_children(&mut cursor)
+            .find(|child| child.kind() == "identifier");
+        name
+    })
+}
+
+fn python_header_line(node: Node) -> i64 {
+    node.parent()
+        .filter(|parent| parent.kind() == "decorated_definition")
+        .map(|parent| parent.start_position().row as i64 + 1)
+        .unwrap_or_else(|| node.start_position().row as i64 + 1)
+}
+
+fn python_header(node: Node, source: &[u8]) -> String {
+    let mut builder = crate::extraction::header::Builder::new(source);
+    let start = node
+        .parent()
+        .filter(|parent| parent.kind() == "decorated_definition")
+        .map(|parent| parent.start_byte())
+        .unwrap_or_else(|| node.start_byte());
+    if start != node.start_byte() {
+        builder.slice(start, node.start_byte());
+    }
+    if let Some(body) = node.child_by_field_name("body") {
+        // The header stops at the definition's own colon: comments that open
+        // the body sit before the body node and belong to it.
+        let mut cursor = node.walk();
+        let colon_end = node
+            .children(&mut cursor)
+            .filter(|child| child.kind() == ":" && child.end_byte() <= body.start_byte())
+            .last()
+            .map_or(body.start_byte(), |colon| colon.end_byte());
+        builder.slice(node.start_byte(), colon_end).expression(body);
+    } else {
+        builder.node(node);
+    }
+    builder.finish()
+}
+
+fn python_annotations(node: Node, source: &[u8]) -> Vec<String> {
+    let Some(parent) = node
+        .parent()
+        .filter(|parent| parent.kind() == "decorated_definition")
+    else {
+        return Vec::new();
+    };
+    let mut cursor = parent.walk();
+    parent
+        .children(&mut cursor)
+        .filter(|child| child.kind() == "decorator")
+        .map(|decorator| {
+            let source = decorator.utf8_text(source).unwrap_or("").to_string();
+            let name = source
+                .trim_start_matches('@')
+                .split(['(', '.'])
+                .next()
+                .unwrap_or("")
+                .to_string();
+            name
+        })
+        .collect()
 }
 
 /// Every `call` expression in the tree. Resolves the callee identifier:

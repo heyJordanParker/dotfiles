@@ -73,7 +73,13 @@ fn first_load_surfaces_full_chain_with_no_already_loaded_key() {
     let env = [("CLAUDE_CODE_SESSION_ID", sid.as_str())];
 
     let r = f.trace_env(
-        &["docs", "load", "sub/util.py", "--source", "trace_inject_hook", "--json"],
+        &[
+            "docs",
+            "sub/util.py",
+            "--source",
+            "trace_inject_hook",
+            "--json",
+        ],
         &env,
     );
     r.ok();
@@ -87,7 +93,10 @@ fn first_load_surfaces_full_chain_with_no_already_loaded_key() {
     );
     assert_eq!(v["docs"].as_i64().unwrap(), 2);
     assert!(
-        v["already_loaded"].as_array().expect("always present").is_empty(),
+        v["already_loaded"]
+            .as_array()
+            .expect("always present")
+            .is_empty(),
         "first load against an empty log must carry an empty `already_loaded`: {v}"
     );
     assert_eq!(v["source"].as_str().unwrap(), "trace_inject_hook");
@@ -112,7 +121,13 @@ fn second_load_returns_full_chain_in_already_loaded_with_empty_docs() {
 
     // Prime: first call surfaces the chain.
     f.trace_env(
-        &["docs", "load", "sub/util.py", "--source", "trace_inject_hook", "--json"],
+        &[
+            "docs",
+            "sub/util.py",
+            "--source",
+            "trace_inject_hook",
+            "--json",
+        ],
         &env,
     )
     .ok();
@@ -121,7 +136,13 @@ fn second_load_returns_full_chain_in_already_loaded_with_empty_docs() {
     // the log, so `docs` is empty and `already_loaded` carries
     // the full set.
     let r = f.trace_env(
-        &["docs", "load", "sub/util.py", "--source", "trace_inject_hook", "--json"],
+        &[
+            "docs",
+            "sub/util.py",
+            "--source",
+            "trace_inject_hook",
+            "--json",
+        ],
         &env,
     );
     r.ok();
@@ -176,7 +197,13 @@ fn emissions_are_recorded_under_the_supplied_source() {
     let env = [("CLAUDE_CODE_SESSION_ID", sid.as_str())];
 
     f.trace_env(
-        &["docs", "load", "sub/util.py", "--source", "trace_inject_hook", "--json"],
+        &[
+            "docs",
+            "sub/util.py",
+            "--source",
+            "trace_inject_hook",
+            "--json",
+        ],
         &env,
     )
     .ok();
@@ -209,10 +236,14 @@ fn triggering_tool_and_command_land_on_the_log_event() {
 
     f.trace_env(
         &[
-            "docs", "load", "sub/util.py",
-            "--source", "trace_inject_hook",
-            "--triggering-tool", "Bash",
-            "--triggering-command", "trace info sub/util.py",
+            "docs",
+            "sub/util.py",
+            "--source",
+            "trace_inject_hook",
+            "--triggering-tool",
+            "Bash",
+            "--triggering-command",
+            "trace info sub/util.py",
             "--json",
         ],
         &env,
@@ -245,7 +276,13 @@ fn omitted_triggering_flags_record_no_triggering_metadata() {
     let env = [("CLAUDE_CODE_SESSION_ID", sid.as_str())];
 
     f.trace_env(
-        &["docs", "load", "sub/util.py", "--source", "trace_inject_hook", "--json"],
+        &[
+            "docs",
+            "sub/util.py",
+            "--source",
+            "trace_inject_hook",
+            "--json",
+        ],
         &env,
     )
     .ok();
@@ -282,7 +319,13 @@ fn docs_loaded_by_path_mode_appear_in_already_loaded_with_path_mode_source() {
     f.trace_env(&["docs", "sub/util.py", "--json"], &env).ok();
 
     let r = f.trace_env(
-        &["docs", "load", "sub/util.py", "--source", "trace_inject_hook", "--json"],
+        &[
+            "docs",
+            "sub/util.py",
+            "--source",
+            "trace_inject_hook",
+            "--json",
+        ],
         &env,
     );
     r.ok();
@@ -306,47 +349,6 @@ fn docs_loaded_by_path_mode_appear_in_already_loaded_with_path_mode_source() {
     }
 }
 
-// --- path-mode shape parity -----------------------------------------------
-
-#[test]
-fn path_mode_returns_the_same_shape_as_load_alias() {
-    // `trace docs <path>` and `trace docs load <path>` are one implementation
-    // behind two CLI verbs. The response shape must match on every key
-    // visible to a hook reader: `docs`, `doc_count`, optional
-    // `already_loaded`. The two verbs only differ in default `--source`
-    // (`trace_docs` vs `trace_docs_load`).
-    let f = docs_repo();
-    let sid_path = fresh_session_id("shape-path");
-    let env_path = [("CLAUDE_CODE_SESSION_ID", sid_path.as_str())];
-    let sid_load = fresh_session_id("shape-load");
-    let env_load = [("CLAUDE_CODE_SESSION_ID", sid_load.as_str())];
-
-    let r_path = f.trace_env(&["docs", "sub/util.py", "--json"], &env_path);
-    r_path.ok();
-    let v_path = r_path.view();
-
-    let r_load = f.trace_env(&["docs", "load", "sub/util.py", "--json"], &env_load);
-    r_load.ok();
-    let v_load = r_load.view();
-
-    assert!(v_path["results"].is_array(), "path-mode must carry the `docs` key: {v_path}");
-    assert!(v_load["results"].is_array(), "load alias must carry the `docs` key: {v_load}");
-    assert_eq!(v_path["docs"].as_i64().unwrap(), 2);
-    assert_eq!(v_load["docs"].as_i64().unwrap(), 2);
-    assert!(
-        v_path["already_loaded"].as_array().expect("always present").is_empty(),
-        "fresh path-mode call must carry an empty already_loaded: {v_path}"
-    );
-    assert!(
-        v_load["already_loaded"].as_array().expect("always present").is_empty(),
-        "fresh load alias call must carry an empty already_loaded: {v_load}"
-    );
-
-    // Default sources differ.
-    assert_eq!(v_path["source"].as_str().unwrap(), "trace_docs");
-    assert_eq!(v_load["source"].as_str().unwrap(), "trace_docs_load");
-}
-
 // --- graph flag regression ------------------------------------------------
 
 #[test]
@@ -357,7 +359,10 @@ fn graph_flag_returns_graph_document() {
     let r = f.trace(&["docs", "--graph", "--json"]);
     r.ok();
     let v = r.view();
-    assert!(v["nodes"].is_array(), "graph mode must return the doc nodes: {v}");
+    assert!(
+        v["nodes"].is_array(),
+        "graph mode must return the doc nodes: {v}"
+    );
     assert!(
         r.json()["counts"]["nodes"].as_i64().unwrap() >= 2,
         "graph must surface at least the two Claude.md nodes: {v}"
@@ -394,13 +399,13 @@ fn default_source_when_flag_omitted() {
     let sid = fresh_session_id("default-source");
     let env = [("CLAUDE_CODE_SESSION_ID", sid.as_str())];
 
-    let r = f.trace_env(&["docs", "load", "sub/util.py", "--json"], &env);
+    let r = f.trace_env(&["docs", "sub/util.py", "--json"], &env);
     r.ok();
     let v = r.view();
     let default_source = v["source"].as_str().unwrap();
     assert_eq!(
-        default_source, "trace_docs_load",
-        "load alias must default --source to `trace_docs_load`: {default_source}"
+        default_source, "trace_docs",
+        "`trace docs` must default --source to `trace_docs`: {default_source}"
     );
 
     let events = read_events_jsonl(&f.root, &sid, "root");
@@ -423,7 +428,13 @@ fn no_session_id_means_load_still_returns_shape_and_writes_no_log() {
     // nothing was loaded" answer instead of an error.
     let f = docs_repo();
     let r = std::process::Command::new(tracer_cli_tests::trace_bin())
-        .args(["docs", "load", "sub/util.py", "--source", "trace_inject_hook", "--json"])
+        .args([
+            "docs",
+            "sub/util.py",
+            "--source",
+            "trace_inject_hook",
+            "--json",
+        ])
         .current_dir(&f.root)
         .env("HOME", &f.root)
         .env_remove("AGENT_SESSION_ID")
@@ -443,7 +454,10 @@ fn no_session_id_means_load_still_returns_shape_and_writes_no_log() {
     // surfaces as new on each call; nothing is "already loaded".
     assert_eq!(v["counts"]["docs"].as_i64().unwrap(), 2);
     assert!(
-        v["context"]["already_loaded"].as_array().expect("always present").is_empty(),
+        v["context"]["already_loaded"]
+            .as_array()
+            .expect("always present")
+            .is_empty(),
         "no session id ⇒ no priors ⇒ already_loaded empty: {v}"
     );
 }
@@ -458,14 +472,17 @@ fn agents_md_surfaces_in_per_file_doc_walk_with_agents_md_kind() {
     // root holds AGENTS.md; sub/ holds Agents.md.
     let f = Fixture::new();
     f.write("AGENTS.md", "# Cross-harness root\n\nProject root rules.\n");
-    f.write("sub/Agents.md", "# Cross-harness sub\n\nDir-scoped rules.\n");
+    f.write(
+        "sub/Agents.md",
+        "# Cross-harness sub\n\nDir-scoped rules.\n",
+    );
     f.write("sub/util.py", "def helper():\n    return 1\n");
     f.commit("agents.md per-file walk fixture");
 
     let sid = fresh_session_id("agents-walk");
     let env = [("CLAUDE_CODE_SESSION_ID", sid.as_str())];
 
-    let r = f.trace_env(&["docs", "load", "sub/util.py", "--json"], &env);
+    let r = f.trace_env(&["docs", "sub/util.py", "--json"], &env);
     r.ok();
     let v = r.view();
     let docs = v["results"].as_array().expect("docs must be an array");
@@ -500,7 +517,7 @@ fn agents_local_md_surfaces_with_agents_local_md_kind() {
     let sid = fresh_session_id("agents-local");
     let env = [("CLAUDE_CODE_SESSION_ID", sid.as_str())];
 
-    let r = f.trace_env(&["docs", "load", "util.py", "--json"], &env);
+    let r = f.trace_env(&["docs", "util.py", "--json"], &env);
     r.ok();
     let v = r.view();
     let kinds: std::collections::BTreeSet<String> = v["results"]
@@ -532,7 +549,7 @@ fn claude_md_and_agents_md_coexist_in_per_file_walk() {
     let sid = fresh_session_id("both-conventions");
     let env = [("CLAUDE_CODE_SESSION_ID", sid.as_str())];
 
-    let r = f.trace_env(&["docs", "load", "util.py", "--json"], &env);
+    let r = f.trace_env(&["docs", "util.py", "--json"], &env);
     r.ok();
     let v = r.view();
     let by_path: std::collections::BTreeMap<String, String> = v["results"]

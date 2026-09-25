@@ -1,109 +1,64 @@
 #!/usr/bin/env python3
-"""Inject project rules (the nearest Claude.md) for Codex, which has no native
-rule-file loading. Claude Code loads Claude.md (root and nested) itself, so this
-is Codex-only.
+"""Keep codex's project rules in context, and tracer's record of them true.
 
-Two surfaces, both emitting trace's docs as a hookSpecificOutput.additionalContext
-envelope (Codex 0.137+ rejects a raw `trace docs` JSON object on SessionStart —
-it must be wrapped): SessionStart loads the repo-root rules (with a `trace docs
-reset` on clear/compact), and a file touch (Read/Write/Edit/apply_patch) loads
-the touched file's rules. Best-effort: never blocks, never crashes.
+codex loads the repo-root → cwd Claude.md chain once at session start and
+nothing else: no nested Claude.md, no rules. Claude Code loads those itself and
+reports each load to reload_harness_context, so this is codex-only.
+
+- SessionStart: after a clear, forget what was loaded; record the chain codex
+  loaded itself (`trace docs prime`), then send the working directory's
+  remaining docs — its rules — so they arrive once.
+- PreCompact: forget what was loaded, since compaction drops it.
+- A file touch (Read/Write/Edit/apply_patch): send the touched file's docs not
+  yet in context.
+
+One process per event, so the reset, the prime and the send run in order.
+Best-effort: never blocks, never crashes.
 """
 
-import json
 import os
-import shutil
-import subprocess
 import sys
 
-from lib import feedback
+from lib import feedback, tracer
 from lib.event import field, patch_target, read_event
 
 BINDING = {
     "events": {
         "SessionStart": [],
+        "PreCompact": [],
         "PreToolUse": ["Read", "Write", "Edit", "apply_patch"],
     },
     "harness": "codex",
     "timeout": 15,
+    "standalone": True,
+    "additionalContextLimit": 0,
 }
 
 SOURCE = "inject_rules"
 
 
-def _resolve(target, cwd):
-    target = target.strip().strip('"').strip("'")
-    if not target:
-        return ""
-    if target.startswith("~"):
-        target = os.path.expanduser("~") + target[1:]
-    if not target.startswith("/"):
-        target = os.path.join(cwd, target)
-    return os.path.normpath(target)
-
-
-def _trace_docs(target, triggering_tool, env):
-    args = ["trace", "docs", target, "--source", SOURCE, "--triggering-tool", triggering_tool, "--json"]
-    try:
-        r = subprocess.run(args, capture_output=True, text=True, timeout=10, env=env)
-        return r.returncode, r.stdout
-    except Exception:
-        return 1, ""
-
-
-def _doc_count(response):
-    """Freshly surfaced docs, at `counts.docs` of the trace document.
-
-    This gates the whole hook: a wrong key here reads as zero for every
-    response and leaves a codex session with no rules at all.
-    """
-    try:
-        return json.loads(response).get("counts", {}).get("docs", 0) or 0
-    except Exception:
-        return 0
-
-
-def _emit_json(response, event_name="PreToolUse"):
-    feedback.context("inject_rules", event_name, response)
+def _send(event, target, event_name, tool):
+    rc, text, _ = tracer.docs(event, target, SOURCE, tool)
+    if rc == 0 and text.strip():
+        feedback.context(SOURCE, event_name, text.strip())
 
 
 def main():
-    if not shutil.which("trace"):
+    if not tracer.available():
         return 0
     event = read_event()
     cwd = field(event, "cwd", "") or os.getcwd()
-
-    # Hand trace the run's own session for its session log via AGENT_SESSION_ID,
-    # the harness-neutral carrier trace resolves first — on a local copy only,
-    # never mutating os.environ. CLAUDE_CODE_SESSION_ID is left untouched: on a
-    # codex run it carries the launching Claude session that owner_session reads
-    # to resolve the governing proposing/executing mode, so clobbering it would
-    # destroy the launcher identity the proposal/commit guards depend on.
-    env = dict(os.environ)
-    session_id = field(event, "session_id", "")
-    agent_id = field(event, "agent_id", "")
-    if session_id:
-        env["AGENT_SESSION_ID"] = session_id
-    if agent_id:
-        env["TRACER_AGENT_ID"] = agent_id
-
     event_name = field(event, "hook_event_name", "")
     tool_name = field(event, "tool_name", "")
 
-    # SessionStart — always-on rules for the repo root.
-    if event_name == "SessionStart":
-        if field(event, "source", "") in ("clear", "compact"):
-            try:
-                subprocess.run(["trace", "docs", "reset", "--source", SOURCE], capture_output=True, timeout=10, env=env)
-            except Exception:
-                pass
-        rc, out = _trace_docs(cwd, event_name, env)
-        if rc != 0 or not _doc_count(out):
-            return 0
-        _emit_json(out, "SessionStart")
+    if event_name == "PreCompact":
+        tracer.run(event, "docs", "reset", "--source", SOURCE)
         return 0
 
-    # File tools (Codex apply_patch/Read, Write/Edit) — rules for the touched file.
+    if event_name == "SessionStart":
+        tracer.session_start(event, SOURCE, lambda: _send(event, cwd, "SessionStart", "SessionStart"))
+        return 0
+
     target = ""
     if tool_name == "Read":
         target = field(event, "tool_input.file_path", "") or field(event, "tool_input.path", "")
@@ -111,15 +66,9 @@ def main():
         target = patch_target(event)
     elif tool_name in ("Write", "Edit"):
         target = field(event, "tool_input.file_path", "")
-    if not target:
-        return 0
-    rp = _resolve(target, cwd)
-    if not (rp and os.path.exists(rp)):
-        return 0
-    rc, out = _trace_docs(rp, tool_name or "PreToolUse", env)
-    if rc != 0 or not _doc_count(out):
-        return 0
-    _emit_json(out)
+    path = tracer.resolve(target, cwd) if target else ""
+    if path and os.path.exists(path):
+        _send(event, path, "PreToolUse", tool_name or "PreToolUse")
     return 0
 
 

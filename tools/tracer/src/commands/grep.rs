@@ -1,7 +1,7 @@
 //! `trace grep` — text search with rich per-match context.
-//! Wraps `rg --json`; each match is enriched with per-file complexity,
-//! nearest doc, and git activity, plus a repo-wide complexity_p95 for
-//! read-depth calibration.
+//! Wraps `rg --json` and takes ripgrep's own flags (`-i`, `-l`, `-c`, `-C`,
+//! `-A`, `-B`, `-n`, `-U`, `-t`, `-g`); each match is enriched with per-file facts and grouped
+//! under the declarations that enclose it.
 //!
 //! ripgrep's output is consumed as it is written rather than through
 //! `Command::output`, which buffers every byte of the search before the first
@@ -14,10 +14,24 @@ use crate::output::Sink;
 use crate::{cache, repo_context};
 use anyhow::{anyhow, bail, Context, Result};
 use serde_json::{json, Value};
+use std::collections::{BTreeMap, HashMap};
 use std::io::{BufRead, Read};
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::thread;
+
+/// ripgrep's own flags, as `trace grep` takes them.
+pub struct Options {
+    pub ignore_case: bool,
+    /// `-l` and `-c`: each matching file once, with its facts and match count.
+    pub files_only: bool,
+    /// `-B` and `-A`, both `-C` when unset: lines shown before and after each match.
+    pub before: usize,
+    pub after: usize,
+    pub multiline: bool,
+    pub types: Vec<String>,
+    pub globs: Vec<String>,
+}
 
 /// A snippet stays a snippet on minified or generated lines. The matched
 /// line is the unit for ordinary source, but a 27KB single-line bundle is
@@ -90,26 +104,42 @@ fn window_snippet(line: &str, match_byte_start: usize) -> String {
     out
 }
 
-/// One `rg --json` event line into a `Match`, or None when the event is not
-/// a match.
-fn parse_event(line: &str) -> Result<Option<Match>> {
+type Lines = HashMap<String, BTreeMap<i64, String>>;
+
+struct Event {
+    file: String,
+    line: i64,
+    text: String,
+    match_start: Option<usize>,
+}
+
+fn parse_event(line: &str) -> Result<Option<Event>> {
     let event: Value = serde_json::from_str(line).context("ripgrep wrote malformed JSON")?;
-    if event.get("type").and_then(|x| x.as_str()) != Some("match") {
-        return Ok(None);
-    }
+    let is_match = match event.get("type").and_then(Value::as_str) {
+        Some("match") => true,
+        Some("context") => false,
+        _ => return Ok(None),
+    };
     let data = event.get("data").context("ripgrep match is missing data")?;
-    let text = data
+    let Some(text) = data
         .get("lines")
         .and_then(|lines| lines.get("text"))
         .and_then(Value::as_str)
-        .context("ripgrep match is missing line text")?;
-    let match_start = data
-        .get("submatches")
-        .and_then(Value::as_array)
-        .and_then(|matches| matches.first())
-        .and_then(|matched| matched.get("start"))
-        .and_then(Value::as_u64)
-        .context("ripgrep match is missing a submatch start")? as usize;
+    else {
+        return if is_match { Err(anyhow!("ripgrep match is missing line text")) } else { Ok(None) };
+    };
+    let match_start = if is_match {
+        Some(
+            data.get("submatches")
+                .and_then(Value::as_array)
+                .and_then(|matches| matches.first())
+                .and_then(|matched| matched.get("start"))
+                .and_then(Value::as_u64)
+                .context("ripgrep match is missing a submatch start")? as usize,
+        )
+    } else {
+        None
+    };
     let file = data
         .get("path")
         .and_then(|path| path.get("text"))
@@ -119,29 +149,58 @@ fn parse_event(line: &str) -> Result<Option<Match>> {
         .get("line_number")
         .and_then(Value::as_i64)
         .context("ripgrep match is missing a line number")?;
-    Ok(Some(Match {
+    Ok(Some(Event {
         file: file.to_string(),
         line,
-        snippet: window_snippet(text.trim_end_matches('\n'), match_start),
+        text: text.trim_end_matches('\n').to_string(),
+        match_start,
     }))
 }
 
-/// Run `ripgrep` for a text pattern and collect the matches, reading its
-/// stdout as it is produced.
-fn ripgrep(pattern: &str, path: &str, lang: Option<&str>) -> Result<Vec<Match>> {
+fn snippet(text: &str, match_start: usize) -> String {
+    text.split('\n')
+        .enumerate()
+        .map(|(index, text)| window_snippet(text, if index == 0 { match_start } else { 0 }))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn keep_lines(lines: &mut Lines, file: &str, first: i64, text: &str) {
+    let kept = lines.entry(file.to_string()).or_default();
+    for (line, text) in (first..).zip(text.split('\n')) {
+        kept.insert(line, text.to_string());
+    }
+}
+
+fn ripgrep(pattern: &str, paths: &[String], options: &Options, types: &[String]) -> Result<(Vec<Match>, Lines)> {
     let mut cmd = Command::new("rg");
-    cmd.arg("--json");
-    if let Some(l) = lang {
-        cmd.args(["--type", l]);
+    cmd.args(["--json", "--threads", &rayon::current_num_threads().to_string()]);
+    if options.ignore_case {
+        cmd.arg("--ignore-case");
+    }
+    if options.multiline {
+        cmd.arg("--multiline");
+    }
+    let with_context = options.before + options.after > 0;
+    if with_context {
+        cmd.args(["--before-context", &options.before.to_string()]);
+        cmd.args(["--after-context", &options.after.to_string()]);
+    }
+    for rg_type in types {
+        cmd.args(["--type", rg_type]);
+    }
+    for glob in &options.globs {
+        cmd.args(["--glob", glob]);
     }
     cmd.arg("--")
         .arg(pattern)
-        .arg(path)
+        .args(paths)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     let mut child = cmd.spawn().context("failed to start ripgrep")?;
     let stderr = stderr_reader(child.stderr.take().expect("piped ripgrep stderr"));
     let mut matches = Vec::new();
+    let mut lines = Lines::new();
     let mut parse_result = Ok(());
     for line in std::io::BufReader::new(child.stdout.take().expect("piped ripgrep stdout")).lines()
     {
@@ -149,7 +208,19 @@ fn ripgrep(pattern: &str, path: &str, lang: Option<&str>) -> Result<Vec<Match>> 
             .context("failed to read ripgrep output")
             .and_then(|line| parse_event(&line))
         {
-            Ok(Some(found)) => matches.push(found),
+            Ok(Some(event)) => {
+                if with_context {
+                    keep_lines(&mut lines, &event.file, event.line, &event.text);
+                }
+                if let Some(start) = event.match_start {
+                    matches.push(Match {
+                        snippet: snippet(&event.text, start),
+                        file: event.file,
+                        line: event.line,
+                        ..Match::default()
+                    });
+                }
+            }
             Ok(None) => {}
             Err(error) => {
                 parse_result = Err(error);
@@ -164,7 +235,7 @@ fn ripgrep(pattern: &str, path: &str, lang: Option<&str>) -> Result<Vec<Match>> 
         .map_err(|_| anyhow!("ripgrep stderr reader panicked"))??;
     parse_result?;
     if status.success() || status.code() == Some(1) {
-        Ok(matches)
+        Ok((matches, lines))
     } else {
         Err(backend_error("ripgrep", status, stderr, total))
     }
@@ -172,145 +243,229 @@ fn ripgrep(pattern: &str, path: &str, lang: Option<&str>) -> Result<Vec<Match>> 
 
 /// Search a commit rather than the working tree. ripgrep reads files on
 /// disk, so the tool for a past state is `git grep`, which reads the tree
-/// object directly — no checkout, no temp files.
-fn git_grep(pattern: &str, at: &str, path: &str, exts: &[&str]) -> Result<Vec<Match>> {
-    let mut cmd = Command::new("git");
-    cmd.args([
-        "grep",
-        "-z",
-        "--text",
-        "-n",
-        "--no-color",
-        "-e",
-        pattern,
-        at,
-        "--",
-    ]);
-    if exts.is_empty() {
-        cmd.arg(path);
-    } else {
-        for ext in exts {
-            cmd.arg(format!("{}/*.{ext}", path.trim_end_matches('/')));
+/// object directly — no checkout, no temp files. Its files then pass through
+/// the type and glob matchers ripgrep itself builds, so `-t` and `-g` select
+/// the same files on a commit as on the working tree.
+fn git_grep(
+    pattern: &str,
+    at: &str,
+    paths: &[String],
+    options: &Options,
+    types: &ignore::types::Types,
+) -> Result<Vec<Match>> {
+    if options.multiline {
+        bail!("-U needs ripgrep, and --at searches with git grep, which has no multiline mode");
+    }
+    let mut globs = ignore::overrides::OverrideBuilder::new(".");
+    for glob in &options.globs {
+        globs.add(glob)?;
+    }
+    let globs = globs.build()?;
+    let selected = |file: &str| {
+        let file = Path::new(file);
+        !types.matched(file, false).is_ignore()
+            && !globs.matched(file, false).is_ignore()
+            && !file
+                .ancestors()
+                .skip(1)
+                .take_while(|parent| !parent.as_os_str().is_empty())
+                .any(|parent| globs.matched(parent, true).is_ignore())
+    };
+    let mut args = vec!["grep", "-z", "--text", "-n", "--no-color"];
+    if options.ignore_case {
+        args.push("--ignore-case");
+    }
+    args.extend(["-e", pattern, at, "--"]);
+    args.extend(paths.iter().map(String::as_str));
+    let mut matches = crate::git_activity::git_command(Path::new("."), args, |command| {
+        let mut child = command
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .context("failed to start git grep")?;
+        let stderr = stderr_reader(child.stderr.take().expect("piped git grep stderr"));
+        let mut stdout = Vec::new();
+        let read_result = child
+            .stdout
+            .take()
+            .expect("piped git grep stdout")
+            .read_to_end(&mut stdout)
+            .context("failed to read git grep output");
+        if read_result.is_err() {
+            let _ = child.kill();
         }
-    }
-    let mut child = cmd
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .context("failed to start git grep")?;
-    let stderr = stderr_reader(child.stderr.take().expect("piped git grep stderr"));
-    let mut stdout = Vec::new();
-    let read_result = child
-        .stdout
-        .take()
-        .expect("piped git grep stdout")
-        .read_to_end(&mut stdout)
-        .context("failed to read git grep output");
-    if read_result.is_err() {
-        let _ = child.kill();
-    }
-    let status = child.wait().context("failed to wait for git grep")?;
-    let (stderr, total) = stderr
-        .join()
-        .map_err(|_| anyhow!("git grep stderr reader panicked"))??;
-    read_result?;
-    if !status.success() && status.code() != Some(1) {
-        bail!("{}", backend_error("git grep", status, stderr, total));
-    }
-    let prefix = format!("{at}:").into_bytes();
-    let mut matches = Vec::new();
-    let mut remaining = stdout.as_slice();
-    while !remaining.is_empty() {
-        let path_end = remaining
-            .iter()
-            .position(|byte| *byte == 0)
-            .context("git grep wrote a record without a path delimiter")?;
-        let framed_path = &remaining[..path_end];
-        let file = framed_path
-            .strip_prefix(prefix.as_slice())
-            .context("git grep wrote a malformed revision/path field")?;
-        remaining = &remaining[path_end + 1..];
+        let status = child.wait().context("failed to wait for git grep")?;
+        let (stderr, total) = stderr
+            .join()
+            .map_err(|_| anyhow!("git grep stderr reader panicked"))??;
+        read_result?;
+        if !status.success() && status.code() != Some(1) {
+            bail!("{}", backend_error("git grep", status, stderr, total));
+        }
+        let prefix = format!("{at}:").into_bytes();
+        let mut matches = Vec::new();
+        let mut remaining = stdout.as_slice();
+        while !remaining.is_empty() {
+            let path_end = remaining
+                .iter()
+                .position(|byte| *byte == 0)
+                .context("git grep wrote a record without a path delimiter")?;
+            let framed_path = &remaining[..path_end];
+            let file = framed_path
+                .strip_prefix(prefix.as_slice())
+                .context("git grep wrote a malformed revision/path field")?;
+            remaining = &remaining[path_end + 1..];
 
-        let line_end = remaining
-            .iter()
-            .position(|byte| *byte == 0)
-            .context("git grep wrote a record without a line delimiter")?;
-        let line = std::str::from_utf8(&remaining[..line_end])
-            .context("git grep wrote a non-text line number")?
-            .parse()
-            .context("git grep wrote an invalid line number")?;
-        remaining = &remaining[line_end + 1..];
+            let line_end = remaining
+                .iter()
+                .position(|byte| *byte == 0)
+                .context("git grep wrote a record without a line delimiter")?;
+            let line = std::str::from_utf8(&remaining[..line_end])
+                .context("git grep wrote a non-text line number")?
+                .parse()
+                .context("git grep wrote an invalid line number")?;
+            remaining = &remaining[line_end + 1..];
 
-        let text_end = remaining
-            .iter()
-            .position(|byte| *byte == b'\n')
-            .context("git grep wrote a record without a text delimiter")?;
-        let text = String::from_utf8_lossy(&remaining[..text_end]);
-        remaining = &remaining[text_end + 1..];
-        let file = String::from_utf8_lossy(file).into_owned();
-        matches.push(Match {
-            file,
-            line,
-            snippet: window_snippet(&text, text.find(pattern).unwrap_or(0)),
-        });
-    }
+            let text_end = remaining
+                .iter()
+                .position(|byte| *byte == b'\n')
+                .context("git grep wrote a record without a text delimiter")?;
+            let text = String::from_utf8_lossy(&remaining[..text_end]);
+            remaining = &remaining[text_end + 1..];
+            let file = String::from_utf8_lossy(file).into_owned();
+            matches.push(Match {
+                file,
+                line,
+                snippet: window_snippet(&text, text.find(pattern).unwrap_or(0)),
+                ..Match::default()
+            });
+        }
+        Ok::<_, anyhow::Error>(matches)
+    })?;
+    matches.retain(|found| selected(&found.file));
     Ok(matches)
+}
+
+fn lines_at(matches: &[Match], revision: &str) -> Result<Lines> {
+    let mut lines = Lines::new();
+    for found in matches {
+        if lines.contains_key(&found.file) {
+            continue;
+        }
+        let bytes = crate::git_activity::blob(Path::new("."), revision, &format!("./{}", found.file.trim_start_matches("./")))
+            .with_context(|| format!("failed to read {} at {revision}", found.file))?;
+        keep_lines(&mut lines, &found.file, 1, String::from_utf8_lossy(&bytes).trim_end_matches('\n'));
+    }
+    Ok(lines)
+}
+
+fn attach_context(matches: &mut [Match], lines: &Lines, before: usize, after: usize) {
+    for found in matches {
+        let Some(kept) = lines.get(&found.file) else {
+            continue;
+        };
+        let window = |from: i64, to: i64| kept.range(from..to).map(|(_, text)| window_snippet(text, 0)).collect();
+        let next = found.line + found.snippet.split('\n').count() as i64;
+        found.before = window(found.line - before as i64, found.line);
+        found.after = window(next, next + after as i64);
+    }
 }
 
 pub fn run(
     pattern: &str,
-    lang: Option<&str>,
-    path: &str,
+    paths: &[String],
     at: Option<&str>,
+    options: &Options,
     as_json: bool,
     sink: &Sink,
 ) -> Result<()> {
-    // A language name is resolved before the search runs: an unknown one
-    // must fail by name, never as an empty result the agent reads as
-    // "this does not exist".
-    let row = match lang {
-        None => None,
-        Some(l) => match crate::lang::resolve(l) {
-            Some(row) => Some(row),
-            None => {
-                eprintln!(
-                    "Error: unknown language {l:?}. Accepted: {}",
-                    crate::lang::accepted()
-                );
-                std::process::exit(2);
-            }
-        },
+    // A type is resolved before the search runs: an unknown one must fail by
+    // name, never as an empty result the agent reads as "this does not
+    // exist".
+    let (types, matcher) = match crate::lang::ripgrep_types(&options.types) {
+        Ok(resolved) => resolved,
+        Err(message) => {
+            eprintln!("Error: {message}");
+            std::process::exit(2);
+        }
     };
-    let matches = match at {
-        Some(r) => git_grep(pattern, r, path, row.map(|l| l.exts).unwrap_or(&[])),
-        None => ripgrep(pattern, path, row.map(|l| l.rg)),
-    }?;
-    let abs = cache::absolutize(Path::new(path));
-    let search_root = cache::worktree_root_for(&abs).unwrap_or_else(|| cache::display_root(&abs));
-    let ((enriched, files, signpost), repo_ctx) = rayon::join(
+    let (mut matches, lines) = match at {
+        Some(revision) => {
+            let matches = git_grep(pattern, revision, paths, options, &matcher)?;
+            let lines = if options.before + options.after > 0 { lines_at(&matches, revision)? } else { Lines::new() };
+            (matches, lines)
+        }
+        None => ripgrep(pattern, paths, options, &types)?,
+    };
+    attach_context(&mut matches, &lines, options.before, options.after);
+    let abs = cache::absolutize(Path::new(&paths[0]));
+    let root_of = |path: &str| {
+        let abs = cache::absolutize(Path::new(path));
+        cache::worktree_root_for(&abs).unwrap_or_else(|| cache::display_root(&abs))
+    };
+    let roots: Vec<std::path::PathBuf> = paths.iter().map(|path| root_of(path)).collect();
+    let mut groups: Vec<(std::path::PathBuf, Vec<Match>)> = Vec::new();
+    for found in matches {
+        let root = paths
+            .iter()
+            .zip(&roots)
+            .filter(|(path, _)| found.file.starts_with(path.as_str()))
+            .max_by_key(|(path, _)| path.len())
+            .map_or(&roots[0], |(_, root)| root);
+        match groups.iter_mut().find(|(known, _)| known == root) {
+            Some((_, group)) => group.push(found),
+            None => groups.push((root.clone(), vec![found])),
+        }
+    }
+    let ((enriched, files, surfaces, signpost), repo_ctx) = rayon::join(
         || {
-            let signpost = enrich::signpost(enrich::searched_name(pattern), &search_root);
-            let (enriched, files) = enrich::enrich(&matches, &search_root);
-            (enriched, files, signpost)
+            let signpost = enrich::signpost(enrich::searched_name(pattern), &roots[0]);
+            let mut enriched = Vec::new();
+            let mut files = BTreeMap::new();
+            let mut surfaces = BTreeMap::new();
+            for (root, group) in &groups {
+                let relations = crate::relations::get(root);
+                let (group_enriched, group_files, group_surfaces) = enrich::enrich(group, root, Some(&relations), at);
+                enriched.extend(group_enriched);
+                files.extend(group_files);
+                surfaces.extend(group_surfaces);
+            }
+            (enriched, files, surfaces, signpost)
         },
-        || repo_context::repo_context(&abs),
+        || if as_json { repo_context::repo_context(&abs) } else { Value::Null },
     );
 
-    let nested = if enriched.is_empty() && abs.is_dir() {
-        crate::repo_files::nested_repo_rels(&abs)
+    let nested: Vec<String> = if enriched.is_empty() {
+        paths
+            .iter()
+            .map(|path| cache::absolutize(Path::new(path)))
+            .filter(|path| path.is_dir())
+            .flat_map(|path| crate::repo_files::nested_repo_rels(&path))
+            .collect()
     } else {
         Vec::new()
     };
 
     if !as_json {
-        enrich::render_human(&enriched, &files, &repo_ctx, signpost.as_deref());
+        enrich::render_human(&enriched, &files, &surfaces, signpost.as_deref(), options.files_only);
         for r in &nested {
             println!("nested repository (its own search scope): {r}");
         }
     }
+    drop(surfaces);
 
     sink.emit(&enrich::SearchDocument {
-        query: json!({"pattern": pattern, "lang": lang, "path": path, "at": at}),
+        query: json!({
+            "pattern": pattern,
+            "paths": paths,
+            "at": at,
+            "type": options.types,
+            "glob": options.globs,
+            "ignore_case": options.ignore_case,
+            "multiline": options.multiline,
+            "before_context": options.before,
+            "after_context": options.after,
+        }),
         context: enrich::SearchContext {
             files: &files,
             repo: &repo_ctx,

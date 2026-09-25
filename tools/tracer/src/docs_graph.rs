@@ -24,7 +24,6 @@ use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// One doc node in the graph. Kinds mirror `LoadedMemory.kind` values
@@ -89,18 +88,7 @@ pub fn build(repo_root: &Path) -> DocsGraph {
 }
 
 fn git_head(repo_root: &Path) -> String {
-    Command::new("git")
-        .args(["rev-parse", "HEAD"])
-        .current_dir(repo_root)
-        .output()
-        .ok()
-        .and_then(|o| {
-            if o.status.success() {
-                Some(String::from_utf8_lossy(&o.stdout).trim().to_string())
-            } else {
-                None
-            }
-        })
+    crate::git_activity::git_str(repo_root, &["rev-parse", "HEAD"])
         .unwrap_or_else(|| "no-head".to_string())
 }
 

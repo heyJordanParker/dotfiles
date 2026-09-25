@@ -30,7 +30,15 @@ fn file_cache_key(schema_version: u32, file_bytes: &[u8], relpath: &str) -> Stri
 /// schema-bump test plants a poison entry at this version's key (proving
 /// the cache IS consulted by this exact schema-versioned key) and at a
 /// neighbor version's key (proving it is unreachable).
-const PUBLISHED_SCHEMA_VERSION: u32 = 20;
+const PUBLISHED_SCHEMA_VERSION: u32 = 26;
+
+/// The facts a one-file document carries for its file.
+fn file_facts(v: &serde_json::Value) -> &serde_json::Value {
+    v["files"]
+        .as_object()
+        .and_then(|files| files.values().next())
+        .unwrap_or_else(|| panic!("no file facts in {v:#}"))
+}
 
 #[test]
 fn typescript_import_bindings_are_cached_without_changing_structure_output() {
@@ -314,14 +322,19 @@ fn warm_commands_observe_git_state_once_without_untracked_listing() {
     f.write("u.py", "def helper():\n    return 1\n");
     f.commit("seed");
     f.trace(&["info", "u.py", "--json"]).ok();
+    std::thread::sleep(std::time::Duration::from_secs(2));
+    f.trace(&["info", "u.py", "--json"]).ok();
 
     for (name, args) in [
         ("info", vec!["info", "u.py", "--json"]),
-        ("grep", vec!["grep", "helper", "--path", ".", "--json"]),
-        ("regex", vec!["grep", "helper.*", "--path", ".", "--json"]),
+        ("grep", vec!["grep", "helper", ".", "--json"]),
+        ("regex", vec!["grep", "helper.*", ".", "--json"]),
     ] {
         let observer = f.root.join(format!(".tracer-cache/{name}-git-trace.json"));
-        let run = f.trace_env(&args, &[("GIT_TRACE2_EVENT", observer.to_string_lossy().as_ref())]);
+        let run = f.trace_env(
+            &args,
+            &[("GIT_TRACE2_EVENT", observer.to_string_lossy().as_ref())],
+        );
         run.ok();
         let events = fs::read_to_string(&observer).unwrap();
         let status = events
@@ -330,15 +343,23 @@ fn warm_commands_observe_git_state_once_without_untracked_listing() {
             .count();
         let cached = events
             .lines()
-            .filter(|line| line.contains("\"argv\":[\"git\",\"ls-files\"") && line.contains("--cached"))
+            .filter(|line| {
+                line.contains("\"argv\":[\"git\",\"ls-files\"") && line.contains("--cached")
+            })
             .count();
         let others = events
             .lines()
-            .filter(|line| line.contains("\"argv\":[\"git\",\"ls-files\"") && line.contains("--others"))
+            .filter(|line| {
+                line.contains("\"argv\":[\"git\",\"ls-files\"") && line.contains("--others")
+            })
             .count();
         assert_eq!(status, 1, "{name} status calls: {events}");
-        assert_eq!(cached, 1, "{name} cached listings: {events}");
+        assert_eq!(cached, 0, "{name} cached listings: {events}");
         assert_eq!(others, 0, "{name} untracked listings: {events}");
+        assert!(
+            events.contains("--untracked-files=no"),
+            "{name} did not use the tracked-only status scan: {events}"
+        );
     }
 }
 
@@ -398,7 +419,11 @@ fn a_failed_status_keeps_warm_repo_and_relations_caches() {
         "failed status was hidden: {}",
         failed.stderr
     );
-    assert_eq!(invocation_count(&scc_count), before_scc, "status failure reran scc");
+    assert_eq!(
+        invocation_count(&scc_count),
+        before_scc,
+        "status failure reran scc"
+    );
     assert_eq!(entries_with_prefix(&f, "repo_context_v6"), 1);
     let after_edges = fs::read(
         f.root
@@ -416,11 +441,18 @@ fn a_failed_status_keeps_warm_repo_and_relations_caches() {
             .expect("relations edges entry remains"),
     )
     .expect("relations edges remain readable");
-    assert_eq!(after_edges, before_edges, "status failure rewrote relations edges");
+    assert_eq!(
+        after_edges, before_edges,
+        "status failure rewrote relations edges"
+    );
 
     f.trace_env(&["info", "src/util.py", "--json"], &[("PATH", &path)])
         .ok();
-    assert_eq!(invocation_count(&scc_count), before_scc, "healthy warm run reran scc");
+    assert_eq!(
+        invocation_count(&scc_count),
+        before_scc,
+        "healthy warm run reran scc"
+    );
 }
 
 #[test]
@@ -442,9 +474,9 @@ fn failed_repo_context_output_is_not_cached_and_the_next_call_recovers() {
         "backend failure erased the requested file"
     );
     assert_eq!(
-        failed.view()["loc"],
-        0,
-        "unavailable fallback must stay visible but uncached"
+        file_facts(&failed.view())["lines"],
+        1,
+        "a file's lines come from its own bytes, with or without scc"
     );
     assert!(
         failed.stderr.contains("repo context unavailable"),
@@ -472,7 +504,7 @@ fn failed_repo_context_output_is_not_cached_and_the_next_call_recovers() {
     recovered.ok();
     assert_eq!(recovered.view()["repo"]["total_files"], 1);
     assert_eq!(
-        recovered.view()["loc"],
+        file_facts(&recovered.view())["lines"],
         1,
         "the same-byte functionless file retained fabricated fallback LOC"
     );
@@ -497,7 +529,7 @@ fn functionless_files_remain_visible_outside_a_git_worktree() {
     let module = f.trace(&["structure", "module.ts", "--json"]);
     module.ok();
     let view = module.view();
-    assert!(view["file"].as_str().unwrap().ends_with("module.ts"));
+    assert!(view["paths"][0].as_str().unwrap().ends_with("module.ts"));
     assert_eq!(view["imports"][0]["module"], "./plain");
     assert!(
         view["exports"]
@@ -571,7 +603,7 @@ fn an_ignored_unreadable_tree_cannot_erase_uncached_repo_context() {
         "{}",
         failed.stderr
     );
-    assert_eq!(failed.view()["loc"], 1);
+    assert_eq!(file_facts(&failed.view())["lines"], 1);
     assert_eq!(failed.view()["repo"]["total_files"], 1);
     assert_eq!(invocation_count(&count), 1);
     assert_eq!(entries_with_prefix(&f, "repo_context_v6"), 1);
@@ -672,11 +704,22 @@ fn a_file_edited_while_scc_runs_is_recounted_by_the_next_call() {
 
     let unstable = f.trace_env(&["info", "u.py", "--json"], &[("PATH", &path)]);
     unstable.ok();
-    assert_eq!(unstable.stderr, "", "an edit during scc was reported as an error");
+    assert_eq!(
+        unstable.stderr, "",
+        "an edit during scc was reported as an error"
+    );
     assert_eq!(invocation_count(&count), 1);
     assert_eq!(entries_with_prefix(&f, "repo_context_v6"), 1);
 
-    fs::write(&wrapper, format!("#!/bin/sh\nprintf x >> '{}'\nexec '{}' \"$@\"\n", f.root.join(".tracer-cache/scc-count").display(), real)).unwrap();
+    fs::write(
+        &wrapper,
+        format!(
+            "#!/bin/sh\nprintf x >> '{}'\nexec '{}' \"$@\"\n",
+            f.root.join(".tracer-cache/scc-count").display(),
+            real
+        ),
+    )
+    .unwrap();
     fs::set_permissions(&wrapper, fs::Permissions::from_mode(0o755)).unwrap();
     let next = f.trace_env(&["info", "u.py", "--json"], &[("PATH", &path)]);
     next.ok();
@@ -685,7 +728,11 @@ fn a_file_edited_while_scc_runs_is_recounted_by_the_next_call() {
         2,
         "the file edited during scc was not recounted"
     );
-    assert_eq!(next.view()["loc"], 2, "the recount did not read the edited bytes");
+    assert_eq!(
+        file_facts(&next.view())["lines"],
+        2,
+        "the recount did not read the edited bytes"
+    );
     assert_eq!(entries_with_prefix(&f, "repo_context_v6"), 1);
 }
 
@@ -732,19 +779,20 @@ fn cache_build_populates_the_file_namespace() {
     let stats = f.trace(&["cache", "stats", "--json"]);
     stats.ok();
     let v = stats.view();
-    // `cache build .` over standard_repo() populates exactly 11 file/
-    // entries for this fixed tree: six per-file entries, the mtime index,
-    // the git-activity map, and the three relations-index entries.
+    // `cache build .` over standard_repo() populates exactly 15 file/
+    // entries for this fixed tree: seven per-file entries, the mtime index,
+    // the tracked-files listing, the git-activity map, the cached ctags map,
+    // and the four relations-index entries.
     assert_eq!(
         v["file"]["entries"].as_i64().unwrap(),
-        11,
-        "file namespace must hold exactly 11 entries after build: {}",
+        15,
+        "file namespace must hold exactly 15 entries after build: {}",
         stats.stdout
     );
     assert_eq!(
         relations_entry_count(&f),
-        3,
-        "build must leave exactly three relations-index entries: {}",
+        4,
+        "build must leave exactly four relations-index entries: {}",
         stats.stdout
     );
 }
@@ -772,17 +820,17 @@ fn editing_a_file_leaves_the_entry_count_unchanged() {
     );
 }
 
-/// Count the three relations-index entries in the file namespace: edges,
-/// symbols, and import rows. Each entry is keyed by schema alone and
+/// Count the four relations-index entries in the file namespace: edges,
+/// symbols, import rows, and directory metrics. Each entry is keyed by schema alone and
 /// rewritten in place rather than rotated.
 fn relations_entry_count(f: &Fixture) -> usize {
     entries_with_prefix(f, "relations_")
 }
 
-/// The relations index is three mutable entries per repo, and it always
+/// The relations index is four mutable entries per repo, and it always
 /// answers from the current tree. Across a doc change, a code change, and a
 /// new file — each with a HEAD move — the namespace must still hold exactly
-/// three entries, and they must report the edit rather than the prior state.
+/// four entries, and they must report the edit rather than the prior state.
 #[test]
 fn the_relations_index_stays_single_and_current_across_builds() {
     let f = standard_repo();
@@ -792,8 +840,8 @@ fn the_relations_index_stays_single_and_current_across_builds() {
     f.trace(&["cache", "build", "."]).ok();
     assert_eq!(
         relations_entry_count(&f),
-        3,
-        "first build must leave exactly three relations-index entries"
+        4,
+        "first build must leave exactly four relations-index entries"
     );
 
     // A doc change + HEAD move: neither touches code relations.
@@ -802,7 +850,7 @@ fn the_relations_index_stays_single_and_current_across_builds() {
     f.trace(&["cache", "build", "."]).ok();
     assert_eq!(
         relations_entry_count(&f),
-        3,
+        4,
         "a doc change must not add an index"
     );
 
@@ -812,7 +860,7 @@ fn the_relations_index_stays_single_and_current_across_builds() {
     f.trace(&["cache", "build", "."]).ok();
     assert_eq!(
         relations_entry_count(&f),
-        3,
+        4,
         "a code change must not add an index"
     );
     let renamed = f.trace(&["defines", "renamed_helper", "--json"]);
@@ -836,7 +884,7 @@ fn the_relations_index_stays_single_and_current_across_builds() {
     f.trace(&["cache", "build", "."]).ok();
     assert_eq!(
         relations_entry_count(&f),
-        3,
+        4,
         "a new file must not add an index"
     );
     let added = f.trace(&["defines", "extra_fn", "--json"]);
@@ -882,12 +930,12 @@ fn cache_invalidates_on_content_change() {
     let f = standard_repo();
     f.trace(&["cache", "build", "."]).ok();
     let before = f.trace(&["info", "src/util.py", "--json"]).view();
+    let before = &file_facts(&before)["cyclomatic_complexity"];
     // standard_repo()'s helper(v): base 1 + if(1) = 2, exactly.
     assert_eq!(
-        before["ccn_total"].as_i64().unwrap(),
+        before.as_i64().unwrap(),
         2,
-        "baseline helper() CCN must be exactly 2: {}",
-        before["ccn_total"]
+        "baseline helper() CCN must be exactly 2: {before}"
     );
 
     // Add decision points; ccn must change on the next read (cache key is
@@ -900,12 +948,12 @@ fn cache_invalidates_on_content_change() {
          for i in range(v):\n        if i:\n            pass\n    return 0\n",
     );
     let after = f.trace(&["info", "src/util.py", "--json"]).view();
+    let after = &file_facts(&after)["cyclomatic_complexity"];
     assert_eq!(
-        after["ccn_total"].as_i64().unwrap(),
+        after.as_i64().unwrap(),
         5,
         "post-edit helper() CCN must be exactly 5 (cache served a stale \
-         entry if this is 2): {}",
-        after["ccn_total"]
+         entry if this is 2): {after}"
     );
 }
 
@@ -1035,27 +1083,19 @@ fn ccn_backend_is_ast_and_cache_does_not_fork_on_env_value() {
     // the env value neither forks the cache nor shifts the computation.
     let expected = serde_json::json!({
         "functions": 1,
-        "ccn_total": 4,
-        "ccn_max_function": 4,
-        "rank": "low",
+        "cyclomatic_complexity": 4,
+        "max_function_complexity": 4,
+        "complexity_rank": "low",
+        "language": "python",
     });
     for (key, want) in expected.as_object().unwrap() {
         assert_eq!(
-            &default_info[key], want,
-            "default-env FileFacts `{key}` wrong for src/app.py"
+            &file_facts(&default_info)[key], want,
+            "default-env facts `{key}` wrong for src/app.py"
         );
         assert_eq!(
-            &ast_info[key], want,
-            "ast-env FileFacts `{key}` wrong for src/app.py"
-        );
-    }
-    // The language rides in the per-file context, keyed by the path the
-    // query echoes, so a row projection cannot take it away.
-    for info in [&default_info, &ast_info] {
-        let file = info["file"].as_str().unwrap();
-        assert_eq!(
-            info["files"][file]["language"], "python",
-            "FileFacts language wrong for src/app.py"
+            &file_facts(&ast_info)[key], want,
+            "ast-env facts `{key}` wrong for src/app.py"
         );
     }
 }
@@ -1077,12 +1117,13 @@ fn ccn_is_ast_derived_regardless_of_backend_env_value() {
         )
         .view();
     // One backend (AST): every env value yields the identical CCN.
+    let complexity = |v: &serde_json::Value| file_facts(v)["cyclomatic_complexity"].clone();
     assert_eq!(
-        default["ccn_total"], explicit_ast["ccn_total"],
+        complexity(&default), complexity(&explicit_ast),
         "explicit ast value changed CCN — backend is not value-independent"
     );
     assert_eq!(
-        default["ccn_total"], bogus["ccn_total"],
+        complexity(&default), complexity(&bogus),
         "unknown TRACER_CCN_BACKEND value changed CCN — backend is not value-independent"
     );
 }
@@ -1099,7 +1140,7 @@ fn json_output_is_ascii_escaped_on_raw_bytes() {
     f.write("uni.py", "x = 1  # caf\u{00e9} \u{1f680} token_NONASCII\n");
     f.commit("non-ascii content");
 
-    let r = f.trace(&["grep", "token_NONASCII", "--path", ".", "--json"]);
+    let r = f.trace(&["grep", "token_NONASCII", ".", "--json"]);
     r.ok();
     let raw = r.stdout.as_bytes();
 
@@ -1167,10 +1208,9 @@ fn json_output_is_ascii_escaped_on_raw_bytes() {
 fn schema_version_bump_makes_prior_entries_unreachable() {
     let src = "def helper(v):\n    if v > 0:\n        return v + 1\n    return 0\n";
 
-    // grep enrichment serves `file_complexity.ccn_total` straight from the
-    // `file/` cache entry (`file_facts::get`), so a poisoned entry under a
-    // given key is observable. (`info`'s top-level CCN is recomputed from
-    // source and would mask the cache, so it is the wrong probe here.)
+    // grep enrichment serves each file's `cyclomatic_complexity` straight
+    // from the `file/` cache entry (`file_facts::get`), so a poisoned entry
+    // under a given key is observable.
     let bytes = src.as_bytes();
     let poison_entry = serde_json::json!({
         "path": "u.py",
@@ -1192,10 +1232,10 @@ fn schema_version_bump_makes_prior_entries_unreachable() {
     });
     let grep_ccn = |fx: &Fixture| -> i64 {
         let v = fx
-            .trace(&["grep", "helper", "--path", ".", "--json"])
+            .trace(&["grep", "helper", ".", "--json"])
             .view();
         let file = v["results"][0]["file"].as_str().expect("one match on u.py");
-        v["files"][file]["file_complexity"]["ccn_total"]
+        v["files"][file]["cyclomatic_complexity"]
             .as_i64()
             .unwrap()
     };
@@ -1245,19 +1285,13 @@ fn schema_version_bump_makes_prior_entries_unreachable() {
     );
     let info = f.trace(&["info", "u.py", "--json"]).view();
     assert_eq!(
-        info["ccn_total"], 999,
+        file_facts(&info)["cyclomatic_complexity"], 999,
         "info reparsed instead of serving retained rows: {info:#}"
     );
     assert_eq!(
         info["results"][0]["cyclomatic_complexity"], 999,
         "info did not serve the retained sentinel row: {info:#}"
     );
-    let structure = f.trace(&["structure", "u.py", "--json"]).view();
-    assert_eq!(
-        structure["symbols_by_kind"]["function"][0]["cyclomatic_complexity"], 999,
-        "structure reparsed instead of serving the retained sentinel row: {structure:#}"
-    );
-
     let mut inconsistent_empty = poison_entry.clone();
     inconsistent_empty["functions"] = serde_json::json!([]);
     fs::write(
@@ -1352,7 +1386,10 @@ fn info_and_structure_serve_the_same_retained_function_rows() {
     fs::write(entry.path(), serde_json::to_vec(&cached).unwrap()).unwrap();
 
     let info = f.trace(&["info", "u.py", "--json"]).view();
-    assert_eq!(info["ccn_total"], 41, "info reparsed source: {info:#}");
+    assert_eq!(
+        file_facts(&info)["cyclomatic_complexity"], 41,
+        "info reparsed source: {info:#}"
+    );
     assert_eq!(
         info["results"][0]["name"], "cached_helper",
         "info lost cached row: {info:#}"
@@ -1364,14 +1401,10 @@ fn info_and_structure_serve_the_same_retained_function_rows() {
     );
 }
 
-/// The canonical passive-context shoulder for one file.
-fn shoulder(f: &Fixture, rel: &str) -> String {
+/// The git facts `info` shows for one file.
+fn git_facts(f: &Fixture, rel: &str) -> serde_json::Value {
     let v = f.trace(&["info", rel, "--json"]).view();
-    let file = v["file"].as_str().expect("info echoes the file it read");
-    v["files"][file]["shoulder"]
-        .as_str()
-        .unwrap_or_else(|| panic!("no shoulder for {rel}: {v}"))
-        .to_string()
+    file_facts(&v)["git"].clone()
 }
 
 /// Cache entries in the `file` namespace whose key starts with `prefix`.
@@ -1393,11 +1426,11 @@ fn entries_with_prefix(f: &Fixture, prefix: &str) -> usize {
 /// A commit moves HEAD and empties `git status`, but leaves the file's bytes,
 /// size, and mtime untouched — so both the content-hash entry and its
 /// mtime-index row still match and the entry is served as-is. While that
-/// entry carried the git fields, the shoulder kept rendering the pre-commit
+/// entry carried the git fields, the summary kept rendering the pre-commit
 /// `modified (N commits)` until the bytes changed, and on a clean tree the
 /// status overlay returned early and could never clear it.
 #[test]
-fn a_commit_refreshes_the_shoulder_with_no_content_change() {
+fn a_commit_refreshes_the_summary_with_no_content_change() {
     let f = Fixture::new();
     // Keep the cache out of git, so committing does not stage it and the tree
     // is genuinely clean afterwards — the state the defect needed.
@@ -1409,20 +1442,20 @@ fn a_commit_refreshes_the_shoulder_with_no_content_change() {
         "u.py",
         "def helper(v):\n    if v:\n        return v\n    return 0\n",
     );
-    let dirty = shoulder(&f, "u.py");
-    assert!(
-        dirty.contains("git: modified"),
+    let dirty = git_facts(&f, "u.py");
+    assert_eq!(
+        dirty["status"], "modified",
         "an edited file should read as modified: {dirty}"
     );
 
     f.commit("two");
-    let clean = shoulder(&f, "u.py");
-    assert!(
-        !clean.contains("modified"),
+    let clean = git_facts(&f, "u.py");
+    assert_eq!(
+        clean["status"], "unmodified",
         "a committed file still reads as uncommitted: {clean}"
     );
-    assert!(
-        clean.contains("git: 2 commits"),
+    assert_eq!(
+        clean["commits"], 2,
         "the commit count did not move with HEAD: {clean}"
     );
 }
@@ -1437,14 +1470,14 @@ fn superseded_git_activity_entries_are_evicted() {
     f.write(".gitignore", ".tracer-cache/\n");
     f.write("u.py", "def helper(v):\n    return v\n");
     f.commit("one");
-    shoulder(&f, "u.py");
+    git_facts(&f, "u.py");
 
     f.write(
         "u.py",
         "def helper(v):\n    if v:\n        return v\n    return 0\n",
     );
     f.commit("two");
-    shoulder(&f, "u.py");
+    git_facts(&f, "u.py");
 
     assert_eq!(
         entries_with_prefix(&f, "git_activity_v2__"),
@@ -1513,10 +1546,11 @@ fn prior_presence_cache_representation_is_unreachable() {
     fs::create_dir_all(&file_cache).unwrap();
     fs::write(file_cache.join(format!("{old_key}.json")), "{}").unwrap();
 
-    let shoulder = shoulder(&f, "deployed.py");
-    assert!(
-        shoulder.contains("presence: main"),
-        "previous newline-based presence cache was served: {shoulder}"
+    let git = git_facts(&f, "deployed.py");
+    assert_eq!(
+        git["on_deploy_branches"],
+        serde_json::json!(["main"]),
+        "previous newline-based presence cache was served: {git}"
     );
     assert_eq!(
         entries_with_prefix(&f, "git_presence__"),
@@ -1536,9 +1570,9 @@ fn prior_git_activity_cache_representation_is_unreachable() {
     f.write(".gitignore", ".tracer-cache/\n");
     f.write("local.py", "VALUE = 1\n");
     f.commit("seed");
-    let clean = shoulder(&f, "local.py");
+    let clean = git_facts(&f, "local.py");
     assert!(
-        clean.contains("presence: local-only"),
+        clean["on_deploy_branches"].is_null(),
         "fixture unexpectedly deployed: {clean}"
     );
 
@@ -1568,9 +1602,9 @@ fn prior_git_activity_cache_representation_is_unreachable() {
     .unwrap();
     fs::remove_file(current.path()).unwrap();
 
-    let refreshed = shoulder(&f, "local.py");
+    let refreshed = git_facts(&f, "local.py");
     assert!(
-        refreshed.contains("presence: local-only"),
+        refreshed["on_deploy_branches"].is_null(),
         "prior combined history/presence cache was served: {refreshed}"
     );
     assert_eq!(

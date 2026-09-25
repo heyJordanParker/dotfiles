@@ -503,16 +503,16 @@ fn primer_preserves_layout_and_dirty_ranking_across_fact_chunks() {
         .lines()
         .filter(|line| line.contains("📁 alpha/") || line.contains("📁 beta/"))
         .map(|line| {
-            let (before, after) = line.split_once(" · last: ").expect("layout has git date");
-            let (_, suffix) = after.split_once(" · ").expect("layout has dirty flag");
-            format!("{before} · {suffix}")
+            let (before, after) = line.split_once("last_commit: ").expect("layout has git date");
+            let (_, suffix) = after.split_once(", ").expect("layout has dirty flag");
+            format!("{before}{suffix}")
         })
         .collect();
     assert_eq!(
         layout,
         [
-            "  📁 alpha/  (260 files · ccn=260 · uncommitted)",
-            "  📁 beta/  (260 files · ccn=260 · uncommitted)",
+            "  📁 alpha/  {files: 260, cyclomatic_complexity: 260, uncommitted: true}",
+            "  📁 beta/  {files: 260, cyclomatic_complexity: 260, uncommitted: true}",
         ],
         "chunking must preserve normalized directory summaries and order"
     );
@@ -525,7 +525,9 @@ fn primer_preserves_layout_and_dirty_ranking_across_fact_chunks() {
         .take(11)
         .collect();
     let mut expected: Vec<String> = (0..10)
-        .map(|number| format!("    modified   alpha/file{number:03}.py  (callers=0, ccn=1)"))
+        .map(|number| {
+            format!("    modified   alpha/file{number:03}.py  {{imported_by: 0, cyclomatic_complexity: 1}}")
+        })
         .collect();
     expected.push("    … 510 more".to_string());
     assert_eq!(
@@ -536,7 +538,7 @@ fn primer_preserves_layout_and_dirty_ranking_across_fact_chunks() {
 }
 
 #[test]
-fn unreadable_context_file_keeps_passive_context() {
+fn unreadable_context_file_keeps_its_facts() {
     let f = Fixture::new();
     f.write("Claude.md", "# Fixture rules\n");
     let locked = f.write("locked.py", "def locked():\n    return 1\n");
@@ -552,18 +554,18 @@ fn unreadable_context_file_keeps_passive_context() {
     for run in [recorded, unrecorded] {
         run.ok();
         assert!(
-            run.stdout.contains("[git:"),
-            "unreadable files still carry their passive-context shoulder: {}",
+            run.stdout.contains("git:\n  status: ") && run.stdout.contains("  commits: 1\n"),
+            "unreadable files still carry their git facts: {}",
             run.stdout
         );
         assert!(
-            run.stdout.contains("[docs:"),
-            "unreadable files still carry their docs line: {}",
+            run.stdout.contains("docs_not_loaded: [Claude.md]"),
+            "unreadable files still name their unloaded docs: {}",
             run.stdout
         );
         assert!(
-            run.stdout.contains("[dir "),
-            "unreadable files still carry their parent-directory line: {}",
+            run.stdout.contains("directory:\n  path: ./"),
+            "unreadable files still carry their parent directory: {}",
             run.stdout
         );
     }

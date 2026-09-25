@@ -16,13 +16,14 @@
 //! The batch is chunked and projected to the fields the enrichment renders,
 //! so the whole extraction set for every matched file is never resident.
 //!
-//! Also the shared `file_shoulders` join used by the relations commands
-//! (`callers`, `usages`, `defines`, `structure`) to attach the canonical
-//! passive-context shoulder to each result's `source_file` — a render-time
-//! join of `file/` facts onto the rows those commands resolve, batched and
-//! deduped by path so a file appearing in many rows is resolved once.
+//! Also the shared `facts_by_file` join used by the relations commands
+//! (`callers`, `usages`, `defines`, `structure`) to attach each result's
+//! `source_file` facts — a render-time join of `file/` facts onto the rows
+//! those commands resolve, batched and deduped by path so a file appearing in
+//! many rows is resolved once.
 
-use crate::{cache, digest, file_facts, passive_context};
+use crate::summary::Facts;
+use crate::{cache, digest, file_facts, surface};
 use serde::ser::{SerializeMap, Serializer};
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -31,37 +32,56 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::file_facts::RESOLVE_CHUNK;
+use crate::output::counted;
 
+#[derive(Default)]
 pub struct Match {
     pub file: String,
     pub line: i64,
+    /// The matched line; every line of a match that spans several (`-U`).
     pub snippet: String,
+    /// `-C`: the lines just before and just after the match.
+    pub before: Vec<String>,
+    pub after: Vec<String>,
 }
 
-/// One file's enrichment, held once however many matches the file has.
+/// One file's enrichment, held once however many matches the file has: its
+/// facts, and the nearest doc that governs it.
 pub struct FileEnrichment {
-    file_complexity: Value,
-    nearest_doc: Value,
-    git: Value,
-    shoulder: Value,
+    facts: Option<Facts>,
+    nearest_doc: Option<String>,
+    in_repository: bool,
 }
 
 impl FileEnrichment {
-    fn nearest_doc_str(&self) -> Option<&str> {
-        self.nearest_doc.as_str()
+    /// The file's line in a list: its headline facts, how many matches it
+    /// holds, and its nearest doc.
+    fn headline(&self, matches: usize) -> String {
+        let mut map = self.facts.as_ref().map(Facts::headline_map).unwrap_or_default();
+        map.insert("matches".into(), matches.into());
+        if let Some(doc) = &self.nearest_doc {
+            map.insert("nearest_doc".into(), doc.clone().into());
+        }
+        crate::yamlfmt::flow(&Value::Object(map), false)
     }
-    fn shoulder_str(&self) -> Option<&str> {
-        self.shoulder.as_str()
+
+    fn imported_by(&self) -> i64 {
+        self.facts.as_ref().and_then(|facts| facts.imported_by).unwrap_or(0) as i64
     }
 }
 
 impl Serialize for FileEnrichment {
     fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
-        let mut map = s.serialize_map(Some(4))?;
-        map.serialize_entry("file_complexity", &self.file_complexity)?;
+        let mut facts = self.facts.as_ref().map(Facts::to_map).unwrap_or_default();
+        // Outside any git repository there is no git state to describe.
+        if !self.in_repository {
+            facts.remove("git");
+        }
+        let mut map = s.serialize_map(Some(facts.len() + 1))?;
+        for (key, value) in &facts {
+            map.serialize_entry(key, value)?;
+        }
         map.serialize_entry("nearest_doc", &self.nearest_doc)?;
-        map.serialize_entry("git", &self.git)?;
-        map.serialize_entry("shoulder", &self.shoulder)?;
         map.end()
     }
 }
@@ -75,14 +95,22 @@ impl Serialize for FileEnrichment {
 pub struct EnrichedMatch<'a> {
     m: &'a Match,
     file: Arc<FileEnrichment>,
+    declaration: Option<surface::Row>,
+    type_row: Option<surface::Row>,
 }
 
 impl Serialize for EnrichedMatch<'_> {
     fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
-        let mut map = s.serialize_map(Some(3))?;
+        let mut map = s.serialize_map(None)?;
         map.serialize_entry("file", &self.m.file)?;
         map.serialize_entry("line", &self.m.line)?;
         map.serialize_entry("snippet", &self.m.snippet)?;
+        if !self.m.before.is_empty() || !self.m.after.is_empty() {
+            map.serialize_entry("before", &self.m.before)?;
+            map.serialize_entry("after", &self.m.after)?;
+        }
+        map.serialize_entry("declaration", &self.declaration)?;
+        map.serialize_entry("type", &self.type_row)?;
         map.end()
     }
 }
@@ -151,41 +179,7 @@ impl Serialize for SearchDocument<'_> {
     }
 }
 
-/// Per-file complexity scalars from cached facts.
-fn file_complexity(facts: Option<&file_facts::FileFacts>) -> Value {
-    match facts {
-        None => json!({
-            "ccn_total": 0,
-            "ccn_max_function": 0,
-            "loc": 0,
-            "rank": "unknown",
-        }),
-        Some(f) => json!({
-            "ccn_total": f.cyclomatic_complexity_total,
-            "ccn_max_function": f.cyclomatic_complexity_max,
-            "loc": f.loc,
-            "rank": f.rank,
-        }),
-    }
-}
-
-/// Git context for a file: last commit, author, 30-day commit count.
-fn git_context(facts: Option<&file_facts::FileFacts>) -> Value {
-    match facts {
-        None => json!({
-            "last_modified": Value::Null,
-            "last_author": Value::Null,
-            "commits_30d": 0,
-        }),
-        Some(f) => json!({
-            "last_modified": f.last_modified,
-            "last_author": f.last_author,
-            "commits_30d": f.commits_30d,
-        }),
-    }
-}
-
-/// Enrich matches with per-file complexity, nearest doc, and git context.
+/// Enrich matches with each file's facts and nearest doc.
 /// `repo_root` is resolved once by the caller for the search path — every
 /// match lives under it, so per-file root resolution is correct without
 /// paying a `git rev-parse` per match.
@@ -196,12 +190,18 @@ fn git_context(facts: Option<&file_facts::FileFacts>) -> Value {
 /// in parallel and emit per-file blocks in nondeterministic order; without
 /// this sort the same query returns the same matches in a different order
 /// each run, which breaks output diffing and caching for any consumer.
+///
+/// Also returns each matched file's declaration rows, which the human render
+/// groups the matches under.
 pub fn enrich<'a>(
     matches: &'a [Match],
     repo_root: &Path,
+    relations: Option<&crate::relations::Relations>,
+    at: Option<&str>,
 ) -> (
     Vec<EnrichedMatch<'a>>,
     BTreeMap<String, Arc<FileEnrichment>>,
+    BTreeMap<String, Vec<surface::Row>>,
 ) {
     let mut ordered: Vec<&Match> = matches.iter().collect();
     ordered.sort_by(|a, b| (&a.file, a.line, &a.snippet).cmp(&(&b.file, b.line, &b.snippet)));
@@ -215,18 +215,33 @@ pub fn enrich<'a>(
     // Resolve in chunks, projecting each file's facts to what the enrichment
     // renders and dropping the facts with the chunk.
     let mut by_file: BTreeMap<String, Arc<FileEnrichment>> = BTreeMap::new();
+    let mut surfaces: BTreeMap<String, Vec<surface::Row>> = BTreeMap::new();
+    let in_repository = cache::worktree_root_for(repo_root).is_some();
     for (names, paths) in unique.chunks(RESOLVE_CHUNK).zip(abs.chunks(RESOLVE_CHUNK)) {
         let facts_map = file_facts::get_batch(paths, repo_root);
         for (name, path) in names.iter().zip(paths.iter()) {
             let (_, key) = file_facts::resolve_under_root(path, repo_root);
             let facts = facts_map.get(&key);
+            let surface = match at {
+                None => facts
+                    .map(|facts| surface::rows(facts, None))
+                    .unwrap_or_default(),
+                Some(revision) => surface::rows_at(repo_root, revision, name.trim_start_matches("./")),
+            };
+            surfaces.insert(name.to_string(), surface);
+            let graph = relations.and_then(|relations| {
+                relations.module_counts(&key).or_else(|| {
+                    path.canonicalize().ok().and_then(|canonical| {
+                        relations.module_counts(&cache::relative_to_root(&canonical, repo_root))
+                    })
+                })
+            });
             by_file.insert(
                 name.to_string(),
                 Arc::new(FileEnrichment {
-                    file_complexity: file_complexity(facts),
-                    nearest_doc: json!(digest::nearest_doc(path)),
-                    git: git_context(facts),
-                    shoulder: json!(facts.map(|f| passive_context::render(f, None))),
+                    facts: facts.map(|facts| Facts::of(facts, graph.as_ref())),
+                    nearest_doc: digest::nearest_doc(path, repo_root),
+                    in_repository,
                 }),
             );
         }
@@ -234,21 +249,34 @@ pub fn enrich<'a>(
 
     let enriched = ordered
         .into_iter()
-        .map(|m| EnrichedMatch {
-            m,
-            file: Arc::clone(&by_file[m.file.as_str()]),
+        .map(|m| {
+            let (declaration, type_row) = surfaces
+                .get(m.file.as_str())
+                .map(|rows| surface::enclosing(rows, m.line))
+                .map(|(declaration, type_row)| (declaration.cloned(), type_row.cloned()))
+                .unwrap_or((None, None));
+            EnrichedMatch {
+                m,
+                file: Arc::clone(&by_file[m.file.as_str()]),
+                declaration,
+                type_row,
+            }
         })
         .collect();
-    (enriched, by_file)
+    (enriched, by_file, surfaces)
 }
 
-/// Shared human renderer for grep/struct: grouped-by-file with a per-file
-/// shoulder, then a one-line summary.
+/// Shared human renderer for `grep` and `pattern`, in `git grep
+/// --show-function`'s shape: each file's header once, then every declaration
+/// that encloses a match once, its match lines (`L<n>:`) and `-C` context
+/// lines (`L<n>-`) under it. `files_only` (`-l`, `-c`) stops at each file's
+/// header, which carries its match count.
 pub fn render_human(
     enriched: &[EnrichedMatch],
     files: &BTreeMap<String, Arc<FileEnrichment>>,
-    repo_ctx: &Value,
+    surfaces: &BTreeMap<String, Vec<surface::Row>>,
     signpost: Option<&str>,
+    files_only: bool,
 ) {
     if enriched.is_empty() {
         println!("(no matches)");
@@ -257,29 +285,168 @@ pub fn render_human(
         }
         return;
     }
-    let mut current_file: Option<&str> = None;
-    for m in enriched {
-        if current_file != Some(m.m.file.as_str()) {
-            let file = &m.m.file;
-            let doc = m.file.nearest_doc_str().unwrap_or("(no doc)");
-            println!();
-            match m.file.shoulder_str() {
-                Some(s) => println!("{file}  {s}  [doc={doc}]"),
-                None => println!("{file}  [doc={doc}]"),
-            }
-            current_file = Some(m.m.file.as_str());
-        }
-        println!("  L{:<5} {}", m.m.line, m.m.snippet);
+    // One entry per file, whole down to its path: the budget shortens the
+    // files the fewest others import first, and names every file. A file's
+    // block of lines is set off by a blank line; a one-line file is not.
+    let mut entries: Vec<crate::output::Entry> = Vec::new();
+    let mut paths: Vec<&str> = Vec::new();
+    for group in enriched.chunk_by(|a, b| a.m.file == b.m.file) {
+        let file = group[0].m.file.as_str();
+        let header = format!("{file}  {}", group[0].file.headline(group.len()));
+        let levels = if files_only {
+            vec![header, file.to_string()]
+        } else {
+            let rows = surfaces.get(file).map_or(&[][..], Vec::as_slice);
+            vec![format!("\n{header}{}", grouped_lines(group, rows, file)), header, file.to_string()]
+        };
+        entries.push(crate::output::Entry {
+            rank: group[0].file.imported_by(),
+            levels,
+        });
+        paths.push(file);
     }
-    println!();
-    println!(
-        "matches={} files={} repo_p95={}",
-        enriched.len(),
-        files.len(),
-        repo_ctx["complexity_p95"].as_i64().unwrap_or(0),
+    let footer = format!(
+        "\n{} in {}",
+        counted(enriched.len(), "match", "matches"),
+        counted(files.len(), "file", "files"),
     );
+    let fixed = footer.len() + 1 + signpost.map_or(0, |line| line.len() + 1) + crate::output::closing_room(entries.len(), "files");
+    let (texts, shortened) = crate::output::fit_listing(&entries, &paths, fixed);
+    for text in texts {
+        println!("{text}");
+    }
+    println!("{footer}");
     if let Some(line) = signpost {
         println!("{line}");
+    }
+    if shortened > 0 {
+        println!("{}", crate::output::shortened_line(shortened, entries.len(), "files"));
+    }
+}
+
+/// One file's lines under the declarations that enclose them: each such
+/// declaration once, a match on its own line standing in for it, every
+/// matched line marked `:` and every context line `-`, as grep marks them.
+fn grouped_lines(group: &[EnrichedMatch], rows: &[surface::Row], file: &str) -> String {
+    // Source line → marker and text; a match outranks context on a line.
+    let mut lines: BTreeMap<i64, (char, &str)> = BTreeMap::new();
+    for found in group {
+        for (text, line) in found.m.snippet.split('\n').zip(found.m.line..) {
+            lines.insert(line, (':', text.trim_end()));
+        }
+    }
+    for found in group {
+        let after = found.m.line + found.m.snippet.split('\n').count() as i64;
+        let before = found.m.line - found.m.before.len() as i64;
+        let context = found.m.before.iter().zip(before..).chain(found.m.after.iter().zip(after..));
+        for (text, line) in context {
+            lines.entry(line).or_insert(('-', text.trim_end()));
+        }
+    }
+    let mut shown: Vec<usize> = Vec::new();
+    for (index, row) in rows.iter().enumerate() {
+        let encloses = group
+            .iter()
+            .any(|found| row.header_line <= found.m.line && found.m.line <= row.end_line);
+        let repeat = shown
+            .last()
+            .is_some_and(|&last| rows[last].line == row.line && rows[last].header == row.header);
+        if encloses && !repeat {
+            shown.push(index);
+        }
+    }
+    // (line, order, depth, marker, text): a declaration sorts before the
+    // lines that share its line number, and after its parent.
+    let mut items: Vec<(i64, usize, usize, char, String)> = Vec::new();
+    for (order, &index) in shown.iter().enumerate() {
+        let row = &rows[index];
+        if !matches!(lines.get(&row.line), Some((':', _))) {
+            lines.remove(&row.line);
+            items.push((row.line, order, surface::depth(index, rows), ' ', surface::inline(row, file)));
+        }
+    }
+    let mut source: Vec<(i64, Option<usize>, usize, char, &str)> = Vec::new();
+    let mut least: HashMap<Option<usize>, usize> = HashMap::new();
+    for (line, (marker, text)) in lines {
+        let enclosing: Vec<usize> = shown
+            .iter()
+            .copied()
+            .filter(|&index| rows[index].line < line && line <= rows[index].end_line)
+            .collect();
+        let owner = enclosing.last().copied();
+        let code = text.trim_start_matches([' ', '\t']);
+        if !code.is_empty() {
+            let indent = least.entry(owner).or_insert(usize::MAX);
+            *indent = (*indent).min(text.len() - code.len());
+        }
+        source.push((line, owner, enclosing.len(), marker, text));
+    }
+    for (line, owner, depth, marker, text) in source {
+        let cut = least.get(&owner).copied().unwrap_or(0).min(text.len());
+        items.push((line, usize::MAX, depth, marker, text[cut..].to_string()));
+    }
+    items.sort_by_key(|(line, order, ..)| (*line, *order));
+    items
+        .into_iter()
+        .map(|(line, _, depth, marker, text)| {
+            format!("\n  {:<6}{}{text}", format!("L{line}{marker}"), "  ".repeat(depth))
+        })
+        .collect()
+}
+
+pub struct Section {
+    pub heading: String,
+    pub files: Vec<(String, Vec<String>, usize)>,
+}
+
+pub fn render_sections(sections: &[Section], facts: &HashMap<String, Facts>, one: &str, many: &str) {
+    let entries: Vec<Vec<crate::output::Entry>> = sections
+        .iter()
+        .map(|section| {
+            section
+                .files
+                .iter()
+                .map(|(file, rows, count)| {
+                    let head = format!("    {file}");
+                    let headline = facts.get(file).map_or(String::new(), |facts| format!("  {}", facts.headline()));
+                    crate::output::Entry {
+                        rank: facts.get(file).and_then(|facts| facts.imported_by).unwrap_or(0) as i64,
+                        levels: vec![
+                            format!("{head}{headline}\n{}", rows.join("\n")),
+                            format!("{head}  {}", counted(*count, one, many)),
+                        ],
+                    }
+                })
+                .collect()
+        })
+        .collect();
+    let whole: usize = sections
+        .iter()
+        .zip(&entries)
+        .map(|(section, entries)| section.heading.len() + 1 + entries.iter().map(|entry| entry.levels[0].len() + 1).sum::<usize>())
+        .sum();
+    let closing = crate::output::closing_room(entries.iter().map(Vec::len).sum(), "files");
+    let share = crate::output::budget()
+        .filter(|&budget| whole + closing > budget)
+        .map(|budget| budget.saturating_sub(closing) / sections.len().max(1));
+    let mut shortened = 0;
+    let mut files = 0;
+    for (section, entries) in sections.iter().zip(&entries) {
+        println!("{}", section.heading);
+        let paths: Vec<&str> = section.files.iter().map(|(file, _, _)| file.as_str()).collect();
+        let fixed = match (crate::output::budget(), share) {
+            (Some(budget), Some(share)) => budget - share + section.heading.len() + 1,
+            _ => section.heading.len() + 1,
+        };
+        let (texts, cut) = crate::output::fit_listing(entries, &paths, fixed);
+        for text in texts {
+            println!("{text}");
+        }
+        shortened += cut;
+        files += entries.len();
+    }
+    if shortened > 0 {
+        println!("{}", crate::output::shortened_line(shortened, files, "files"));
     }
 }
 
@@ -302,25 +469,28 @@ pub fn signpost(word: Option<&str>, repo_root: &Path) -> Option<String> {
     if !index.knows(word) {
         return None;
     }
-    let mentioning_files = index.used_in(word).count() as i64;
+    let mentioning_files = index.used_in(word).count();
     if mentioning_files == 0 {
         return None;
     }
-    let mentioning_files_label = if mentioning_files == 1 {
-        "mentioning file"
-    } else {
-        "mentioning files"
-    };
-    // The kind lives in the declaring file's extraction, not the index, so
-    // it costs the declaring files only — one or two, never the repo.
+    // The kinds live in the declaring files' extraction, not the index, so
+    // they cost the declaring files only — one or two, never the repo.
     let declarations = crate::relations::declarations(word, repo_root);
-    let definitions = declarations.len() as i64;
-    let kind = declarations
-        .first()
-        .map(|c| c.declaration.kind.clone())
-        .unwrap_or_else(|| "symbol".to_string());
+    let mut kinds: Vec<&str> = Vec::new();
+    for candidate in &declarations {
+        if !kinds.contains(&candidate.declaration.kind.as_str()) {
+            kinds.push(&candidate.declaration.kind);
+        }
+    }
+    let kinds = if kinds.is_empty() {
+        String::new()
+    } else {
+        format!(" ({})", kinds.join(", "))
+    };
     Some(format!(
-        "{word} is a {kind} \u{00b7} {mentioning_files} {mentioning_files_label} \u{00b7} {definitions} definitions \u{2192} trace callers {word}"
+        "{word}: {}{kinds} \u{00b7} mentioned in {} \u{2192} trace callers {word}",
+        counted(declarations.len(), "definition", "definitions"),
+        counted(mentioning_files, "file", "files"),
     ))
 }
 
@@ -333,38 +503,20 @@ pub fn searched_name(term: &str) -> Option<&str> {
     bare.then_some(term)
 }
 
-/// Canonical passive-context shoulder per `source_file`, batched and deduped.
-/// Maps each unique repo-relative source file in `rel_files` to its shoulder
-/// string. Files with no resolvable facts (external nodes, deleted files) are
-/// absent from the map, so a caller looks up by path and renders nothing when
-/// the entry is missing. The relations commands carry a `source_file` per
-/// result row; this lets each result carry the same file-state shoulder the
-/// per-file commands emit, without recomputing facts per row.
-pub fn file_shoulders(rel_files: &[String], repo_root: &Path) -> HashMap<String, String> {
-    let mut unique: Vec<String> = rel_files.to_vec();
-    unique.sort();
-    unique.dedup();
-    let mut out = HashMap::with_capacity(unique.len());
-
-    for names in unique.chunks(RESOLVE_CHUNK) {
-        let paths: Vec<PathBuf> = names.iter().map(|rel| repo_root.join(rel)).collect();
-        let facts_map = file_facts::get_batch(&paths, repo_root);
-        for rel in names {
-            if let Some(f) = facts_map.get(rel) {
-                out.insert(rel.clone(), passive_context::render(f, None));
-            }
-        }
-    }
-    out
+pub fn facts_of(loaded: &HashMap<String, file_facts::FileFacts>, repo_root: &Path) -> HashMap<String, Facts> {
+    let relations = crate::relations::get(repo_root);
+    loaded
+        .iter()
+        .map(|(rel, facts)| (rel.clone(), Facts::of(facts, relations.module_counts(rel).as_ref())))
+        .collect()
 }
 
-/// The same join, rendered as the document's `context.files` slot: one entry
-/// per file, `{"shoulder": …}`, which is the shape every command's per-file
-/// context carries.
-pub fn shoulder_context(shoulders: &HashMap<String, String>) -> Value {
-    let mut out = serde_json::Map::with_capacity(shoulders.len());
-    for (path, shoulder) in shoulders {
-        out.insert(path.clone(), json!({"shoulder": shoulder}));
+/// The same join as the document's `context.files` slot: each file's facts
+/// under the keys its front matter uses.
+pub fn facts_context(facts: &HashMap<String, Facts>) -> Value {
+    let mut out = serde_json::Map::with_capacity(facts.len());
+    for (path, facts) in facts {
+        out.insert(path.clone(), Value::Object(facts.to_map()));
     }
     Value::Object(out)
 }

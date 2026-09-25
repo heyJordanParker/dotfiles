@@ -57,7 +57,8 @@ if [ ! -x "$HOME/.cargo/bin/rustup" ] && ! command -v rustc &>/dev/null; then
 fi
 (cd "$DOTFILES_DIR/tools/tracer" && cargo build --release)
 mkdir -p "$HOME/.local/bin"
-install -m 755 "$DOTFILES_DIR/tools/tracer/target/release/trace" "$HOME/.local/bin/trace"
+install -m 755 "$DOTFILES_DIR/tools/tracer/target/release/trace" "$HOME/.local/bin/.trace.new"
+mv -f "$HOME/.local/bin/.trace.new" "$HOME/.local/bin/trace"
 # The plugin ships prebuilts for Linux too, cross-compiled here by cargo-zigbuild
 # (zig comes from the Brewfile). rustup owns the toolchain that carries the Linux
 # targets; Homebrew's rust ships only the host one and wins on an interactive PATH.

@@ -23,7 +23,6 @@ use sha2::{Digest, Sha256};
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 pub const CACHE_DIR_NAME: &str = ".tracer-cache";
 pub const NAMESPACE_FILE: &str = "file";
@@ -54,7 +53,10 @@ pub fn maintain(repo_root: &Path) -> Option<Maintenance> {
             .truncate(false)
             .open(dir.join(".maintain.lock"))
             .ok()?;
-        rustix::fs::flock(&lock, rustix::fs::FlockOperation::LockExclusive).ok()?;
+        crate::timing::phase("lock maintain", || {
+            rustix::fs::flock(&lock, rustix::fs::FlockOperation::LockExclusive)
+        })
+        .ok()?;
         held.1 = Some(lock);
     }
     held.0 += 1;
@@ -75,7 +77,7 @@ impl Drop for Maintenance {
 /// Bump whenever extraction, the `FileFacts` shape, or a repo-wide index
 /// shape changes — old entries become unreachable automatically across all
 /// namespaces.
-pub const SCHEMA_VERSION: u32 = 20;
+pub const SCHEMA_VERSION: u32 = 26;
 
 /// Active CCN backend. There is exactly one backend — the tree-sitter
 /// AST decision-node walker — so cache identity is unconditionally
@@ -85,34 +87,37 @@ pub fn active_ccn_backend() -> &'static str {
     "ast"
 }
 
-/// Strict worktree-root resolver. Returns the worktree root containing
-/// `path` — for the main repo, the repo root; for a linked git worktree,
-/// the linked worktree's own root (git's `rev-parse --show-toplevel`
-/// already returns the linked worktree's root when invoked from inside
-/// it, so worktree-aware semantics fall out of the same one git call).
-/// Returns `None` when `path` is not inside any worktree (no git repo, or
-/// git unavailable) — the no-op trigger every cache-write path observes
-/// so nothing ever persists outside a worktree root.
 pub fn worktree_root_for(path: &Path) -> Option<PathBuf> {
-    let cwd = cwd_of(path);
-    #[allow(non_upper_case_globals)]
-    static worktree_roots: crate::memo::Memo<Option<PathBuf>> = std::sync::OnceLock::new();
-    let root = crate::memo::get_or_build(&worktree_roots, &cwd, || {
-        let out = Command::new("git")
-            .args(["rev-parse", "--show-toplevel"])
-            .current_dir(&cwd)
-            .output()
-            .ok()?;
-        if !out.status.success() {
+    let mut current = cwd_of(path);
+    loop {
+        if current.file_name().is_some_and(|name| name == ".git") {
             return None;
         }
-        let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
-        if s.is_empty() {
-            return None;
+        let git = current.join(".git");
+        if git.is_dir()
+            || fs::read_to_string(&git)
+                .ok()
+                .is_some_and(|contents| contents.starts_with("gitdir:"))
+        {
+            return Some(current);
         }
-        Some(PathBuf::from(s))
-    });
-    root.as_ref().clone()
+        current = current.parent()?.to_path_buf();
+    }
+}
+
+pub fn git_dir(root: &Path) -> Option<PathBuf> {
+    let git = root.join(".git");
+    if git.is_dir() {
+        return Some(git);
+    }
+    let contents = fs::read_to_string(&git).ok()?;
+    let target = contents.strip_prefix("gitdir:")?.trim();
+    let target = PathBuf::from(target);
+    Some(if target.is_absolute() {
+        target
+    } else {
+        root.join(target)
+    })
 }
 
 /// Non-persisting display root for read paths that need *some* base for
@@ -154,7 +159,7 @@ fn cache_root(repo_root: &Path) -> Result<PathBuf> {
     // `save` are already gated separately. The gate stops scattered
     // `.tracer-cache/` dirs from materializing under cwd when tracer is
     // invoked outside any git repo.
-    if !repo_root.join(".git").exists() {
+    if git_dir(repo_root).is_none() {
         anyhow::bail!("cache_root: not a worktree root: {}", repo_root.display());
     }
     let dir = repo_root.join(CACHE_DIR_NAME);
@@ -210,6 +215,10 @@ pub fn load_bytes(namespace: &str, key: &str, repo_root: &Path) -> Option<Vec<u8
     if !entry.exists() {
         return None;
     }
+    if crate::timing::enabled() {
+        let name = format!("decode {key}");
+        return crate::timing::phase(&name, || fs::read(&entry).ok());
+    }
     fs::read(&entry).ok()
 }
 
@@ -237,7 +246,7 @@ pub fn save<T: serde::Serialize + ?Sized>(
     repo_root: &Path,
 ) -> Result<bool> {
     debug_assert!(
-        repo_root.join(".git").exists(),
+        git_dir(repo_root).is_some(),
         "cache::save called with non-worktree repo_root: {}",
         repo_root.display()
     );
@@ -245,7 +254,7 @@ pub fn save<T: serde::Serialize + ?Sized>(
     // worktree-root predicate (see `cache_root`). When the gate fails the
     // save is a silent no-op so standalone use outside a git repo keeps
     // working without persisting state.
-    if !repo_root.join(".git").exists() {
+    if git_dir(repo_root).is_none() {
         return Ok(false);
     }
     let dir = namespace_dir(namespace, repo_root)?;

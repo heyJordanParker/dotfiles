@@ -26,6 +26,7 @@ BINDING = {
     "events": {"UserPromptSubmit": []},
     "timeout": 10,
     "harness": "all",
+    "standalone": True,
     "roots": "all",
 }
 

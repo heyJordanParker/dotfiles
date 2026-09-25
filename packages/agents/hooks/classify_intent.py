@@ -38,6 +38,7 @@ BINDING = {
     "events": {"UserPromptSubmit": []},
     "timeout": 60,
     "harness": "all",
+    "standalone": True,
 }
 
 LIST_CAP = 10

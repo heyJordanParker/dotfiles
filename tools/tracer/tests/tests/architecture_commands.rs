@@ -69,12 +69,21 @@ fn symbol<'a>(v: &'a serde_json::Value, node_id: &str) -> &'a serde_json::Value 
         .unwrap_or_else(|| panic!("no result row for {node_id}: {v}"))
 }
 
-/// The file-state shoulder the document carries for `path`, out of the
-/// `context` slot where every command keeps its enrichment.
-fn shoulder_of<'a>(v: &'a serde_json::Value, path: &str) -> &'a str {
-    v["files"][path]["shoulder"]
-        .as_str()
-        .unwrap_or_else(|| panic!("no shoulder for {path}: {v}"))
+/// The facts the document carries for `path`, out of the `context` slot
+/// where every command keeps its enrichment.
+fn facts_of<'a>(v: &'a serde_json::Value, path: &str) -> &'a serde_json::Value {
+    let facts = &v["files"][path];
+    assert!(facts.is_object(), "no facts for {path}: {v}");
+    facts
+}
+
+/// The chain fixture's files are each one settled commit that no deploy
+/// branch carries.
+fn assert_settled_local_file(facts: &serde_json::Value) {
+    assert_eq!(facts["git"]["commits"], 1, "{facts}");
+    assert_eq!(facts["git"]["commits_last_30_days"], 1, "{facts}");
+    assert_eq!(facts["git"]["status"], "unmodified", "{facts}");
+    assert!(facts["git"]["on_deploy_branches"].is_null(), "{facts}");
 }
 
 /// Helper: collect `node_id`s from a dependency/dependent array.
@@ -181,13 +190,12 @@ fn callers_excludes_unrelated_symbol() {
 }
 
 #[test]
-fn caller_row_carries_use_site_file_shoulder() {
-    // Each caller row carries the canonical passive-context shoulder of its
-    // use-site file, so a `callers` result tells the agent the file state of
-    // every place the symbol is called without a second `read`/`info` call.
-    // `d_fn`'s sole use site is the call inside `c_fn` at pkg/c.py:4, so the
-    // row's shoulder is pkg/c.py's file-state shoulder — settled single
-    // commit, local-only, the file's CCN, the canonical bracketed form.
+fn caller_row_carries_use_site_file_facts() {
+    // Each caller row's use-site file carries its facts, so a `callers`
+    // result tells the agent the file state of every place the symbol is
+    // called without a second `read`/`info` call. `d_fn`'s sole use site is
+    // the call inside `c_fn` at pkg/c.py:4 — a settled single-commit file no
+    // deploy branch carries.
     let f = chain_repo();
     f.trace(&["cache", "build", "."]).ok();
     let r = f.trace(&["callers", "d_fn", "--json"]);
@@ -200,24 +208,13 @@ fn caller_row_carries_use_site_file_shoulder() {
         .find(|c| c["source_file"].as_str() == Some("pkg/c.py"))
         .expect("missing pkg/c.py use site");
     let _ = row;
-    let shoulder = shoulder_of(&v, "pkg/c.py");
-    assert!(
-        shoulder.starts_with("[git: new (1 commit) \u{00b7} age:"),
-        "caller-row shoulder must be the canonical bracketed file-state shoulder: {shoulder:?}"
-    );
-    assert!(
-        shoulder.contains("\u{00b7} churn: 1 commit, 1/30d \u{00b7}")
-            && shoulder.contains("\u{00b7} presence: local-only \u{00b7}"),
-        "caller-row shoulder must carry churn + presence from the use-site file's facts: {shoulder:?}"
-    );
+    assert_settled_local_file(facts_of(&v, "pkg/c.py"));
 }
 
 #[test]
-fn usages_dependent_row_carries_file_shoulder() {
-    // A downstream result row carries the canonical shoulder of the
-    // dependent file. In the a→b→c→d chain, d_fn's transitive dependents are
-    // the modules pkg.a/pkg.b/pkg.c; each row's shoulder is that dependent
-    // file's canonical file-state shoulder.
+fn usages_dependent_row_carries_file_facts() {
+    // A downstream result row's file carries its facts. In the a→b→c→d
+    // chain, d_fn's transitive dependents are the modules pkg.a/pkg.b/pkg.c.
     let f = chain_repo();
     f.trace(&["cache", "build", "."]).ok();
     let r = f.trace(&["usages", "d_fn", "--json"]);
@@ -231,20 +228,14 @@ fn usages_dependent_row_carries_file_shoulder() {
         .find(|d| d["source_file"].as_str() == Some("pkg/c.py"))
         .expect("pkg/c.py must be a dependent of d_fn");
     let _ = row;
-    let shoulder = shoulder_of(&v, "pkg/c.py");
-    assert!(
-        shoulder.starts_with("[git: new (1 commit) \u{00b7} age:")
-            && shoulder.contains("\u{00b7} churn: 1 commit, 1/30d \u{00b7}"),
-        "downstream-row shoulder must be the canonical file-state shoulder: {shoulder:?}"
-    );
+    assert_settled_local_file(facts_of(&v, "pkg/c.py"));
 }
 
 #[test]
-fn defines_row_carries_definition_file_shoulder() {
-    // Each `defines` row carries the canonical passive-context shoulder of the
-    // file the symbol is defined in, so a definition lookup also tells the
-    // agent the file state of where the symbol lives. d_fn is defined in
-    // pkg/d.py — a settled single-commit, local-only file.
+fn defines_row_carries_definition_file_facts() {
+    // Each `defines` row's file carries its facts, so a definition lookup
+    // also tells the agent the file state of where the symbol lives. d_fn is
+    // defined in pkg/d.py — a settled single-commit file.
     let f = chain_repo();
     f.trace(&["cache", "build", "."]).ok();
     let r = f.trace(&["defines", "d_fn", "--json"]);
@@ -257,37 +248,26 @@ fn defines_row_carries_definition_file_shoulder() {
         .find(|d| d["source_file"].as_str() == Some("pkg/d.py"))
         .expect("d_fn must be defined in pkg/d.py");
     let _ = row;
-    let shoulder = shoulder_of(&v, "pkg/d.py");
-    assert!(
-        shoulder.starts_with("[git: new (1 commit) \u{00b7} age:")
-            && shoulder.contains("\u{00b7} churn: 1 commit, 1/30d \u{00b7}")
-            && shoulder.contains("\u{00b7} presence: local-only \u{00b7}"),
-        "defines-row shoulder must be the canonical file-state shoulder: {shoulder:?}"
-    );
+    assert_settled_local_file(facts_of(&v, "pkg/d.py"));
 }
 
 #[test]
-fn structure_carries_file_shoulder() {
-    // `trace structure <file>` carries the canonical passive-context shoulder
-    // of the file at the top level, so listing what a file declares also
-    // surfaces that file's state. pkg/d.py is a settled single-commit file.
+fn structure_carries_file_facts() {
+    // `trace structure <file>` carries the file's facts, so listing what a
+    // file declares also surfaces that file's state. pkg/d.py is a settled
+    // single-commit file.
     let f = chain_repo();
     f.trace(&["cache", "build", "."]).ok();
     let r = f.trace(&["structure", "pkg/d.py", "--json"]);
     r.ok();
     let v = r.view();
-    let file = v["file"]
+    let file = v["paths"][0]
         .as_str()
-        .expect("structure echoes the file it read");
-    let shoulder = v["files"][file]["shoulder"]
-        .as_str()
-        .expect("structure must carry a non-null shoulder for an in-repo file");
-    assert!(
-        shoulder.starts_with("[git: new (1 commit) \u{00b7} age:")
-            && shoulder.contains("\u{00b7} churn: 1 commit, 1/30d \u{00b7}")
-            && shoulder.contains("\u{00b7} presence: local-only \u{00b7}"),
-        "structure shoulder must be the canonical file-state shoulder: {shoulder:?}"
-    );
+        .expect("structure echoes the path it read");
+    let facts = facts_of(&v, file);
+    assert_eq!(facts["file"], "pkg/d.py", "{facts}");
+    assert_eq!(facts["language"], "python", "{facts}");
+    assert_settled_local_file(facts);
 }
 
 /// `callers` bounds its rows the way every other row command does: a
@@ -411,6 +391,76 @@ fn defines_locates_symbol_definition() {
         "helper must only be defined in src/util.py: {:?}",
         defs
     );
+}
+
+#[test]
+fn defines_keeps_destructured_name_declaration() {
+    let f = Fixture::new();
+    f.write(
+        "login.tsx",
+        "const [flashError, setFlashError] = useState(readFlashError);\n",
+    );
+    f.commit("destructured TypeScript declaration");
+
+    let result = f.trace(&["defines", "setFlashError", "--json"]);
+    result.ok();
+    let declaration = &result.view()["results"][0]["declaration"];
+    assert_eq!(declaration["name"], "setFlashError", "{}", result.stdout);
+    assert_eq!(
+        declaration["header"],
+        "const [flashError, setFlashError] = useState(readFlashError);",
+        "{}",
+        result.stdout
+    );
+}
+
+#[test]
+fn graph_rows_surface_declarations_and_keep_modules_unfabricated() {
+    let f = standard_repo();
+    f.trace(&["cache", "build", "."]).ok();
+
+    let definitions = f.trace(&["defines", "helper", "--json"]);
+    definitions.ok();
+    let definitions_view = definitions.view();
+    assert_eq!(
+        definitions_view["results"][0]["declaration"]["name"], "helper",
+        "{}",
+        definitions.stdout
+    );
+
+    let dependencies = f.trace(&["dependencies", "main", "--json"]);
+    dependencies.ok();
+    let dependencies_view = dependencies.view();
+    let dependency = dependencies_view["results"][0]["dependencies"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["node_id"] == "src/util.py::helper")
+        .expect("main must depend on helper");
+    assert_eq!(dependency["declaration"]["name"], "helper");
+
+    let usages = f.trace(&["usages", "helper", "--json"]);
+    usages.ok();
+    let usages_view = usages.view();
+    let dependent = usages_view["results"][0]["dependents"]
+        .as_array()
+        .unwrap()
+        .first()
+        .expect("helper must have an importing module");
+    assert_eq!(dependent["kind"], "module");
+    assert!(dependent["declaration"].is_null(), "{}", usages.stdout);
+
+    let usage_path = f.trace(&["usages", "--path", "src/util.py", "--json"]);
+    usage_path.ok();
+    assert_eq!(
+        usage_path.view()["results"][0]["declaration"]["name"],
+        "helper"
+    );
+
+    let dependency_path = f.trace(&["dependencies", "--path", "src/app.py", "--json"]);
+    dependency_path.ok();
+    assert_eq!(dependency_path.view()["results"][0]["kind"], "module");
+    assert!(dependency_path.view()["results"][0]["declaration"].is_null());
 }
 
 #[test]
@@ -1218,4 +1268,183 @@ fn path_mode_matches_exact_reach_oracle_beyond_thirty_subjects() {
             }
         }
     }
+}
+
+#[test]
+fn stats_reports_directory_import_counts_and_annotations() {
+    let f = Fixture::new();
+    f.write("pain/a.ts", "export class PainA {}\n");
+    f.write("pain/b.ts", "export class PainB {}\n");
+    for name in ["one", "two", "three"] {
+        f.write(
+            &format!("outside/{name}.ts"),
+            &format!("import {{ PainA }} from '../pain/a';\nexport const {name} = PainA;\n"),
+        );
+    }
+    f.write("useless/i.ts", "export interface I { run(): void }\n");
+    f.write("useless/base.ts", "export abstract class Base {}\n");
+    f.write(
+        "useless/use.ts",
+        "import { One } from '../other/one';\nimport { Two } from '../other/two';\nimport { Three } from '../other/three';\nexport const use = [One, Two, Three];\n",
+    );
+    for name in ["one", "two", "three"] {
+        let type_name = format!("{}{}", &name[0..1].to_uppercase(), &name[1..]);
+        f.write(
+            &format!("other/{name}.ts"),
+            &format!("export class {type_name} {{}}\n"),
+        );
+    }
+    f.write("balanced/concrete.ts", "export class Concrete {}\n");
+    f.write(
+        "balanced/contract.ts",
+        "export interface Contract { run(): void }\n",
+    );
+    f.write(
+        "balanced/use.ts",
+        "import { One } from '../other/one';\nexport const use = One;\n",
+    );
+    f.write(
+        "outside/balanced.ts",
+        "import { Concrete } from '../balanced/concrete';\nexport const balanced = Concrete;\n",
+    );
+    f.write("empty/a.ts", "export class Empty {}\n");
+    f.write("no-types/view.ts", "export function View() {}\n");
+    f.write(
+        "no-types/props.ts",
+        "export interface Props { a: string }\n",
+    );
+    f.write(
+        "no-types/use.ts",
+        "import { One } from '../other/one';\nexport const use = One;\n",
+    );
+    f.write(
+        "same/a.ts",
+        "import { B } from './b';\nexport const A = B;\n",
+    );
+    f.write("same/b.ts", "export const B = 1;\n");
+    f.write("parent/nested/item.ts", "export class Nested {}\n");
+    f.write("target/a.ts", "export class TargetA {}\n");
+    f.write("target/b.ts", "export class TargetB {}\n");
+    f.write(
+        "one-target/use.ts",
+        "import { TargetA } from '../target/a';\nimport { TargetB } from '../target/b';\nexport const use = [TargetA, TargetB];\n",
+    );
+    f.write(
+        "two-target/first.ts",
+        "import { TargetA } from '../target/a';\nexport const first = TargetA;\n",
+    );
+    f.write(
+        "two-target/second.ts",
+        "import { TargetA } from '../target/a';\nexport const second = TargetA;\n",
+    );
+    f.write("ambiguous/one.ts", "export class Shared {}\n");
+    f.write("ambiguous/two.ts", "export class Shared {}\n");
+    f.write(
+        "ambiguous/use.ts",
+        "import { Shared } from 'shared';\nexport const use = Shared;\n",
+    );
+    f.write(
+        "decorated/service.ts",
+        "@Injectable()\nexport class Service {}\n",
+    );
+    f.commit("directory metrics");
+
+    let json = f.trace(&["stats", ".", "--json"]);
+    json.ok();
+    let document = json.json();
+    let directories = &document["context"]["directories"];
+    // `imported_by` and `imports` count distinct files outside the directory.
+    assert_eq!(directories["pain/"]["files"], 2);
+    assert_eq!(directories["pain/"]["imported_by"], 3);
+    assert_eq!(directories["pain/"]["imports"], 0);
+    assert_eq!(directories["useless/"]["imported_by"], 0);
+    assert_eq!(directories["useless/"]["imports"], 3);
+    assert_eq!(
+        directories["useless/"]["imported_directories"],
+        serde_json::json!(["other/"])
+    );
+    assert_eq!(directories["balanced/"]["imported_by"], 1);
+    assert_eq!(directories["balanced/"]["imports"], 1);
+    assert_eq!(directories["empty/"]["imported_by"], 0);
+    assert_eq!(directories["empty/"]["imports"], 0);
+    // An import between two files of one directory counts for neither side.
+    assert_eq!(directories["same/"]["imported_by"], 0);
+    assert_eq!(directories["same/"]["imports"], 0);
+    assert!(directories["parent/"].is_null());
+    assert_eq!(directories["parent/nested/"]["files"], 1);
+    assert_eq!(directories["one-target/"]["imports"], 2);
+    assert_eq!(directories["target/"]["imported_by"], 3);
+    // An ambiguous import resolves to no file, so it counts for nothing.
+    assert_eq!(directories["ambiguous/"]["imports"], 0);
+    assert_eq!(directories["decorated/"]["annotations"]["Injectable"], 1);
+    assert_eq!(document["counts"]["directories"].as_i64(), Some(14));
+    for retired in ["types", "abstract_types", "afferent", "efferent", "distance", "zone"] {
+        assert!(directories["pain/"][retired].is_null(), "{retired} is retired");
+    }
+
+    let text = f.trace(&["stats", "."]);
+    text.ok();
+    let pain = text.stdout.rfind("pain/").unwrap();
+    let balanced = text.stdout.rfind("balanced/").unwrap();
+    assert!(
+        pain < balanced,
+        "the most imported directories sort first:\n{}",
+        text.stdout
+    );
+    assert!(text.stdout.contains("Injectable×1"), "{}", text.stdout);
+    assert!(
+        text.stdout
+            .lines()
+            .any(|line| line.contains("empty/") && line.contains("-")),
+        "{}",
+        text.stdout
+    );
+}
+
+#[test]
+fn listing_freshness_covers_directory_index_and_ignore_changes() {
+    let f = Fixture::new();
+    f.write(
+        "importer.ts",
+        "import { Value } from './root';\nexport const value = Value;\n",
+    );
+    f.write("gone/value.ts", "export const Value = 1;\n");
+    f.write(".gitignore", "*.hidden\nignored/\n");
+    f.commit("seed");
+    f.trace(&["info", "importer.ts", "--json"]).ok();
+
+    f.write("root.ts", "export const Value = 2;\n");
+    f.trace(&["info", "importer.ts", "--json"]).ok();
+
+    std::fs::create_dir(f.root.join("empty")).unwrap();
+    f.trace(&["info", "importer.ts", "--json"]).ok();
+    f.write("empty/value.ts", "export const Value = 3;\n");
+    f.trace(&["info", "importer.ts", "--json"]).ok();
+
+    f.git(&["rm", "-r", "gone"]);
+    f.trace(&["info", "importer.ts", "--json"]).ok();
+
+    f.write("tracked.hidden", "export const Value = 4;\n");
+    f.git(&["add", "-f", "tracked.hidden"]);
+    f.trace(&["info", "importer.ts", "--json"]).ok();
+
+    f.write("exposed.hidden", "export const Value = 5;\n");
+    f.write(".gitignore", "ignored/\n");
+    f.trace(&["info", "importer.ts", "--json"]).ok();
+
+    std::fs::create_dir(f.root.join("ignored")).unwrap();
+    f.trace(&["context", "importer.ts", "--no-record"]).ok();
+    std::thread::sleep(std::time::Duration::from_secs(2));
+    f.trace(&["context", "importer.ts", "--no-record"]).ok();
+    f.write("ignored/output.ts", "export const Value = 6;\n");
+    let after_ignored = f.trace_env(
+        &["context", "importer.ts", "--no-record"],
+        &[("TRACE_TIMING", "1")],
+    );
+    after_ignored.ok();
+    assert!(
+        !after_ignored.stderr.contains("ls-files"),
+        "{}",
+        after_ignored.stderr
+    );
 }

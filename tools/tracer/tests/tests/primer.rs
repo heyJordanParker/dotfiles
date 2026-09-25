@@ -28,11 +28,11 @@ fn primer_layout_ccn_aggregate_is_exact() {
         .find(|l| l.contains("📁 src/"))
         .unwrap_or_else(|| panic!("primer Layout missing src/:\n{}", r.stdout));
     assert!(
-        layout_line.contains("2 files"),
+        layout_line.contains("files: 2"),
         "Layout file count wrong: {layout_line}"
     );
     assert!(
-        layout_line.contains("ccn=3"),
+        layout_line.contains("cyclomatic_complexity: 3"),
         "Layout CCN aggregate must be exactly 3 (a.py 2 + c.py 1); \
          a lite-facts or stale value would differ: {layout_line}"
     );
@@ -45,7 +45,7 @@ fn primer_layout_ccn_aggregate_is_exact() {
         .find(|l| l.starts_with("repo_context:"))
         .expect("primer must end with a repo_context footer");
     assert!(
-        footer.contains("complexity_p95=0") && footer.contains("median=0"),
+        footer.contains("complexity_p95: 0") && footer.contains("median_file_complexity: 0"),
         "repo_context footer numbers wrong for the known fixture: {footer}"
     );
 }
@@ -121,13 +121,14 @@ fn primer_warms_cache_as_side_effect() {
     f.trace(&["context"]).ok();
     let v = f.trace(&["cache", "stats", "--json"]).view();
     // The primer warms the file cache over standard_repo()'s fixed tree:
-    // exactly 11 entries — six per-file entries, the mtime index, the
-    // git-activity map, and the three relations-index entries. A primer that
-    // stopped warming, or warmed a different file set, fails this.
+    // exactly 15 entries — seven per-file entries, the mtime index, the
+    // git-activity map, the tracked-files listing, the cached ctags map, and
+    // the four relations-index entries. A primer that stopped warming, or
+    // warmed a different file set, fails this.
     assert_eq!(
         v["file"]["entries"].as_i64().unwrap(),
-        11,
-        "primer must warm exactly 11 file-cache entries: {v}"
+        15,
+        "primer must warm exactly 15 file-cache entries: {v}"
     );
 }
 
@@ -280,6 +281,99 @@ fn primer_spine_emits_ten_rows_ranked_by_full_transitive_reach() {
         "primer must emit the exact top ten after walking full transitive reach:\n{}",
         r.stdout
     );
+}
+
+/// An AMBIGUOUS import names several candidate files and depends on none, so
+/// the Spine does not rank it and no file counts it as an importer.
+#[test]
+fn primer_spine_and_imported_by_count_only_resolved_imports() {
+    let f = Fixture::new();
+    f.write("ambiguous/one.ts", "export class Shared {}\n");
+    f.write("ambiguous/two.ts", "export class Shared {}\n");
+    f.write(
+        "ambiguous/use.ts",
+        "import { Shared } from 'shared';\nexport const use = Shared;\n",
+    );
+    f.commit("an import that resolves to two candidates");
+    f.trace(&["cache", "build", "."]).ok();
+
+    let r = f.trace(&["context"]);
+    r.ok();
+    let spine: String = r
+        .stdout
+        .lines()
+        .skip_while(|l| !l.contains("## Spine"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        !spine.contains("Shared @"),
+        "an ambiguous import must not rank a candidate:\n{spine}"
+    );
+    let facts = f.trace(&["context", "ambiguous/one.ts", "--json"]).view();
+    let facts = facts["files"].as_object().unwrap().values().next().unwrap();
+    assert_eq!(facts["imported_by"], 0, "{facts}");
+}
+
+/// The primer lists no `Claude.md` files, which reach the agent when it
+/// reads under them, and no directory-distance block.
+#[test]
+fn primer_carries_no_claude_md_list_and_no_distance_block() {
+    let f = Fixture::new();
+    f.write("Claude.md", "# Root\n");
+    f.write("src/Claude.md", "# Src\n");
+    f.write("pain/service.ts", "export class Service {}\n");
+    for name in ["one", "two", "three"] {
+        f.write(
+            &format!("outside/{name}.ts"),
+            &format!("import {{ Service }} from '../pain/service';\nexport const {name} = Service;\n"),
+        );
+    }
+    f.commit("docs and a heavily imported directory");
+
+    let r = f.trace(&["context"]);
+    r.ok();
+    for retired in ["Claude.md files", "Farthest from the main sequence", "D="] {
+        assert!(
+            !r.stdout.contains(retired),
+            "the primer must not carry `{retired}`:\n{}",
+            r.stdout
+        );
+    }
+}
+
+/// Common Directories come from git's file listing, so a directory git does
+/// not list — an ignored checkout, a nested repository — never reads as this
+/// repository's own.
+#[test]
+fn primer_common_directories_skip_what_git_does_not_list() {
+    let f = Fixture::new();
+    f.write(".gitignore", "checkouts/\n");
+    f.write("tests/a_test.py", "def test_a():\n    pass\n");
+    f.write("tests/b_test.py", "def test_b():\n    pass\n");
+    f.commit("own tests");
+    // Both sit two levels down, where the primer looks for directories.
+    f.write("checkouts/tests/c_test.py", "def test_c():\n    pass\n");
+    f.write("checkouts/tests/d_test.py", "def test_d():\n    pass\n");
+    f.write("clones/nested/e_test.py", "def test_e():\n    pass\n");
+    f.write("clones/nested/f_test.py", "def test_f():\n    pass\n");
+    std::process::Command::new("git")
+        .args(["init", "-q"])
+        .current_dir(f.root.join("clones/nested"))
+        .status()
+        .unwrap();
+
+    let r = f.trace(&["context"]);
+    r.ok();
+    let common: String = r
+        .stdout
+        .lines()
+        .skip_while(|l| !l.contains("## Common Directories"))
+        .take_while(|l| !l.contains("## Git"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(common.contains("tests  (2 test files)"), "{common}");
+    assert!(!common.contains("checkouts"), "an ignored checkout leaked:\n{common}");
+    assert!(!common.contains("clones"), "a nested repository leaked:\n{common}");
 }
 
 /// A conditional rule whose `paths:` glob matches a working-tree-dirty file,

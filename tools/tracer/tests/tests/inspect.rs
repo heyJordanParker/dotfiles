@@ -109,15 +109,22 @@ fn info_context_observes_snapshot_inputs_without_duplicate_work() {
                 "end_line": 12,
             }])
         );
+        assert_eq!(document["counts"], serde_json::json!({"functions": 1}));
+        let facts = &document["context"]["files"]["src/app.py"];
         assert_eq!(
-            document["counts"],
             serde_json::json!({
-                "functions": 1,
-                "loc": 8,
-                "ccn_total": 4,
-                "ccn_max_function": 4,
-                "rank": "low",
-            })
+                "lines": facts["lines"],
+                "cyclomatic_complexity": facts["cyclomatic_complexity"],
+                "max_function_complexity": facts["max_function_complexity"],
+                "complexity_rank": facts["complexity_rank"],
+            }),
+            serde_json::json!({
+                "lines": 12,
+                "cyclomatic_complexity": 4,
+                "max_function_complexity": 4,
+                "complexity_rank": "low",
+            }),
+            "{document:#}"
         );
         assert_eq!(
             document["context"]["repo"],
@@ -127,13 +134,29 @@ fn info_context_observes_snapshot_inputs_without_duplicate_work() {
                 "complexity_p95": 1,
             })
         );
-        let file_context = &document["context"]["files"][&file];
+        let file_context = &document["context"]["files"]["src/app.py"];
         assert_eq!(document["context"].as_object().unwrap().len(), 2);
         assert_eq!(document["context"]["files"].as_object().unwrap().len(), 1);
-        assert_eq!(file_context.as_object().unwrap().len(), 6);
         assert_eq!(file_context["language"], "python");
+        assert_eq!(file_context["git"]["commits"], 1, "{file_context}");
         assert!(file_context["nearest_doc"].is_null());
         assert!(file_context["leading_comment"].is_null());
+        assert_eq!(file_context["directory"]["path"], "src/");
+        assert_eq!(
+            file_context["surface"],
+            serde_json::json!([{
+                "annotations": [],
+                "cyclomatic_complexity": 4,
+                "container": null,
+                "end_line": 12,
+                "header": "def main(x): …",
+                "header_line": 5,
+                "kind": "function",
+                "line": 5,
+                "name": "main",
+                "parent": null,
+            }])
+        );
         assert_eq!(file_context["top_callers"], serde_json::json!([]));
         assert_eq!(
             file_context["dependencies"],
@@ -141,10 +164,6 @@ fn info_context_observes_snapshot_inputs_without_duplicate_work() {
                 {"module": "src.util", "confidence": "EXTRACTED"},
             ])
         );
-        assert!(file_context["shoulder"]
-            .as_str()
-            .unwrap()
-            .contains("loc: 8 · ccn: 4 low"));
         assert_eq!(fs::read(&status_count).unwrap(), b"x", "workers={workers}");
         assert_eq!(fs::read(&scc_count).unwrap(), b"x", "workers={workers}");
 
@@ -190,7 +209,7 @@ fn path_outside_any_repo_still_works() {
     );
     assert_eq!(
         v["languages"],
-        serde_json::json!({"Python": {"files": 1, "loc": 4, "complexity": 1}}),
+        serde_json::json!({"Python": {"files": 1, "lines_of_code": 4, "cyclomatic_complexity": 1}}),
         "survey languages outside a repo must be exact: {}",
         v["languages"]
     );
@@ -213,13 +232,15 @@ fn path_outside_any_repo_still_works() {
         1,
         "info failed to analyze a file outside any repo"
     );
+    // Outside a repository the facts keep the complexity and carry no git.
+    let facts = iv["files"].as_object().unwrap().values().next().unwrap();
     assert_eq!(
-        iv["ccn_total"].as_i64().unwrap(),
-        2,
-        "choose() must preserve its base and branch CCN outside a repo"
+        facts["cyclomatic_complexity"], 2,
+        "choose() must preserve its base and branch complexity outside a repo: {facts}"
     );
-    assert_eq!(iv["ccn_max_function"].as_i64().unwrap(), 2);
-    assert_eq!(iv["loc"].as_i64().unwrap(), 4);
+    assert_eq!(facts["max_function_complexity"], 2, "{facts}");
+    assert_eq!(facts["lines"], 4, "{facts}");
+    assert!(facts["git"].is_null(), "no git outside a repository: {facts}");
 
     let directory = trace(&tmp, ["info", &nested.to_string_lossy()]);
     directory.ok();
@@ -268,12 +289,12 @@ fn stats_reports_exact_numbers_on_known_fixture() {
     let py = &v["languages"]["Python"];
     assert_eq!(py["files"].as_i64().unwrap(), 3, "3 Python files: {py}");
     assert_eq!(
-        py["loc"].as_i64().unwrap(),
+        py["lines_of_code"].as_i64().unwrap(),
         10,
         "scc Python LOC must be exactly 10 (4+4+2): {py}"
     );
     assert_eq!(
-        py["complexity"].as_i64().unwrap(),
+        py["cyclomatic_complexity"].as_i64().unwrap(),
         2,
         "scc total complexity must be exactly 2 (1 per `if`, two ifs): {py}"
     );
@@ -300,7 +321,7 @@ fn stats_reports_exact_numbers_on_known_fixture() {
         .map(|e| {
             let p = e["path"].as_str().unwrap();
             let name = p.rsplit('/').next().unwrap().to_string();
-            (name, e["complexity"].as_i64().unwrap())
+            (name, e["cyclomatic_complexity"].as_i64().unwrap())
         })
         .collect();
     got.sort();
@@ -352,8 +373,8 @@ fn directory_info_preserves_rows_across_fact_batches() {
     tracked.ok();
     let tracked_json = tracked.json();
     assert_eq!(tracked_json["counts"]["files"], 513);
-    assert_eq!(tracked_json["counts"]["ccn_total"], 1026);
-    assert_eq!(tracked_json["counts"]["loc"], 2052);
+    assert_eq!(tracked_json["counts"]["cyclomatic_complexity"], 1026);
+    assert_eq!(tracked_json["counts"]["lines"], 2052);
     let tracked_rows = tracked_json["results"].as_array().unwrap();
     assert_eq!(tracked_rows.len(), 513);
     for (index, row) in tracked_rows.iter().enumerate() {
@@ -365,14 +386,11 @@ fn directory_info_preserves_rows_across_fact_batches() {
                 .unwrap()
                 .to_string_lossy()
         );
-        assert_eq!(row["loc"], 4);
-        assert_eq!(row["cyclomatic_complexity_total"], 2);
-        assert_eq!(row["function_count"], 1);
-        assert_eq!(row["rank"], "low");
-        assert!(tracked_json["context"]["files"][&relative]["shoulder"]
-            .as_str()
-            .unwrap()
-            .contains("loc: 4 · ccn: 2 low"));
+        assert_eq!(row["lines"], 4);
+        assert_eq!(row["cyclomatic_complexity"], 2);
+        assert_eq!(row["functions"], 1);
+        assert_eq!(row["complexity_rank"], "low");
+        assert_eq!(row["git"]["commits"], 1, "{row}");
     }
 }
 
@@ -439,8 +457,8 @@ fn directory_human_digest_reuses_selected_file_facts_and_root() {
         .filter(|line| line.contains("\"argv\":[\"git\",\"rev-parse\",\"--show-toplevel\"]"))
         .count();
     assert_eq!(
-        root_lookups, 1,
-        "human directory digest repeated the worktree-root lookup per selected file ({root_lookups} calls):\n{events}"
+        root_lookups, 0,
+        "human directory digest resolved the worktree root through git ({root_lookups} calls):\n{events}"
     );
 }
 
@@ -588,10 +606,11 @@ fn binary_file_read_does_not_crash() {
         &[0x00, 0x01, 0x02, 0xff, 0xfe, 0x00, b'B', b'I', b'N'],
     );
     f.commit("with binary");
-    // Binary read succeeds (exit 0) with replacement chars.
     let r = f.trace(&["read", "blob.dat"]);
     r.ok();
     assert!(r.stdout.contains("blob.dat"), "{}", r.stdout);
+    assert!(r.stdout.contains("[binary file, 9 bytes: not shown]"), "{}", r.stdout);
+    assert!(!r.stdout.contains('\u{FFFD}'), "{}", r.stdout);
 }
 
 #[test]
@@ -633,16 +652,77 @@ fn very_large_file_is_analyzed_correctly() {
     // Each fn: base 1 + if(1) + short-circuit `and`(1) = 3. The exact
     // aggregate is 3000 * 3 = 9000 — a lower bound would pass even if
     // the `and` were silently dropped (which would give 6000).
+    let facts = &v["files"]["huge.py"];
     assert_eq!(
-        v["ccn_max_function"].as_i64().unwrap(),
-        3,
-        "each fn must be exactly 3 (if + `and` over base 1): {}",
-        v["ccn_max_function"]
+        facts["max_function_complexity"], 3,
+        "each fn must be exactly 3 (if + `and` over base 1): {facts}"
     );
     assert_eq!(
-        v["ccn_total"].as_i64().unwrap(),
-        9000,
-        "large-file ccn aggregate must be exactly 3000*3: {}",
-        v["ccn_total"]
+        facts["cyclomatic_complexity"], 9000,
+        "large-file complexity aggregate must be exactly 3000*3: {facts}"
+    );
+}
+
+#[test]
+fn stats_json_and_timing_keep_every_section() {
+    let f = Fixture::new();
+    f.write(
+        "source/main.py",
+        "def main(value):\n    if value:\n        return 1\n    return 0\n",
+    );
+    f.commit("stats document and timing");
+
+    let json = f.trace(&["stats", ".", "--json"]);
+    json.ok();
+    let document = json.json();
+    assert!(
+        document["context"]["distribution"].is_object(),
+        "{}",
+        json.stdout
+    );
+    assert!(
+        document["results"]["languages"].is_object(),
+        "{}",
+        json.stdout
+    );
+    assert!(
+        document["results"]["top_complex"].is_array(),
+        "{}",
+        json.stdout
+    );
+    assert!(
+        document["context"]["directories"].is_object(),
+        "{}",
+        json.stdout
+    );
+
+    let text = f.trace_env(&["stats", "."], &[("TRACE_TIMING", "1")]);
+    text.ok();
+    for phase in ["scc", "relations", "summary", "render"] {
+        assert!(
+            text.stderr.contains(&format!("timing {phase} ")),
+            "stats omitted timing {phase}:\n{}",
+            text.stderr
+        );
+    }
+    assert!(
+        !text.stderr.contains("timing document "),
+        "text stats constructed a document:\n{}",
+        text.stderr
+    );
+
+    let json_timing = f.trace_env(&["stats", ".", "--json"], &[("TRACE_TIMING", "1")]);
+    json_timing.ok();
+    for phase in ["scc", "relations", "summary", "document"] {
+        assert!(
+            json_timing.stderr.contains(&format!("timing {phase} ")),
+            "JSON stats omitted timing {phase}:\n{}",
+            json_timing.stderr
+        );
+    }
+    assert!(
+        !json_timing.stderr.contains("timing render "),
+        "JSON stats rendered text:\n{}",
+        json_timing.stderr
     );
 }

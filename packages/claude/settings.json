@@ -59,6 +59,7 @@
     ],
     "deny": [
       "EnterWorktree",
+      "AskUserQuestion",
       "ExitWorktree"
     ],
     "defaultMode": "bypassPermissions"
@@ -222,58 +223,18 @@
         ]
       },
       {
-        "matcher": "Bash",
+        "matcher": "Read|Glob|Grep|Edit|Write",
         "hooks": [
           {
             "type": "command",
-            "command": "python3 ~/.agents/hooks/block_branch_change.py",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "python3 ~/.agents/hooks/block_composed_commands.py",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "python3 ~/.agents/hooks/block_git_revert.py",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "python3 ~/.agents/hooks/block_invalid_browsers.py",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "python3 ~/.agents/hooks/block_memory_access.py",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "python3 ~/.agents/hooks/block_path_assignment.py",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "python3 ~/.agents/hooks/block_unauthorized_commits.py",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "python3 ~/.agents/hooks/block_unsafe_delete.py",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "python3 ~/.agents/hooks/enforce_background_codex_run.py",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "python3 ~/.agents/hooks/guard_trace.py",
-            "timeout": 5
-          },
+            "command": "python3 ~/.agents/hooks/enrich_on_read.py",
+            "timeout": 15
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
           {
             "type": "command",
             "command": "python3 ~/.agents/hooks/inject_docs.py",
@@ -281,8 +242,8 @@
           },
           {
             "type": "command",
-            "command": "python3 ~/.agents/hooks/name_memory_caller.py",
-            "timeout": 5
+            "command": "python3 ~/.agents/hooks/combine_hooks.py block_branch_change block_composed_commands block_denied_access block_git_revert block_invalid_browsers block_memory_access block_path_assignment block_spawning block_unauthorized_commits block_unsafe_delete block_writes enforce_background_codex_run guard_trace name_memory_caller protect_session_state",
+            "timeout": 75
           }
         ]
       },
@@ -291,33 +252,38 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 ~/.agents/hooks/block_builtin_subagents.py",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "python3 ~/.agents/hooks/block_wrong_harness.py",
-            "timeout": 5
-          },
-          {
-            "type": "command",
             "command": "python3 ~/.agents/hooks/inject_honcho_memory.py",
+            "timeout": 20
+          },
+          {
+            "type": "command",
+            "command": "python3 ~/.agents/hooks/combine_hooks.py block_builtin_subagents block_spawning block_worktree_isolation block_wrong_harness",
             "timeout": 20
           }
         ]
       },
       {
-        "matcher": "Bash|Write|Edit|MultiEdit|NotebookEdit",
+        "matcher": "Write|Edit|MultiEdit",
         "hooks": [
           {
             "type": "command",
-            "command": "python3 ~/.agents/hooks/block_denied_access.py",
-            "timeout": 5
+            "command": "python3 ~/.agents/hooks/review_doc_edit.py",
+            "timeout": 120
           },
           {
             "type": "command",
-            "command": "python3 ~/.agents/hooks/block_writes.py",
-            "timeout": 5
+            "command": "python3 ~/.agents/hooks/combine_hooks.py block_denied_access block_writes protect_session_state",
+            "timeout": 15
+          }
+        ]
+      },
+      {
+        "matcher": "NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ~/.agents/hooks/combine_hooks.py block_denied_access block_writes",
+            "timeout": 10
           }
         ]
       },
@@ -332,7 +298,7 @@
         ]
       },
       {
-        "matcher": "Bash|Agent|Workflow|RemoteTrigger",
+        "matcher": "Workflow|RemoteTrigger",
         "hooks": [
           {
             "type": "command",
@@ -342,67 +308,12 @@
         ]
       },
       {
-        "matcher": "EnterWorktree|Agent",
+        "matcher": "EnterWorktree",
         "hooks": [
           {
             "type": "command",
             "command": "python3 ~/.agents/hooks/block_worktree_isolation.py",
             "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "Read|Glob|Grep|Edit|Write",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 ~/.agents/hooks/enrich_on_read.py",
-            "timeout": 30
-          }
-        ]
-      },
-      {
-        "matcher": "Bash|Write|Edit|MultiEdit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 ~/.agents/hooks/protect_session_state.py",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "Write|Edit|MultiEdit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 ~/.agents/hooks/review_doc_edit.py",
-            "timeout": 120
-          },
-          {
-            "type": "command",
-            "command": "python3 ~/.agents/hooks/validate_planning_docs.py",
-            "timeout": 60
-          }
-        ]
-      },
-      {
-        "matcher": "ExitPlanMode",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 ~/.agents/hooks/validate_plan_quality.py",
-            "timeout": 180
-          }
-        ]
-      },
-      {
-        "matcher": "AskUserQuestion",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 ~/.agents/hooks/validate_question_quality.py",
-            "timeout": 90
           }
         ]
       }
@@ -512,6 +423,11 @@
           },
           {
             "type": "command",
+            "command": "python3 ~/.agents/hooks/reload_harness_context.py",
+            "timeout": 20
+          },
+          {
+            "type": "command",
             "command": "python3 ~/.agents/hooks/record_session_event.py"
           }
         ]
@@ -522,11 +438,6 @@
           {
             "type": "command",
             "command": "python3 ~/.agents/hooks/load_trace_context.py",
-            "timeout": 20
-          },
-          {
-            "type": "command",
-            "command": "python3 ~/.agents/hooks/reload_harness_context.py",
             "timeout": 20
           }
         ]
@@ -581,10 +492,6 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 ~/.agents/hooks/block_silent_stop.py"
-          },
-          {
-            "type": "command",
             "command": "python3 ~/.agents/hooks/close_abandoned_browsers.py",
             "timeout": 60
           },
@@ -597,6 +504,10 @@
             "type": "command",
             "command": "python3 ~/.agents/hooks/rewake_codex_failure.py",
             "asyncRewake": true
+          },
+          {
+            "type": "command",
+            "command": "python3 ~/.agents/hooks/block_silent_stop.py"
           }
         ]
       }
@@ -700,21 +611,12 @@
           },
           {
             "type": "command",
-            "command": "python3 ~/.agents/hooks/record_session_event.py"
-          },
-          {
-            "type": "command",
-            "command": "python3 ~/.agents/hooks/reload_stale_skills.py"
-          },
-          {
-            "type": "command",
             "command": "python3 ~/.agents/hooks/remember_architect_message.py",
             "timeout": 10
           },
           {
             "type": "command",
-            "command": "python3 ~/.agents/hooks/update_goal.py",
-            "timeout": 70
+            "command": "python3 ~/.agents/hooks/combine_hooks.py record_session_event reload_stale_skills"
           }
         ]
       }
@@ -725,6 +627,28 @@
           {
             "type": "command",
             "command": "python3 ~/.agents/hooks/reload_stale_skills.py"
+          }
+        ]
+      }
+    ],
+    "InstructionsLoaded": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ~/.agents/hooks/reload_harness_context.py",
+            "timeout": 20
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ~/.agents/hooks/reload_harness_context.py",
+            "timeout": 20
           }
         ]
       }
@@ -758,8 +682,12 @@
     },
     "opus": {
       "effortLevel": "high"
+    },
+    "claude-opus-5": {
+      "effortLevel": "high"
     }
   },
+  "autoCompactWindow": 700000,
   "promptSuggestionEnabled": false,
   "agent": "cto",
   "autoUpdatesChannel": "latest",
@@ -767,7 +695,6 @@
   "autoMemoryEnabled": false,
   "skipDangerousModePermissionPrompt": true,
   "fileCheckpointingEnabled": false,
-  "autoCompactWindow": 700000,
   "remoteControlAtStartup": true,
   "voiceEnabled": true
 }

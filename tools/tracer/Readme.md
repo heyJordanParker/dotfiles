@@ -10,7 +10,8 @@ A single static Rust binary — no runtime, no interpreter.
 
 ```bash
 cargo build --release
-install -m 755 target/release/trace ~/.local/bin/trace
+install -m 755 target/release/trace ~/.local/bin/.trace.new
+mv -f ~/.local/bin/.trace.new ~/.local/bin/trace
 trace doctor
 ```
 
@@ -50,15 +51,15 @@ trace structure <file>             Methods, properties, variables, imports, expo
 trace grep <pattern>               Text search with per-match enrichment
 trace logs [<pattern>] [--path <p>] [--file <glob>] [--since <when>] [--until <when>] [--around N] [--limit N]   Timestamped entries from log files, ignore rules never consulted. One line is one entry; an untimestamped line attaches to the entry above it, so a stack trace comes back whole. Reads `.gz` rotations, spans dated filenames across a window, and streams, so a rotated 80 MB directory costs the window and not the files
 trace pattern <pattern> -l <lang>  Structural AST search via ast-grep with per-match enrichment
-trace find <pattern> [<base>]      Filename or full-path pattern search (** recursive, gitignore-respecting) with complexity rank + lifecycle shoulder
+trace find <pattern> [<base>]      Filename or full-path pattern search (** recursive, gitignore-respecting) with complexity rank + lifecycle summary
 trace history <file> | --contains <p>   Whole-file log, function-line history, or pickaxe
 trace blame <file> [<symbol>]      Symbol-aware blame; collapsed regions with commit subjects
 trace diff [--base <ref>] [--symbols]    Files or module-level symbols changed vs a base ref, load-bearing first
 trace status [--state <s>]         Working-tree dirty set ordered by blast radius
-trace context [<paths...>] [--offset N] [--limit N] [--no-record]   Session-start primer (no args), single-file enrichment (one path, optionally with --offset/--limit to record which line range was read), or multi-file enrichment (multiple paths, which requires --no-record and rejects --directory/--offset/--limit); --no-record renders the shoulder without recording a read (the enrich hook sets it for Edit/Write and for every multi-file batch — an edit is not a read)
+trace context [<paths...>] [--offset N] [--limit N] [--no-record]   Session-start primer (no args), single-file enrichment (one path, optionally with --offset/--limit to record which line range was read), or multi-file enrichment (multiple paths, which requires --no-record and rejects --directory/--offset/--limit); --no-record renders the summary without recording a read (the enrich hook sets it for Edit/Write and for every multi-file batch — an edit is not a read)
 ```
 
-`read`, `list`, `tree`, and `info` annotate each file with a one-line passive-context shoulder showing lifecycle state (new / renamed / modified / settled), age, and complexity rank — letting an AI agent calibrate its conclusions about how settled a file is before drawing them.
+`read`, `list`, `tree`, and `info` annotate each file with a one-line summary showing lifecycle state (new / renamed / modified / settled), age, and complexity rank — letting an AI agent calibrate its conclusions about how settled a file is before drawing them.
 
 **Architecture** (served by the relations index in `.tracer-cache/file/`):
 ```

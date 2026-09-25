@@ -1,58 +1,58 @@
 #!/usr/bin/env python3
-"""SessionStart: re-run `trace context prime` so the tracer log mirrors loaded docs."""
+"""Keep tracer's record of Claude Code's loaded docs true.
+
+Claude Code reports each doc it loads while the session runs — a nested
+Claude.md, a rule matching a path, an include — through `InstructionsLoaded`,
+and each one is recorded (`trace docs prime <file>`), so tracer never sends a
+doc the agent already holds. Compaction and a clear drop what was loaded, so
+the record is forgotten before them (`trace docs reset`).
+
+After a compaction Claude Code puts its session-start docs back without
+reporting them, so every SessionStart records them itself: the Claude.md chain
+(`trace docs prime`) and the working directory's docs (`trace docs <cwd>
+--json`, which records every doc it returns) — the same set inject_rules
+sends codex, recorded here instead of sent.
+
+codex reports no per-file load; inject_rules keeps its record.
+"""
 
 import os
-import shutil
-import subprocess
 import sys
 
+from lib import tracer
 from lib.event import field, read_event
 
 BINDING = {
-    "events": {"SessionStart": ["startup|resume|clear|compact"]},
+    "events": {
+        "InstructionsLoaded": [],
+        "PreCompact": [],
+        "SessionStart": [],
+    },
+    "harness": "claude",
     "timeout": 20,
-    "harness": "all",
+    "standalone": True,
 }
+
+SOURCE = "reload_harness_context"
 
 
 def main():
+    if not tracer.available():
+        return 0
     event = read_event()
-    if not shutil.which("trace"):
+    event_name = field(event, "hook_event_name", "")
+    if event_name == "InstructionsLoaded":
+        path = field(event, "file_path", "")
+        if path:
+            tracer.run(event, "docs", "prime", path)
         return 0
-    session_id = field(event, "session_id", "")
-    if not session_id:
+    if event_name == "PreCompact":
+        tracer.run(event, "docs", "reset", "--source", SOURCE)
         return 0
-    # Hand trace the run's own session via AGENT_SESSION_ID — the harness-neutral
-    # carrier trace resolves first — on a local copy only, never mutating
-    # os.environ; CLAUDE_CODE_SESSION_ID stays as the launcher set it so
-    # owner_session can resolve the governing mode on a nested codex run.
-    env = dict(os.environ)
-    env["AGENT_SESSION_ID"] = session_id
-    agent_id = field(event, "agent_id", "")
-    if agent_id:
-        env["TRACER_AGENT_ID"] = agent_id
-    source = field(event, "source", "")
-    # `clear` and `compact` drop previously-surfaced docs from context while the
-    # harness re-injects only the global + project-root chain. Reset the view first
-    # so nested Claude.md files (surfaced by enrich-on-read) re-inject on next read
-    # instead of being skipped as already-loaded; prime then re-records the live
-    # chain. Same env so the session id propagates and the reset isn't a silent no-op.
-    if source in ("clear", "compact"):
-        try:
-            subprocess.run(
-                ["trace", "docs", "reset"],
-                capture_output=True, timeout=10, env=env,
-            )
-        except Exception:
-            pass
-    reason = "post_compact" if source == "compact" else "session_start"
-    try:
-        subprocess.run(
-            ["trace", "context", "prime", "--reason", reason],
-            capture_output=True, timeout=12, env=env,
-        )
-    except Exception:
-        pass
+    tracer.session_start(
+        event, SOURCE,
+        lambda: tracer.run(event, "docs", field(event, "cwd", "") or os.getcwd(), "--json", "--source", SOURCE),
+    )
     return 0
 
 

@@ -3,7 +3,8 @@
 //! `walk_files` outside; both honor SKIP_DIRS. Per-file facts come from
 //! bounded `file_facts::get_batch` calls, which always do real extraction.
 
-use crate::{cache, file_facts, passive_context, repo_context, repo_files};
+use crate::summary::Facts;
+use crate::{cache, file_facts, repo_context, repo_files};
 use anyhow::Result;
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
@@ -20,32 +21,8 @@ fn rank_marker(rank: &str) -> &'static str {
 
 struct Entry {
     full: PathBuf,
-    ccn_total: i64,
-    ccn_max_function: i64,
-    loc: i64,
-    rank: String,
-    passive_context: Option<String>,
-}
-
-fn entry_from(full: &Path, facts: Option<&file_facts::FileFacts>) -> Entry {
-    match facts {
-        None => Entry {
-            full: full.to_path_buf(),
-            ccn_total: 0,
-            ccn_max_function: 0,
-            loc: 0,
-            rank: "unknown".to_string(),
-            passive_context: None,
-        },
-        Some(f) => Entry {
-            full: full.to_path_buf(),
-            ccn_total: f.cyclomatic_complexity_total,
-            ccn_max_function: f.cyclomatic_complexity_max,
-            loc: f.loc,
-            rank: f.rank.clone(),
-            passive_context: Some(passive_context::render_compact(f)),
-        },
-    }
+    facts: Option<Facts>,
+    max_function_complexity: i64,
 }
 
 /// Depth-bounded tree walk under `base`, collecting entries.
@@ -94,11 +71,17 @@ fn walk(base: &Path, max_depth: usize) -> Vec<Entry> {
     // exists (symlink / `..` normalization, e.g. a symlink into a deeper
     // dir), else the lexical join (keeps indexed-but-deleted files).
     // Applied above when building `selected`.
+    let index = crate::relations::get(&repo_root);
     for chunk in selected.chunks(file_facts::RESOLVE_CHUNK) {
         let facts_map = file_facts::get_batch(chunk, &repo_root);
         for full in chunk {
             let rel = cache::relative_to_root(full, &repo_root);
-            entries.push(entry_from(full, facts_map.get(&rel)));
+            let facts = facts_map.get(&rel);
+            entries.push(Entry {
+                full: full.clone(),
+                facts: facts.map(|f| Facts::of(f, index.module_counts(&rel).as_ref())),
+                max_function_complexity: facts.map_or(0, |f| f.cyclomatic_complexity_max),
+            });
         }
     }
     entries
@@ -114,10 +97,10 @@ pub fn run(path: &Path, depth: usize, as_json: bool) -> Result<Value> {
     let entries = walk(&base, depth);
     let ctx = repo_context::repo_context(&base);
 
-    // The shoulder is per-file enrichment, so it sits in `context` keyed by
-    // the same path the row carries. A `--filter` that projects rows cannot
-    // take it with them.
-    let mut shoulders = serde_json::Map::new();
+    // Each file's facts are per-file enrichment, so they sit in `context`
+    // keyed by the same path the row carries. A `--filter` that projects rows
+    // cannot take them along.
+    let mut file_facts_by_path = serde_json::Map::new();
     let files: Vec<Value> = entries
         .iter()
         .map(|e| {
@@ -128,19 +111,17 @@ pub fn run(path: &Path, depth: usize, as_json: bool) -> Result<Value> {
                 .strip_prefix(&base_abs)
                 .map(|p| p.to_string_lossy().to_string())
                 .unwrap_or_else(|_| e.full.to_string_lossy().to_string());
-            shoulders.insert(rel.clone(), json!({"shoulder": e.passive_context}));
-            json!({
-                "path": rel,
-                "ccn_total": e.ccn_total,
-                "ccn_max_function": e.ccn_max_function,
-                "loc": e.loc,
-                "rank": e.rank,
-            })
+            if let Some(facts) = &e.facts {
+                let mut map = facts.to_map();
+                map.insert("max_function_complexity".into(), e.max_function_complexity.into());
+                file_facts_by_path.insert(rel.clone(), Value::Object(map));
+            }
+            json!({"path": rel})
         })
         .collect();
     let value = crate::output::document(
         json!({"root": base.to_string_lossy(), "depth": depth}),
-        json!({"repo": ctx.clone(), "files": Value::Object(shoulders)}),
+        json!({"repo": ctx.clone(), "files": Value::Object(file_facts_by_path)}),
         json!(files),
         json!({"files": files.len()}),
     );
@@ -149,37 +130,49 @@ pub fn run(path: &Path, depth: usize, as_json: bool) -> Result<Value> {
         return Ok(value);
     }
 
-    println!("{}/", base.to_string_lossy());
-    for e in &entries {
-        // Relative path against the UNRESOLVED repo_root/rel.
-        let rel = e
-            .full
-            .strip_prefix(&base_abs)
-            .map(|p| p.to_path_buf())
-            .unwrap_or_else(|_| e.full.clone());
-        let parts = rel.components().count();
-        let indent = "  ".repeat(parts.saturating_sub(1));
-        let marker = rank_marker(&e.rank);
-        let name = rel
-            .file_name()
-            .map(|n| n.to_string_lossy().to_string())
-            .unwrap_or_default();
-        let suffix = e
-            .passive_context
-            .as_ref()
-            .map(|c| format!(" — {c}"))
-            .unwrap_or_default();
-        println!(
-            "{indent}{marker} {name}  [ccn={} loc={} {}]{suffix}",
-            e.ccn_total, e.loc, e.rank
-        );
+    let mut rows: Vec<crate::output::Entry> = Vec::with_capacity(entries.len());
+    let mut paths: Vec<&str> = Vec::with_capacity(entries.len());
+    let mut open: Vec<&str> = Vec::new();
+    for (e, row) in entries.iter().zip(&files) {
+        let rel = row["path"].as_str().unwrap_or_default();
+        let (directories, name) = match rel.rsplit_once('/') {
+            Some((directories, name)) => (directories.split('/').collect(), name),
+            None => (Vec::new(), rel),
+        };
+        let kept = open.iter().zip(&directories).take_while(|(a, b)| a == b).count();
+        let mut heading = String::new();
+        for (depth, directory) in directories.iter().enumerate().skip(kept) {
+            heading.push_str(&format!("{}{directory}/\n", "  ".repeat(depth + 1)));
+        }
+        let indent = "  ".repeat(directories.len() + 1);
+        let marker = rank_marker(e.facts.as_ref().map_or("unknown", |f| &f.complexity_rank));
+        let bare = format!("{heading}{indent}{marker} {name}");
+        rows.push(match &e.facts {
+            Some(facts) => crate::output::Entry {
+                rank: facts.imported_by.unwrap_or(0) as i64,
+                levels: vec![format!("{bare}  {}", facts.headline()), bare],
+            },
+            None => crate::output::Entry { rank: 0, levels: vec![bare] },
+        });
+        paths.push(rel);
+        open = directories;
     }
-    println!();
-    println!(
-        "repo_context: complexity_p95={} median={} files={}",
-        ctx["complexity_p95"].as_i64().unwrap_or(0),
-        ctx["median_file_ccn"].as_i64().unwrap_or(0),
-        ctx["total_files"].as_i64().unwrap_or(0),
-    );
+    let facts = json!({
+        "files": ctx["total_files"].as_i64().unwrap_or(0),
+        "median_file_complexity": ctx["median_file_ccn"].as_i64().unwrap_or(0),
+        "complexity_p95": ctx["complexity_p95"].as_i64().unwrap_or(0),
+    });
+    let footer = format!("\nrepo_context: {}", crate::yamlfmt::flow(&facts, false));
+    let root = format!("{}/", base.to_string_lossy());
+    let fixed = root.len() + 1 + footer.len() + 1 + crate::output::closing_room(rows.len(), "files");
+    let (texts, shortened) = crate::output::fit_listing(&rows, &paths, fixed);
+    println!("{root}");
+    for text in texts {
+        println!("{text}");
+    }
+    println!("{footer}");
+    if shortened > 0 {
+        println!("{}", crate::output::shortened_line(shortened, rows.len(), "files"));
+    }
     Ok(value)
 }

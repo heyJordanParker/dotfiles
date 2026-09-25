@@ -312,7 +312,8 @@ fn edge_only_commands_do_not_read_symbols_and_callers_rebuilds_them() {
     let callers = f.trace(&["callers", "helper", "--json"]);
     callers.ok();
     assert_eq!(
-        callers.view()["results"], before_rows,
+        callers.view()["results"],
+        before_rows,
         "callers rebuilt a different answer after the symbols entry was deleted"
     );
     let rebuilt = std::fs::read(&symbols).expect("callers recreated the symbols entry");
@@ -335,10 +336,9 @@ fn a_symbols_table_mismatch_rebuilds_the_current_symbol_rows() {
     f.commit("symbol table fixture");
     f.trace(&["cache", "build", "."]).ok();
     let symbols = relations_symbols_entry(&f);
-    let mut poisoned: serde_json::Value = serde_json::from_slice(
-        &std::fs::read(&symbols).expect("symbols entry is readable"),
-    )
-    .expect("symbols entry is JSON");
+    let mut poisoned: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&symbols).expect("symbols entry is readable"))
+            .expect("symbols entry is JSON");
     poisoned["table"] = serde_json::Value::String("not-the-file-table".to_string());
     poisoned["symbols"] = serde_json::json!({});
     std::fs::write(
@@ -379,7 +379,11 @@ fn rebuilding_symbols_keeps_each_call_site_once() {
         .iter()
         .flat_map(|row| row["callers"].as_array().into_iter().flatten())
         .collect();
-    assert_eq!(calls.len(), 5, "five call sites must yield five rows: {before_rows}");
+    assert_eq!(
+        calls.len(),
+        5,
+        "five call sites must yield five rows: {before_rows}"
+    );
 
     std::fs::remove_file(relations_symbols_entry(&f)).expect("remove symbols entry");
     let rebuilt = f.trace(&["callers", "selected", "--json"]);
@@ -399,8 +403,14 @@ fn a_relations_update_rewrites_both_entries() {
     f.write("src/util.py", "def renamed(v):\n    return v + 1\n");
     f.trace(&["defines", "renamed", "--json"]).ok();
 
-    assert_ne!(before_edges, std::fs::read(&edges).expect("edges rewritten"));
-    assert_ne!(before_symbols, std::fs::read(&symbols).expect("symbols rewritten"));
+    assert_ne!(
+        before_edges,
+        std::fs::read(&edges).expect("edges rewritten")
+    );
+    assert_ne!(
+        before_symbols,
+        std::fs::read(&symbols).expect("symbols rewritten")
+    );
     f.trace(&["defines", "helper", "--json"]).code_is(2);
 }
 
@@ -492,15 +502,13 @@ fn remove_matching(dir: &std::path::Path, prefix: &str, extension: &str) {
     );
 }
 
-fn caller_count(shoulder: &str) -> i64 {
-    let at = shoulder
-        .find("incoming: ")
-        .unwrap_or_else(|| panic!("shoulder carries no incoming count:\n{shoulder}"));
-    shoulder[at + "incoming: ".len()..]
-        .split(|c: char| !c.is_ascii_digit())
-        .next()
-        .and_then(|d| d.parse().ok())
-        .unwrap_or_else(|| panic!("incoming count is not a number:\n{shoulder}"))
+fn caller_count(front_matter: &str) -> i64 {
+    front_matter
+        .lines()
+        .find_map(|line| line.strip_prefix("imported_by: "))
+        .unwrap_or_else(|| panic!("front matter carries no imported_by count:\n{front_matter}"))
+        .parse()
+        .unwrap_or_else(|_| panic!("imported_by is not a number:\n{front_matter}"))
 }
 
 /// A large file is indexed like any other: no size threshold decides whether
@@ -528,11 +536,10 @@ fn a_large_file_is_indexed_like_any_other() {
 
     f.trace(&["cache", "build", "."]).ok();
     let v = f.trace(&["info", "src/huge.js", "--json"]).view();
-    let key = v["file"].as_str().expect("info echoes the file it read");
-    let shoulder = v["files"][key]["shoulder"].as_str().unwrap();
+    let facts = &v["files"]["src/huge.js"];
     assert!(
-        !shoulder.contains("unparsed"),
-        "a large file must still be parsed: {shoulder}"
+        facts["cyclomatic_complexity"].as_i64().unwrap() > 1000,
+        "a large file must still be parsed: {facts}"
     );
     assert!(
         v["functions"].as_i64().unwrap() > 1000,
@@ -550,7 +557,7 @@ fn an_uncommitted_edit_reports_modified_without_moving_head() {
     let f = standard_repo();
     let clean = f.trace(&["context", "src/util.py"]).ok().stdout.clone();
     assert!(
-        !clean.contains("modified"),
+        clean.contains("\n  status: unmodified\n"),
         "committed file reported dirty before any edit:\n{clean}"
     );
 
@@ -561,7 +568,7 @@ fn an_uncommitted_edit_reports_modified_without_moving_head() {
 
     let dirty = f.trace(&["context", "src/util.py"]).ok().stdout.clone();
     assert!(
-        dirty.contains("modified"),
+        dirty.contains("\n  status: modified\n"),
         "uncommitted edit did not surface as modified:\n{dirty}"
     );
 }

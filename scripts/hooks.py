@@ -8,7 +8,16 @@ runs on both harnesses or Claude only:
         "events": {"<Event>": ["<matcher>", ...], ...},
         "harness": "all" | "claude",
         "roots": "all",            # optional
+        "standalone": True,        # optional
+        "additionalContextLimit": 0,  # optional, codex only
     }
+
+Every hook without `standalone` joins its group's `combine_hooks` runner, one
+process for all of them. A hook that injects large context or calls the network
+or a model declares `standalone`: its answer keeps its own ceiling and its wait
+holds up no quick check. On a tool event the runner is formed per tool, so one
+tool call starts one runner whatever mix of matcher lists its hooks declare.
+`additionalContextLimit` is codex's own per-handler field, written verbatim.
 
 `roots: "all"` puts a hook in every Claude config root — the default settings.json
 and each profile's — instead of the default root alone. An optional
@@ -116,22 +125,67 @@ def _matcher_key(matchers):
     return "|".join(matchers)
 
 
+RUNNER = "combine_hooks"
+
+# Events whose matcher names tools. A quick hook bound to one joins the runner of
+# every tool it names.
+TOOL_EVENTS = {"PreToolUse", "PostToolUse", "PostToolUseFailure", "PermissionRequest",
+               "PermissionDenied"}
+
+
+def _is_standalone(binding):
+    return bool(binding.get("standalone") or binding.get("asyncRewake"))
+
+
+def _entry(hook_dir, modules, bindings):
+    """(command, modules, timeout, async_rewake, context_limit) running `modules`.
+
+    One module runs as itself. Several run through the runner, whose ceiling is
+    the sum of theirs, so no member loses the time it had alone."""
+    if len(modules) == 1:
+        binding = bindings[modules[0]]
+        return (f"python3 {hook_dir}/{modules[0]}.py", tuple(modules), binding.get("timeout"),
+                binding.get("asyncRewake"), binding.get("additionalContextLimit"))
+    timeouts = [bindings[module].get("timeout") for module in modules]
+    timeout = None if None in timeouts else sum(timeouts)
+    return (f"python3 {hook_dir}/{RUNNER}.py {' '.join(modules)}", tuple(modules), timeout, None, None)
+
+
 def _commands_by_group(bindings, hook_dir, harnesses):
-    """Map (Event, matcher_key) -> [(command, timeout, async_rewake), ...] for
-    hooks whose harness is in `harnesses`, in stable module order. matcher_key is
-    None for non-tool events; timeout and async_rewake are None when omitted.
+    """Map (Event, matcher_key) -> [(command, modules, timeout, async_rewake, context_limit), ...]
+    for hooks whose harness is in `harnesses`, in stable module order. matcher_key
+    is None for a non-tool event; the other fields are None when omitted.
+
+    Standalone hooks keep their own entry under their own matcher. Quick hooks on
+    a tool event are regrouped per tool, then tools with the same members share
+    one group, so the matcher each group carries is a plain tool list.
     """
     groups = {}
+    quick = {}
+    per_tool = {}
     for module in sorted(bindings):
         binding = bindings[module]
         if binding.get("harness", "all") not in harnesses:
             continue
-        command = f"python3 {hook_dir}/{module}.py"
-        timeout = binding.get("timeout")
-        async_rewake = binding.get("asyncRewake")
         for event, matchers in binding.get("events", {}).items():
-            key = (event, _matcher_key(matchers))
-            groups.setdefault(key, []).append((command, timeout, async_rewake))
+            if _is_standalone(binding):
+                groups.setdefault((event, _matcher_key(matchers)), []).append(
+                    _entry(hook_dir, [module], bindings))
+            elif event in TOOL_EVENTS and matchers and "*" not in matchers:
+                tools = per_tool.setdefault(event, {})
+                for matcher in matchers:
+                    for tool in matcher.split("|"):
+                        tools.setdefault(tool, []).append(module)
+            else:
+                quick.setdefault((event, _matcher_key(matchers)), []).append(module)
+    for event, tools in per_tool.items():
+        by_members = {}
+        for tool, modules in tools.items():
+            by_members.setdefault(tuple(modules), []).append(tool)
+        for modules, tool_names in by_members.items():
+            quick[(event, "|".join(tool_names))] = list(modules)
+    for key, modules in quick.items():
+        groups.setdefault(key, []).append(_entry(hook_dir, modules, bindings))
     return groups
 
 
@@ -199,7 +253,7 @@ def _generated_claude_groups(event, groups):
         if ev != event:
             continue
         hooks = [_claude_hook(command, timeout, async_rewake)
-                 for command, timeout, async_rewake in commands]
+                 for command, _, timeout, async_rewake, _ in commands]
         group = {"hooks": hooks} if matcher_key is None else {"matcher": matcher_key, "hooks": hooks}
         out.append(group)
     return out
@@ -223,16 +277,59 @@ def render_codex(config_text, bindings):
     byte-identical.
     """
     groups = _commands_by_group(bindings, CODEX_HOOK_DIR, {"all", "codex"})
-    blocks, hooks_by_event = _codex_hook_blocks(groups)
-    state = _codex_state_table(hooks_by_event)
+    groups_by_event = _codex_groups(groups)
+    blocks = _codex_hook_blocks(groups_by_event)
+    state = _codex_state_table(groups_by_event)
     return _replace_codex_hook_region(config_text, blocks + "\n\n" + state)
 
 
-def _codex_hook_blocks(groups):
-    """The [[hooks.<Event>]] TOML text plus, per Event, the ordered
-    (command, timeout) list (codex fires per event without tool matchers; the
-    Python hook self-filters, matching the existing config). timeout is omitted
-    from the block when the BINDING omits it.
+# The events codex applies a group's matcher to (hooks/src/events/common.rs
+# matcher_pattern_for_event). On the others it ignores the matcher and leaves it
+# out of the trust identity, so it is not written there either.
+_CODEX_MATCHER_EVENTS = {"PreToolUse", "PermissionRequest", "PostToolUse", "SessionStart",
+                         "SubagentStart", "SubagentStop", "PreCompact", "PostCompact"}
+
+# The names one codex tool call is matched under: its own name first, then its
+# aliases (core/src/tools/hook_names.rs). A hook reached through two of them in
+# different groups would run twice for the one call.
+_CODEX_TOOL_NAMES = (("Bash",), ("apply_patch", "Write", "Edit"), ("spawn_agent", "Agent"))
+
+
+def _codex_groups(groups):
+    """Event -> [(matcher or None, [(command, timeout, context_limit), ...])], in
+    emission order. Raises when a BINDING names an event codex cannot fire, and
+    when one codex tool call would run a hook twice."""
+    groups_by_event = {}
+    for (event, matcher_key), commands in groups.items():
+        if event not in CODEX_EVENT:
+            raise ValueError(
+                "codex has no %s event; a BINDING declaring it with harness "
+                "all/codex would be dropped silently. Bind it to claude." % event)
+        matcher = matcher_key if event in _CODEX_MATCHER_EVENTS else None
+        entries = [(command, modules, timeout, limit)
+                   for command, modules, timeout, _, limit in commands]
+        groups_by_event.setdefault(event, []).append((matcher, entries))
+    for event, event_groups in groups_by_event.items():
+        if event not in TOOL_EVENTS:
+            continue
+        for names in _CODEX_TOOL_NAMES:
+            seen = []
+            for matcher, entries in event_groups:
+                if matcher is not None and matcher != "*" and not set(matcher.split("|")) & set(names):
+                    continue
+                for _, modules, _, _ in entries:
+                    seen.extend(modules)
+            twice = sorted({module for module in seen if seen.count(module) > 1})
+            if twice:
+                raise ValueError(
+                    "codex matches one %s call under %s, so %s would run twice. Give "
+                    "those tools the same hooks." % (names[0], "/".join(names), ", ".join(twice)))
+    return groups_by_event
+
+
+def _codex_hook_blocks(groups_by_event):
+    """The [[hooks.<Event>]] TOML text, one table per group. timeout and
+    additionalContextLimit are omitted when the BINDING omits them.
 
     The table name is the Event verbatim — codex deserializes the `hooks` table
     into a struct whose fields are renamed to the PascalCase event names, with no
@@ -240,26 +337,20 @@ def _codex_hook_blocks(groups):
     empty struct, no handler is ever discovered, and nothing warns. Every codex
     hook was silently inert until this used the Event name.
     """
-    hooks_by_event = {}
-    for (event, _matcher_key), commands in groups.items():
-        if event not in CODEX_EVENT:
-            raise ValueError(
-                "codex has no %s event; a BINDING declaring it with harness "
-                "all/codex would be dropped silently. Bind it to claude." % event)
-        hooks_by_event.setdefault(event, [])
-        for command, timeout, _ in commands:
-            if (command, timeout) not in hooks_by_event[event]:
-                hooks_by_event[event].append((command, timeout))
-
     blocks = []
-    for event in sorted(hooks_by_event):
-        lines = [f"[[hooks.{event}]]"]
-        for command, timeout in hooks_by_event[event]:
-            lines += [f"[[hooks.{event}.hooks]]", 'type = "command"', f'command = "{command}"']
-            if timeout is not None:
-                lines.append(f"timeout = {timeout}")
-        blocks.append("\n".join(lines))
-    return "\n\n".join(blocks), hooks_by_event
+    for event in sorted(groups_by_event):
+        for matcher, entries in groups_by_event[event]:
+            lines = [f"[[hooks.{event}]]"]
+            if matcher is not None:
+                lines.append(f"matcher = {json.dumps(matcher)}")
+            for command, _, timeout, limit in entries:
+                lines += [f"[[hooks.{event}.hooks]]", 'type = "command"', f'command = "{command}"']
+                if timeout is not None:
+                    lines.append(f"timeout = {timeout}")
+                if limit is not None:
+                    lines.append(f"additionalContextLimit = {limit}")
+            blocks.append("\n".join(lines))
+    return "\n\n".join(blocks)
 
 
 # A handler codex resolves but we never write: an omitted timeout resolves to
@@ -267,29 +358,37 @@ def _codex_hook_blocks(groups):
 _CODEX_DEFAULT_TIMEOUT = 600
 
 
-def _codex_trust_hash(event, command, timeout):
+# codex's default spill limit (hooks/src/output_spill.rs). A handler set to it
+# normalizes to unset, so the trust identity leaves it out.
+_CODEX_DEFAULT_CONTEXT_LIMIT = 2500
+
+
+def _codex_trust_hash(event, matcher, command, timeout, limit):
     """The trust hash codex computes for one handler.
 
     Not a hash of the command. Codex builds a normalized identity — the event's
     snake_case label plus the matcher group reduced to this one handler, with the
-    timeout resolved — serializes it, sorts every key, and hashes the compact
-    JSON bytes. Absent fields (matcher, statusMessage, commandWindows) drop out
+    timeout resolved (hooks/src/engine/discovery.rs hook_hash) — serializes it,
+    sorts every key, and hashes the compact JSON bytes. Absent fields (matcher,
+    statusMessage, commandWindows, a default additionalContextLimit) drop out
     rather than serializing as null.
     """
-    identity = {
-        "event_name": CODEX_EVENT[event],
-        "hooks": [{
-            "type": "command",
-            "command": command,
-            "async": False,
-            "timeout": _CODEX_DEFAULT_TIMEOUT if timeout is None else timeout,
-        }],
+    handler = {
+        "type": "command",
+        "command": command,
+        "async": False,
+        "timeout": _CODEX_DEFAULT_TIMEOUT if timeout is None else timeout,
     }
+    if limit is not None and limit != _CODEX_DEFAULT_CONTEXT_LIMIT:
+        handler["additionalContextLimit"] = limit
+    identity = {"event_name": CODEX_EVENT[event], "hooks": [handler]}
+    if matcher is not None:
+        identity["matcher"] = matcher
     canonical = json.dumps(identity, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
-def _codex_state_table(hooks_by_event):
+def _codex_state_table(groups_by_event):
     """The [hooks.state] trust table: one entry per emitted command, keyed
     config.toml:<snake_event>:<group_index>:<hook_index>. The key keeps the
     snake_case label even though the table above it is PascalCase.
@@ -298,11 +397,13 @@ def _codex_state_table(hooks_by_event):
     and either suppresses the handler as silently as a misnamed table does.
     """
     entries = []
-    for event in sorted(hooks_by_event):
-        for hook_index, (command, timeout) in enumerate(hooks_by_event[event]):
-            key = f"/Users/jordan/.codex/config.toml:{CODEX_EVENT[event]}:0:{hook_index}"
-            digest = _codex_trust_hash(event, command, timeout)
-            entries.append(f'[hooks.state."{key}"]\ntrusted_hash = "sha256:{digest}"')
+    for event in sorted(groups_by_event):
+        for group_index, (matcher, group) in enumerate(groups_by_event[event]):
+            for hook_index, (command, _, timeout, limit) in enumerate(group):
+                key = (f"/Users/jordan/.codex/config.toml:{CODEX_EVENT[event]}:"
+                       f"{group_index}:{hook_index}")
+                digest = _codex_trust_hash(event, matcher, command, timeout, limit)
+                entries.append(f'[hooks.state."{key}"]\ntrusted_hash = "sha256:{digest}"')
     return "[hooks.state]\n\n" + "\n\n".join(entries)
 
 

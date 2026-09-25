@@ -1,7 +1,12 @@
-//! `trace docs prime --reason session_start|post_compact` — record the
-//! docs Claude Code's harness auto-loads at the named lifecycle moment into
-//! the session log, so subsequent tracer emissions (Read enrichment,
-//! `trace docs`, …) skip what the agent already has in context.
+//! `trace docs prime [FILE...]` — record docs the harness put in the agent's
+//! context into the session log, so later tracer emissions (Read enrichment,
+//! `trace docs`, …) skip what the agent already has.
+//!
+//! With files, those files are recorded as they are: Claude Code's
+//! `InstructionsLoaded` hook names every doc Claude Code loads, the moment it
+//! loads it. With none, the chain the harness loads at session start is
+//! computed (below) and recorded under `--reason` — codex, which reports no
+//! per-file load, primes this way.
 //!
 //! The primer's auto-load set is computed deterministically from documented
 //! harness rules — never parsed from transcripts or coupled to harness
@@ -31,7 +36,7 @@
 //! sharing the flock'd append + materialize the log already owns. No-op when
 //! the session id is absent — standalone tracer use stays valid.
 
-use super::{drift, nested_memory, session_log};
+use super::{nested_memory, session_log};
 use crate::cache;
 use anyhow::Result;
 use serde_json::{json, Value};
@@ -69,13 +74,30 @@ pub fn parse_reason(s: &str) -> Result<Reason> {
     }
 }
 
-pub fn run(reason: Reason, observed_from: Option<&str>, as_json: bool) -> Result<Value> {
+/// The source a doc the harness reported loading is recorded under — Claude
+/// Code's `InstructionsLoaded` event names each file it loads, includes too,
+/// so the named file is recorded alone, with no include walk.
+const HARNESS_LOADED: &str = "instructions_loaded";
+
+pub fn run(reason: Reason, files: &[PathBuf], as_json: bool) -> Result<Value> {
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let repo_root = cache::worktree_root_for(&cwd).unwrap_or_else(|| cache::display_root(&cwd));
 
     let mut pass: BTreeSet<String> = BTreeSet::new();
     let mut session: BTreeSet<String> = session_log::loaded_paths();
     let mut memories: Vec<nested_memory::LoadedMemory> = Vec::new();
+
+    if !files.is_empty() {
+        for file in files {
+            if let Some(memory) =
+                nested_memory::try_load(file, &repo_root, "harness", &mut pass, &mut session)
+            {
+                memories.push(memory);
+            }
+        }
+        session_log::record_emission(&memories, HARNESS_LOADED);
+        return Ok(report(reason, HARNESS_LOADED, &cwd, &repo_root, &memories, as_json));
+    }
 
     // 1. User-global rules file. Claude Code's CLAUDE.md is recognized;
     //    so is OpenAI's AGENTS.md when present at the same well-known
@@ -120,31 +142,23 @@ pub fn run(reason: Reason, observed_from: Option<&str>, as_json: bool) -> Result
     }
 
     session_log::record_emission(&memories, reason.source());
+    Ok(report(reason, reason.source(), &cwd, &repo_root, &memories, as_json))
+}
 
-    // Drift detection: compare predicted (just-recorded) against observed
-    // (what Claude Code actually injected, supplied by the SessionStart
-    // hook). Absent or empty observed input means "no observation
-    // provided" — drift block is omitted entirely.
-    let drift_report = match observed_from {
-        Some(source) => detect_and_record(&memories, source)?,
-        None => None,
-    };
-
-    let mut context = json!({
+fn report(
+    reason: Reason,
+    source: &str,
+    cwd: &Path,
+    repo_root: &Path,
+    memories: &[nested_memory::LoadedMemory],
+    as_json: bool,
+) -> Value {
+    let context = json!({
         "cwd": cwd.to_string_lossy(),
         "repo_root": repo_root.to_string_lossy(),
     });
-    if let Some(report) = &drift_report {
-        context["drift"] = json!({
-            "source": "context_prime_drift",
-            "missing": report.missing,
-            "extra": report.extra,
-            "predicted_count": report.predicted.len(),
-            "observed_count": report.observed.len(),
-        });
-    }
     let out = crate::output::document(
-        json!({"reason": reason.label(), "source": reason.source()}),
+        json!({"reason": reason.label(), "source": source}),
         context,
         json!(memories
             .iter()
@@ -159,7 +173,7 @@ pub fn run(reason: Reason, observed_from: Option<&str>, as_json: bool) -> Result
     );
 
     if as_json {
-        return Ok(out);
+        return out;
     }
 
     println!(
@@ -167,40 +181,14 @@ pub fn run(reason: Reason, observed_from: Option<&str>, as_json: bool) -> Result
         reason.label(),
         memories.len()
     );
-    for m in &memories {
+    for m in memories {
         let marker = if m.large { " [LARGE]" } else { "" };
         println!(
             "  {} · {}{} ({} chars)",
             m.relative_path, m.kind, marker, m.size
         );
     }
-    if let Some(report) = &drift_report {
-        println!(
-            "drift · {} missing · {} extra · view reconciled to observed",
-            report.missing.len(),
-            report.extra.len()
-        );
-    }
-    Ok(out)
-}
-
-/// Drift sub-step of `run`: read the observed set, compare it to the
-/// memories the context primer just recorded, and (on drift) append a
-/// `context_prime_drift` event + reconcile the view. Returns the report when
-/// drift fired, `None` when the sets agree or no observation was supplied.
-fn detect_and_record(
-    memories: &[nested_memory::LoadedMemory],
-    source: &str,
-) -> Result<Option<drift::Report>> {
-    let Some(observed) = drift::read_observed(source)? else {
-        return Ok(None);
-    };
-    let predicted: BTreeSet<String> = memories.iter().map(|m| m.path.clone()).collect();
-    let Some(report) = drift::detect(&predicted, &observed) else {
-        return Ok(None);
-    };
-    session_log::record_context_prime_drift(&report, &observed, "context_prime_drift");
-    Ok(Some(report))
+    out
 }
 
 /// Try to load one top-level doc plus its `@include` graph, appending to

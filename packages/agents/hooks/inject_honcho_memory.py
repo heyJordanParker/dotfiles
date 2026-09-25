@@ -58,6 +58,7 @@ BINDING = {
     "events": {"UserPromptSubmit": [], "SessionStart": [], "PreToolUse": ["Agent"]},
     "timeout": 20,
     "harness": "all",
+    "standalone": True,
     "roots": "all",
 }
 

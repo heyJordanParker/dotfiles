@@ -13,8 +13,8 @@ Local code-intelligence command-line interface for Agents working in a repositor
 - Tree-sitter grammars are compiled into the binary.
 - Per-function complexity is computed by the in-process tree-sitter decision-node walker.
 - `.tracer-cache/` lives at the target repository root.
-- The cache namespaces are `file/` and `sessions/<session_id>/<agent_id>/`.
-- The `file/` namespace stores per-file facts, the bulk git-activity map, the deploy-presence map, the mtime index, and separate relations edges and symbols entries.
+- The cache namespaces are `file/`, `sessions/<session_id>/` for the directory baseline, and `sessions/<session_id>/<agent_id>/` for that Agent's own session-context state.
+- The `file/` namespace stores per-file facts, the bulk git-activity map, the deploy-presence map, the mtime index, and the four relations entries: edges, symbols, imports, and directories.
 - A cache entry holds only what its key's inputs determine.
 - A repo-wide index reads through `cache::load_bytes` and deserializes straight into its own type, never into a `serde_json::Value` first.
 - `memo.rs` owns every per-repo memo, so an index or map is read and parsed at most once per invocation.
@@ -28,10 +28,54 @@ Local code-intelligence command-line interface for Agents working in a repositor
 - The per-file entry is keyed by contents and path, so it holds no git facts.
 - `git_activity` owns every git fact; its disk-cached bulk map keys only history-derived facts by HEAD and the 30-day cutoff date.
 - Working-tree state is always recomputed fresh, and deploy-branch presence is cached separately, keyed by the present deploy branches' tip commit ids.
+- `git_activity::git_command` is the one git spawn in the crate; under `TRACE_TIMING` it emits `timing git <first two args>`, so a test can assert which subprocesses a call ran.
+- `git_activity::blob` is the one reader of a file at a revision, and `surface::rows_at` builds that file's rows from it.
+- `git_activity::activity_for` composes one path's git facts for both `for_paths` and the bulk map, so a staged rename carries the old path's history everywhere.
+- `git_activity::for_paths` answers a batch's working-tree state from one tracked-only `git status --porcelain=v1 -z --untracked-files=no`; `bulk_cached` keeps the full scan for `status` and the primer.
+- A warm file call spawns three git processes side by side: `status`, `rev-parse HEAD`, and `for-each-ref`. A warm `stats` spawns none.
+- `cache::worktree_root_for` walks up to the nearest ancestor holding a `.git` directory or a `gitdir:` file and spawns nothing; a path inside a `.git` directory resolves to `None`.
+- `repo_files::tracked_files` is the one freshness gate. `file/tracked_files_v1.json` stores every path with whether git tracks it, beside the four-field stamps of every walked directory, every ignore file read, and the git index; a warm call restats those stamps and reuses the stored listing when every one matches.
+- A stamp mismatch runs discovery under `cache::maintain` with `git ls-files` beside the full status; a directory stamped within two seconds of that run is stored as unstable and rechecked on the next call.
+- `TRACE_TIMING=1` prints one line per phase to stderr on any command, in microseconds. No flag changes output without it.
 - `file_facts::with_git` joins the git facts onto per-file facts on every resolve.
 - `relations.rs` owns the two inversions and the on-demand resolver.
 - The inversions are `name -> {defined_in, used_in}` and `file -> [importer]`.
 - `file/relations_edges_v1__schema<N>.json` holds the file table, provenance, and importer inversion; `file/relations_symbols_v1__schema<N>.json` holds the name inversion and is parsed only for a symbol query; `file/relations_imports_v1__schema<N>.json` holds every file's import rows and is parsed only for an update.
+- `file/relations_directories_v1__schema<N>.json` holds the per-directory metrics; it is written on an index update and read by `directory_metrics`, memoized once per process.
+- `relations::Roots::read` reads `composer.json`, `tsconfig.json`, and `jsconfig.json` at the repository root and stores the mappings in the edges entry with each manifest's content hash, so no query reads a manifest.
+- An import in a language that has a root mapping, matching no root and not relative, is external: it resolves to nothing and records no edge.
+- Symbol fallback runs only when the language has no root mapping in this repository.
+- PHP resolves `module\symbol` through PSR-4, then `module` alone. Case is compared exactly.
+- TypeScript and JavaScript resolve relative, then the longest `paths` prefix, then `baseUrl`; each candidate is tried as `.ts`, `.tsx`, `.js`, `.jsx`, then as a directory holding `index.<ext>` in the same order.
+- The stored confidence for a (target, importer) pair is the strongest of the pair's rows: `EXTRACTED` over `INFERRED` over `AMBIGUOUS`.
+- `extraction::Declaration` carries `name`, `kind`, `header_line`, `line`, `end_line`, `container`, `parent`, `header`, `is_abstract`, `is_data_shape`, and `annotations`; `kind` includes `property` for a PHP property, promoted parameter, and enum case, and a TypeScript field.
+- `header` is the declaration's own source text, sliced by the extractor from byte ranges of the file: attributes, decorators, modifiers, kind keyword, name, generics, parameters, return type, heritage, and initializer, with every body elided at its AST node.
+- `header_line` is the first line of the header and `line` is the name's line, so a window holding only the attribute above a method still selects that method.
+- `parent` is the index of the lexical parent row in the same file's declaration list.
+- A property is never a reference target, so `defines` answers for it while `callers` and `usages` exit 2.
+- The extractors are the one declaration parser; `signatures.rs` is deleted and no command reparses a file to render a row.
+- `extraction::extract` falls back to `universal-ctags` for a language no tree-sitter extractor covers: it writes the bytes to a temporary file under `<root>/.tracer-cache/tmp/` and runs `ctags --output-format=json --language-force=<lang>` on it at cache build or update, never at read time.
+- `file/ctags_maps_v1.json` stores the extension map from `ctags --list-maps`, stamped with the ctags binary's path, size, and modification time, so a warm call spawns no ctags at all.
+- `ctags_denied_languages` drops the data and markup formats whose tags are keys rather than declarations, and `ctags_denied_kinds` drops `heredoc`.
+- `Built` carries one count per annotation name for each file, over one interned name table in the edges entry.
+- `DirectoryMetrics` counts a directory's direct files only: `imported_by` is the distinct outside files importing them and `imports` the distinct outside files they import; an `AMBIGUOUS` row and a same-parent edge count for neither.
+- `context`, `read`, `status`, `diff`, file `info`, and `grep` pass `module_counts` to their facts because they already load the relations index; `pattern` and `blame` do not.
+- The front matter's `directory` block prints on every file call, built from one `read_dir` and the directory-metrics memo, never from a per-file facts resolve; `record_read` records coverage.
+- `session_log::directory_baseline` stores the session's first-touch metrics in `sessions/<session_id>/directories.json`, written under the session `.lock` on a miss only and read once per process into a memo.
+- `summary.rs` owns `Facts`, the one structure every command shows about a file: YAML front matter through `summary::front_matter`, the same keys under `context.files[<path>]` in `--json`, and `Facts::headline` as the one-line flow mapping a list of many files shows.
+- `yamlfmt` owns the YAML byte format.
+- `surface.rs` renders the cached declarations as rows: `surface::rows` selects them, whole-file or the window's rows plus their parents, and `surface::render_within` prints `L<line>` and the header, indented two spaces per parent depth.
+- The surface prints on every `context <file>`, `read`, file `info`, `structure`, and `blame <file> <symbol>`, fitted to `--budget`: every row keeps at least `L<line> name`, and past that the names go one line per parent, then one count per kind per parent.
+- `context.files[<path>].surface[]` carries `header_line`, `line`, `end_line`, `kind`, `name`, `container`, `parent`, `header`, `annotations`, and `cyclomatic_complexity`.
+- A `grep` or `pattern` row carries `declaration` and `type`; the text groups each file's matches under the declarations that enclose them, the shape of `git grep --show-function`.
+- A `grep -C` line keeps its indentation relative to the other lines under the same declaration.
+- `callers`, `defines`, `usages`, and `dependencies` render each result's row from the cached record under its file, each file once with its facts, through `enrich::render_sections`; a module result prints the file's facts and no declaration.
+- A `callers` row is one calling declaration with every line it calls from.
+- `diff` pairs declarations across its two sides by `(container, name)` into `changed`, `removed`, and `added`, and maps each `--unified=0` hunk to the current-side rows it intersects as `touches`.
+- The `trace stats` directory table costs the relations index load.
+- `cargo xtask bench` is the speed gate: two detached worktrees carrying the same fixture edits, interleaved samples, a bootstrap 95% interval on the median ratio per workload, passing at an upper bound of 1.03 or under, with samples doubling to 480 while the interval straddles it.
+- The bench also runs a sustained workload of ten interleaved one-second rounds at thirty `context` requests per second per side, one session id and thirty Agent ids; it passes when each side completes 300 requests, neither side's backlog exceeds 30, and the ratio interval's upper bound is at or under 1.03.
+- A bench child that exceeds its 60-second deadline is killed and the sample retried up to three times; the table prints the per-side retry counts.
 - The index writes every path once into a table and references it by position.
 - In memory a path is one shared handle, and every list that names a file holds a clone of it.
 - The index is mutable and rewritten in place, so its key carries no fingerprint.
@@ -59,32 +103,47 @@ Local code-intelligence command-line interface for Agents working in a repositor
 - File-scoped `trace docs` calls surface conditional user-global Rules matched against that file.
 - `commands::logs` reads log files directly, so a gitignored or untracked log is searchable.
 - `commands::logs` frames one entry per line and attaches an untimestamped line to the entry above it.
-- `read` caps each file's rendered content at `READ_CONTENT_BUDGET_CHARS` bytes.
-- The cap is cut at a whole line, so the `L<n>: ` format always holds.
-- A capped read ends with an inline `[trimmed at L<n> of <total> …]` marker naming the command for the next window.
+- `read` fits each file's rendered content to its share of `--budget`, after the front matter and the rows.
+- The content is cut at a whole line; only a first line longer than the whole budget is cut inside itself, and the `L<n>: ` format holds either way.
+- A cut read ends with an inline `[trimmed at L<n> of <total> …]` marker naming the command for the next window.
 - The marker survives `--raw`.
 - `--all` returns the whole selection with no cap and no marker.
 - The `read` payload carries `truncated`, `shown_lines`, and `total_lines` on every read.
 - Every `--json` result is the one document `{query, context, results, counts}`, built by `output::document`.
 - Per-file enrichment lives at `context.files[<path>]`, never inside a result row.
+- `--budget <chars>` sizes every text output, 24,000 by default and 0 unbounded; `--json` is never cut except `read`'s content.
+- `output::fit` gives every file its levels from whole to its path and cuts the least-imported file's detail first, so the budget cuts detail and never a file.
+- `output::fit_listing` is `fit` for a listing of paths, where a path ending in `/` is a directory: when bare paths still overrun, it names the entries one line per directory, then each directory with its directory and file counts.
+- `grep`, `pattern`, `find`, `list`, `tree`, `status`, `diff`, `stats`, and the relations commands fit their text through `fit_listing`; `history` and `logs` through `fit`.
+- The `status` and `diff` directory block takes at most half the budget.
+- A cut output's last line names the same command with `--budget 0`; `output::closing_room` measures the room that line needs, so no command guesses it.
+- `output::within` runs one part of a several-path command inside its share of the budget.
+- `pathval::files_under` expands every path argument, a directory into the repository's own listing; a missing path is reported on stderr, the rest still answer, and the run exits 2.
+- `main` builds rayon's global pool with at most `THREADS` threads; the file-stamping workers, ripgrep's `--threads`, and ast-grep's `--threads` read the count back from `rayon::current_num_threads()`.
 - `--filter` runs an in-process jq program through the `jaq` crates.
 - `--filter` requires `--json`.
 - A jq runtime error is cut at `DIAGNOSTIC_BUDGET_CHARS` with a trim marker, because jaq interpolates the whole offending value into its message.
 - `output::keeping_context` wraps the caller's jq program, so `context` survives every filter.
-- `lang.rs` is the one language table for `grep`, `pattern`, and `grep --at`.
-- A language name none of the three search backends knows exits 2 and names the accepted set.
+- `output::narrow_context` keeps `context.files` for the files the filtered result names and `context.directories` for the directories that hold them.
+- `lang.rs` is the one language table for `grep`, `pattern`, and `grep --at`; `lang::ripgrep_types` resolves `-t` as a table name or any `rg --type-list` type through ripgrep's own type matcher.
+- A type none of the three search backends knows exits 2 and names the accepted set.
 - `find` lists paths by glob; the command was named `glob`.
+- `find` and `logs` match globs through `glob_match::matcher`, a `globset` matcher built once per run; a pattern that is not a valid glob matches literally.
+- `grep -C`, `-A`, and `-B` take their context lines from ripgrep's own context events; `--at` takes them from the commit's file.
 - A truncated `find` says so: `counts.total`, `counts.truncated`, and a footer naming the `--limit` that returns everything.
 - `callers` truncates by the same contract, ordered by confidence, then file, then line.
-- `grep --at <ref>` searches a commit through `git grep` and filters by git pathspec.
+- `grep --at <ref>` searches a commit through `git grep` and filters its files through the same type and glob matchers ripgrep uses.
 - `pattern` prefilters candidate files through ripgrep and reports a multi-line match at its anchor line.
 - `diff` reports the worktree by default and takes `--base <ref>`, which diffs against the merge base.
-- `diff` rows carry their changed lines, bounded by `DIFF_LINES_BUDGET` with a trim marker.
+- `diff` rows carry their changed lines, fitted to `--budget`.
 - `history --commit <ref>` returns one commit's full body.
 - `history --contains` and `history --regex` find the commits that changed a string through `git log -G`.
 - `status` rows carry a staging word: `staged`, `unstaged`, or `partly staged`.
+- `status` text prints one heading per state, the files most others import first under it.
+- `list --recent` orders directories and files newest first, and `--limit N` keeps the first N of both, the way `ls -t | head` does.
+- `tree` prints each directory on its own line above its files.
 - `jsonfmt` owns the stable JavaScript Object Notation byte format for command output and cache entries.
-- `setup.sh` builds the release binary and installs it to `~/.local/bin/trace`.
+- `setup.sh` builds the release binary and installs it to `~/.local/bin/trace` by writing `~/.local/bin/.trace.new` and renaming it over the old binary, so an Agent spawning `trace` mid-install runs the whole old binary or the whole new one; a plain `install` deletes and rewrites the file, and `install -S` sets the execute bit after its rename, and both fail spawns during the swap.
 - `packages/claude/bin/trace` is the plugin-distributed launcher.
 - `packages/claude/bin/tracer-dist/crate/` is the plugin build-from-source fallback mirror.
 - `cargo xtask sync-dist` regenerates the plugin fallback mirror.

@@ -44,7 +44,7 @@ from lib.session_state import bump_gate_block, gate_block_count, load_state, rea
 GATE_BLOCK_CAP = 1
 
 # Below this read-fraction, an edited file counts as barely-read. The tracer
-# records an edit's PreToolUse shoulder as a whole-file read, so an edited file's
+# records an edit's PreToolUse summary as a whole-file read, so an edited file's
 # coverage is usually near 1.0; the floor catches the residual
 # partial-read-then-edit case and a file that never recorded any read at all.
 COVERAGE_FLOOR = 0.5
@@ -199,7 +199,7 @@ def _strip_markdown(text):
 # The tracer's session log records, per file, how much of it the agent read this
 # session — surfaced by `trace docs status`. A read counts no matter how it
 # happened: the builtin Read/Edit tools, a `trace read`/`context` call, and a
-# shell `cat` all flow through the same `trace context` shoulder into the same
+# shell `cat` all flow through the same `trace context` summary into the same
 # accumulator. The caller graph (`trace info` top_callers) names the files that
 # depend on an edited file. The Rules reason over these facts; the code only
 # gathers them.
@@ -243,26 +243,10 @@ def _read_log_status(cwd, env):
     return coverage, opened
 
 
-def _warm_graph(cwd, env):
-    """Rebuild and persist the architecture graph for the current (dirty) tree.
-
-    At stop time the agent has just edited files, so the architecture cache is
-    stale — and `trace info`'s caller lookup reads the cache load-only, returning
-    no callers against a stale entry. `trace status` is the one dirty-tree command
-    that rebuilds the graph and persists it, so a following `trace info` in a
-    fresh process validates that entry and serves real callers. Run once for its
-    side effect before any caller lookup; output discarded."""
-    try:
-        subprocess.run(["trace", "status", "--json"],
-                       cwd=cwd, env=env, capture_output=True, timeout=20)
-    except Exception:
-        pass
-
-
 def _caller_files(file_path, cwd, env):
     """Repo-relative source files that directly call the edited file, via
-    `trace info <file>` top_callers (up to ten direct callers). Reads the graph
-    load-only, so the caller must `_warm_graph` first against a dirty tree. Empty
+    `trace info <file>` top_callers (up to ten direct callers). trace refreshes
+    a stale import index itself, so the edits just made are already in it. Empty
     on any failure — the Rule then sees a file with no known callers.
 
     Per-file enrichment lives at `context.files[<path>]`, keyed by the path as
@@ -310,7 +294,6 @@ def _edit_fact_line(file_path, fraction, callers, opened):
 
 def _edited_facts(edited_files, coverage, opened, cwd, env):
     """Per-edited-file fact lines plus whether any edit is a blind-edit risk."""
-    _warm_graph(cwd, env)
     lines, risk = [], False
     for f in edited_files:
         fraction = coverage.get(os.path.realpath(f))

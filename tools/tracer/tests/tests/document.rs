@@ -21,23 +21,23 @@ fn filter_extracts_scalar_matching_unfiltered_json() {
     let f = standard_repo();
     let plain = f.trace(&["info", f.path("src/app.py").as_str(), "--json"]);
     plain.ok();
-    let want = plain.json()["counts"]["rank"].clone();
-    // src/app.py's CCN (4) ranks "low" for this fixture — pin the exact
-    // value so this also guards the unfiltered rank, not just round-trip.
-    assert_eq!(want, "low", "fixture sanity: app.py rank must be low");
+    let want = plain.json()["counts"]["functions"].clone();
+    // src/app.py declares one function, main() — pin the exact value so this
+    // also guards the unfiltered count, not just the round-trip.
+    assert_eq!(want, 1, "fixture sanity: app.py declares one function");
 
     let r = f.trace(&[
         "info",
         f.path("src/app.py").as_str(),
         "--json",
         "--filter",
-        ".counts.rank",
+        ".counts.functions",
     ]);
     r.ok();
     let got = filtered(&r.stdout);
     assert_eq!(
         got["results"], want,
-        "--filter '.counts.rank' must equal the unfiltered rank"
+        "--filter '.counts.functions' must equal the unfiltered count"
     );
 }
 
@@ -47,12 +47,12 @@ fn filter_extracts_scalar_matching_unfiltered_json() {
 #[test]
 fn filter_projecting_rows_still_carries_context() {
     let f = standard_repo();
-    let plain = f.trace(&["grep", "helper", "--path", ".", "--json"]);
+    let plain = f.trace(&["grep", "helper", ".", "--json"]);
     plain.ok();
     let want = plain.json();
 
     let r = f.trace(&[
-        "grep", "helper", "--path", ".", "--json", "--filter", ".results",
+        "grep", "helper", ".", "--json", "--filter", ".results",
     ]);
     r.ok();
     let got = filtered(&r.stdout);
@@ -75,11 +75,11 @@ fn filter_projecting_rows_still_carries_context() {
 #[test]
 fn filter_identity_preserves_value() {
     let f = standard_repo();
-    let plain = f.trace(&["grep", "helper", "--path", ".", "--json"]);
+    let plain = f.trace(&["grep", "helper", ".", "--json"]);
     plain.ok();
     let want = plain.json();
 
-    let r = f.trace(&["grep", "helper", "--path", ".", "--json", "--filter", "."]);
+    let r = f.trace(&["grep", "helper", ".", "--json", "--filter", "."]);
     r.ok();
     let got = filtered(&r.stdout);
     assert_eq!(got["results"], want, "identity filter changed the document");
@@ -97,7 +97,10 @@ fn filter_collects_every_result_beside_context() {
     // src/app.py defines exactly one function (main); pin it so the
     // collected count below is checked against a known value, not a
     // value the same command produced.
-    assert_eq!(fn_count, 1, "fixture sanity: app.py has exactly one function");
+    assert_eq!(
+        fn_count, 1,
+        "fixture sanity: app.py has exactly one function"
+    );
 
     let r = f.trace(&[
         "info",
@@ -161,12 +164,17 @@ fn filter_invalid_program_errors_loud() {
 #[test]
 fn filter_is_global_across_commands() {
     let f = standard_repo();
-    let plain = f.trace(&["grep", "helper", "--path", ".", "--json"]);
+    let plain = f.trace(&["grep", "helper", ".", "--json"]);
     plain.ok();
     let want = plain.json()["counts"]["matches"].as_i64().unwrap();
 
     let r = f.trace(&[
-        "grep", "helper", "--path", ".", "--json", "--filter", ".counts.matches",
+        "grep",
+        "helper",
+        ".",
+        "--json",
+        "--filter",
+        ".counts.matches",
     ]);
     r.ok();
     let got = filtered(&r.stdout);
@@ -199,7 +207,7 @@ fn missing_file_read_exits_2() {
     f.commit("c");
     let r = f.trace(&["read", f.path("does_not_exist.py").as_str()]);
     r.code_is(2);
-    assert!(r.combined().contains("file not found"), "{}", r.combined());
+    assert!(r.combined().contains("does not exist"), "{}", r.combined());
 }
 
 /// `history`'s file argument is optional (file / file+symbol / `--contains`

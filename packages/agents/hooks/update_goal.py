@@ -27,9 +27,10 @@ from lib.session_mode import is_dispatched, resolve
 from lib.session_state import load_state, merge_state
 
 BINDING = {
-    "events": {"UserPromptSubmit": []},
+    "events": {},
     "timeout": 70,
     "harness": "all",
+    "standalone": True,
 }
 
 def emit_context(text):
@@ -97,6 +98,8 @@ def build_message(state, result):
 
 
 def main():
+    if not BINDING["events"]:
+        return 0
     # Guard against recursion: the model call runs a nested harness process.
     if os.environ.get("CLAUDE_SESSION_HOOK") == "true":
         return 0

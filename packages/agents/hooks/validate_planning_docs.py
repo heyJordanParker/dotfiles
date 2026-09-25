@@ -17,9 +17,10 @@ from lib.model_call import run_model
 from lib.session_mode import is_dispatched
 
 BINDING = {
-    "events": {"PreToolUse": ["Write", "Edit", "MultiEdit"]},
+    "events": {},
     "timeout": 60,
     "harness": "all",
+    "standalone": True,
 }
 
 JSON_SCHEMA = '{"type":"object","properties":{"ok":{"type":"boolean"},"reason":{"type":"string"}},"required":["ok"]}'
@@ -48,6 +49,8 @@ def _eval_prompt(file_path, content):
 
 
 def main():
+    if not BINDING["events"]:
+        return 0
     event = read_event()
     session_id = field(event, "session_id", "")
     if not session_id or is_dispatched(event):

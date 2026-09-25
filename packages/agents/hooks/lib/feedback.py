@@ -44,6 +44,13 @@ CONTEXT_EVENTS = (
 )
 
 
+# The most additionalContext Claude Code shows whole; above it the text is cut
+# to a 2,000-character preview. codex's own cut is turned off
+# (`additionalContextLimit = 0`) on the hooks that inject, so this one number
+# sizes every injection on both harnesses.
+CONTEXT_LIMIT = 10_000
+
+
 def wrap(name, body):
     return "<%s_agent>\n%s\n</%s_agent>" % (name, body, name)
 

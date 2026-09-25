@@ -25,7 +25,7 @@ fn backend_path(fixture: &Fixture, case: &str, name: &str, script: &str) -> Stri
 #[test]
 fn grep_enrichment_complexity_equals_info_for_the_same_file() {
     let f = standard_repo();
-    let g = f.trace(&["grep", "helper", "--path", ".", "--json"]);
+    let g = f.trace(&["grep", "helper", ".", "--json"]);
     g.ok();
     let gv = g.view();
     assert_eq!(gv["pattern"], "helper");
@@ -70,35 +70,21 @@ fn grep_enrichment_complexity_equals_info_for_the_same_file() {
     let i = f.trace(&["info", "src/util.py", "--json"]);
     i.ok();
     let iv = i.view();
-    let want_total = iv["ccn_total"].as_i64().unwrap();
-    let want_max = iv["ccn_max_function"].as_i64().unwrap();
-    let want_rank = iv["rank"].as_str().unwrap();
+    let want = &iv["files"]["src/util.py"];
     // standard_repo()'s helper(v): base 1 + if(1) = exactly 2.
-    assert_eq!(want_total, 2, "fixture sanity: helper() CCN is 2");
+    assert_eq!(want["cyclomatic_complexity"], 2, "fixture sanity: helper() complexity is 2");
 
     // The enrichment lives in the per-file context, keyed by the same path
-    // the row carries.
+    // the row carries, under the same keys `info` uses.
     let file = m["file"].as_str().unwrap();
-    let fc = &gv["files"][file]["file_complexity"];
-    assert_eq!(
-        fc["ccn_total"].as_i64().unwrap(),
-        want_total,
-        "grep enrichment ccn_total ({}) != info ccn_total ({want_total}) \
-         for src/util.py — enrichment is not cross-consistent",
-        fc["ccn_total"]
-    );
-    assert_eq!(
-        fc["ccn_max_function"].as_i64().unwrap(),
-        want_max,
-        "grep enrichment ccn_max ({}) != info ccn_max ({want_max})",
-        fc["ccn_max_function"]
-    );
-    assert_eq!(
-        fc["rank"].as_str().unwrap(),
-        want_rank,
-        "grep enrichment rank ({}) != info rank ({want_rank})",
-        fc["rank"]
-    );
+    let got = &gv["files"][file];
+    for key in ["cyclomatic_complexity", "complexity_rank", "lines", "imported_by", "imports"] {
+        assert_eq!(
+            got[key], want[key],
+            "grep enrichment `{key}` differs from info for src/util.py — \
+             enrichment is not cross-consistent: {got} vs {want}"
+        );
+    }
 }
 
 /// The git enrichment block on a grep match must equal the file's actual
@@ -107,7 +93,7 @@ fn grep_enrichment_complexity_equals_info_for_the_same_file() {
 #[test]
 fn grep_git_enrichment_reports_actual_commit_facts() {
     let f = standard_repo();
-    let g = f.trace(&["grep", "helper", "--path", ".", "--json"]);
+    let g = f.trace(&["grep", "helper", ".", "--json"]);
     g.ok();
     let gv = g.view();
     let m = gv["results"]
@@ -119,29 +105,20 @@ fn grep_git_enrichment_reports_actual_commit_facts() {
     let git = &gv["files"][m["file"].as_str().unwrap()]["git"];
     // The hermetic fixture commits exactly once, authored "Tracer Test".
     assert_eq!(
-        git["last_author"].as_str().unwrap(),
-        "Tracer Test",
+        git["main_author"], "Tracer Test",
         "grep git enrichment lost the fixture author: {git}"
     );
     assert_eq!(
-        git["commits_30d"].as_i64().unwrap(),
-        1,
+        git["commits_last_30_days"], 1,
         "the fixture has exactly one recent commit touching util.py: {git}"
     );
-    // exempt-(a): last_modified is the calendar date of the fixture's
-    // commit, generated at test run time; it shifts day-to-day and at the
-    // UTC boundary, so the tightest stable invariant is the YYYY-MM-DD
-    // shape rather than a fixed value.
-    let lm = git["last_modified"]
-        .as_str()
-        .expect("last_modified present");
+    // The fixture commits at test run time: today, or yesterday across a
+    // UTC midnight.
+    let last = git["last_commit"].as_str().expect("last_commit present");
     assert!(
-        lm.len() == 10
-            && lm.as_bytes()[4] == b'-'
-            && lm.as_bytes()[7] == b'-'
-            && lm.chars().filter(|c| *c == '-').count() == 2
-            && lm.chars().all(|c| c.is_ascii_digit() || c == '-'),
-        "last_modified must be a YYYY-MM-DD date: {git}"
+        (last.starts_with("today ") || last.starts_with("yesterday "))
+            && last.ends_with("by Tracer Test: init standard repo"),
+        "last_commit must name the fixture commit: {git}"
     );
 }
 
@@ -159,7 +136,7 @@ fn grep_match_ordering_is_byte_identical_across_repeated_runs() {
     }
     f.commit("many files one token");
 
-    let first = f.trace(&["grep", "helper", "--path", ".", "--json"]);
+    let first = f.trace(&["grep", "helper", ".", "--json"]);
     first.ok();
     // 40 files, the token on exactly one line of each → exactly 40
     // matches. The sanity gate is itself exact, not a floor.
@@ -171,7 +148,7 @@ fn grep_match_ordering_is_byte_identical_across_repeated_runs() {
     );
     // Several repeats; ALL must be byte-identical to the first.
     for run in 0..6 {
-        let again = f.trace(&["grep", "helper", "--path", ".", "--json"]);
+        let again = f.trace(&["grep", "helper", ".", "--json"]);
         again.ok();
         assert_eq!(
             again.stdout, first.stdout,
@@ -196,9 +173,8 @@ fn pattern_match_ordering_is_byte_identical_across_repeated_runs() {
     let first = f.trace(&[
         "pattern",
         "def $N($$$A): $$$B",
-        "-l",
+        "-t",
         "python",
-        "--path",
         ".",
         "--json",
     ]);
@@ -215,9 +191,8 @@ fn pattern_match_ordering_is_byte_identical_across_repeated_runs() {
         let again = f.trace(&[
             "pattern",
             "def $N($$$A): $$$B",
-            "-l",
+            "-t",
             "python",
-            "--path",
             ".",
             "--json",
         ]);
@@ -232,10 +207,10 @@ fn pattern_match_ordering_is_byte_identical_across_repeated_runs() {
 #[test]
 fn grep_lang_filter_restricts_results() {
     let f = standard_repo();
-    let r = f.trace(&["grep", "CONST", "--path", ".", "-l", "ts", "--json"]);
+    let r = f.trace(&["grep", "CONST", ".", "-t", "ts", "--json"]);
     r.ok();
     let v = r.view();
-    assert_eq!(v["lang"], "ts");
+    assert_eq!(v["type"], serde_json::json!(["ts"]));
     for m in v["results"].as_array().unwrap() {
         let file = m["file"].as_str().unwrap();
         assert!(
@@ -260,16 +235,15 @@ fn search_signposts_the_graph_command_for_a_known_symbol() {
     f.commit("one call site");
     f.trace(&["cache", "build", "."]).ok();
 
-    let want = "dispatch is a function \u{00b7} 1 mentioning file \u{00b7} 1 definitions \
+    let want = "dispatch: 1 definition (function) \u{00b7} mentioned in 1 file \
                 \u{2192} trace callers dispatch";
     for args in [
-        vec!["grep", "dispatch", "--path", ".", "--json"],
+        vec!["grep", "dispatch", ".", "--json"],
         vec![
             "pattern",
             "dispatch($$$A)",
-            "-l",
+            "-t",
             "python",
-            "--path",
             ".",
             "--json",
         ],
@@ -285,7 +259,7 @@ fn search_signposts_the_graph_command_for_a_known_symbol() {
     }
 
     // The same line reaches a human caller, after the summary.
-    let h = f.trace(&["grep", "dispatch", "--path", "."]);
+    let h = f.trace(&["grep", "dispatch", "."]);
     h.ok();
     assert!(
         h.stdout.contains("\u{2192} trace callers dispatch"),
@@ -300,7 +274,7 @@ fn search_signposts_the_graph_command_for_a_known_symbol() {
 fn search_signpost_is_absent_for_a_word_that_is_not_a_symbol() {
     let f = standard_repo();
     f.trace(&["cache", "build", "."]).ok();
-    let r = f.trace(&["grep", "Entry", "--path", ".", "--json"]);
+    let r = f.trace(&["grep", "Entry", ".", "--json"]);
     r.ok();
     assert!(
         r.view()["signpost"].is_null(),
@@ -313,8 +287,8 @@ fn search_signpost_is_absent_for_a_word_that_is_not_a_symbol() {
 fn bare_name_and_equivalent_regex_keep_the_same_search_rows() {
     let f = standard_repo();
     f.trace(&["cache", "build", "."]).ok();
-    let bare = f.trace(&["grep", "helper", "--path", ".", "--json"]);
-    let regex = f.trace(&["grep", "(?:helper)", "--path", ".", "--json"]);
+    let bare = f.trace(&["grep", "helper", ".", "--json"]);
+    let regex = f.trace(&["grep", "(?:helper)", ".", "--json"]);
     bare.ok();
     regex.ok();
     let bare = bare.json();
@@ -350,15 +324,14 @@ fn search_context_observations_overlap_without_duplicate_work() {
     .to_string();
 
     for (name, args) in [
-        ("grep", vec!["grep", "helper", "--path", ".", "--json"]),
+        ("grep", vec!["grep", "helper", ".", "--json"]),
         (
             "pattern",
             vec![
                 "pattern",
                 "def $N($$$A): $$$B",
-                "-l",
+                "-t",
                 "python",
-                "--path",
                 ".",
                 "--json",
             ],
@@ -446,12 +419,12 @@ fn bare_searches_reuse_signpost_state_for_enrichment() {
     for (name, args, has_signpost) in [
         (
             "known-grep",
-            vec!["grep", "helper", "--path", ".", "--json"],
+            vec!["grep", "helper", ".", "--json"],
             true,
         ),
         (
             "unknown-grep",
-            vec!["grep", "Entry", "--path", ".", "--json"],
+            vec!["grep", "Entry", ".", "--json"],
             false,
         ),
         (
@@ -459,9 +432,8 @@ fn bare_searches_reuse_signpost_state_for_enrichment() {
             vec![
                 "pattern",
                 "helper($A)",
-                "-l",
+                "-t",
                 "python",
-                "--path",
                 ".",
                 "--json",
             ],
@@ -472,9 +444,8 @@ fn bare_searches_reuse_signpost_state_for_enrichment() {
             vec![
                 "pattern",
                 "def $N($$$A): $$$B",
-                "-l",
+                "-t",
                 "python",
-                "--path",
                 ".",
                 "--json",
             ],
@@ -562,12 +533,12 @@ fn search_resolves_git_state_once_for_all_matched_files() {
     for (name, args, files) in [
         (
             "grep",
-            vec!["grep", "(?:needle)", "--path", ".", "--json"],
+            vec!["grep", "(?:needle)", ".", "--json"],
             513,
         ),
         (
             "pattern",
-            vec!["pattern", "$X", "-l", "python", "--path", "src", "--json"],
+            vec!["pattern", "$X", "-t", "python", "src", "--json"],
             3,
         ),
     ] {
@@ -666,7 +637,7 @@ fn search_selected_state_matches_the_complete_git_view() {
     fixture.write(".tracer-cache/selected.py", "needle = 1\n");
 
     let run = || {
-        let result = fixture.trace(&["grep", "(?:needle)", "--path", "src", "--json"]);
+        let result = fixture.trace(&["grep", "(?:needle)", "src", "--json"]);
         result.ok();
         result.json()
     };
@@ -685,41 +656,29 @@ fn search_selected_state_matches_the_complete_git_view() {
             .next()
             .unwrap();
         assert_eq!(
-            selected["shoulder"], complete_file["shoulder"],
+            selected["git"], complete_file["git"],
             "{path}: selected Git context differs from complete info: {complete:#}"
         );
         assert_eq!(
             selected["nearest_doc"], complete_file["nearest_doc"],
             "{path}: selected nearest doc differs from complete info: {complete:#}"
         );
-        assert_eq!(
-            selected["file_complexity"],
-            serde_json::json!({
-                "ccn_total": complete["counts"]["ccn_total"],
-                "ccn_max_function": complete["counts"]["ccn_max_function"],
-                "loc": complete["counts"]["loc"],
-                "rank": complete["counts"]["rank"],
-            }),
-            "{path}: selected complexity differs from complete info: {complete:#}"
-        );
+        for key in ["cyclomatic_complexity", "complexity_rank", "lines"] {
+            assert_eq!(
+                selected[key], complete_file[key],
+                "{path}: selected `{key}` differs from complete info: {complete:#}"
+            );
+        }
     }
-    let shoulder = |path: &str| {
-        files[path]["shoulder"]
+    let status = |path: &str| {
+        files[path]["git"]["status"]
             .as_str()
-            .unwrap_or_else(|| panic!("missing shoulder for {path:?}: {files:#?}"))
+            .unwrap_or_else(|| panic!("missing git status for {path:?}: {files:#?}"))
     };
     for path in ["src/modified.py", "src/staged.py", "src/partial.py"] {
-        assert!(
-            shoulder(path).contains("git: modified"),
-            "{path}: {}",
-            shoulder(path)
-        );
+        assert_eq!(status(path), "modified", "{path}");
     }
-    assert!(
-        shoulder("src/renamed.py").contains("git: renamed (uncommitted)"),
-        "{}",
-        shoulder("src/renamed.py")
-    );
+    assert_eq!(status("src/renamed.py"), "renamed");
     for path in [
         "src/recreated.py",
         "src/[literal]*?.py",
@@ -727,11 +686,7 @@ fn search_selected_state_matches_the_complete_git_view() {
         "src/line\nname.py",
         "src/unicodé-雪.py",
     ] {
-        assert!(
-            shoulder(path).contains("git: untracked"),
-            "{path}: {}",
-            shoulder(path)
-        );
+        assert_eq!(status(path), "untracked", "{path}");
     }
     assert!(!files.contains_key("outside/unrelated.py"));
     assert!(
@@ -742,46 +697,35 @@ fn search_selected_state_matches_the_complete_git_view() {
     let ignored = fixture.trace(&[
         "grep",
         "(?:needle)",
-        "--path",
         "src/hidden.ignored",
         "--json",
     ]);
     ignored.ok();
     let ignored = ignored.json();
     assert_eq!(ignored["counts"]["matches"], 1);
-    assert!(
-        !ignored["context"]["files"]["src/hidden.ignored"]["shoulder"]
-            .as_str()
-            .unwrap()
-            .contains("untracked"),
+    assert_ne!(
+        ignored["context"]["files"]["src/hidden.ignored"]["git"]["status"], "untracked",
         "ignored files must not become untracked: {ignored:#}"
     );
 
     let cache = fixture.trace(&[
         "grep",
         "(?:needle)",
-        "--path",
         ".tracer-cache/selected.py",
         "--json",
     ]);
     cache.ok();
     let cache = cache.json();
     assert_eq!(cache["counts"]["matches"], 1);
-    assert!(
-        !cache["context"]["files"][".tracer-cache/selected.py"]["shoulder"]
-            .as_str()
-            .unwrap()
-            .contains("untracked"),
+    assert_ne!(
+        cache["context"]["files"][".tracer-cache/selected.py"]["git"]["status"], "untracked",
         "cache-path collapse changed: {cache:#}"
     );
 
     fixture.write("src/clean.py", "needle = 2\n");
     let changed = run();
-    assert!(
-        changed["context"]["files"]["src/clean.py"]["shoulder"]
-            .as_str()
-            .unwrap()
-            .contains("git: modified"),
+    assert_eq!(
+        changed["context"]["files"]["src/clean.py"]["git"]["status"], "modified",
         "warm search missed a later working-tree change: {changed:#}"
     );
 }
@@ -813,18 +757,15 @@ fn failed_selected_untracked_observation_falls_back_to_complete_state() {
         ),
     );
     let result = fixture.trace_env(
-        &["grep", "(?:needle)", "--path", ".", "--json"],
+        &["grep", "(?:needle)", ".", "--json"],
         &[("PATH", &path)],
     );
     result.ok();
     let document = result.json();
     assert_eq!(document["counts"]["matches"], 1);
     let file = document["results"][0]["file"].as_str().unwrap();
-    assert!(
-        document["context"]["files"][file]["shoulder"]
-            .as_str()
-            .unwrap_or_else(|| panic!("selected shoulder missing: {document:#}"))
-            .contains("git: untracked"),
+    assert_eq!(
+        document["context"]["files"][file]["git"]["status"], "untracked",
         "fallback lost complete live state: {document:#}"
     );
     let invocations = fs::read_to_string(arguments).unwrap();
@@ -846,22 +787,19 @@ fn failed_selected_untracked_observation_falls_back_to_complete_state() {
 fn search_selected_state_preserves_repository_boundaries() {
     let unborn = Fixture::new();
     unborn.write("new.py", "needle = 1\n");
-    let result = unborn.trace(&["grep", "(?:needle)", "--path", "new.py", "--json"]);
+    let result = unborn.trace(&["grep", "(?:needle)", "new.py", "--json"]);
     result.ok();
     let document = result.json();
     let file = document["results"][0]["file"].as_str().unwrap();
-    assert!(
-        document["context"]["files"][file]["shoulder"]
-            .as_str()
-            .unwrap()
-            .contains("git: untracked"),
+    assert_eq!(
+        document["context"]["files"][file]["git"]["status"], "untracked",
         "unborn repository lost its live state: {document:#}"
     );
 
     let target = unborn.write("target.py", "needle = 2\n");
     let link = unborn.root.join("link.py");
     std::os::unix::fs::symlink(&target, &link).unwrap();
-    let result = unborn.trace(&["grep", "(?:needle)", "--path", "link.py", "--json"]);
+    let result = unborn.trace(&["grep", "(?:needle)", "link.py", "--json"]);
     result.ok();
     let document = result.json();
     assert_eq!(document["results"][0]["file"], "link.py");
@@ -876,17 +814,15 @@ fn search_selected_state_preserves_repository_boundaries() {
     ));
     fs::create_dir_all(&outside).unwrap();
     fs::write(outside.join("standalone.py"), "needle = 3\n").unwrap();
-    let result = trace(&outside, ["grep", "(?:needle)", "--path", ".", "--json"]);
+    let result = trace(&outside, ["grep", "(?:needle)", ".", "--json"]);
     result.ok();
     let document = result.json();
     assert_eq!(document["counts"]["matches"], 1);
     let file = document["results"][0]["file"].as_str().unwrap();
+    let facts = &document["context"]["files"][file];
     assert!(
-        document["context"]["files"][file]["shoulder"]
-            .as_str()
-            .unwrap()
-            .contains("git: no-history"),
-        "outside-root fact identity changed: {document:#}"
+        facts["lines"].is_i64() && facts["git"].is_null(),
+        "a file outside any repository keeps its facts and claims no git state: {document:#}"
     );
     fs::remove_dir_all(outside).unwrap();
 
@@ -906,12 +842,12 @@ fn search_selected_state_preserves_repository_boundaries() {
         "vendor",
     ]);
     outer.commit("add submodule");
-    let result = outer.trace(&["grep", "(?:needle)", "--path", "vendor/module.py", "--json"]);
+    let result = outer.trace(&["grep", "(?:needle)", "vendor/module.py", "--json"]);
     result.ok();
     let document = result.json();
     assert_eq!(document["results"][0]["file"], "vendor/module.py");
     assert_eq!(
-        document["context"]["files"]["vendor/module.py"]["git"]["last_author"], "Tracer Test",
+        document["context"]["files"]["vendor/module.py"]["git"]["main_author"], "Tracer Test",
         "submodule search used the outer repository's activity: {document:#}"
     );
 }
@@ -925,7 +861,7 @@ fn symlinked_search_uses_canonical_git_and_complexity_facts() {
         .expect("directory symlink");
 
     let search = |path: &str| {
-        let run = f.trace(&["grep", "needle", "--path", path, "--json"]);
+        let run = f.trace(&["grep", "needle", path, "--json"]);
         run.ok();
         let document = run.json();
         let file = document["results"][0]["file"]
@@ -936,17 +872,27 @@ fn symlinked_search_uses_canonical_git_and_complexity_facts() {
     let real = search("real");
     let linked = search("linked");
     for value in [&real, &linked] {
-        assert!(value["file_complexity"].is_object(), "missing complexity: {value}");
         assert!(
-            value["git"]["last_author"].as_str().is_some_and(|author| !author.is_empty())
-                && value["git"]["last_modified"].as_str().is_some_and(|date| !date.is_empty()),
+            value["cyclomatic_complexity"].is_i64() && value["lines"].is_i64(),
+            "missing complexity: {value}"
+        );
+        assert!(
+            value["git"]["main_author"]
+                .as_str()
+                .is_some_and(|author| !author.is_empty())
+                && value["git"]["last_commit"]
+                    .as_str()
+                    .is_some_and(|date| !date.is_empty()),
             "missing Git history: {value}"
         );
-        assert!(value["shoulder"].as_str().is_some_and(|shoulder| !shoulder.is_empty()));
     }
-    assert_eq!(linked["file_complexity"], real["file_complexity"]);
-    assert_eq!(linked["git"], real["git"]);
-    assert_eq!(linked["shoulder"], real["shoulder"]);
+    // The link resolves to the same file, so every fact but the name agrees.
+    let without_name = |value: &serde_json::Value| {
+        let mut value = value.clone();
+        value.as_object_mut().map(|o| o.remove("file"));
+        value
+    };
+    assert_eq!(without_name(&linked), without_name(&real));
 }
 
 /// One language table for both searches: `tsx` means the same thing on each.
@@ -962,7 +908,7 @@ fn a_language_name_means_the_same_on_grep_and_pattern() {
     f.write("src/other.py", "def widget():\n    return 1\n");
     f.commit("tsx and py");
 
-    let g = f.trace(&["grep", "Widget", "--path", ".", "-l", "tsx", "--json"]);
+    let g = f.trace(&["grep", "Widget", ".", "-t", "tsx", "--json"]);
     g.ok();
     let grep_files: Vec<String> = g.view()["results"]
         .as_array()
@@ -986,9 +932,8 @@ fn a_language_name_means_the_same_on_grep_and_pattern() {
     let p = f.trace(&[
         "pattern",
         "function Widget() { $$$B }",
-        "-l",
+        "-t",
         "tsx",
-        "--path",
         ".",
         "--json",
     ]);
@@ -1018,20 +963,19 @@ fn a_language_name_means_the_same_on_grep_and_pattern() {
 fn an_unknown_language_is_refused_by_name() {
     let f = standard_repo();
     for args in [
-        vec!["grep", "helper", "--path", ".", "-l", "nosuchlang"],
+        vec!["grep", "helper", ".", "-t", "nosuchlang"],
         vec![
             "pattern",
             "def $N(): $$$B",
-            "-l",
+            "-t",
             "nosuchlang",
-            "--path",
             ".",
         ],
     ] {
         let r = f.trace(&args);
         r.code_is(2);
         assert!(
-            r.combined().contains("unknown language") && r.combined().contains("python"),
+            r.combined().contains("unknown type") && r.combined().contains("python"),
             "{args:?} must refuse by name and list the accepted ones: {}",
             r.combined()
         );
@@ -1056,9 +1000,8 @@ fn a_multi_line_match_is_reported_at_the_line_of_the_name() {
     let r = f.trace(&[
         "pattern",
         "$X.save($$$A)",
-        "-l",
+        "-t",
         "python",
-        "--path",
         ".",
         "--json",
     ]);
@@ -1080,7 +1023,7 @@ fn a_multi_line_match_is_reported_at_the_line_of_the_name() {
 #[test]
 fn grep_no_matches_is_clean_exit() {
     let f = standard_repo();
-    let r = f.trace(&["grep", "zzz_no_such_token_qqq", "--path", "."]);
+    let r = f.trace(&["grep", "zzz_no_such_token_qqq", "."]);
     r.ok();
     assert!(r.stdout.contains("(no matches)"), "{}", r.stdout);
 }
@@ -1089,11 +1032,10 @@ fn grep_no_matches_is_clean_exit() {
 fn search_failures_are_not_successful_empty_documents() {
     let f = standard_repo();
     for args in [
-        vec!["grep", "[", "--path", ".", "--json"],
+        vec!["grep", "[", ".", "--json"],
         vec![
             "grep",
             "helper",
-            "--path",
             ".",
             "--at",
             "no-such-revision",
@@ -1128,7 +1070,7 @@ fn search_backend_failures_and_malformed_output_are_disclosed() {
         "#!/bin/sh\necho planted-rg-failure >&2\nexit 9\n",
     );
     let result = f.trace_env(
-        &["grep", "helper", "--path", ".", "--json"],
+        &["grep", "helper", ".", "--json"],
         &[("PATH", &path)],
     );
     assert_ne!(result.code, 0, "failed rg must not become an empty success");
@@ -1152,9 +1094,8 @@ fn search_backend_failures_and_malformed_output_are_disclosed() {
         &[
             "pattern",
             "main(helper($X))",
-            "-l",
+            "-t",
             "python",
-            "--path",
             ".",
             "--json",
         ],
@@ -1186,7 +1127,7 @@ fn search_backend_failures_and_malformed_output_are_disclosed() {
         "#!/bin/sh\necho planted-git-failure >&2\nexit 9\n",
     );
     let result = f.trace_env(
-        &["grep", "helper", "--path", ".", "--at", "HEAD", "--json"],
+        &["grep", "helper", ".", "--at", "HEAD", "--json"],
         &[("PATH", &path)],
     );
     assert_ne!(
@@ -1213,9 +1154,8 @@ fn search_backend_failures_and_malformed_output_are_disclosed() {
         &[
             "pattern",
             "def $N($$$A): $$$B",
-            "-l",
+            "-t",
             "python",
-            "--path",
             ".",
             "--json",
         ],
@@ -1248,7 +1188,7 @@ fn search_backend_failures_and_malformed_output_are_disclosed() {
         "#!/bin/sh\nprintf '%s\\n' '{bad json'\nexit 0\n",
     );
     let result = f.trace_env(
-        &["grep", "helper", "--path", ".", "--json"],
+        &["grep", "helper", ".", "--json"],
         &[("PATH", &path)],
     );
     assert_ne!(result.code, 0, "malformed rg JSON must fail");
@@ -1270,7 +1210,7 @@ fn search_backends_disclose_parse_cleanup_and_bounded_diagnostics() {
         "#!/bin/sh\necho '{\"type\":\"match\",\"data\":{}}'\n",
     );
     let result = f.trace_env(
-        &["grep", "helper", "--path", ".", "--json"],
+        &["grep", "helper", ".", "--json"],
         &[("PATH", &path)],
     );
     assert_ne!(result.code, 0);
@@ -1283,7 +1223,7 @@ fn search_backends_disclose_parse_cleanup_and_bounded_diagnostics() {
         "#!/bin/sh\necho 'not-a-git-grep-record'\nexit 0\n",
     );
     let result = f.trace_env(
-        &["grep", "helper", "--path", ".", "--at", "HEAD", "--json"],
+        &["grep", "helper", ".", "--at", "HEAD", "--json"],
         &[("PATH", &path)],
     );
     assert_ne!(result.code, 0);
@@ -1295,7 +1235,7 @@ fn search_backends_disclose_parse_cleanup_and_bounded_diagnostics() {
 
     let path = backend_path(&f, "rg-partial-status", "rg", "#!/bin/sh\necho '{\"type\":\"match\",\"data\":{\"path\":{\"text\":\"src/util.py\"},\"lines\":{\"text\":\"helper\"},\"line_number\":1,\"submatches\":[{\"start\":0}]}}'\necho partial-status >&2\nexit 7\n");
     let result = f.trace_env(
-        &["grep", "helper", "--path", ".", "--json"],
+        &["grep", "helper", ".", "--json"],
         &[("PATH", &path)],
     );
     assert_ne!(result.code, 0);
@@ -1317,7 +1257,7 @@ fn search_backends_disclose_parse_cleanup_and_bounded_diagnostics() {
         "#!/bin/sh\necho '{bad json'\nexec sleep 20\n",
     );
     let result = f.trace_env(
-        &["grep", "helper", "--path", ".", "--json"],
+        &["grep", "helper", ".", "--json"],
         &[("PATH", &path)],
     );
     assert_ne!(result.code, 0);
@@ -1341,9 +1281,8 @@ fn search_backends_disclose_parse_cleanup_and_bounded_diagnostics() {
         &[
             "pattern",
             "def $N($$$A): $$$B",
-            "-l",
+            "-t",
             "python",
-            "--path",
             ".",
             "--json",
         ],
@@ -1369,12 +1308,12 @@ fn search_backends_disclose_parse_cleanup_and_bounded_diagnostics() {
         (
             "rg-large",
             "rg",
-            vec!["grep", "helper", "--path", ".", "--json"],
+            vec!["grep", "helper", ".", "--json"],
         ),
         (
             "git-large",
             "git",
-            vec!["grep", "helper", "--path", ".", "--at", "HEAD", "--json"],
+            vec!["grep", "helper", ".", "--at", "HEAD", "--json"],
         ),
         (
             "prefilter-large",
@@ -1382,9 +1321,8 @@ fn search_backends_disclose_parse_cleanup_and_bounded_diagnostics() {
             vec![
                 "pattern",
                 "def $N($$$A): $$$B",
-                "-l",
+                "-t",
                 "python",
-                "--path",
                 ".",
                 "--json",
             ],
@@ -1429,9 +1367,8 @@ fn pattern_validation_is_not_suppressed_by_an_empty_prefilter() {
         &[
             "pattern",
             "alpha beta",
-            "-l",
+            "-t",
             "python",
-            "--path",
             ".",
             "--json",
         ],
@@ -1446,9 +1383,8 @@ fn pattern_validation_is_not_suppressed_by_an_empty_prefilter() {
         &[
             "pattern",
             "def missing($$$A): $$$B",
-            "-l",
+            "-t",
             "python",
-            "--path",
             ".",
             "--json",
         ],
@@ -1463,7 +1399,7 @@ fn pattern_validation_is_not_suppressed_by_an_empty_prefilter() {
     assert_eq!(document["counts"]["matches"], 0);
     assert_eq!(document["results"].as_array().unwrap().len(), 0);
     assert_eq!(document["context"]["files"].as_object().unwrap().len(), 0);
-    assert_eq!(document["query"]["path"], ".");
+    assert_eq!(document["query"]["paths"][0], ".");
     assert_eq!(document["context"]["repo"]["total_files"], 2);
 
     let arguments = fs::read(arguments).unwrap();
@@ -1499,7 +1435,7 @@ fn missing_search_backend_is_a_spawn_failure() {
     let empty = f.path("empty-path");
     fs::create_dir_all(&empty).unwrap();
     let result = f.trace_env(
-        &["grep", "helper", "--path", ".", "--json"],
+        &["grep", "helper", ".", "--json"],
         &[("PATH", &empty)],
     );
     assert_ne!(result.code, 0);
@@ -1515,14 +1451,14 @@ fn grep_keeps_valid_empty_and_leading_dash_patterns() {
     let f = Fixture::new();
     f.write("source.py", "dash = '-needle'\n");
     f.commit("leading dash search");
-    let empty = f.trace(&["grep", "no-such-token", "--path", ".", "--json"]);
+    let empty = f.trace(&["grep", "no-such-token", ".", "--json"]);
     empty.ok();
     let document = empty.json();
     assert_eq!(document.as_object().unwrap().len(), 4, "{document}");
     for slot in ["query", "context", "results", "counts"] {
         assert!(document.get(slot).is_some(), "missing {slot}: {document}");
     }
-    let leading_dash = f.trace(&["grep", "--path", ".", "--json", "--", "-needle"]);
+    let leading_dash = f.trace(&["grep", "--json", "--", "-needle", "."]);
     leading_dash.ok();
     assert_eq!(
         leading_dash.json()["counts"]["matches"],
@@ -1541,7 +1477,7 @@ fn grep_preserves_unicode_snippets_and_historical_scope() {
     f.write("src/a:b.py", "new_token = true\n");
     f.commit("new search state");
 
-    let unicode = f.trace(&["grep", "needle", "--path", ".", "--at", "HEAD~1", "--json"]);
+    let unicode = f.trace(&["grep", "needle", ".", "--at", "HEAD~1", "--json"]);
     unicode.ok();
     let result = &unicode.json()["results"][0];
     assert_eq!(
@@ -1557,7 +1493,6 @@ fn grep_preserves_unicode_snippets_and_historical_scope() {
     let old = f.trace(&[
         "grep",
         "old_token",
-        "--path",
         ".",
         "--at",
         "HEAD~1",
@@ -1565,7 +1500,7 @@ fn grep_preserves_unicode_snippets_and_historical_scope() {
     ]);
     old.ok();
     assert_eq!(old.json()["counts"]["matches"], 1);
-    let current = f.trace(&["grep", "old_token", "--path", ".", "--json"]);
+    let current = f.trace(&["grep", "old_token", ".", "--json"]);
     current.ok();
     assert_eq!(current.json()["counts"]["matches"], 0);
 }
@@ -1584,7 +1519,7 @@ fn historical_grep_uses_machine_delimiters_for_path_and_source_text() {
         ("helper", "def helper():"),
         ("https://", "    return \"https://example.test:8443/path\""),
     ] {
-        let result = f.trace(&["grep", pattern, "--path", ".", "--at", "HEAD", "--json"]);
+        let result = f.trace(&["grep", pattern, ".", "--at", "HEAD", "--json"]);
         result.ok();
         let row = &result.json()["results"][0];
         assert_eq!(
@@ -1611,7 +1546,7 @@ fn literal_free_pattern_reaches_ast_grep_without_a_candidate_scan() {
         "#!/bin/sh\necho candidate-scan-was-not-skipped >&2\nexit 9\n",
     );
     let result = f.trace_env(
-        &["pattern", "$X", "-l", "python", "--path", ".", "--json"],
+        &["pattern", "$X", "-t", "python", ".", "--json"],
         &[("PATH", &path)],
     );
     result.ok();
@@ -1667,9 +1602,8 @@ fn pattern_delegates_every_literal_filter_to_ripgrep_before_ast_grep() {
         &[
             "pattern",
             "dispatch(marker($X), finish($Y))",
-            "-l",
+            "-t",
             "python",
-            "--path",
             ".",
             "--json",
         ],
@@ -1685,8 +1619,8 @@ fn pattern_delegates_every_literal_filter_to_ripgrep_before_ast_grep() {
         document["query"]["pattern"],
         "dispatch(marker($X), finish($Y))"
     );
-    assert_eq!(document["query"]["lang"], "python");
-    assert_eq!(document["query"]["path"], ".");
+    assert_eq!(document["query"]["type"], "python");
+    assert_eq!(document["query"]["paths"][0], ".");
     assert_eq!(document["counts"]["matches"], 2, "{}", result.stdout);
     assert_eq!(document["counts"]["files"], 2, "{}", result.stdout);
     let mut rows: Vec<(&str, i64, &str)> = document["results"]
@@ -1783,9 +1717,8 @@ fn pattern_multi_literal_prefilter_keeps_exact_real_matches() {
     let result = f.trace(&[
         "pattern",
         "if $CONDITION:\n    return $VALUE",
-        "-l",
+        "-t",
         "python",
-        "--path",
         ".",
         "--json",
     ]);
@@ -1854,9 +1787,8 @@ fn pattern_splits_only_after_the_platform_refuses_the_full_argument_list() {
         &[
             "pattern",
             "needle + tail",
-            "-l",
+            "-t",
             "python",
-            "--path",
             ".",
             "--json",
         ],
@@ -1924,15 +1856,14 @@ fn pattern_ast_search_python() {
     let r = f.trace(&[
         "pattern",
         "def $NAME($$$ARGS): $$$BODY",
-        "-l",
+        "-t",
         "python",
-        "--path",
         ".",
         "--json",
     ]);
     r.ok();
     let v = r.view();
-    assert_eq!(v["lang"], "python");
+    assert_eq!(v["type"], "python");
     // standard_repo() has exactly two python function defs matching
     // `def $NAME($$$ARGS): $$$BODY`: main() at src/app.py L5 and
     // helper() at src/util.py L1. Both file and count are exact, and the
@@ -1953,12 +1884,8 @@ fn pattern_ast_search_python() {
             (
                 file,
                 m["line"].as_i64().unwrap(),
-                v["files"][file]["file_complexity"]["ccn_total"]
-                    .as_i64()
-                    .unwrap(),
-                v["files"][file]["file_complexity"]["rank"]
-                    .as_str()
-                    .unwrap(),
+                v["files"][file]["cyclomatic_complexity"].as_i64().unwrap(),
+                v["files"][file]["complexity_rank"].as_str().unwrap(),
             )
         })
         .collect();
@@ -1974,7 +1901,7 @@ fn pattern_ast_search_python() {
 #[test]
 fn pattern_requires_lang() {
     let f = standard_repo();
-    let r = f.trace(&["pattern", "def $X(): $$$B", "--path", "."]);
+    let r = f.trace(&["pattern", "def $X(): $$$B", "."]);
     // click marks -l/--lang required → usage error, exit 2.
     r.code_is(2);
 }
@@ -2036,6 +1963,13 @@ fn find_prunes_vendored_ignored_directory() {
         vec!["src/keep.py"],
         "find must return exactly the tracked src/keep.py, pruning ignored trees: {paths:?}"
     );
+
+    f.write(".cache/run/keep.py", "def cached():\n    return 4\n");
+    for base in ["node_modules", ".cache"] {
+        let r = f.trace(&["find", "keep.py", base]);
+        r.ok();
+        assert!(r.stdout.contains("keep.py") && !r.stdout.contains("(no matches)"), "{base}: {}", r.stdout);
+    }
 }
 
 #[test]
@@ -2178,57 +2112,45 @@ fn find_path_pattern_matches_a_directory_segment() {
 }
 
 #[test]
-fn find_path_pattern_rows_carry_ccn_and_shoulder() {
+fn find_path_pattern_rows_carry_their_file_facts() {
     // Every row carries context — there is no bare-path mode to fall into.
     // `**/*.py` over standard_repo is exactly src/app.py and src/util.py,
-    // deterministically sorted, and each carries that file's real CCN and
-    // rank: app.py main() = 4 (low), util.py helper() = 2 (low).
+    // deterministically sorted, and each carries that file's real complexity
+    // and rank: app.py main() = 4 (low), util.py helper() = 2 (low).
     let f = standard_repo();
     let r = f.trace(&["find", "**/*.py", ".", "--json"]);
     r.ok();
     let v = r.view();
     assert_eq!(v["matches"].as_i64().unwrap(), 2, "two .py files: {}", v);
-    let rows: Vec<(&str, i64, &str)> = v["results"]
+    let rows: Vec<(&str, i64, &str, i64)> = v["results"]
         .as_array()
         .unwrap()
         .iter()
         .map(|m| {
+            let path = m["path"].as_str().unwrap();
+            let facts = &v["files"][path];
             (
-                m["path"].as_str().unwrap(),
-                m["ccn_total"].as_i64().unwrap(),
-                m["ccn_rank"].as_str().unwrap(),
+                path,
+                facts["cyclomatic_complexity"].as_i64().unwrap(),
+                facts["complexity_rank"].as_str().unwrap(),
+                facts["git"]["commits"].as_i64().unwrap(),
             )
         })
         .collect();
     assert_eq!(
         rows,
-        vec![("src/app.py", 4, "low"), ("src/util.py", 2, "low")],
-        "find rows (path, ccn_total, ccn_rank) must be exact and sorted: {}",
+        vec![("src/app.py", 4, "low", 1), ("src/util.py", 2, "low", 1)],
+        "find rows (path, complexity, rank, commits) must be exact and sorted: {}",
         v
     );
-    for m in v["results"].as_array().unwrap() {
-        let path = m["path"].as_str().unwrap();
-        assert!(
-            !v["files"][path]["shoulder"]
-                .as_str()
-                .unwrap_or("")
-                .is_empty(),
-            "every row must reach a non-empty lifecycle shoulder: {m}"
-        );
-    }
-    // Human form is `<path>  [ccn=<n> <rank>] <shoulder>`; the shoulder
-    // segment after the ccn bracket must be present and non-empty.
+    // The human line is the path and the file's one-line facts.
     let h = f.trace(&["find", "**/*.py", "."]);
     h.ok();
-    let line = h
-        .stdout
-        .lines()
-        .find(|l| l.contains("src/util.py"))
-        .expect("util.py must appear in the human output");
-    let after = line.split("] ").nth(1).unwrap_or("").trim();
     assert!(
-        line.contains("[ccn=2 low]") && !after.is_empty(),
-        "human line must carry the ccn bracket and a non-empty shoulder: {line:?}"
+        h.stdout
+            .contains("\n  src/util.py  {imported_by: 1, cyclomatic_complexity: 2, lines: 4}\n"),
+        "human line must carry the file's one-line facts:\n{}",
+        h.stdout
     );
 }
 
@@ -2281,14 +2203,10 @@ fn find_resolves_every_row_across_fact_chunks() {
     assert_eq!(rows.last().unwrap()["path"], "src/file_512.py");
     for row in rows {
         let path = row["path"].as_str().unwrap();
-        assert_eq!(row["ccn_total"], 1, "wrong complexity for {path}");
-        assert_eq!(row["ccn_rank"], "low", "wrong rank for {path}");
-        assert!(
-            v["files"][path]["shoulder"]
-                .as_str()
-                .is_some_and(|shoulder| !shoulder.is_empty()),
-            "missing passive context for {path}"
-        );
+        let facts = &v["files"][path];
+        assert_eq!(facts["cyclomatic_complexity"], 1, "wrong complexity for {path}");
+        assert_eq!(facts["complexity_rank"], "low", "wrong rank for {path}");
+        assert_eq!(facts["git"]["commits"], 1, "missing passive context for {path}");
     }
 }
 
@@ -2302,7 +2220,7 @@ fn grep_snippet_windows_long_minified_line() {
     let line = format!("{}needle_token_here{}", "x".repeat(3000), "y".repeat(3000));
     f.write("bundle.js", &format!("{line}\n"));
     f.commit("minified bundle");
-    let r = f.trace(&["grep", "needle_token_here", "--path", ".", "--json"]);
+    let r = f.trace(&["grep", "needle_token_here", ".", "--json"]);
     r.ok();
     let v = r.view();
     assert_eq!(v["matches"].as_i64().unwrap(), 1, "{v}");
@@ -2328,7 +2246,7 @@ fn grep_snippet_windows_long_minified_line() {
 #[test]
 fn grep_snippet_keeps_short_lines_whole() {
     let f = standard_repo();
-    let r = f.trace(&["grep", "helper", "--path", ".", "--json"]);
+    let r = f.trace(&["grep", "helper", ".", "--json"]);
     r.ok();
     let v = r.view();
     let m = v["results"]
@@ -2417,7 +2335,7 @@ fn grep_empty_result_names_nested_repos() {
         "vendor",
     ]);
 
-    let r = f.trace(&["grep", "vendored_token", "--path", ".", "--json"]);
+    let r = f.trace(&["grep", "vendored_token", ".", "--json"]);
     r.ok();
     let v = r.view();
     assert_eq!(v["matches"].as_i64().unwrap(), 0, "{v}");
@@ -2433,7 +2351,6 @@ fn grep_empty_result_names_nested_repos() {
     let scoped = f.trace(&[
         "grep",
         "vendored_token",
-        "--path",
         f.path("themes/vendortheme").as_str(),
         "--json",
     ]);
@@ -2444,4 +2361,587 @@ fn grep_empty_result_names_nested_repos() {
         "{}",
         scoped.stdout
     );
+}
+
+#[test]
+fn search_rows_name_the_enclosing_declarations() {
+    let f = Fixture::new();
+    f.write(
+        "Contact.php",
+        "<?php\nuse App\\Support\\Bulk;\n\nclass Contact\n{\n    public string $email;\n\n    public function recalculateStats(): void\n    {\n        $callback = function () {\n            throw new \\RuntimeException('needle');\n        };\n    }\n}\n",
+    );
+    f.commit("contact method");
+
+    let grep = f.trace(&["grep", "needle", ".", "--json"]);
+    grep.ok();
+    let hit = &grep.view()["results"][0];
+    assert_eq!(
+        hit["declaration"]["name"], "recalculateStats",
+        "{}",
+        grep.stdout
+    );
+    assert_eq!(hit["type"]["name"], "Contact", "{}", grep.stdout);
+
+    let grep_human = f.trace(&["grep", "needle", "."]);
+    grep_human.ok();
+    assert!(
+        grep_human.stdout.contains("\n  L4    class Contact { … }\n")
+            && grep_human
+                .stdout
+                .contains("\n  L8      public function recalculateStats(): void")
+            && grep_human.stdout.contains("RuntimeException('needle');"),
+        "{}",
+        grep_human.stdout
+    );
+
+    // A match on a property's own line names the property and is that line.
+    let property = f.trace(&["grep", "email", ".", "--json"]);
+    property.ok();
+    assert_eq!(property.view()["results"][0]["declaration"]["name"], "$email", "{}", property.stdout);
+    assert_eq!(property.view()["results"][0]["type"]["name"], "Contact");
+    let property_human = f.trace(&["grep", "email", "."]);
+    property_human.ok();
+    assert!(
+        property_human.stdout.contains("\n  L4    class Contact { … }\n  L6:     public string $email;\n"),
+        "{}",
+        property_human.stdout
+    );
+
+    let top_level = f.trace(&["grep", "Bulk", ".", "--json"]);
+    top_level.ok();
+    assert!(
+        top_level.view()["results"][0]["declaration"].is_null(),
+        "{}",
+        top_level.stdout
+    );
+    assert!(
+        top_level.view()["results"][0]["type"].is_null(),
+        "{}",
+        top_level.stdout
+    );
+    let top_level_human = f.trace(&["grep", "Bulk", "."]);
+    top_level_human.ok();
+    assert!(
+        top_level_human.stdout.contains("\n  L2:   use App\\Support\\Bulk;\n")
+            && !top_level_human.stdout.contains("class Contact"),
+        "{}",
+        top_level_human.stdout
+    );
+
+    let pattern = f.trace(&[
+        "pattern",
+        "throw new $EXCEPTION($MESSAGE);",
+        "--type",
+        "php",
+        ".",
+        "--json",
+    ]);
+    pattern.ok();
+    assert_eq!(
+        pattern.view()["results"][0]["declaration"]["name"],
+        "recalculateStats"
+    );
+    assert_eq!(pattern.view()["results"][0]["type"]["name"], "Contact");
+    let pattern_human = f.trace(&[
+        "pattern",
+        "throw new $EXCEPTION($MESSAGE);",
+        "--type",
+        "php",
+        ".",
+    ]);
+    pattern_human.ok();
+    assert!(
+        pattern_human.stdout.contains("\n  L4    class Contact { … }\n")
+            && pattern_human
+                .stdout
+                .contains("\n  L8      public function recalculateStats(): void"),
+        "{}",
+        pattern_human.stdout
+    );
+
+    f.write(
+        "Contact.php",
+        "<?php\nuse App\\Support\\Bulk;\n\nclass Contact\n{\n    public string $email;\n\n    public function recomputeStats(): void\n    {\n        $callback = function () {\n            throw new \\RuntimeException('needle');\n        };\n    }\n}\n",
+    );
+    let historical = f.trace(&["grep", "needle", ".", "--at", "HEAD", "--json"]);
+    historical.ok();
+    assert_eq!(
+        historical.view()["results"][0]["declaration"]["name"],
+        "recalculateStats"
+    );
+}
+
+/// Thirty files that each mention `needle` twenty times, and one of them,
+/// `m00.py`, imported by all the others.
+fn crowded_search_repo() -> Fixture {
+    let f = Fixture::new();
+    let body: String = (0..20).map(|n| format!("needle_{n} = {n}\n")).collect();
+    f.write("m00.py", &body);
+    for index in 1..30 {
+        f.write(&format!("m{index:02}.py"), &format!("from m00 import needle_0\n{body}"));
+    }
+    f.commit("crowded search");
+    f
+}
+
+#[test]
+fn grep_over_budget_names_every_file_and_the_command_for_the_rest() {
+    let f = crowded_search_repo();
+    let r = f.trace(&["grep", "needle", ".", "--budget", "3000"]);
+    r.ok();
+    let size = r.stdout.chars().count();
+    assert!(size <= 3000, "grep spent {size} characters of a 3000 budget:\n{}", r.stdout);
+    for index in 0..30 {
+        assert!(r.stdout.contains(&format!("m{index:02}.py")), "m{index:02}.py is unnamed:\n{}", r.stdout);
+    }
+    // The file the others import keeps its match lines longest.
+    assert!(r.stdout.contains("needle_19 = 19"), "the most-imported file lost its detail first:\n{}", r.stdout);
+    let last = r.stdout.lines().last().unwrap_or("");
+    assert!(
+        last.contains("shortened to fit --budget 3000")
+            && last.contains("trace grep needle . --budget 0"),
+        "the last line must name the command for the rest: {last}"
+    );
+
+    let whole = f.trace(&["grep", "needle", ".", "--budget", "0"]);
+    whole.ok();
+    assert!(!whole.stdout.contains("shortened"), "--budget 0 is unbounded:\n{}", whole.stdout);
+}
+
+#[test]
+fn find_over_budget_names_every_file() {
+    let f = crowded_search_repo();
+    let r = f.trace(&["find", "*.py", ".", "--budget", "600"]);
+    r.ok();
+    for index in 0..30 {
+        assert!(r.stdout.contains(&format!("  m{index:02}.py")), "m{index:02}.py is unnamed:\n{}", r.stdout);
+    }
+    assert!(r.stdout.contains("shortened to fit --budget 600"), "{}", r.stdout);
+}
+
+/// The lines of a human search after its file header, up to the blank line
+/// that closes the file.
+fn file_block(stdout: &str, file: &str) -> Vec<String> {
+    stdout
+        .lines()
+        .skip_while(|line| !line.starts_with(file))
+        .skip(1)
+        .take_while(|line| !line.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
+/// `git grep --show-function`'s shape: each enclosing declaration once, its
+/// matches under it, and a match on a declaration's own line is that line.
+#[test]
+fn grep_groups_matches_under_their_declarations() {
+    let f = Fixture::new();
+    f.write(
+        "Contact.php",
+        concat!(
+            "<?php\n",                                 // L1
+            "\n",                                      // L2
+            "class Contact\n",                         // L3
+            "{\n",                                     // L4
+            "    public const TABLE = [\n",            // L5
+            "        'needle',\n",                     // L6
+            "    ];\n",                                // L7
+            "\n",                                      // L8
+            "    public string $email {\n",            // L9
+            "        get => strtolower($this->needle);\n", // L10
+            "    }\n",                                 // L11
+            "\n",                                      // L12
+            "    public function needle(): void\n",    // L13
+            "    {\n",                                 // L14
+            "        $x = 1;\n",                       // L15
+            "        $this?->needle();\n",             // L16
+            "    }\n",                                 // L17
+            "}\n",                                     // L18
+        ),
+    );
+    f.commit("grouped");
+
+    let r = f.trace(&["grep", "needle", "Contact.php"]);
+    r.ok();
+    assert_eq!(
+        file_block(&r.stdout, "Contact.php"),
+        vec![
+            "  L3    class Contact { … }",
+            "  L5      public const TABLE = …",
+            "  L6:       'needle',",
+            "  L9      public string $email { get => …; }",
+            "  L10:      get => strtolower($this->needle);",
+            "  L13:    public function needle(): void",
+            "  L16:      $this?->needle();",
+        ],
+        "{}",
+        r.stdout
+    );
+
+    // A match in a property hook names the property it belongs to.
+    let json = f.trace(&["grep", "strtolower", "Contact.php", "--json"]);
+    json.ok();
+    assert_eq!(json.view()["results"][0]["declaration"]["name"], "$email", "{}", json.stdout);
+}
+
+#[test]
+fn grep_over_two_repositories_gives_each_file_its_own_facts() {
+    let first = Fixture::new();
+    first.write("a.py", "needle = 1\n");
+    first.commit("first");
+    let second = Fixture::new();
+    second.write("b.py", "needle = 2\nother = 3\n");
+    second.commit("second");
+
+    let elsewhere = second.root.to_string_lossy().to_string();
+    let r = first.trace(&["grep", "needle", ".", &elsewhere, "--json"]);
+    r.ok();
+    let files = r.json()["context"]["files"].clone();
+    let other = files
+        .as_object()
+        .unwrap()
+        .iter()
+        .find(|(path, _)| path.ends_with("b.py"))
+        .map(|(_, facts)| facts.clone())
+        .unwrap_or_default();
+    assert_eq!(other["git"]["commits"], 1, "{}", r.stdout);
+    assert_eq!(other["lines"], 2, "{}", r.stdout);
+}
+
+#[test]
+fn grep_context_keeps_relative_indentation() {
+    let f = Fixture::new();
+    f.write(
+        "load.py",
+        "def load(items):\n    for item in items:\n        if item:\n            return needle\n    return None\n",
+    );
+    f.commit("nested");
+
+    let r = f.trace(&["grep", "needle", "-C", "2", "load.py"]);
+    r.ok();
+    let block = file_block(&r.stdout, "load.py");
+    assert_eq!(
+        block[1..],
+        [
+            "  L2-     for item in items:",
+            "  L3-         if item:",
+            "  L4:             return needle",
+            "  L5-     return None",
+        ],
+        "{}",
+        r.stdout
+    );
+}
+
+/// ripgrep's flags mean what they mean to ripgrep, on the working tree and
+/// on a commit.
+#[test]
+fn grep_takes_ripgreps_flags() {
+    let f = Fixture::new();
+    f.write("src/a.php", "<?php\n$x?->Needle();\n$y->needle();\nreturn;\n");
+    f.write("src/b.ts", "const needle = 1;\n");
+    f.write("vendor/c.php", "<?php\nneedle();\n");
+    f.commit("flags");
+
+    let files = |args: &[&str]| -> Vec<String> {
+        let mut all = vec!["grep"];
+        all.extend_from_slice(args);
+        all.extend_from_slice(&[".", "--json"]);
+        let r = f.trace(&all);
+        r.ok();
+        let mut found: Vec<String> = r.json()["context"]["files"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(|file| file.trim_start_matches("./").to_string())
+            .collect();
+        found.sort();
+        found
+    };
+    assert_eq!(files(&["needle"]), vec!["src/a.php", "src/b.ts", "vendor/c.php"]);
+    assert_eq!(files(&["needle", "-t", "php"]), vec!["src/a.php", "vendor/c.php"]);
+    assert_eq!(files(&["needle", "-g", "*.php", "-g", "!vendor/**"]), vec!["src/a.php"]);
+    assert_eq!(files(&["needle", "-t", "php", "--at", "HEAD", "-g", "!vendor/**"]), vec!["src/a.php"]);
+
+    // -c and -l name each file once, with its facts, and no match lines.
+    for flag in ["-c", "-l"] {
+        let r = f.trace(&["grep", "needle", flag, "-i", "src"]);
+        r.ok();
+        assert!(r.stdout.contains("src/a.php") && r.stdout.contains("matches: 2"), "{flag}: {}", r.stdout);
+        assert!(!r.stdout.lines().any(|line| line.starts_with("  L")), "{flag}: {}", r.stdout);
+    }
+
+    // -i, on the working tree and on a commit.
+    for at in [None, Some("HEAD")] {
+        let mut args = vec!["grep", "needle", "-i", "src/a.php", "--json"];
+        if let Some(revision) = at {
+            args.extend_from_slice(&["--at", revision]);
+        }
+        let r = f.trace(&args);
+        r.ok();
+        assert_eq!(r.json()["counts"]["matches"], 2, "{at:?}: {}", r.stdout);
+    }
+
+    // -C marks context lines with `-` and matches with `:`, as grep does.
+    for at in [None, Some("HEAD")] {
+        let mut args = vec!["grep", "Needle", "-C", "1", "src/a.php"];
+        if let Some(revision) = at {
+            args.extend_from_slice(&["--at", revision]);
+        }
+        let r = f.trace(&args);
+        r.ok();
+        assert_eq!(
+            file_block(&r.stdout, "src/a.php"),
+            vec!["  L1-   <?php", "  L2:   $x?->Needle();", "  L3-   $y->needle();"],
+            "{at:?}: {}",
+            r.stdout
+        );
+    }
+
+    let r = f.trace(&["grep", "-e", "->needle", "src", "vendor"]);
+    r.ok();
+    assert_eq!(file_block(&r.stdout, "src/a.php"), vec!["  L3:   $y->needle();"], "{}", r.stdout);
+    assert!(!r.stdout.contains("vendor/c.php"), "{}", r.stdout);
+
+    for (flags, expected) in [
+        (vec!["-B", "1"], vec!["  L1-   <?php", "  L2:   $x?->Needle();"]),
+        (vec!["-A", "1", "-n"], vec!["  L2:   $x?->Needle();", "  L3-   $y->needle();"]),
+    ] {
+        let mut args = vec!["grep", "Needle", "src/a.php"];
+        args.extend(flags.iter().copied());
+        let r = f.trace(&args);
+        r.ok();
+        assert_eq!(file_block(&r.stdout, "src/a.php"), expected, "{flags:?}: {}", r.stdout);
+    }
+
+    // -U lets one match span lines; every line of it is a match line.
+    let r = f.trace(&["grep", r"Needle\(\);\n\$y", "-U", "src/a.php"]);
+    r.ok();
+    assert_eq!(
+        file_block(&r.stdout, "src/a.php"),
+        vec!["  L2:   $x?->Needle();", "  L3:   $y->needle();"],
+        "{}",
+        r.stdout
+    );
+    let r = f.trace(&["grep", "needle", "-U", "--at", "HEAD", "."]);
+    r.code_is(1);
+    assert!(r.combined().contains("-U"), "{}", r.combined());
+
+    // An unknown type is refused by name, never answered with silence.
+    let r = f.trace(&["grep", "needle", "-t", "nosuchtype", "."]);
+    r.code_is(2);
+    assert!(r.combined().contains("unknown type \"nosuchtype\""), "{}", r.combined());
+}
+
+/// `--filter` keeps the enrichment of the files its result names, and only
+/// those: a count carries no file context, one row carries its own file's.
+#[test]
+fn filter_keeps_context_only_for_the_files_its_result_names() {
+    let f = Fixture::new();
+    f.write("a.py", "needle = 1\n");
+    f.write("b.py", "needle = 2\n");
+    f.commit("two files");
+
+    let counts = f.trace(&["grep", "needle", ".", "--json", "--filter", ".counts"]);
+    counts.ok();
+    assert_eq!(counts.json()["context"]["files"], serde_json::json!({}), "{}", counts.stdout);
+
+    let row = f.trace(&["grep", "needle", ".", "--json", "--filter", ".results[0]"]);
+    row.ok();
+    let named = row.json()["results"]["file"].as_str().unwrap().to_string();
+    let kept: Vec<String> = row.json()["context"]["files"].as_object().unwrap().keys().cloned().collect();
+    assert_eq!(kept, vec![named], "{}", row.stdout);
+
+    f.write("lib/c.py", "needle = 3\n");
+    f.write("src/d.py", "needle = 4\n");
+    f.commit("two directories");
+    let count = f.trace(&["stats", ".", "--json", "--filter", ".counts.files"]);
+    count.ok();
+    assert_eq!(count.json()["context"]["directories"], serde_json::json!({}), "{}", count.stdout);
+
+    f.write("lib/c.py", "needle = 5\n");
+    let state = f.trace(&["status", "--json", "--filter", ".results[0].path"]);
+    state.ok();
+    let kept: Vec<String> = state.json()["context"]["directories"].as_object().unwrap().keys().cloned().collect();
+    assert_eq!(kept, vec!["lib/".to_string()], "{}", state.stdout);
+}
+
+fn result_files(r: &tracer_cli_tests::Run, key: &str) -> Vec<String> {
+    r.json()["results"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| row[key].as_str().unwrap().trim_start_matches("./").to_string())
+        .collect()
+}
+
+/// A `Claude.md` symlinked into a directory is that directory's doc, named
+/// where it sits, not at the file it points to.
+#[test]
+fn a_symlinked_doc_is_named_where_it_sits() {
+    let f = Fixture::new();
+    f.write("shared/Claude.md", "# Shared\n");
+    f.write("tenant/x.py", "needle = 1\n");
+    std::os::unix::fs::symlink("../shared/Claude.md", f.root.join("tenant/Claude.md")).unwrap();
+    f.commit("linked doc");
+
+    let r = f.trace(&["grep", "needle", "tenant", "--json"]);
+    r.ok();
+    assert_eq!(r.json()["context"]["files"]["tenant/x.py"]["nearest_doc"], "tenant/Claude.md", "{}", r.stdout);
+}
+
+/// A basename pattern names whole basenames, as `find -name` does:
+/// `Contact.php` is not `OldContact.php`.
+#[test]
+fn find_basename_matches_whole_names() {
+    let f = Fixture::new();
+    f.write("src/Contact.php", "<?php\n");
+    f.write("src/OldContact.php", "<?php\n");
+    f.commit("two contacts");
+    let r = f.trace(&["find", "Contact.php", ".", "--json"]);
+    r.ok();
+    assert_eq!(result_files(&r, "path"), vec!["src/Contact.php"], "{}", r.stdout);
+}
+
+/// A listing whose bare paths alone overrun the budget still names every
+/// file, one line per directory, and past that every directory with its
+/// count — inside the budget either way.
+#[test]
+fn listings_name_every_file_by_directory_when_paths_alone_overrun() {
+    let f = Fixture::new();
+    for directory in ["alpha", "beta"] {
+        for index in 0..40 {
+            f.write(&format!("src/{directory}/module_{index:02}.py"), "needle = 1\n");
+        }
+    }
+    f.commit("eighty files");
+    for command in ["grep", "find"] {
+        let args = |budget: &'static str| -> Vec<&'static str> {
+            match command {
+                "grep" => vec!["grep", "needle", "src", "--budget", budget],
+                _ => vec!["find", "*.py", "src", "--budget", budget],
+            }
+        };
+        let named = f.trace(&args("1600"));
+        named.ok();
+        assert!(named.stdout.len() <= 1600, "{command}: {} chars\n{}", named.stdout.len(), named.stdout);
+        for directory in ["alpha", "beta"] {
+            let line = named
+                .stdout
+                .lines()
+                .find(|line| line.starts_with(&format!("src/{directory}/: ")))
+                .unwrap_or_else(|| panic!("{command}: no {directory} line\n{}", named.stdout));
+            assert_eq!(line.matches("module_").count(), 40, "{command}: {line}");
+        }
+
+        let counted = f.trace(&args("400"));
+        counted.ok();
+        assert!(
+            counted.stdout.contains("src/alpha/: 40 files") && counted.stdout.contains("src/beta/: 40 files"),
+            "{command}: {}",
+            counted.stdout
+        );
+    }
+}
+
+/// Every path argument takes several paths; a missing one is named, the
+/// rest still answer, and the run exits 2 — ripgrep's contract.
+#[test]
+fn path_arguments_take_several_paths_and_directories() {
+    let f = Fixture::new();
+    f.write("a/x.py", "def needle_x():\n    return 1\n");
+    f.write("b/y.py", "def needle_y():\n    return 2\n");
+    f.write("c/z.py", "def needle_z():\n    return 3\n");
+    f.commit("three packages");
+
+    let find = f.trace(&["find", "*.py", "a", "b", "--json"]);
+    find.ok();
+    assert_eq!(result_files(&find, "path"), vec!["a/x.py", "b/y.py"], "{}", find.stdout);
+
+    let missing = f.trace(&["find", "*.py", "a", "nope"]);
+    missing.code_is(2);
+    assert!(missing.stdout.contains("a/x.py") && missing.combined().contains("nope"), "{}", missing.combined());
+
+    let structure = f.trace(&["structure", "a", "b/y.py", "--json"]);
+    structure.ok();
+    let declared: Vec<String> = structure.json()["results"]["symbols_by_kind"]["function"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| row["file"].as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(declared, vec!["a/x.py", "b/y.py"], "{}", structure.stdout);
+    let text = f.trace(&["structure", "a", "b/y.py"]);
+    text.ok();
+    assert!(
+        text.stdout.contains("file: a/x.py") && text.stdout.contains("needle_x") && text.stdout.contains("file: b/y.py"),
+        "{}",
+        text.stdout
+    );
+
+    let read = f.trace(&["read", "a/x.py", "b/y.py", "--json"]);
+    read.ok();
+    assert_eq!(result_files(&read, "file"), vec!["a/x.py", "b/y.py"], "{}", read.stdout);
+    let read_directory = f.trace(&["read", "c", "--json"]);
+    read_directory.ok();
+    assert_eq!(result_files(&read_directory, "file"), vec!["c/z.py"], "{}", read_directory.stdout);
+
+    let info = f.trace(&["info", "a/x.py", "b", "--json"]);
+    info.ok();
+    assert_eq!(info.json()["results"].as_array().unwrap().len(), 2, "{}", info.stdout);
+
+    let grep = f.trace(&["grep", "needle", "a", "c", "--json"]);
+    grep.ok();
+    let mut searched: Vec<String> = grep.json()["context"]["files"]
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(|file| file.trim_start_matches("./").to_string())
+        .collect();
+    searched.sort();
+    assert_eq!(searched, vec!["a/x.py", "c/z.py"], "{}", grep.stdout);
+}
+
+/// A method `read --method` cannot find is refused with the lines the word
+/// does appear on, so the next read is one command away.
+#[test]
+fn read_names_where_a_missing_function_word_appears() {
+    let f = Fixture::new();
+    f.write("m.py", "def run(snapshot):\n    for product in snapshot.products:\n        pass\n");
+    f.commit("no products function");
+    let r = f.trace(&["read", "m.py", "--method", "products"]);
+    r.code_is(2);
+    assert!(
+        r.combined().contains("appears on lines 2") && r.combined().contains("--lines 2:2"),
+        "{}",
+        r.combined()
+    );
+}
+
+/// `Class::method` and `Class.method` name one class's member.
+#[test]
+fn symbols_take_a_class_qualifier() {
+    let f = Fixture::new();
+    f.write("A.php", "<?php\nclass A\n{\n    public static function save(): void {}\n}\n");
+    f.write("B.php", "<?php\nclass B\n{\n    public static function save(): void {}\n}\n");
+    f.write("run.php", "<?php\nfunction run(): void\n{\n    A::save();\n    B::save();\n}\n");
+    f.commit("two saves");
+
+    for symbol in ["A::save", "A.save"] {
+        let defines = f.trace(&["defines", symbol, "--json"]);
+        defines.ok();
+        assert_eq!(result_files(&defines, "source_file"), vec!["A.php"], "{symbol}: {}", defines.stdout);
+    }
+
+    let callers = f.trace(&["callers", "A::save", "--json"]);
+    callers.ok();
+    let symbols = callers.json()["results"].as_array().unwrap().clone();
+    assert_eq!(symbols.len(), 1, "{}", callers.stdout);
+    let lines: Vec<i64> = symbols[0]["callers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|caller| caller["source_line"].as_i64().unwrap())
+        .collect();
+    assert_eq!(lines, vec![4], "only A::save's call site: {}", callers.stdout);
 }

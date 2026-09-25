@@ -26,19 +26,21 @@
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
+use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use super::drift;
 use super::nested_memory::{self, LoadedMemory};
-use crate::cache;
+use crate::{cache, relations::DirectoryMetrics};
 
 const AGENT_ID_DEFAULT: &str = "root";
+
+static DIRECTORY_BASELINES: OnceLock<Mutex<BTreeMap<String, DirectoryMetrics>>> = OnceLock::new();
 
 /// Event kinds. Extensible by intent — Read tracking and future surfaces
 /// add their own variants without breaking the on-disk JSONL shape (older
@@ -48,8 +50,6 @@ const AGENT_ID_DEFAULT: &str = "root";
 pub enum EventKind {
     DocInjection,
     ReadFile,
-    DirectorySurfaced,
-    ContextPrimeDrift,
     ContextReset,
 }
 
@@ -177,6 +177,113 @@ fn log_dir() -> Option<PathBuf> {
             .join(sid)
             .join(agent_id()),
     )
+}
+
+/// What a directory's imports were when this session first surfaced it, only
+/// where they differ from `current`: the counts then, and the directories it
+/// now imports from or no longer does. `None` when nothing changed. The first
+/// call for a directory records its baseline.
+pub fn at_session_start(dir: &str, current: &DirectoryMetrics) -> Option<Map<String, Value>> {
+    let baseline = directory_baseline(dir, current);
+    let mut since = Map::new();
+    if baseline.imported_by != current.imported_by {
+        since.insert("imported_by".into(), baseline.imported_by.into());
+    }
+    if baseline.imports != current.imports {
+        since.insert("imports".into(), baseline.imports.into());
+    }
+    let added: Vec<&String> = current
+        .imported_directories
+        .difference(&baseline.imported_directories)
+        .collect();
+    let removed: Vec<&String> = baseline
+        .imported_directories
+        .difference(&current.imported_directories)
+        .collect();
+    if !added.is_empty() {
+        since.insert("now_imports_from".into(), json!(added));
+    }
+    if !removed.is_empty() {
+        since.insert("no_longer_imports_from".into(), json!(removed));
+    }
+    (!since.is_empty()).then_some(since)
+}
+
+/// The directory metrics captured when this session first surfaced each
+/// directory. The file is deliberately session-wide: every agent reviewing
+/// the same change sees the same before value.
+pub fn directory_baseline(dir: &str, current: &DirectoryMetrics) -> DirectoryMetrics {
+    let Some(session_id) = nested_memory::session_id() else {
+        return current.clone();
+    };
+    let Some(repo_root) = repo_root() else {
+        return current.clone();
+    };
+    let session_dir = repo_root
+        .join(".tracer-cache")
+        .join("sessions")
+        .join(session_id);
+    let path = session_dir.join("directories.json");
+    let memo = DIRECTORY_BASELINES.get_or_init(|| Mutex::new(BTreeMap::new()));
+    if let Some(baseline) = memo
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .get(dir)
+        .cloned()
+    {
+        return baseline;
+    }
+
+    let mut stored: BTreeMap<String, DirectoryMetrics> = fs::read_to_string(&path)
+        .ok()
+        .and_then(|text| serde_json::from_str(&text).ok())
+        .unwrap_or_default();
+    if let Some(baseline) = stored.get(dir).cloned() {
+        *memo.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = stored;
+        return baseline;
+    }
+    if fs::create_dir_all(&session_dir).is_err() {
+        return current.clone();
+    }
+    let lock_path = session_dir.join(".lock");
+    let Ok(lock_fh) = fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(lock_path)
+    else {
+        return current.clone();
+    };
+    let _ = crate::timing::phase("lock session directories", || {
+        rustix::fs::flock(&lock_fh, rustix::fs::FlockOperation::LockExclusive)
+    });
+    stored = fs::read_to_string(&path)
+        .ok()
+        .and_then(|text| serde_json::from_str(&text).ok())
+        .unwrap_or_default();
+    if let Some(baseline) = stored.get(dir).cloned() {
+        *memo.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = stored;
+        let _ = rustix::fs::flock(&lock_fh, rustix::fs::FlockOperation::Unlock);
+        return baseline;
+    }
+    let baseline = current.clone();
+    stored.insert(dir.to_string(), baseline.clone());
+    if let Ok(value) = serde_json::to_value(&stored) {
+        if let Ok(mut temp) = tempfile::Builder::new()
+            .prefix(".directories.")
+            .tempfile_in(&session_dir)
+        {
+            if temp
+                .write_all(crate::jsonfmt::to_compact(&value).as_bytes())
+                .is_ok()
+            {
+                let _ = crate::timing::phase("session directories", || temp.persist(&path));
+            }
+        }
+    }
+    *memo.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = stored;
+    let _ = rustix::fs::flock(&lock_fh, rustix::fs::FlockOperation::Unlock);
+    baseline
 }
 
 /// Archived log directory for the current (session, agent).
@@ -345,9 +452,7 @@ pub fn record_emission(memories: &[LoadedMemory], source: &str) {
 
 /// Record a `read_file` event for a path the agent just read, accumulating
 /// which line range was read (`lines`, a 1-based inclusive `(start, end)`;
-/// `None` means the whole file). Returns whether this is the file's first
-/// surfacing in the session (so the caller can attach first-touch-only context
-/// like the file's method list). No-op when the session id is absent.
+/// `None` means the whole file). No-op when the session id is absent.
 /// Captured source identity, byte count, and line count come from its caller,
 /// so bookkeeping never reopens a file after that caller delivered it.
 ///
@@ -370,13 +475,13 @@ pub fn record_read(
     content_hash: &str,
     content_size: usize,
     total_lines: usize,
-    lines: Option<(usize, usize)>,
-) -> bool {
+    spans: &[Option<(usize, usize)>],
+) {
     let Some(dir) = log_dir() else {
-        return true;
+        return;
     };
     if fs::create_dir_all(&dir).is_err() {
-        return true;
+        return;
     }
 
     let lock_path = dir.join(".lock");
@@ -387,9 +492,11 @@ pub fn record_read(
         .open(&lock_path)
     {
         Ok(fh) => fh,
-        Err(_) => return true,
+        Err(_) => return,
     };
-    let _ = rustix::fs::flock(&lock_fh, rustix::fs::FlockOperation::LockExclusive);
+    let _ = crate::timing::phase("lock session view", || {
+        rustix::fs::flock(&lock_fh, rustix::fs::FlockOperation::LockExclusive)
+    });
 
     let view_path = dir.join("view.json");
     let events_path = dir.join("events.jsonl");
@@ -410,18 +517,20 @@ pub fn record_read(
     // 1-based inclusive span, clamped to the file's real line count; `None`
     // covers the whole file (a shell `cat` records identically to a native
     // whole-file read).
-    let (start, end) = match lines {
-        Some((s, e)) => (s.max(1), e.min(total_lines)),
-        None => (1, total_lines),
-    };
     {
         let cov = view.coverage.entry(canonical.clone()).or_default();
         if first_touch || cov.total_lines != total_lines {
             cov.total_lines = total_lines;
             cov.read.clear();
         }
-        if total_lines > 0 && start <= end {
-            merge_range(&mut cov.read, start, end);
+        for span in spans {
+            let (start, end) = match span {
+                Some((s, e)) => ((*s).max(1), (*e).min(total_lines)),
+                None => (1, total_lines),
+            };
+            if total_lines > 0 && start <= end {
+                merge_range(&mut cov.read, start, end);
+            }
         }
     }
 
@@ -442,145 +551,7 @@ pub fn record_read(
     }
     // Always persist: the coverage accumulator advances even when the emitted
     // projection (and thus the event log) is unchanged on a repeat read.
-    let _ = save_view(&view_path, &view);
-
-    let _ = rustix::fs::flock(&lock_fh, rustix::fs::FlockOperation::Unlock);
-    first_touch
-}
-
-/// Record a directory's first surfacing in the session, returning whether
-/// this is its first touch (so the caller can attach the one-level file
-/// listing once). The directory is keyed in the same `view.emitted` map as
-/// read files, under a fixed `dir:` marker hash — a directory has no content
-/// to hash, and the marker keeps its key from ever colliding with a file's
-/// content hash at the same path. Mirrors `record_read`'s lock discipline and
-/// no-session semantics: with no active session every touch is a first touch.
-pub fn record_directory_touch(dir_path: &std::path::Path, source: &str) -> bool {
-    let Some(dir) = log_dir() else {
-        return true;
-    };
-    if fs::create_dir_all(&dir).is_err() {
-        return true;
-    }
-
-    let lock_path = dir.join(".lock");
-    let lock_fh = match fs::OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .open(&lock_path)
-    {
-        Ok(fh) => fh,
-        Err(_) => return true,
-    };
-    let _ = rustix::fs::flock(&lock_fh, rustix::fs::FlockOperation::LockExclusive);
-
-    let view_path = dir.join("view.json");
-    let events_path = dir.join("events.jsonl");
-    let mut view = load_view(&view_path);
-
-    let canonical = dir_path
-        .canonicalize()
-        .unwrap_or_else(|_| dir_path.to_path_buf())
-        .to_string_lossy()
-        .to_string();
-    let marker = content_hash(&format!("dir:{canonical}"));
-
-    let first_touch = view.emitted.get(&canonical) != Some(&marker);
-    if first_touch {
-        view.emitted.insert(canonical.clone(), marker.clone());
-        let event = Event {
-            ts: unix_ms(),
-            path: canonical,
-            kind: EventKind::DirectorySurfaced,
-            source: source.to_string(),
-            size: 0,
-            content_hash: marker,
-            triggering_tool: std::env::var("TRACER_TRIGGERING_TOOL").ok(),
-            triggering_command: std::env::var("TRACER_TRIGGERING_COMMAND").ok(),
-            visible_as: dir_path.to_string_lossy().to_string(),
-        };
-        let _ = append_events(&events_path, &[event]);
-        let _ = save_view(&view_path, &view);
-    }
-
-    let _ = rustix::fs::flock(&lock_fh, rustix::fs::FlockOperation::Unlock);
-    first_touch
-}
-
-/// Record a `context_prime_drift` event and reconcile the view to observed
-/// reality. The view's `emitted` map is rewritten so any predicted path
-/// not in the observed set is removed, and every observed path lands with
-/// its real content hash from the input contract. The drift event itself
-/// is appended once with the full diff payload — append-only history is
-/// preserved while the view (the "what the context primer recorded" projection)
-/// flips to what Claude Code actually injected.
-///
-/// No-op when the session id is absent. Lock failures swallow, matching
-/// `record_emission`.
-pub fn record_context_prime_drift(
-    report: &drift::Report,
-    observed: &drift::Observed,
-    source: &str,
-) {
-    let Some(dir) = log_dir() else {
-        return;
-    };
-    if fs::create_dir_all(&dir).is_err() {
-        return;
-    }
-
-    let lock_path = dir.join(".lock");
-    let lock_fh = match fs::OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .open(&lock_path)
-    {
-        Ok(fh) => fh,
-        Err(_) => return,
-    };
-    let _ = rustix::fs::flock(&lock_fh, rustix::fs::FlockOperation::LockExclusive);
-
-    let view_path = dir.join("view.json");
-    let events_path = dir.join("events.jsonl");
-    let mut view = load_view(&view_path);
-
-    // Reconcile: drop predicted-but-not-observed entries, add observed-
-    // but-not-predicted entries with their hook-supplied content hash.
-    // Touch only context-primer paths (predicted ∪ observed) so any
-    // ReadFile entries already in the view from earlier in the session
-    // stay untouched — those are unrelated to the context primer.
-    let touched: BTreeSet<String> = report
-        .predicted
-        .iter()
-        .chain(report.observed.iter())
-        .cloned()
-        .collect();
-    for path in &report.missing {
-        if touched.contains(path) {
-            view.emitted.remove(path);
-        }
-    }
-    for doc in &observed.paths {
-        view.emitted
-            .insert(doc.path.clone(), doc.content_hash.clone());
-    }
-
-    let payload = serde_json::to_string(report).unwrap_or_else(|_| "{}".to_string());
-    let event = Event {
-        ts: unix_ms(),
-        path: String::new(),
-        kind: EventKind::ContextPrimeDrift,
-        source: source.to_string(),
-        size: payload.len(),
-        content_hash: content_hash(&payload),
-        triggering_tool: std::env::var("TRACER_TRIGGERING_TOOL").ok(),
-        triggering_command: std::env::var("TRACER_TRIGGERING_COMMAND").ok(),
-        visible_as: payload,
-    };
-    let _ = append_events(&events_path, &[event]);
-    let _ = save_view(&view_path, &view);
+    let _ = crate::timing::phase("session view", || save_view(&view_path, &view));
 
     let _ = rustix::fs::flock(&lock_fh, rustix::fs::FlockOperation::Unlock);
 }
@@ -589,7 +560,7 @@ pub fn record_context_prime_drift(
 /// view's `emitted` map so a subsequent `trace docs` re-surfaces every doc as
 /// new, and append one `context_reset` event recording the cleared set. The
 /// append-only `events.jsonl` is preserved — only the materialized projection
-/// is reconciled, mirroring `record_context_prime_drift`.
+/// is reconciled.
 ///
 /// This is the seam the Codex compaction/clear hook drives: after a context
 /// reset drops injected rule text from the model, the surfaced-docs state must

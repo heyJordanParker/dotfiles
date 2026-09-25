@@ -20,6 +20,7 @@ refuse work on paths outside the repo.
 
 import glob as globlib
 import os
+import shlex
 import sys
 
 from lib import feedback
@@ -57,10 +58,10 @@ Claude.md + rules, git activity. Piping it through grep/head/sed/awk/jq,
 or using raw grep/find/sed/cat on repo files, throws that away.
 
 Re-run the trace command with no pipe and no redirect; read all of it:
-  grep -r / rg         -> trace grep <pattern> [-l <lang>] [--path <dir>]
-  cat / head / sed -n  -> trace read <file> [<method>|--lines L1:L2]
-  find                 -> trace find <pattern> [<base>]
-  ls                   -> trace list <dir>
+  grep -r / rg         -> trace grep <pattern> [paths...] [-i] [-t <type>] [-g <glob>]
+  cat / head / sed -n  -> trace read <files...> [--method <name>|--lines L1:L2]
+  find                 -> trace find <pattern> [bases...]
+  ls                   -> trace list <dirs...>
   tree                 -> trace tree <dir>
   tail / grep on a log -> trace logs <pattern> [--path <dir>] [--since <when>]
 For partial output, use the in-binary filter — never a pipe:
@@ -150,7 +151,7 @@ def _optype(token):
 def _is_file_redirect(token):
     """A `>`/`>>`/`&>` to a filename (the target is the next word). Excludes the
     fd-dup forms `>&N` (e.g. `2>&1`), whose target is a descriptor, not a file."""
-    return ">" in token and ">&" not in token
+    return _optype(token) == "redir" and ">" in token and ">&" not in token
 
 
 def _pieces(line):
@@ -222,7 +223,7 @@ def _git_read_refusal(words, cwd):
     """The trace command that replaces this git segment, or "" when git is the answer.
 
     Only the forms trace already answers exactly are named. A form trace cannot
-    return — a patch, a regex pickaxe, a search at a ref, a stash — stays raw git,
+    return — a patch, a regex pickaxe, a stash — stays raw git,
     because banning it would block the work rather than route it.
     """
     subcommand = git_subcommand(words)
@@ -236,10 +237,9 @@ def _git_read_refusal(words, cwd):
     if subcommand in ("blame", "annotate"):
         return "trace blame <file> [<symbol>] [--lines L1:L2]"
     if subcommand == "grep":
-        # `git grep <pattern> <rev>` searches a commit and trace grep searches the
-        # worktree, so a second positional leaves git the only answer.
-        return "" if len(positional) > 1 \
-            else "trace grep <pattern> [-l <lang>] [--path <dir>]"
+        if len(positional) > 1:
+            return " ".join(["trace grep", shlex.quote(positional[0]), "--at", positional[1], *args[separator + 1:]])
+        return "trace grep <pattern> [paths...] [-i] [-t <type>] [-g <glob>]"
     if subcommand == "show":
         return "trace read <path> --at <ref>" if any(":" in a for a in positional) else ""
     if subcommand == "cat-file":

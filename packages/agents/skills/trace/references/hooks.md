@@ -7,28 +7,45 @@ Use this Reference when diagnosing trace Hook behavior, docs injection, identity
 ### Hooks are local Python files
 The Hooks live under `packages/agents/hooks/` and are wired in `settings.json` by absolute `~/.agents/hooks/<module>.py` paths. Plugin Users get the binary, not the Hooks.
 
+- Tracer's injecting Hooks keep their text under `lib/feedback.py`'s `CONTEXT_LIMIT`, 10,000 characters, because Claude Code replaces a longer hook message with a 2,000-character preview.
+- `lib/tracer.py` passes each `trace` call the room its message has left as `--budget`.
+- `load_trace_context.py`, `inject_docs.py`, `inject_rules.py`, and `enrich_on_read.py` declare `standalone`, so each runs in its own process.
+- The quick checks bound to the same event and tool, `guard_trace.py` among them, run together in one `combine_hooks.py` process.
+
 ## 2. Match the Hook to the event
 
 ### `load_trace_context.py` loads the repo primer
-SessionStart matcher `startup|resume|clear|compact` runs `trace context` and injects the eight-section repo primer.
+- SessionStart matcher `startup|resume|clear|compact` runs `trace context` and injects the repo primer.
 
-### `reload_harness_context.py` mirrors Harness auto-loads
-SessionStart matcher `startup|resume|clear|compact` runs `trace context prime --reason session_start|post_compact`; compact maps to `post_compact`, all other starts map to `session_start`.
+### `reload_harness_context.py` mirrors Claude Code's own doc loads
+- It runs on Claude Code only.
+- `InstructionsLoaded` runs `trace docs prime <file>`, so every doc Claude Code loads while the session runs is recorded as loaded.
+- `PreCompact` and SessionStart `clear` reset the record.
+- Every SessionStart records the session-start docs, which Claude Code puts back after a compaction without reporting them: `trace docs prime` for the `Claude.md` chain, and `trace docs <cwd> --json` for the working directory's docs.
 
-### `enrich_on_read.py` attaches shoulders to file operations
-PreToolUse matcher `Read|Glob|Grep|Edit|Write` runs `trace context <file>`.
+### `enrich_on_read.py` attaches facts to file operations
+PreToolUse matcher `Read|Glob|Grep|Edit|Write` runs one `trace` call per tool, fitted to one 10,000-character hook message.
 
-- Edit, Write, and a shell pre-execution read pass `--no-record`.
-- Glob and Grep batch matched files into `trace context <files...> --no-record --json` calls, capped at twenty successful shoulders.
+- Read runs `trace context <file>` with the Read's offset and limit; Edit and Write add `--no-record`.
+- Grep runs `trace grep` with the native Grep's pattern, `-i`, `glob`, `type`, and `multiline`, so it names the same files.
+- Glob runs `trace find` with the same pattern and path.
+- A failed call on an existing file emits `[trace context unavailable: trace failed]` under its path, and a timed-out call emits `[trace context unavailable: enrichment timed out]`.
 
 ### `guard_trace.py` blocks lossy commands
 PreToolUse matcher `Bash` blocks trace output piped to shell filters or redirected into a repository file, and raw file-search commands against in-repo paths. It whitelists `/tmp`, `/dev/null`, `docs/shaping/`, `docs/plans/`, `docs/agents/`, `.claude/shaping/`, `.claude/plans/`, and `.tracer-cache/`.
 
 ### `inject_docs.py` blocks trace without docs Context
-PreToolUse matcher `Bash` runs `trace docs <path> --source trace_inject_hook --triggering-tool Bash --triggering-command <cmd>` before path-taking trace subcommands. It blocks the trace command with exit code 2 if docs loading fails.
+- PreToolUse matcher `Bash` runs `trace docs <path> --source inject_docs --triggering-tool Bash --triggering-command <cmd>` before a trace subcommand.
+- The path is the command's first argument that exists as a path, else the working directory.
+- It injects the docs not yet loaded as Markdown.
+- It blocks the trace command with exit code 2 if docs loading fails.
 
 ### `inject_rules.py` gives Codex nearest Rules
-SessionStart and PreToolUse matcher `Read|Write|Edit|apply_patch` is Codex-only because Claude Code loads `Claude.md` itself. It injects nearest `Claude.md` through `trace docs`, resets docs on `clear` and `compact`, and never blocks.
+- It runs on codex only, because Claude Code loads `Claude.md` itself.
+- SessionStart resets the record on `clear`, records the root-to-cwd `Claude.md` chain, and sends the working directory's docs.
+- `PreCompact` resets the record.
+- PreToolUse matcher `Read|Write|Edit|apply_patch` sends the touched file's docs.
+- It never blocks.
 
 ### `archive_subagent_log.py` preserves stopped Subagent logs
 UserPromptSubmit parses Subagent completion notifications and moves `<repo>/.tracer-cache/sessions/<sid>/<aid>/` into `<repo>/.tracer-cache/sessions/<sid>/archived/<aid>/`. Trace reads fall back to the archived directory.
@@ -36,7 +53,9 @@ UserPromptSubmit parses Subagent completion notifications and moves `<repo>/.tra
 ## 3. Preserve identity propagation
 
 ### Hooks pass identity on a local environment copy
-`inject_docs.py`, `inject_rules.py`, `enrich_on_read.py`, and `reload_harness_context.py` set `AGENT_SESSION_ID` and `TRACER_AGENT_ID` on the subprocess environment copy passed to `trace`; they do not mutate `os.environ`.
+- Every tracer Hook calls `trace` through `lib/tracer.py`, which sets `AGENT_SESSION_ID` and `TRACER_AGENT_ID` on the subprocess environment copy.
+- `lib/tracer.py` runs `trace` from the event's `cwd`, so the session log lands in the event's repository.
+- No Hook mutates `os.environ`.
 
 ### `AGENT_SESSION_ID` is the Harness-neutral carrier
 Trace resolves `AGENT_SESSION_ID` first for the session log. `CLAUDE_CODE_SESSION_ID` remains untouched so nested Codex runs can still resolve governing session state through `owner_session`.

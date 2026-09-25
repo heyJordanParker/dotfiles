@@ -37,6 +37,14 @@ fn log_dir(repo_root: &Path, session_id: &str, agent_id: &str) -> PathBuf {
         .join(agent_id)
 }
 
+fn directories_path(repo_root: &Path, session_id: &str) -> PathBuf {
+    repo_root
+        .join(".tracer-cache")
+        .join("sessions")
+        .join(session_id)
+        .join("directories.json")
+}
+
 fn read_events_jsonl(repo_root: &Path, session_id: &str, agent_id: &str) -> Vec<serde_json::Value> {
     let path = log_dir(repo_root, session_id, agent_id).join("events.jsonl");
     let Ok(text) = std::fs::read_to_string(&path) else {
@@ -382,6 +390,151 @@ fn second_context_call_does_not_re_record_unchanged_read() {
     assert_eq!(
         second_reads, 1,
         "unchanged read must not re-record, got {second_reads} events"
+    );
+}
+
+#[test]
+fn read_writes_one_view_per_command_and_reuses_directory_baseline() {
+    let f = Fixture::new();
+    let source = format!(
+        "from outside.a import a\n{}",
+        (1..=30)
+            .map(|line| format!("line_{line} = a()\n"))
+            .collect::<String>()
+    );
+    f.write("outside/a.py", "def a():\n    return 1\n");
+    f.write("inside/ranges.py", &source);
+    f.commit("read ranges");
+    let sid = fresh_session_id("single-view");
+    let env = [
+        ("CLAUDE_CODE_SESSION_ID", sid.as_str()),
+        ("TRACER_AGENT_ID", "a"),
+        ("TRACE_TIMING", "1"),
+    ];
+
+    f.trace_env(&["cache", "build"], &env).ok();
+    let first = f.trace_env(&["read", "inside/ranges.py", "--lines", "1:5"], &env);
+    first.ok();
+    assert_eq!(
+        first.stderr.matches("timing session view ").count(),
+        1,
+        "{}",
+        first.stderr
+    );
+    f.trace_env(&["status", "--json"], &env).ok();
+    let directories = directories_path(&f.root, &sid);
+    let before = std::fs::read(&directories).expect("directory baseline written");
+
+    let second = f.trace_env(&["read", "inside/ranges.py", "--lines", "10:20"], &env);
+    second.ok();
+    assert_eq!(
+        second.stderr.matches("timing session view ").count(),
+        1,
+        "{}",
+        second.stderr
+    );
+    assert!(
+        !second.stderr.contains("timing lock session directories "),
+        "directory baseline hit must not lock: {}",
+        second.stderr
+    );
+    assert_eq!(std::fs::read(&directories).unwrap(), before);
+    let view = read_view(&f.root, &sid, "a");
+    let coverage = &view["coverage"]
+        .as_object()
+        .expect("coverage map")
+        .values()
+        .next()
+        .expect("read coverage")["read"];
+    assert_eq!(coverage, &serde_json::json!([[1, 5], [10, 20]]));
+    let events = read_events_jsonl(&f.root, &sid, "a");
+    assert!(
+        events
+            .iter()
+            .all(|event| event["kind"] != "directory_surfaced"),
+        "directory display must not be a session event: {events:?}"
+    );
+}
+
+// --- Session-wide directory baselines --------------------------------------
+
+#[test]
+fn directory_baseline_is_shared_across_agents_and_survives_context_reset() {
+    let f = Fixture::new();
+    f.write("outside/one.py", "def one():\n    return 1\n");
+    f.write("outside/two.py", "def two():\n    return 2\n");
+    f.write("inside/main.py", "class Main:\n    pass\n");
+    f.write("consumer.py", "from inside.main import Main\n");
+    f.commit("initial directory graph");
+
+    let sid = fresh_session_id("directory-baseline");
+    let agent_a = [("AGENT_SESSION_ID", sid.as_str()), ("TRACER_AGENT_ID", "a")];
+    let agent_b = [("AGENT_SESSION_ID", sid.as_str()), ("TRACER_AGENT_ID", "b")];
+
+    // A normal read, not a context command, establishes the session baseline.
+    let first = f.trace_env(&["read", "inside/main.py"], &agent_a);
+    first.ok();
+    let directories = directories_path(&f.root, &sid);
+    assert!(
+        directories.is_file(),
+        "trace read must write directories.json"
+    );
+    let first_json: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(&directories).expect("directories.json readable"),
+    )
+    .expect("directories.json is valid JSON");
+    assert_eq!(first_json["inside/"]["imports"], 0, "{first_json}");
+
+    // The same directory now imports two outside files. A second agent must
+    // retain Agent A's session-level first touch, not establish its own.
+    f.write(
+        "inside/main.py",
+        "from outside.one import one\nfrom outside.two import two\n\nclass Main:\n    def run(self):\n        return one() + two()\n",
+    );
+    let second = f.trace_env(&["read", "inside/main.py"], &agent_b);
+    second.ok();
+    assert!(
+        second
+            .stdout
+            .contains("at_session_start: {imports: 0, now_imports_from: [outside/]}"),
+        "second agent must render the shared baseline:\n{}",
+        second.stdout
+    );
+
+    let status = f.trace_env(&["status", "--json"], &agent_b);
+    status.ok();
+    let status_json = status.json();
+    let inside = &status_json["context"]["directories"]["inside/"];
+    assert_eq!(inside["at_session_start"]["imports"], 0, "{status_json}");
+    assert_eq!(inside["imports"], 2, "{status_json}");
+
+    let before_reset = std::fs::read(&directories).expect("directories.json before reset");
+    f.trace_env(&["docs", "reset"], &agent_b).ok();
+    assert_eq!(
+        std::fs::read(&directories).expect("directories.json after reset"),
+        before_reset,
+        "trace docs reset must not rewrite the directory baseline"
+    );
+}
+
+#[test]
+fn missing_no_record_target_records_its_parent_directory_baseline() {
+    let f = Fixture::new();
+    f.write("inside/main.py", "def main():\n    return 0\n");
+    f.commit("initial directory");
+    let sid = fresh_session_id("missing-directory");
+    let env = [("AGENT_SESSION_ID", sid.as_str())];
+
+    let missing = f.trace_env(&["context", "inside/new.py", "--no-record"], &env);
+    missing.code_is(2);
+    assert!(
+        missing.stdout.contains("path: inside/"),
+        "missing target must render its parent directory context:\n{}",
+        missing.stdout
+    );
+    assert!(
+        directories_path(&f.root, &sid).is_file(),
+        "missing target must establish the parent directory baseline"
     );
 }
 

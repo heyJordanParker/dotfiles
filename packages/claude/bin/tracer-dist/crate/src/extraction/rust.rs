@@ -181,6 +181,11 @@ fn walk_declarations(root: Node, source: &[u8]) -> Vec<Declaration> {
             "enum_item" => Some("enum"),
             "trait_item" => Some("interface"),
             "union_item" => Some("class"),
+            "impl_item" => Some("impl"),
+            "mod_item" => Some("module"),
+            "type_item" => Some("type"),
+            "const_item" | "static_item" => Some("constant"),
+            "field_declaration" | "enum_variant" => Some("property"),
             _ => None,
         };
         let mut child_container = container.clone();
@@ -200,35 +205,125 @@ fn walk_declarations(root: Node, source: &[u8]) -> Vec<Declaration> {
             _ => {}
         }
         if let Some(k) = kind {
-            if let Some(name_node) = n.child_by_field_name("name") {
+            if let Some(name_node) = n.child_by_field_name("name").or_else(|| {
+                if n.kind() == "impl_item" {
+                    n.child_by_field_name("type")
+                } else {
+                    None
+                }
+            }) {
                 if let Ok(name) = name_node.utf8_text(source) {
                     let line = name_node.start_position().row as i64 + 1;
+                    let mut header_start = n.start_byte();
+                    let mut previous = n.prev_sibling();
+                    while let Some(attribute) = previous {
+                        if attribute.kind() != "attribute_item" {
+                            break;
+                        }
+                        header_start = attribute.start_byte();
+                        previous = attribute.prev_sibling();
+                    }
                     // A function is a method when its container is set (it
                     // sits inside an impl/trait body); a type item is never
                     // contained.
-                    let decl_container =
-                        if matches!(n.kind(), "function_item" | "function_signature_item") {
-                            container.clone()
-                        } else {
-                            None
-                        };
+                    let decl_container = if matches!(
+                        n.kind(),
+                        "function_item"
+                            | "function_signature_item"
+                            | "field_declaration"
+                            | "enum_variant"
+                    ) {
+                        container.clone()
+                    } else {
+                        None
+                    };
                     if seen.insert((name.to_string(), line)) {
                         out.push(Declaration {
                             name: name.to_string(),
                             kind: k.to_string(),
+                            header_line: source[..header_start]
+                                .iter()
+                                .filter(|byte| **byte == b'\n')
+                                .count() as i64
+                                + 1,
                             line,
+                            end_line: n.end_position().row as i64 + 1,
                             container: decl_container,
+                            parent: None,
+                            header: {
+                                let mut builder = crate::extraction::header::Builder::new(source);
+                                if header_start != n.start_byte() {
+                                    builder.slice(header_start, n.start_byte());
+                                }
+                                let mut cursor = n.walk();
+                                // A struct-like variant's fields are rows of
+                                // their own; a tuple variant's types are its
+                                // whole shape.
+                                let variant_fields = n
+                                    .child_by_field_name("body")
+                                    .filter(|body| body.kind() == "field_declaration_list");
+                                if let Some(fields) = variant_fields.filter(|_| n.kind() == "enum_variant") {
+                                    builder.slice(n.start_byte(), fields.start_byte()).block(fields);
+                                } else if n.kind() != "enum_variant" {
+                                    if let Some(body) =
+                                        n.child_by_field_name("body").or_else(|| {
+                                            n.named_children(&mut cursor).find(|child| {
+                                                matches!(
+                                                    child.kind(),
+                                                    "declaration_list"
+                                                        | "field_declaration_list"
+                                                        | "enum_variant_list"
+                                                        | "block"
+                                                )
+                                            })
+                                        })
+                                    {
+                                        builder
+                                            .slice(n.start_byte(), body.start_byte())
+                                            .block(body);
+                                    } else {
+                                        builder.node(n);
+                                    }
+                                } else {
+                                    builder.node(n);
+                                }
+                                builder.finish()
+                            },
+                            annotations: Vec::new(),
                         });
                     }
                 }
             }
         }
+        // Pushed in reverse so the walk meets declarations in source order:
+        // two on one line (a variant's fields) keep that order after the
+        // stable sort by line.
         let mut c = n.walk();
-        for child in n.children(&mut c) {
+        let children: Vec<Node> = n.children(&mut c).collect();
+        for child in children.into_iter().rev() {
             stack.push((child, child_container.clone()));
         }
     }
     out.sort_by_key(|d| d.line);
+    for index in 0..out.len() {
+        if let Some((parent, _)) = out[..index]
+            .iter()
+            .enumerate()
+            .rev()
+            .find(|(_, candidate)| {
+                // A struct-like variant holds its fields, often on its own line.
+                let variant = candidate.kind == "property" && candidate.header.ends_with("{ … }");
+                (matches!(
+                    candidate.kind.as_str(),
+                    "impl" | "class" | "enum" | "interface"
+                ) && candidate.line < out[index].line
+                    || variant && candidate.line <= out[index].line)
+                    && candidate.end_line >= out[index].line
+            })
+        {
+            out[index].parent = Some(parent as u32);
+        }
+    }
     out
 }
 

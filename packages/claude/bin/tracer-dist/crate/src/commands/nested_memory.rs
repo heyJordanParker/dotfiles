@@ -31,8 +31,10 @@ fn resolve(p: &Path) -> Option<PathBuf> {
     p.canonicalize().ok()
 }
 
-/// Instruction files for a path, ordered root -> target. `directory_mode`
-/// skips path-conditional rules.
+/// Instruction files for a path, nearest first: the target directory's docs,
+/// then each parent's up to the repo root (each doc followed by its
+/// includes), then the user-global rules. `directory_mode` skips
+/// path-conditional rules.
 pub fn load_for_file(
     file_path: &Path,
     repo_root: &Path,
@@ -75,9 +77,12 @@ pub fn load_for_file(
     chain.reverse();
 
     let mut pass_dedupe: BTreeSet<String> = BTreeSet::new();
-    let mut results: Vec<LoadedMemory> = Vec::new();
+    // One group per directory, walked root first so dedupe keeps the
+    // outermost copy, then emitted nearest first.
+    let mut groups: Vec<Vec<LoadedMemory>> = Vec::new();
 
     for directory in &chain {
+        let mut results: Vec<LoadedMemory> = Vec::new();
         // Project-rules markdown candidates per ancestor. Two harness
         // conventions are recognized: Claude Code's `CLAUDE.md` / `Claude.md`
         // (plus the `.local.md` personal-overrides peer), and OpenAI's
@@ -142,7 +147,10 @@ pub fn load_for_file(
                 results.extend(inc);
             }
         }
+        groups.push(results);
     }
+    groups.reverse();
+    let mut results: Vec<LoadedMemory> = groups.into_iter().flatten().collect();
 
     // User-global rules (`~/.claude/rules`) split by scope. In directory mode
     // — the session-start `trace docs <cwd>` call — only unconditional rules
@@ -538,20 +546,12 @@ pub fn session_id() -> Option<String> {
         .or_else(|| std::env::var("CLAUDE_CODE_SESSION_ID").ok())
 }
 
-/// Render the nested-memory header block for `trace read` output.
+/// One doc as Markdown: its path as a heading, then its text whole.
+pub fn markdown(memory: &LoadedMemory) -> String {
+    format!("## {}\n\n{}\n", memory.relative_path, memory.content.trim())
+}
+
+/// Docs as Markdown, one `## <path>` section each.
 pub fn render(memories: &[LoadedMemory]) -> String {
-    if memories.is_empty() {
-        return String::new();
-    }
-    let mut blocks: Vec<String> = Vec::new();
-    for mem in memories {
-        let marker = if mem.large { " [LARGE]" } else { "" };
-        blocks.push(format!(
-            "=== {} · {}{} ({} chars) ===",
-            mem.relative_path, mem.kind, marker, mem.size
-        ));
-        blocks.push(mem.content.trim_end().to_string());
-        blocks.push(String::new());
-    }
-    blocks.join("\n").trim_end().to_string()
+    memories.iter().map(markdown).collect::<Vec<_>>().join("\n")
 }

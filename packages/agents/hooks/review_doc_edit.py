@@ -33,6 +33,7 @@ BINDING = {
     "events": {"PreToolUse": ["Write", "Edit", "MultiEdit"]},
     "harness": "all",
     "timeout": 120,
+    "standalone": True,
 }
 
 SYSTEM_PROMPT = (

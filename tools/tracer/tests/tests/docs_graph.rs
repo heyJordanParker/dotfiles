@@ -247,7 +247,10 @@ fn only_claude_rules_ancestor_documents_are_discovered() {
         .iter()
         .map(|node| node["path"].as_str().unwrap())
         .collect();
-    assert!(paths.contains(&".claude/rules/foo.md"), "missing Claude rule: {graph}");
+    assert!(
+        paths.contains(&".claude/rules/foo.md"),
+        "missing Claude rule: {graph}"
+    );
     assert!(
         !paths.contains(&"docs/rules/foo.md"),
         "a non-Claude rules document entered the graph: {graph}"

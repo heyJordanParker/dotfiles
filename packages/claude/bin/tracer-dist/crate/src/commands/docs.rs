@@ -1,13 +1,14 @@
 //! `trace docs` — project-docs surface: a `--graph` flag off the noun plus
-//! two sub-verbs (`load`, `status`).
+//! the `status`, `reset` and `prime` sub-verbs.
 //!
-//! - default (no flag, no sub-verb): the deduped project-docs set for a
-//!   path. Walks the full ancestor chain, partitions against the per-session
-//!   log, records only the newly-surfaced slice, and returns
-//!   `{ path, directory_scoped, docs[], doc_count, already_loaded[]? }`.
-//!   `docs[]` carries the freshly surfaced docs (with content); the optional
-//!   `already_loaded[]` carries the skipped slice (without content, with
-//!   per-entry source attribution) and is omitted when empty.
+//! - default (no flag, no sub-verb): the project docs for a path that are not
+//!   in the agent's context yet. Walks the full ancestor chain, nearest doc
+//!   first, and partitions it against the per-session log. As text, each doc
+//!   is a Markdown section (`## <path>` then its text), whole; docs that do
+//!   not fit `--budget` are named instead, and only the docs that printed are
+//!   recorded as loaded. Nothing prints when every doc is already loaded. As
+//!   JSON the new docs arrive whole, with the skipped slice in
+//!   `context.already_loaded`.
 //!
 //!   `--source` / `--triggering-tool` / `--triggering-command` flags let
 //!   hook callers stamp the log event with the calling
@@ -18,9 +19,6 @@
 //! - `--graph`: the whole-repo docs graph (doc-file nodes + `@include`
 //!   edges), built in memory per call, plus the "available but not loaded"
 //!   set computed against the session log when one is active.
-//! - `load`: thin alias forwarding to the default implementation with the
-//!   `--source` default flipped to `trace_docs_load`. Same shape, same
-//!   behavior; preserved as an explicit CLI verb for hook callers.
 //! - `status`: the agent-facing "what do I have right now?" query. With no
 //!   path argument returns the full session manifest (every loaded doc with
 //!   source attribution). With a path argument returns that path's ancestor
@@ -38,7 +36,7 @@ use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-/// Path-mode (the default) and load-mode share this implementation. The
+/// Path-mode, the default `trace docs <path>`. The
 /// chain is walked with no dedupe, then partitioned against the live
 /// log: new entries land in `docs[]` (with content);
 /// already-loaded entries land in `already_loaded[]` (without content, with
@@ -77,6 +75,14 @@ pub fn run(
         .into_iter()
         .partition(|m| !pre_loaded.contains(&m.path));
 
+    // JSON is whole, so every new doc arrives. Text sends whole docs, nearest
+    // first, while they fit the budget; a doc that does not fit is named and
+    // left unrecorded, so it is offered again rather than marked as read.
+    let (new_docs, not_sent) = if as_json {
+        (new_docs, Vec::new())
+    } else {
+        fit_whole(new_docs)
+    };
     session_log::record_emission(&new_docs, source);
 
     let already_loaded: Vec<Value> = skipped
@@ -119,11 +125,60 @@ pub fn run(
         json!({"docs": new_docs.len(), "skipped": already_loaded.len()}),
     );
 
-    if as_json {
-        return Ok(out);
+    if !as_json {
+        print!("{}", nested_memory::render(&new_docs));
+        if !not_sent.is_empty() {
+            println!("\n{NOT_SENT}");
+            for doc in &not_sent {
+                println!("{}", not_sent_line(doc));
+            }
+        }
     }
-    print_human(&new_docs, &already_loaded, &display, scope_dir);
     Ok(out)
+}
+
+const NOT_SENT: &str =
+    "Not sent, each longer than the room left here; read each whole with `trace read <path> --all`:";
+
+fn not_sent_line(doc: &nested_memory::LoadedMemory) -> String {
+    format!("- {} ({} chars)", doc.relative_path, doc.size)
+}
+
+/// Whole docs, nearest first, in the budget; the ones that do not fit come
+/// back separately to be named. Room for naming a doc is kept while it is
+/// unsent, so the names always fit, and a doc that fits once the others'
+/// names are settled is still sent.
+fn fit_whole(
+    docs: Vec<nested_memory::LoadedMemory>,
+) -> (Vec<nested_memory::LoadedMemory>, Vec<nested_memory::LoadedMemory>) {
+    let Some(budget) = crate::output::budget() else {
+        return (docs, Vec::new());
+    };
+    let size = |doc: &nested_memory::LoadedMemory| nested_memory::markdown(doc).len() + 1;
+    let name = |doc: &nested_memory::LoadedMemory| not_sent_line(doc).len() + 1;
+    let mut sent = vec![false; docs.len()];
+    loop {
+        let used: usize = docs.iter().zip(&sent).filter(|(_, &s)| s).map(|(d, _)| size(d)).sum();
+        let named: usize = docs.iter().zip(&sent).filter(|(_, &s)| !s).map(|(d, _)| name(d)).sum();
+        let mut room = budget.saturating_sub(used + named + NOT_SENT.len() + 2);
+        let mut grew = false;
+        for (index, doc) in docs.iter().enumerate() {
+            // Sending a doc frees the room its name held.
+            if !sent[index] && size(doc) <= room + name(doc) {
+                room = room + name(doc) - size(doc);
+                sent[index] = true;
+                grew = true;
+            }
+        }
+        if !grew {
+            break;
+        }
+    }
+    let (sent, not_sent): (Vec<_>, Vec<_>) = docs.into_iter().zip(sent).partition(|(_, s)| *s);
+    (
+        sent.into_iter().map(|(doc, _)| doc).collect(),
+        not_sent.into_iter().map(|(doc, _)| doc).collect(),
+    )
 }
 
 /// Status-mode: the agent-facing "what do I have right now?" query.
@@ -356,44 +411,6 @@ fn prior_source_map() -> BTreeMap<String, String> {
         }
     }
     out
-}
-
-fn print_human(
-    new_docs: &[nested_memory::LoadedMemory],
-    already_loaded: &[Value],
-    display: &str,
-    scope_dir: bool,
-) {
-    let mut header = format!("# docs · {display}");
-    if scope_dir {
-        header += " (directory-scoped)";
-    }
-    header += &format!(
-        " · docs {} · already_loaded {}",
-        new_docs.len(),
-        already_loaded.len()
-    );
-    println!("{header}");
-    if new_docs.is_empty() && already_loaded.is_empty() {
-        println!("  (no project docs for this path)");
-        return;
-    }
-    if !new_docs.is_empty() {
-        let block = nested_memory::render(new_docs);
-        if !block.is_empty() {
-            println!("{block}");
-        }
-    }
-    if !already_loaded.is_empty() {
-        println!();
-        println!("## already in context ({})", already_loaded.len());
-        for entry in already_loaded {
-            let path = entry["path"].as_str().unwrap_or("?");
-            let source = entry["source"].as_str().unwrap_or("?");
-            let size = entry["size"].as_i64().unwrap_or(0);
-            println!("  · {path}  (source: {source}, {size} chars)");
-        }
-    }
 }
 
 /// path -> latest source map, built from the loaded entries. Matches the

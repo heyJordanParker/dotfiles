@@ -82,7 +82,6 @@ fn session_status_reports_every_doc_loaded_so_far_with_source() {
     f.trace_env(
         &[
             "docs",
-            "load",
             "sub/util.py",
             "--source",
             "trace_inject_hook",
@@ -182,7 +181,6 @@ fn path_status_with_partial_load_partitions_correctly() {
     f.trace_env(
         &[
             "docs",
-            "load",
             ".",
             "--source",
             "trace_inject_hook",
@@ -229,7 +227,6 @@ fn path_status_with_everything_loaded_has_empty_not_loaded() {
     f.trace_env(
         &[
             "docs",
-            "load",
             "sub/util.py",
             "--source",
             "trace_inject_hook",
@@ -260,12 +257,8 @@ fn context_file_mode_appends_docs_hint_when_nothing_loaded() {
     r.ok();
     let combined = r.combined();
     assert!(
-        combined.contains("[docs: 0/2 in context"),
-        "context must surface `docs: 0/2 in context` for a path with two unloaded ancestors: {combined}"
-    );
-    assert!(
-        combined.contains("not loaded: Claude.md, sub/Claude.md"),
-        "context must name the unloaded ancestors: {combined}"
+        combined.contains("docs_not_loaded: [sub/Claude.md, Claude.md]"),
+        "context must name both unloaded ancestors, nearest first: {combined}"
     );
 }
 
@@ -279,7 +272,6 @@ fn context_file_mode_hint_reflects_partial_load() {
     f.trace_env(
         &[
             "docs",
-            "load",
             ".",
             "--source",
             "trace_inject_hook",
@@ -293,12 +285,8 @@ fn context_file_mode_hint_reflects_partial_load() {
     r.ok();
     let combined = r.combined();
     assert!(
-        combined.contains("[docs: 1/2 in context"),
-        "with root Claude.md loaded, hint must show 1/2: {combined}"
-    );
-    assert!(
-        combined.contains("not loaded: sub/Claude.md"),
-        "hint must name the still-unloaded ancestor: {combined}"
+        combined.contains("docs_not_loaded: [sub/Claude.md]"),
+        "with root Claude.md loaded, only the still-unloaded ancestor is named: {combined}"
     );
 }
 
@@ -311,7 +299,6 @@ fn context_file_mode_hint_omits_not_loaded_when_everything_in_context() {
     f.trace_env(
         &[
             "docs",
-            "load",
             "sub/util.py",
             "--source",
             "trace_inject_hook",
@@ -325,12 +312,8 @@ fn context_file_mode_hint_omits_not_loaded_when_everything_in_context() {
     r.ok();
     let combined = r.combined();
     assert!(
-        combined.contains("[docs: 2/2 in context"),
-        "with full chain loaded, hint must show 2/2: {combined}"
-    );
-    assert!(
-        !combined.contains("not loaded:"),
-        "hint must omit the `not loaded:` tail when nothing is missing: {combined}"
+        !combined.contains("docs_not_loaded"),
+        "with the full chain loaded, no doc is named as missing: {combined}"
     );
 }
 
@@ -507,7 +490,6 @@ fn doc_injected_but_never_read_file_reports_zero_coverage() {
     f.trace_env(
         &[
             "docs",
-            "load",
             ".",
             "--source",
             "trace_inject_hook",
@@ -525,10 +507,10 @@ fn doc_injected_but_never_read_file_reports_zero_coverage() {
     );
 }
 
-// --- `--no-record`: render the shoulder without recording a read -----------
+// --- `--no-record`: render the summary without recording a read ------------
 //
 // An Edit/Write touches a file but is not a read of it. The enrich hook fires
-// the same `trace context <file>` shoulder for those tools, but with
+// the same `trace context <file>` summary for those tools, but with
 // `--no-record` so the file's read coverage reflects only genuine reads — an
 // edit no longer masquerades as a whole-file read.
 
@@ -538,7 +520,7 @@ fn no_record_does_not_record_a_read() {
     let sid = fresh_session_id("cov-no-record");
     let env = [("CLAUDE_CODE_SESSION_ID", sid.as_str())];
 
-    // Simulate an Edit: render the file shoulder but skip the read-record.
+    // Simulate an Edit: render the file summary but skip the read-record.
     f.trace_env(&["context", &f.path("hundred.txt"), "--no-record"], &env)
         .ok();
 
@@ -582,7 +564,7 @@ fn context_batch_json_preserves_input_order_and_accounts_for_missing_paths() {
         "--no-record",
         "--json",
     ]);
-    r.ok();
+    r.code_is(2);
     let document = r.json();
     assert_eq!(
         document["query"]["paths"],
@@ -591,13 +573,15 @@ fn context_batch_json_preserves_input_order_and_accounts_for_missing_paths() {
     let rows = document["results"].as_array().expect("batch rows");
     assert_eq!(rows.len(), 3);
     assert_eq!(rows[0]["file"], "hundred.txt");
-    assert!(rows[0]["content"].as_str().unwrap().contains("[git:"));
+    assert!(rows[0]["content"].as_str().unwrap().starts_with("---\nfile: hundred.txt\n"));
     assert!(rows[0]["error"].is_null());
     assert_eq!(rows[1]["file"], "missing.txt");
     assert_eq!(rows[1]["content"], "");
     assert!(rows[1]["error"].as_str().unwrap().contains("unavailable"));
     assert_eq!(rows[2]["file"], "Claude.md");
-    assert!(rows[2]["content"].as_str().unwrap().contains("[git:"));
+    assert!(rows[2]["content"].as_str().unwrap().starts_with("---\nfile: Claude.md\n"));
+    assert_eq!(document["context"]["files"]["hundred.txt"]["lines"], 100);
+    assert!(document["context"]["files"]["Claude.md"]["git"].is_object());
     assert_eq!(
         document["counts"],
         serde_json::json!({"files": 3, "unavailable": 1})
@@ -691,9 +675,9 @@ fn context_without_a_path_still_prints_the_human_primer() {
 fn context_batch_human_labels_each_path_and_marks_unavailable_rows() {
     let f = coverage_repo();
     let r = f.trace(&["context", "hundred.txt", "missing.txt", "--no-record"]);
-    r.ok();
+    r.code_is(2);
     assert!(
-        r.stdout.contains("== hundred.txt ==\n[git:"),
+        r.stdout.contains("== hundred.txt ==\n---\nfile: hundred.txt\n"),
         "{}",
         r.stdout
     );
@@ -705,17 +689,17 @@ fn context_batch_human_labels_each_path_and_marks_unavailable_rows() {
 }
 
 #[test]
-fn no_record_still_renders_the_shoulder() {
+fn no_record_still_renders_the_facts() {
     let f = coverage_repo();
-    let sid = fresh_session_id("no-record-shoulder");
+    let sid = fresh_session_id("no-record-summary");
     let env = [("CLAUDE_CODE_SESSION_ID", sid.as_str())];
 
     let r = f.trace_env(&["context", &f.path("hundred.txt"), "--no-record"], &env);
     r.ok();
     let combined = r.combined();
     assert!(
-        combined.contains("[docs:"),
-        "an edit must still get the file's architectural shoulder (docs-awareness line): {combined}"
+        combined.contains("docs_not_loaded: [Claude.md]"),
+        "an edit must still get the file's facts, unloaded docs included: {combined}"
     );
 }
 

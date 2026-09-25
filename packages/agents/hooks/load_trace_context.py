@@ -11,6 +11,8 @@ BINDING = {
     "events": {"SessionStart": ["startup|resume|clear|compact"]},
     "timeout": 20,
     "harness": "all",
+    "standalone": True,
+    "additionalContextLimit": 0,
 }
 
 

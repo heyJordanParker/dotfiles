@@ -2,25 +2,24 @@
 """Ensure a `trace` command's target has its project docs in context.
 
 When the agent runs a path-taking `trace <subcmd> <path>` shell command, this
-loads that path's project docs via `trace docs` and injects them as a
+sends that path's project docs not yet in context, as Markdown, in a
 hookSpecificOutput.additionalContext envelope. Blocks the command (exit 2) if
 `trace docs` fails, so the agent never traces without project-docs context.
 Both harnesses run trace, so both run this. Never crashes.
 """
 
-import json
 import os
-import shutil
-import subprocess
 import sys
 
-from lib import feedback
+from lib import command, feedback, tracer
 from lib.event import field, read_event
 
 BINDING = {
     "events": {"PreToolUse": ["Bash"]},
     "harness": "all",
     "timeout": 15,
+    "standalone": True,
+    "additionalContextLimit": 0,
 }
 
 SOURCE = "inject_docs"
@@ -30,95 +29,41 @@ PATH_TAKING = {
 }
 
 
-def _resolve(target, cwd):
-    target = target.strip().strip('"').strip("'")
-    if not target:
-        return ""
-    if target.startswith("~"):
-        target = os.path.expanduser("~") + target[1:]
-    if not target.startswith("/"):
-        target = os.path.join(cwd, target)
-    return os.path.normpath(target)
-
-
-def _trace_docs(target, triggering_tool, env, triggering_command=None):
-    args = ["trace", "docs", target, "--source", SOURCE, "--triggering-tool", triggering_tool]
-    if triggering_command is not None:
-        args += ["--triggering-command", triggering_command]
-    args += ["--json"]
-    try:
-        r = subprocess.run(args, capture_output=True, text=True, timeout=10, env=env)
-        return r.returncode, r.stdout, r.stderr
-    except Exception:
-        return 1, "", ""
-
-
-def _doc_count(response):
-    """Freshly surfaced docs, at `counts.docs` of the trace document.
-
-    This gates the emit: a wrong key here reads as zero for every response,
-    and the trace command then runs with no project docs and nothing says so.
-    """
-    try:
-        return json.loads(response).get("counts", {}).get("docs", 0) or 0
-    except Exception:
-        return 0
-
-
-def _emit_json(response, event_name="PreToolUse"):
-    feedback.context("inject_docs", event_name, response)
+def _target(line, cwd):
+    """The path a `trace <subcmd> ...` command reads: its first argument that
+    exists on disk — `grep` and `pattern` take the pattern before their paths —
+    or the working directory. "" when the line runs no path-taking trace."""
+    for head, args in command.invocations(line) or []:
+        if head != "trace" or not args or args[0] not in PATH_TAKING:
+            continue
+        for arg in args[1:]:
+            path = tracer.resolve(arg, cwd) if not arg.startswith("-") else ""
+            if path and os.path.exists(path):
+                return path
+        return cwd
+    return ""
 
 
 def main():
-    if not shutil.which("trace"):
+    if not tracer.available():
         return 0
     event = read_event()
     cwd = field(event, "cwd", "") or os.getcwd()
-
-    # Hand trace the run's own session for its session log via AGENT_SESSION_ID,
-    # the harness-neutral carrier trace resolves first — on a local copy only,
-    # never mutating os.environ. CLAUDE_CODE_SESSION_ID is left untouched: on a
-    # codex run it carries the launching Claude session that owner_session reads
-    # to resolve the governing proposing/executing mode, so clobbering it would
-    # destroy the launcher identity the proposal/commit guards depend on.
-    env = dict(os.environ)
-    session_id = field(event, "session_id", "")
-    agent_id = field(event, "agent_id", "")
-    if session_id:
-        env["AGENT_SESSION_ID"] = session_id
-    if agent_id:
-        env["TRACER_AGENT_ID"] = agent_id
-
-    # Bash `trace` command — docs for the trace target; block on failure.
     command = field(event, "tool_input.command", "")
-    if not command:
+    target = _target(command, cwd) if command else ""
+    if not target:
         return 0
-    toks = command.split()
-    subcmd, pathtok = "", ""
-    for i, t in enumerate(toks):
-        if os.path.basename(t) == "trace":
-            subcmd = toks[i + 1] if i + 1 < len(toks) else ""
-            for j in range(i + 2, len(toks)):
-                if not toks[j].startswith("-"):
-                    pathtok = toks[j]
-                    break
-            break
-    if subcmd not in PATH_TAKING:
-        return 0
-    rp = _resolve(pathtok, cwd) if pathtok else ""
-    target = rp if (rp and os.path.exists(rp)) else cwd
-    rc, out, err = _trace_docs(target, "Bash", env, command)
+    rc, text, err = tracer.docs(event, target, SOURCE, "Bash", command)
     if rc != 0:
         return feedback.block(
-            "inject_docs",
+            SOURCE,
             "BLOCKED: project-docs load failed for: %s\n\n"
             "`trace docs \"%s\" ...` exited %d. The trace command is\n"
             "blocked so the agent does not run it without project-docs context.\n\n"
             "Underlying error:\n%s" % (target, target, rc, err)
         )
-    if not _doc_count(out):
-        return 0
-    _emit_json(out)
+    if text.strip():
+        feedback.context(SOURCE, "PreToolUse", text.strip())
     return 0
 
 

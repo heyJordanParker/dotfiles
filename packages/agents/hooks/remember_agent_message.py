@@ -27,6 +27,7 @@ BINDING = {
     "events": {"Stop": [], "SubagentStop": []},
     "timeout": 10,
     "harness": "all",
+    "standalone": True,
     "roots": "all",
 }
 

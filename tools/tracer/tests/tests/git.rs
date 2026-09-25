@@ -8,15 +8,20 @@
 
 use std::io::Write;
 use std::process::{Command, Stdio};
-use tracer_cli_tests::{normalize_age, standard_repo, Fixture};
+use tracer_cli_tests::{standard_repo, Fixture};
 
-fn info_shoulder(f: &Fixture, path: &str) -> String {
+/// The git facts `info` shows for one repo-relative path.
+fn info_git(f: &Fixture, path: &str) -> serde_json::Value {
     let value = f.trace(&["info", path, "--json"]).ok().view();
-    let file = value["file"].as_str().unwrap();
-    value["files"][file]["shoulder"]
-        .as_str()
-        .unwrap()
-        .to_string()
+    value["files"][path]["git"].clone()
+}
+
+/// The deploy branches a status document's facts name for `path`; none is `[]`.
+fn deploy_branches(document: &serde_json::Value, path: &str) -> serde_json::Value {
+    match &document["files"][path]["git"]["on_deploy_branches"] {
+        serde_json::Value::Null => serde_json::json!([]),
+        branches => branches.clone(),
+    }
 }
 
 #[test]
@@ -30,7 +35,7 @@ fn deployment_refs_are_observed_once_and_refresh_independently() {
 
     // Warm the HEAD-keyed history before any deployment ref exists, then hold
     // HEAD fixed while only live refs and working-tree state move.
-    info_shoulder(&f, "deployed.py");
+    info_git(&f, "deployed.py");
     for r#ref in [
         "refs/remotes/origin/production",
         "refs/remotes/origin/staging",
@@ -45,21 +50,21 @@ fn deployment_refs_are_observed_once_and_refresh_independently() {
 
     let row = |run: &tracer_cli_tests::Run| {
         run.ok();
-        let value = run.view();
-        value["results"]
+        run.view()
+    };
+    let assert_live = |document: &serde_json::Value, refs: &[&str]| {
+        let state = document["results"]
             .as_array()
             .unwrap()
             .iter()
             .find(|row| row["path"] == "deployed.py")
-            .cloned()
-            .expect("deployed.py status row")
-    };
-    let assert_live = |row: &serde_json::Value, refs: &[&str]| {
-        assert_eq!(row["state"], "modified", "working state changed: {row}");
+            .map(|row| row["state"].clone())
+            .expect("deployed.py status row");
+        assert_eq!(state, "modified", "working state changed: {document}");
         assert_eq!(
-            row["present_in"],
+            deploy_branches(document, "deployed.py"),
             serde_json::json!(refs),
-            "deployment presence changed incorrectly: {row}"
+            "deployment presence changed incorrectly: {document}"
         );
     };
 
@@ -170,15 +175,17 @@ fn deployment_presence_uses_the_observed_tip_when_the_ref_moves() {
 
     let rows = |run: &tracer_cli_tests::Run| {
         run.ok();
-        run.view()["results"].as_array().unwrap().clone()
+        run.view()
     };
-    let presence = |rows: &[serde_json::Value], path: &str| {
-        let row = rows
+    let presence = |document: &serde_json::Value, path: &str| {
+        let row = document["results"]
+            .as_array()
+            .unwrap()
             .iter()
             .find(|row| row["path"] == path)
-            .unwrap_or_else(|| panic!("missing status row for {path:?}: {rows:?}"));
+            .unwrap_or_else(|| panic!("missing status row for {path:?}: {document}"));
         assert_eq!(row["state"], "modified", "working state changed: {row}");
-        row["present_in"].clone()
+        deploy_branches(document, path)
     };
 
     let observed = rows(&f.trace_env(&["status", "--json"], &[("PATH", &path)]));
@@ -196,15 +203,15 @@ fn untracked_machine_paths_keep_tabs_newlines_and_unicode() {
     let path = "nested/café\tline\nbreak.py";
     f.write(path, "VALUE = 1\n");
 
-    let shoulder = info_shoulder(&f, path);
-    assert!(
-        shoulder.contains("git: untracked"),
-        "machine-readable porcelain lost the exact path: {shoulder}"
+    let untracked = info_git(&f, path);
+    assert_eq!(
+        untracked["status"], "untracked",
+        "machine-readable porcelain lost the exact path: {untracked}"
     );
     f.commit("commit machine path");
-    let historical = info_shoulder(&f, path);
-    assert!(
-        historical.contains("git: new (1 commit)"),
+    let historical = info_git(&f, path);
+    assert_eq!(
+        historical["commits"], 1,
         "NUL-delimited history lost the exact path: {historical}"
     );
 }
@@ -249,18 +256,20 @@ fn bounded_history_renders_commit_count_and_age_as_lower_bounds() {
     f.write("bounded.py", "VALUE = 4000\n");
     f.write("one.py", "VALUE = 4000\n");
 
-    let shoulder = info_shoulder(&f, "bounded.py");
-    assert!(
-        shoulder.contains("4000+ commits"),
-        "bounded history rendered as an exact count: {shoulder}"
+    let bounded = info_git(&f, "bounded.py");
+    assert_eq!(
+        (bounded["commits_at_least"].clone(), bounded["commits"].clone()),
+        (serde_json::json!(4000), serde_json::Value::Null),
+        "bounded history rendered as an exact count: {bounded}"
     );
     assert!(
-        shoulder.contains("age: ≥"),
-        "bounded history rendered an exact lifetime age: {shoulder}"
+        bounded["first_commit"].as_str().unwrap().starts_with("at least "),
+        "bounded history rendered an exact lifetime age: {bounded}"
     );
-    let one = info_shoulder(&f, "one.py");
-    assert!(
-        one.contains("git: untracked") && one.contains("churn: 1+ commit"),
+    let one = info_git(&f, "one.py");
+    assert_eq!(
+        (one["status"].clone(), one["commits_at_least"].clone()),
+        (serde_json::json!("untracked"), serde_json::json!(1)),
         "a one-entry history floor claimed the file was new: {one}"
     );
 }
@@ -282,22 +291,15 @@ fn shallow_graft_path_that_looks_like_a_header_cannot_frame_history() {
         let value = tracer_cli_tests::trace(&clone, ["info", path, "--json"])
             .ok()
             .view();
-        let file = value["file"].as_str().unwrap();
-        let shoulder = value["files"][file]["shoulder"]
-            .as_str()
-            .unwrap()
-            .to_string();
-        assert!(
-            shoulder.contains("git: no-history"),
-            "a skipped graft path framed history for {path:?}: {shoulder:?}"
+        let git = &value["files"][path]["git"];
+        assert_eq!(
+            git["commits"], 0,
+            "a skipped graft path framed history for {path:?}: {git}"
         );
+        assert!(git["main_author"].is_null(), "skipped graft attributed an owner: {git}");
         assert!(
-            !shoulder.contains("owner:"),
-            "skipped graft attributed an owner: {shoulder:?}"
-        );
-        assert!(
-            !shoulder.contains("together:"),
-            "skipped graft created co-change facts: {shoulder:?}"
+            git["usually_changed_with"].is_null(),
+            "skipped graft created co-change facts: {git}"
         );
     }
 }
@@ -706,6 +708,179 @@ fn diff_default_scope_is_the_whole_working_tree_with_lines() {
 }
 
 #[test]
+fn diff_before_the_first_commit_reports_every_file_as_added() {
+    let f = Fixture::new();
+    f.write("first.py", "VALUE = 1\n");
+    f.write("staged.py", "OTHER = 2\n");
+    f.git(&["add", "staged.py"]);
+
+    let r = f.trace(&["diff", "--json"]);
+    r.ok();
+    let mut rows: Vec<(String, String)> = r.view()["results"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| (row["path"].as_str().unwrap().to_string(), row["status"].as_str().unwrap().to_string()))
+        .collect();
+    rows.sort();
+    assert_eq!(
+        rows,
+        vec![("first.py".to_string(), "added".to_string()), ("staged.py".to_string(), "added".to_string())],
+        "{}",
+        r.stdout
+    );
+}
+
+#[test]
+fn diff_reports_annotated_declarations_touched_and_removed() {
+    let f = Fixture::new();
+    f.write(
+        "Cart.php",
+        "<?php\n#[Entity]\nclass Cart {\n    #[Field]\n    public string $billing;\n\n    #[Internal]\n    public function run(): string {\n        return 'old';\n    }\n\n    #[Internal]\n    public function old(): string {\n        return 'old';\n    }\n}\n",
+    );
+    f.write(
+        "Svc.php",
+        "<?php\nclass Svc {\n    #[Internal]\n    public function run(): string {\n        return 'old';\n    }\n\n    #[Internal]\n    public function old(): string {\n        return 'old';\n    }\n}\n",
+    );
+    f.commit("annotated declarations");
+    f.write(
+        "Cart.php",
+        "<?php\n#[Entity(label: 'changed')]\nclass Cart {\n    #[Field]\n    public string $billing = 'paid';\n\n    #[Internal]\n    public function run(): string {\n        return 'new';\n    }\n}\n",
+    );
+    f.write(
+        "Svc.php",
+        "<?php\nclass Svc {\n    #[Internal]\n    public function run(): string {\n        return 'new';\n    }\n}\n",
+    );
+    f.write("Added.php", "<?php\n#[Entity]\nclass Added {}\n");
+
+    let text = f.trace(&["diff"]);
+    text.ok();
+    assert!(
+        text.stdout
+            .contains("touches: L4 #[Internal] public function run(): string { … }")
+            && text
+                .stdout
+                .contains("touches: L5 #[Field] public string $billing = 'paid';")
+            && text
+                .stdout
+                .contains("touches: L3 #[Entity(label: 'changed')] class Cart { … }"),
+        "edits must name every touched declaration row:\n{}",
+        text.stdout
+    );
+    assert!(
+        text.stdout
+            .contains("removed: L9 #[Internal] public function old(): string { … }"),
+        "deleted method must be named by its row:\n{}",
+        text.stdout
+    );
+    assert!(
+        text.stdout
+            .contains("added: L3 #[Entity] class Added { … }"),
+        "added class must be named by its row:\n{}",
+        text.stdout
+    );
+
+    let json = f.trace(&["diff", "--json"]);
+    json.ok();
+    let rows = json.view()["results"].as_array().unwrap().clone();
+    let svc = rows.iter().find(|row| row["path"] == "Svc.php").unwrap();
+    assert!(svc["touches"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|row| row["name"] == "run"));
+    assert_eq!(svc["removed"][0]["name"], "old");
+}
+
+#[test]
+fn diff_json_file_context_omits_annotations() {
+    let f = Fixture::new();
+    f.write("changed.php", "<?php\n#[Entity]\nclass Changed {}\n");
+    f.commit("base change");
+    f.write("changed.php", "<?php\n#[Entity]\nclass Changed { public string $value = 'changed'; }\n");
+    let result = f.trace(&["diff", "changed.php", "--json"]);
+    result.ok();
+    let view = result.view();
+    let files = view["files"]
+        .as_object()
+        .unwrap_or_else(|| panic!("missing file context: {view:#?}"));
+    let file = files
+        .get("changed.php")
+        .unwrap_or_else(|| panic!("missing changed.php context: {files:#?}"));
+    assert!(file.get("annotations").is_none(), "{}", result.stdout);
+}
+
+#[test]
+fn diff_surfaces_changed_added_removed_and_touched_rows() {
+    let f = Fixture::new();
+    f.write(
+        "Contact.php",
+        "<?php\nclass Contact {\n    #[Bulk]\n    public function delete(string $id): void {}\n\n    public function save(string $first): void {}\n\n    public function removed(): void {}\n\n    public function touched(): void {\n        $value = 'remove me';\n    }\n}\n",
+    );
+    f.commit("contact methods");
+    f.write(
+        "Contact.php",
+        "<?php\nclass Contact {\n    #[Bulk(label: 'Delete')]\n    public function delete(string $id): void {}\n\n    public function save(string $last): void {}\n\n    public function added(): void {}\n\n    public function touched(): void {\n    }\n}\n",
+    );
+
+    let json = f.trace(&["diff", "--json"]);
+    json.ok();
+    let view = json.view();
+    let row = view["results"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["path"] == "Contact.php")
+        .expect("Contact.php diff row missing");
+    assert!(
+        row["changed"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|change| change["before"]["name"] == "delete"
+                && change["after"]["name"] == "delete")
+            && row["changed"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|change| change["before"]["name"] == "save"
+                    && change["after"]["name"] == "save"),
+        "{}",
+        json.stdout
+    );
+    assert!(
+        row["removed"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|declaration| declaration["name"] == "removed")
+            && row["added"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|declaration| declaration["name"] == "added")
+            && row["touches"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|declaration| declaration["name"] == "touched"),
+        "{}",
+        json.stdout
+    );
+
+    let text = f.trace(&["diff"]);
+    text.ok();
+    assert!(
+        text.stdout.contains("changed:")
+            && text.stdout.contains("removed:")
+            && text.stdout.contains("added:")
+            && text.stdout.contains("touches:"),
+        "{}",
+        text.stdout
+    );
+}
+
+#[test]
 fn diff_path_argument_scopes_to_one_file() {
     let f = standard_repo();
     f.write("src/util.py", "def helper(v):\n    return 0\n");
@@ -958,13 +1133,45 @@ fn status_orders_by_blast_radius_exactly() {
     let order: Vec<(&str, i64)> = entries
         .iter()
         .filter(|e| matches!(e["path"].as_str().unwrap(), "hub.py" | "mid.py" | "solo.py"))
-        .map(|e| (e["path"].as_str().unwrap(), e["callers"].as_i64().unwrap()))
+        .map(|e| {
+            let path = e["path"].as_str().unwrap();
+            (path, v["files"][path]["imported_by"].as_i64().unwrap())
+        })
         .collect();
     assert_eq!(
         order,
         vec![("hub.py", 2), ("mid.py", 1), ("solo.py", 0)],
         "blast-radius order wrong; full entries: {}",
         serde_json::to_string_pretty(entries).unwrap()
+    );
+}
+
+#[test]
+fn status_counts_only_non_ambiguous_imports() {
+    let f = Fixture::new();
+    f.write("one.py", "def one():\n    return 1\n");
+    f.write("two.py", "def two():\n    return 2\n");
+    f.write("a/shared.py", "def shared():\n    return 1\n");
+    f.write("b/shared.py", "def shared():\n    return 2\n");
+    f.write(
+        "changed.py",
+        "from one import one\nfrom two import two\nfrom shared import shared\n\ndef changed():\n    return one() + two() + shared()\n",
+    );
+    f.commit("three imports with one ambiguous target");
+    f.write(
+        "changed.py",
+        "from one import one\nfrom two import two\nfrom shared import shared\n\ndef changed():\n    return one() + two() + shared() + 1\n",
+    );
+
+    let status = f.trace(&["status", "--json"]);
+    status.ok();
+    let view = status.view();
+    let changed = &view["files"]["changed.py"];
+    assert_eq!(
+        changed["imports"].as_i64(),
+        Some(2),
+        "only the two resolved imports count: {}",
+        status.stdout
     );
 }
 
@@ -977,9 +1184,9 @@ fn status_orders_by_blast_radius_exactly() {
 //   2. `history` on the new path follows content across the rename: the
 //      rename_chain contains the old path, and the pre-rename commit is
 //      still in the count.
-//   3. The inline lifecycle shoulder (here via `status` after a further
+//   3. The inline lifecycle summary (here via `status` after a further
 //      working-tree edit, and via the settled `diff` row's
-//      passive_context) reflects the renamed state, not "new file".
+//      summary) reflects the renamed state, not "new file".
 
 fn repo_renamed_file() -> Fixture {
     let f = Fixture::new();
@@ -1052,11 +1259,29 @@ fn history_follows_content_across_rename() {
 }
 
 #[test]
-fn rename_lifecycle_shoulder_reflects_renamed_state() {
+fn staged_rename_keeps_history_in_history_and_context() {
+    let f = Fixture::new();
+    f.write("old_name.py", "VALUE = 1\n");
+    f.commit("add old name");
+    f.write("old_name.py", "VALUE = 2\n");
+    f.commit("change old name");
+    f.git(&["mv", "old_name.py", "new_name.py"]);
+
+    let history = f.trace(&["history", "new_name.py", "--json"]);
+    history.ok();
+    assert_eq!(history.view()["commits"], 2, "{}", history.stdout);
+
+    let context = f.trace(&["context", "new_name.py", "--json"]);
+    context.ok();
+    assert_eq!(context.view()["files"]["new_name.py"]["git"]["commits"], 2, "{}", context.stdout);
+}
+
+#[test]
+fn rename_lifecycle_summary_reflects_renamed_state() {
     let f = repo_renamed_file();
     f.trace(&["cache", "build", "."]).ok();
 
-    // Settled state: the diff row's passive_context shoulder must label
+    // Settled state: the diff row's summary must label
     // the file as renamed-from the old path, never as a fresh/new file.
     let r = f.trace(&["diff", "--base", "base-ref", "--json"]);
     r.ok();
@@ -1070,45 +1295,48 @@ fn rename_lifecycle_shoulder_reflects_renamed_state() {
         "the renamed file must be in the changed set: {}",
         r.stdout
     );
-    // The settled diff-row shoulder is fully deterministic for this
-    // hermetic fixture: renamed-from the prior path, local-only, churn of
-    // two commits (both within 30 days of the hermetic commit time), the
-    // carried-forward CCN of 2 (feature() has one `if`), the co-changed
-    // caller.py (touched in the same rename commit), the fixed hermetic
-    // author, and the rename commit's subject. The age component is
-    // normalized; the rest is pinned exactly — including the churn and
-    // changed-together fields the canonical shoulder now carries.
+    // The settled diff row's facts are fully deterministic for this
+    // hermetic fixture: renamed from the prior path, two commits (both
+    // recent) followed across the rename, the carried-forward complexity of
+    // 2 (feature() has one `if`), caller.py importing it and changed in the
+    // same rename commit, the fixed author, and the rename commit's subject.
+    let facts = &v["files"]["new_name.py"];
+    let git = &facts["git"];
+    assert_eq!(git["renamed_from"], "old_name.py", "{facts}");
+    assert_eq!(git["commits"], 2, "{facts}");
+    assert_eq!(git["commits_last_30_days"], 2, "{facts}");
+    assert_eq!(git["usually_changed_with"], serde_json::json!(["caller.py"]), "{facts}");
+    assert_eq!(git["main_author"], "Tracer Test", "{facts}");
+    assert!(
+        git["last_commit"].as_str().unwrap().ends_with("by Tracer Test: rename old_name -> new_name"),
+        "{facts}"
+    );
     assert_eq!(
-        normalize_age(v["files"]["new_name.py"]["shoulder"].as_str().unwrap()),
-        "[git: renamed-from old_name.py \u{00b7} age: <AGE> \u{00b7} presence: local-only \u{00b7} churn: 2 commits, 2/30d \u{00b7} loc: 4 \u{00b7} ccn: 2 low \u{00b7} together: caller.py \u{00b7} owner: Tracer Test \u{00b7} last: rename old_name -> new_name]",
-        "settled rename shoulder must be exact: {}",
-        v["files"]["new_name.py"]["shoulder"]
+        (facts["imported_by"].clone(), facts["imports"].clone(), facts["cyclomatic_complexity"].clone()),
+        (serde_json::json!(1), serde_json::json!(0), serde_json::json!(2)),
+        "{facts}"
     );
 
-    // Dirty state: a renamed-but-uncommitted move surfaces as the
-    // uncommitted-rename lifecycle label in the status shoulder.
     f.git(&["mv", "new_name.py", "third_name.py"]);
     let rs = f.trace(&["status", "--json"]);
     rs.ok();
     let sv = rs.view();
-    let renamed_entry = sv["results"]
+    let renamed_path = sv["results"]
         .as_array()
         .unwrap()
         .iter()
         .find(|e| e["state"] == "renamed")
-        .expect("uncommitted rename must appear in status as state=renamed");
-    // The uncommitted-rename status shoulder is likewise fully
-    // deterministic: renamed (uncommitted), local-only, churn of zero (the
-    // moved-but-uncommitted path has no commits of its own yet), the one
-    // incoming relation (caller.py imports feature), zero outgoing relations,
-    // carried CCN 2.
-    // No age and no changed-together on this path — pinned exactly.
-    assert_eq!(
-        renamed_entry["shoulder"].as_str().unwrap(),
-        "[git: renamed (uncommitted) \u{00b7} presence: local-only \u{00b7} churn: 0 commits, 0/30d \u{00b7} incoming: 1 \u{00b7} outgoing: 0 \u{00b7} loc: 4 \u{00b7} ccn: 2 low]",
-        "uncommitted-rename shoulder must be exact: {}",
-        renamed_entry["shoulder"]
-    );
+        .expect("uncommitted rename must appear in status as state=renamed")["path"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let renamed = &sv["files"][renamed_path.as_str()];
+    assert_eq!(renamed["git"]["status"], "renamed", "{renamed}");
+    assert_eq!(renamed["git"]["renamed_from"], "new_name.py", "{renamed}");
+    assert_eq!(renamed["git"]["commits"], 2, "{renamed}");
+    assert_eq!(renamed["git"]["usually_changed_with"], serde_json::json!(["caller.py"]), "{renamed}");
+    assert_eq!(renamed["imported_by"], 1, "{renamed}");
+    assert_eq!(renamed["cyclomatic_complexity"], 2, "{renamed}");
 }
 
 #[test]
@@ -1116,9 +1344,8 @@ fn status_clean_tree_reports_clean() {
     let f = standard_repo();
     let r = f.trace(&["status", "--json"]);
     r.ok();
-    let v = r.view();
-    assert_eq!(v["files"], 0);
-    assert!(v["results"].as_array().unwrap().is_empty());
+    assert_eq!(r.json()["counts"]["files"], 0);
+    assert!(r.view()["results"].as_array().unwrap().is_empty());
 }
 
 #[test]
@@ -1133,7 +1360,7 @@ fn status_lists_dirty_files_with_intelligence() {
     // The dirty set excludes tracer's self-ignored cache: src/util.py is
     // modified and newfile.py is untracked. status orders by blast radius.
     assert_eq!(
-        v["files"].as_i64().unwrap(),
+        r.json()["counts"]["files"],
         2,
         "dirty set must be exactly util.py + newfile.py: {}",
         r.stdout
@@ -1159,9 +1386,8 @@ fn status_lists_dirty_files_with_intelligence() {
     // The rewritten body `def helper(v): return v + 99` is one function
     // with no decision nodes — CCN exactly 1.
     assert_eq!(
-        modified["ccn_total"].as_i64().unwrap(),
-        1,
-        "rewritten branchless helper must have CCN exactly 1: {modified}"
+        v["files"]["src/util.py"]["cyclomatic_complexity"], 1,
+        "rewritten branchless helper must have complexity exactly 1: {modified}"
     );
 }
 
@@ -1252,7 +1478,7 @@ fn status_preserves_every_row_across_the_resolve_bound() {
     let v = r.view();
     let rows = v["results"].as_array().unwrap();
     assert_eq!(
-        v["files"], 515,
+        r.json()["counts"]["files"], 515,
         "every dirty row must survive: {}",
         r.stdout
     );
@@ -1268,16 +1494,16 @@ fn status_preserves_every_row_across_the_resolve_bound() {
     assert_eq!(row("fresh.py")["state"], "untracked");
     assert_eq!(row("file_002.py")["staging"], "partly staged");
     assert_eq!(row("file_003.py")["staging"], "staged");
-    assert_eq!(row("file_513.py")["ccn_total"], 1);
-    assert_eq!(row("file_513.py")["ccn_rank"], "low");
-    assert_eq!(row("file_513.py")["callers"], 0);
-    assert!(
-        row("file_513.py")["shoulder"]
-            .as_str()
-            .unwrap()
-            .contains("loc: 2 · ccn: 1 low"),
-        "last chunk must retain passive context: {}",
-        row("file_513.py")
+    let last = &v["files"]["file_513.py"];
+    assert_eq!(
+        serde_json::json!({
+            "lines": last["lines"],
+            "cyclomatic_complexity": last["cyclomatic_complexity"],
+            "complexity_rank": last["complexity_rank"],
+            "imported_by": last["imported_by"],
+        }),
+        serde_json::json!({"lines": 2, "cyclomatic_complexity": 1, "complexity_rank": "low", "imported_by": 0}),
+        "last chunk must retain its facts: {last}"
     );
 }
 
@@ -1389,7 +1615,7 @@ fn grep_at_ref_searches_a_commit_not_the_worktree() {
     f.write("app.py", "SECRET_TOKEN = None\n");
     f.commit("token removed");
 
-    let now = f.trace(&["grep", "'old'", "--path", ".", "--json"]);
+    let now = f.trace(&["grep", "'old'", ".", "--json"]);
     now.ok();
     assert_eq!(
         now.view()["matches"].as_i64().unwrap(),
@@ -1398,7 +1624,7 @@ fn grep_at_ref_searches_a_commit_not_the_worktree() {
         now.stdout
     );
 
-    let past = f.trace(&["grep", "'old'", "--path", ".", "--at", "HEAD~1", "--json"]);
+    let past = f.trace(&["grep", "'old'", ".", "--at", "HEAD~1", "--json"]);
     past.ok();
     let v = past.view();
     assert_eq!(v["matches"].as_i64().unwrap(), 1, "{}", past.stdout);

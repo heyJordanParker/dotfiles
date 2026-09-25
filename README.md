@@ -84,7 +84,8 @@ All 23 commands work from whichever binary the launcher resolves — there is no
 ```bash
 cd tools/tracer
 cargo build --release
-install -m 755 target/release/trace ~/.local/bin/trace
+install -m 755 target/release/trace ~/.local/bin/.trace.new
+mv -f ~/.local/bin/.trace.new ~/.local/bin/trace
 ```
 
 Tracer wraps five external binaries: `ast-grep`, `scc`, `universal-ctags`, `ripgrep`, `git`. Install whichever your platform needs:

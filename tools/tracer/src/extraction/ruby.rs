@@ -108,6 +108,44 @@ fn walk_declarations(root: Node, source: &[u8]) -> Vec<Declaration> {
             "singleton_method" => Some("function"),
             "class" => Some("class"),
             "module" => Some("interface"),
+            "call"
+                if n.child_by_field_name("receiver").is_none()
+                    && n.child_by_field_name("method").is_some_and(|method| {
+                        matches!(
+                            method.utf8_text(source).ok(),
+                            Some(
+                                "attr_reader"
+                                    | "attr_writer"
+                                    | "attr_accessor"
+                                    | "private"
+                                    | "protected"
+                                    | "public"
+                            )
+                        )
+                    }) =>
+            {
+                Some(
+                    if n.child_by_field_name("method").is_some_and(|method| {
+                        matches!(
+                            method.utf8_text(source).ok(),
+                            Some("private" | "protected" | "public")
+                        )
+                    }) {
+                        "statement"
+                    } else {
+                        "property"
+                    },
+                )
+            }
+            "identifier"
+                if n.parent().is_some_and(|parent| parent.kind() == "call")
+                    && matches!(
+                        n.utf8_text(source).ok(),
+                        Some("private" | "protected" | "public")
+                    ) =>
+            {
+                Some("statement")
+            }
             _ => None,
         };
         let mut child_container = container.clone();
@@ -117,6 +155,11 @@ fn walk_declarations(root: Node, source: &[u8]) -> Vec<Declaration> {
         if let Some(k) = kind {
             let name = match n.kind() {
                 "class" | "module" => constant_name(n, source),
+                "call" => n
+                    .child_by_field_name("method")
+                    .and_then(|method| method.utf8_text(source).ok())
+                    .map(|name| name.to_string()),
+                "identifier" => n.utf8_text(source).ok().map(str::to_string),
                 _ => n
                     .child_by_field_name("name")
                     .and_then(|nm| nm.utf8_text(source).ok())
@@ -125,11 +168,12 @@ fn walk_declarations(root: Node, source: &[u8]) -> Vec<Declaration> {
             if let Some(name) = name {
                 let line = n
                     .child_by_field_name("name")
+                    .or_else(|| n.child_by_field_name("method"))
                     .unwrap_or(n)
                     .start_position()
                     .row as i64
                     + 1;
-                let decl_container = if matches!(n.kind(), "method" | "singleton_method") {
+                let decl_container = if matches!(n.kind(), "method" | "singleton_method" | "call") {
                     container.clone()
                 } else {
                     None
@@ -138,8 +182,34 @@ fn walk_declarations(root: Node, source: &[u8]) -> Vec<Declaration> {
                     out.push(Declaration {
                         name,
                         kind: k.to_string(),
+                        header_line: line,
                         line,
+                        end_line: n.end_position().row as i64 + 1,
                         container: decl_container,
+                        parent: None,
+                        header: {
+                            let mut builder = crate::extraction::header::Builder::new(source);
+                            let mut cursor = n.walk();
+                            if n.kind() == "method"
+                                && source[n.start_byte()..n.end_byte()].contains(&b'=')
+                            {
+                                let equals = source[n.start_byte()..n.end_byte()]
+                                    .iter()
+                                    .position(|byte| *byte == b'=')
+                                    .map(|offset| n.start_byte() + offset)
+                                    .unwrap_or(n.end_byte());
+                                builder.slice(n.start_byte(), equals + 1).expression(n);
+                            } else if let Some(body) = n.child_by_field_name("body").or_else(|| {
+                                n.named_children(&mut cursor)
+                                    .find(|child| child.kind() == "body_statement")
+                            }) {
+                                builder.slice(n.start_byte(), body.start_byte()).block(body);
+                            } else {
+                                builder.node(n);
+                            }
+                            builder.finish()
+                        },
+                        annotations: Vec::new(),
                     });
                 }
             }
@@ -149,7 +219,40 @@ fn walk_declarations(root: Node, source: &[u8]) -> Vec<Declaration> {
             stack.push((child, child_container.clone()));
         }
     }
+    for (index, line) in String::from_utf8_lossy(source).lines().enumerate() {
+        let visibility = line.trim();
+        if matches!(visibility, "private" | "protected" | "public") {
+            let line = index as i64 + 1;
+            if seen.insert((visibility.to_string(), line)) {
+                out.push(Declaration {
+                    name: visibility.to_string(),
+                    kind: "statement".into(),
+                    header_line: line,
+                    line,
+                    end_line: line,
+                    container: None,
+                    parent: None,
+                    header: visibility.to_string(),
+                    annotations: Vec::new(),
+                });
+            }
+        }
+    }
     out.sort_by_key(|d| d.line);
+    for index in 0..out.len() {
+        if let Some((parent, _)) = out[..index]
+            .iter()
+            .enumerate()
+            .rev()
+            .find(|(_, candidate)| {
+                matches!(candidate.kind.as_str(), "class" | "interface")
+                    && candidate.line < out[index].line
+                    && candidate.end_line >= out[index].line
+            })
+        {
+            out[index].parent = Some(parent as u32);
+        }
+    }
     out
 }
 

@@ -14,11 +14,14 @@ mod jsonfmt;
 mod lang;
 mod memo;
 mod output;
-mod passive_context;
+mod summary;
 mod pathval;
 mod relations;
 mod repo_context;
 mod repo_files;
+mod surface;
+mod timing;
+mod yamlfmt;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
@@ -38,13 +41,20 @@ struct Cli {
     /// Requires --json. Replaces piping `trace ... --json | jq`.
     #[arg(long, global = true, value_name = "JQ")]
     filter: Option<String>,
+
+    /// Characters the text output fits in; detail is cut, never a file or
+    /// declaration, and the last line names the command for the rest.
+    /// 0 is unbounded.
+    #[arg(long, global = true, value_name = "CHARS", default_value_t = output::DEFAULT_BUDGET)]
+    budget: usize,
 }
 
 #[derive(Subcommand)]
 enum Command {
-    /// Complexity structure + architectural overview of a file or directory.
+    /// Complexity structure + architectural overview of files or directories.
     Info {
-        path: PathBuf,
+        #[arg(required = true)]
+        paths: Vec<PathBuf>,
         #[arg(long)]
         json: bool,
         #[arg(long)]
@@ -64,19 +74,55 @@ enum Command {
         #[command(subcommand)]
         command: CacheCommand,
     },
-    /// Methods, properties, variables, imports, and exports for one file.
+    /// Methods, properties, variables, imports, and exports for every file
+    /// named; a directory names the files under it.
     Structure {
-        path: PathBuf,
+        #[arg(required = true)]
+        paths: Vec<PathBuf>,
         #[arg(long)]
         json: bool,
     },
-    /// Text search via ripgrep with per-match architectural enrichment.
+    /// Text search via ripgrep, each match grouped under the declarations
+    /// that enclose it. Takes ripgrep's own flags.
     Grep {
-        pattern: String,
+        #[arg(required_unless_present = "regexp")]
+        pattern: Option<String>,
+        /// The pattern, as ripgrep's `-e` takes it: it may start with `-`,
+        /// and every positional argument is then a path.
+        #[arg(short = 'e', long = "regexp", value_name = "PATTERN", allow_hyphen_values = true)]
+        regexp: Option<String>,
+        /// Match case-insensitively.
+        #[arg(short = 'i', long)]
+        ignore_case: bool,
+        /// Each matching file once, with its facts.
         #[arg(short = 'l', long)]
-        lang: Option<String>,
-        #[arg(long, default_value = ".")]
-        path: String,
+        files_with_matches: bool,
+        /// Each matching file once, with its facts and match count.
+        #[arg(short = 'c', long)]
+        count: bool,
+        /// Lines shown either side of each match.
+        #[arg(short = 'C', long, value_name = "NUM", default_value_t = 0)]
+        context: usize,
+        /// Lines shown after each match, in place of `-C`'s.
+        #[arg(short = 'A', long = "after-context", value_name = "NUM")]
+        after_context: Option<usize>,
+        /// Lines shown before each match, in place of `-C`'s.
+        #[arg(short = 'B', long = "before-context", value_name = "NUM")]
+        before_context: Option<usize>,
+        /// Every match line is numbered; taken so ripgrep's `-n` works.
+        #[arg(short = 'n', long = "line-number")]
+        line_number: bool,
+        /// Let a match span lines.
+        #[arg(short = 'U', long)]
+        multiline: bool,
+        /// Only files of this type: a language name or any `rg --type-list` type.
+        #[arg(short = 't', long = "type", value_name = "TYPE")]
+        types: Vec<String>,
+        /// Only paths matching this glob; `!` excludes them.
+        #[arg(short = 'g', long = "glob", value_name = "GLOB")]
+        globs: Vec<String>,
+        /// Files and directories to search, as ripgrep takes them; `.` when none.
+        paths: Vec<String>,
         /// Search a commit instead of the working tree.
         #[arg(long = "at")]
         at: Option<String>,
@@ -110,13 +156,16 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
-    /// Structural (AST) search via ast-grep with per-match enrichment.
+    /// Structural (AST) search via ast-grep, each match grouped under the
+    /// declarations that enclose it.
     Pattern {
         pattern: String,
-        #[arg(short = 'l', long)]
-        lang: String,
-        #[arg(long, default_value = ".")]
-        path: String,
+        /// The language the pattern parses as.
+        #[arg(short = 't', long = "type", value_name = "TYPE")]
+        language: String,
+        /// Files and directories to search, as ast-grep takes them.
+        #[arg(default_value = ".")]
+        paths: Vec<String>,
         #[arg(long)]
         json: bool,
     },
@@ -161,7 +210,8 @@ enum Command {
     /// One-level directory listing from the filesystem: every file on disk
     /// (gitignored included) with stat, code, and git column groups.
     List {
-        path: PathBuf,
+        #[arg(required = true)]
+        paths: Vec<PathBuf>,
         #[arg(long = "all")]
         show_hidden: bool,
         /// Order files newest-first by filesystem mtime.
@@ -186,7 +236,7 @@ enum Command {
     Find {
         pattern: String,
         #[arg(default_value = ".")]
-        base: String,
+        bases: Vec<String>,
         #[arg(long = "path")]
         path_filter: Option<String>,
         #[arg(long = "exclude")]
@@ -204,8 +254,8 @@ enum Command {
     /// default, or the committed difference from `--base <ref>`.
     /// Load-bearing file first.
     Diff {
-        /// Limit to one file or directory.
-        path: Option<String>,
+        /// Limit to these files and directories.
+        paths: Vec<String>,
         /// Compare committed history against this ref instead of comparing
         /// the working tree against HEAD.
         #[arg(long)]
@@ -223,13 +273,13 @@ enum Command {
         state: Option<String>,
     },
     /// Project-docs surface: path-scoped deduped set (default), `--graph` for
-    /// the whole-repo docs graph, `load` for the hook-driven entrypoint
-    /// (thin alias for path-mode), or `status` for the session manifest.
+    /// the whole-repo docs graph, `status` for the session manifest, `reset`
+    /// to forget what was loaded, or `prime` to record what the harness loaded.
     #[command(args_conflicts_with_subcommands = true)]
     Docs {
         /// Path for the default path-mode (`trace docs <path>`) or for
         /// `--graph` (optional; defaults to the cwd's repo root). Replaced by
-        /// any present sub-verb (`load`, `status`).
+        /// any present sub-verb (`status`, `reset`, `prime`).
         path: Option<PathBuf>,
         /// Treat <path> as a directory even when it points at a file (path-mode only).
         #[arg(long = "directory")]
@@ -267,9 +317,9 @@ enum Command {
         /// Number of lines the read covered (the read tool's `limit`).
         #[arg(long)]
         limit: Option<usize>,
-        /// Render the file shoulder without recording a read. The enrich hook
+        /// Render the file summary without recording a read. The enrich hook
         /// sets this for Edit/Write — an edit gets the file's architectural
-        /// shoulder but is not a read, so it must not count toward per-file
+        /// summary but is not a read, so it must not count toward per-file
         /// read coverage.
         #[arg(long = "no-record")]
         no_record: bool,
@@ -331,28 +381,6 @@ enum Command {
 
 #[derive(Subcommand)]
 enum DocsCommand {
-    /// Hook entrypoint: thin alias forwarding to path-mode with the
-    /// `--source` default flipped to `trace_docs_load`. Returns the same
-    /// document as `trace docs <path>` — surfaced docs in `results`, the
-    /// dedupe-skipped set in `context.already_loaded`, the count in
-    /// `counts.docs` — so the calling hook reads one contract.
-    Load {
-        path: PathBuf,
-        /// Names the calling surface (e.g. `trace_inject_hook`, `agent_read`).
-        /// Lands verbatim in the log event's `source` field.
-        #[arg(long, default_value = "trace_docs_load")]
-        source: String,
-        /// Tool that triggered this load (Bash, Read, Glob, …). Recorded
-        /// on the log event for downstream auditing.
-        #[arg(long = "triggering-tool")]
-        triggering_tool: Option<String>,
-        /// Command string that triggered this load (the agent's Bash
-        /// invocation, the Read file_path, etc.).
-        #[arg(long = "triggering-command")]
-        triggering_command: Option<String>,
-        #[arg(long)]
-        json: bool,
-    },
     /// Agent-facing "what do I have right now?" query against the session
     /// log. No path arg → the full session manifest with source
     /// attribution. With a path arg → that path's ancestor chain
@@ -375,17 +403,14 @@ enum DocsCommand {
         #[arg(long)]
         json: bool,
     },
-    /// Record the harness's auto-loaded docs into the session log so
-    /// subsequent tracer emissions skip docs the agent already has in
-    /// context. Invoked by the SessionStart / post-compact hook.
+    /// Record docs the harness put in the agent's context, so later tracer
+    /// output skips them: the named files (Claude Code's InstructionsLoaded
+    /// hook), or with none, the chain the harness loads at session start
+    /// (codex's SessionStart hook).
     Prime {
-        #[arg(long, value_parser = ["session_start", "post_compact"])]
+        files: Vec<PathBuf>,
+        #[arg(long, value_parser = ["session_start", "post_compact"], default_value = "session_start")]
         reason: String,
-        /// Path to the observed-set JSON (or `-` for stdin). When set,
-        /// drift between the docs primer's prediction and Claude Code's
-        /// actual auto-load is detected and recorded into the session log.
-        #[arg(long = "observed-from", value_name = "PATH")]
-        observed_from: Option<String>,
         #[arg(long)]
         json: bool,
     },
@@ -412,12 +437,32 @@ enum CacheCommand {
     },
 }
 
+/// The most threads one tracer process uses. Many agents call tracer at
+/// once, and a call that took every core made them fight each other.
+const THREADS: usize = 8;
+
 fn main() -> Result<()> {
+    let started = timing::start();
+    // rayon's pool holds the process's thread count; the file-stamping
+    // workers, ripgrep and ast-grep read it back from
+    // `rayon::current_num_threads()`.
+    let cores = std::thread::available_parallelism().map_or(1, |count| count.get());
+    let _ = rayon::ThreadPoolBuilder::new().num_threads(cores.min(THREADS)).build_global();
+    let result = run();
+    timing::total(started);
+    if result.is_ok() && pathval::missing() {
+        std::process::exit(2);
+    }
+    result
+}
+
+fn run() -> Result<()> {
     let cli = Cli::parse();
+    output::set_budget(cli.budget);
     let filter = cli.filter.as_deref();
     match cli.command {
-        Command::Info { path, json, brief } => {
-            output::run_value(json, filter, || commands::info::run(&path, json, brief))
+        Command::Info { paths, json, brief } => {
+            output::run_value(json, filter, || commands::info::run(&paths, json, brief))
         }
         Command::Doctor => {
             output::guard(false, filter)?;
@@ -439,17 +484,43 @@ fn main() -> Result<()> {
                 commands::cache::stats(Path::new("."), json)
             }),
         },
-        Command::Structure { path, json } => {
-            output::run_value(json, filter, || commands::structure::run(&path, json))
+        Command::Structure { paths, json } => {
+            output::run_value(json, filter, || commands::structure::run(&paths, json))
         }
         Command::Grep {
             pattern,
-            lang,
-            path,
+            regexp,
+            ignore_case,
+            files_with_matches,
+            count,
+            context,
+            after_context,
+            before_context,
+            line_number: _,
+            multiline,
+            types,
+            globs,
+            paths,
             at,
             json,
         } => output::run_streamed(json, filter, |sink| {
-            commands::grep::run(&pattern, lang.as_deref(), &path, at.as_deref(), json, sink)
+            let (pattern, mut paths) = match regexp {
+                Some(regexp) => (regexp, pattern.into_iter().chain(paths).collect()),
+                None => (pattern.unwrap_or_default(), paths),
+            };
+            if paths.is_empty() {
+                paths.push(".".to_string());
+            }
+            let options = commands::grep::Options {
+                ignore_case,
+                files_only: files_with_matches || count,
+                before: before_context.unwrap_or(context),
+                after: after_context.unwrap_or(context),
+                multiline,
+                types,
+                globs,
+            };
+            commands::grep::run(&pattern, &paths, at.as_deref(), &options, json, sink)
         }),
         Command::Logs {
             pattern,
@@ -474,11 +545,11 @@ fn main() -> Result<()> {
         }),
         Command::Pattern {
             pattern,
-            lang,
-            path,
+            language,
+            paths,
             json,
         } => output::run_streamed(json, filter, |sink| {
-            commands::pattern::run(&pattern, &lang, &path, json, sink)
+            commands::pattern::run(&pattern, &language, &paths, json, sink)
         }),
         Command::Defines { symbol, json } => {
             output::run_value(json, filter, || commands::defines::run(&symbol, json))
@@ -523,20 +594,20 @@ fn main() -> Result<()> {
             )
         }),
         Command::List {
-            path,
+            paths,
             show_hidden,
             recent,
             limit,
             json,
         } => output::run_value(json, filter, || {
-            commands::list_::run(&path, show_hidden, recent, limit, json)
+            commands::list_::run(&paths, show_hidden, recent, limit, json)
         }),
         Command::Tree { path, depth, json } => {
             output::run_value(json, filter, || commands::tree::run(&path, depth, json))
         }
         Command::Find {
             pattern,
-            base,
+            bases,
             path_filter,
             excludes,
             type_filter,
@@ -546,7 +617,7 @@ fn main() -> Result<()> {
         } => output::run_value(json, filter, || {
             commands::find::run(
                 &pattern,
-                &base,
+                &bases,
                 path_filter,
                 excludes,
                 type_filter,
@@ -556,12 +627,12 @@ fn main() -> Result<()> {
             )
         }),
         Command::Diff {
-            path,
+            paths,
             base,
             symbol_mode,
             json,
         } => output::run_value(json, filter, || {
-            commands::diff::run(path.as_deref(), base.as_deref(), symbol_mode, json)
+            commands::diff::run(&paths, base.as_deref(), symbol_mode, json)
         }),
         Command::Status { json, state } => output::run_value(json, filter, || {
             commands::status::run(json, state.as_deref())
@@ -576,35 +647,15 @@ fn main() -> Result<()> {
             json,
             command,
         } => match command {
-            Some(DocsCommand::Load {
-                path,
-                source,
-                triggering_tool,
-                triggering_command,
-                json,
-            }) => output::run_value(json, filter, || {
-                commands::docs::run(
-                    &path,
-                    false,
-                    &source,
-                    triggering_tool.as_deref(),
-                    triggering_command.as_deref(),
-                    json,
-                )
-            }),
             Some(DocsCommand::Status { path, json }) => output::run_value(json, filter, || {
                 commands::docs::run_status(path.as_deref(), json)
             }),
             Some(DocsCommand::Reset { source, json }) => {
                 output::run_value(json, filter, || commands::docs::run_reset(&source, json))
             }
-            Some(DocsCommand::Prime {
-                reason,
-                observed_from,
-                json,
-            }) => output::run_value(json, filter, || {
+            Some(DocsCommand::Prime { files, reason, json }) => output::run_value(json, filter, || {
                 let parsed = commands::docs_prime::parse_reason(&reason)?;
-                commands::docs_prime::run(parsed, observed_from.as_deref(), json)
+                commands::docs_prime::run(parsed, &files, json)
             }),
             None if graph => output::run_value(json, filter, || {
                 commands::docs::run_graph(path.as_deref(), json)

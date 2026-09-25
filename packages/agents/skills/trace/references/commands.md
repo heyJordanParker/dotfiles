@@ -5,7 +5,7 @@ Use this Reference when selecting an exact `trace` command, flag, JSON shape, do
 ## 1. Use the command catalog
 
 ### Start with the narrowest command that answers the question
-Do not run a broad command and filter it outside trace.
+Do not run a broad command and filter it outside trace. Every command takes the global `--budget <chars>` (24,000 by default, 0 unbounded) and, with `--json`, the global `--filter '<jq expression>'`.
 
 Template:
   ```bash
@@ -15,11 +15,11 @@ Template:
   trace cache clear [--all]
   trace context
   trace context <paths...> [--directory] [--offset N] [--limit N] [--no-record]
-  trace docs prime --reason session_start|post_compact [--observed-from PATH|-]
-  trace list <dir> [--all] [--recent] [--limit N]
+  trace docs prime [<files...>] [--reason session_start|post_compact]
+  trace list <dirs...> [--all] [--recent] [--limit N]
   trace tree <path> [--depth N]
-  trace info <path> [--brief]
-  trace structure <file>
+  trace info <paths...> [--brief]
+  trace structure <paths...>
   trace defines <symbol>
   trace callers <symbol> [--limit N]
   trace dependencies <symbol> [--depth N]
@@ -27,55 +27,57 @@ Template:
   trace usages <symbol> [--depth N]
   trace usages --path <path> [--limit N]
   trace stats [<path>]
-  trace grep <pattern> [-l <lang>] [--path <path>] [--at <ref>]
-  trace pattern <pattern> -l <lang> [--path <path>]
+  trace grep <pattern | -e pattern> [paths...] [-i] [-l] [-c] [-C N] [-A N] [-B N] [-U] [-t <type>]... [-g <glob>]... [--at <ref>]
+  trace pattern <pattern> -t <type> [paths...]
   trace logs [<pattern>] [--path <p>] [--file <glob>] [--since <when>] [--until <when>] [--around N] [--limit N]
-  trace find <pattern> [<base>] [--path <p>] [--exclude <p>]... [--type f|d] [--limit N] [--sort complexity|recent|path]
+  trace find <pattern> [bases...] [--path <p>] [--exclude <p>]... [--type f|d] [--limit N] [--sort complexity|recent|path]
   trace read <paths...> [--method <name>] [--at <ref>] [--lines L1:L2] [--between START END] [--diff] [--raw] [--all] [--docs]
   trace docs <path> [--directory] [--source <s>] [--triggering-tool <t>] [--triggering-command <c>]
   trace docs <path> --graph
-  trace docs load <path> [--source <s>] [--triggering-tool <t>] [--triggering-command <c>]
   trace docs status [<path>]
   trace docs reset [--source <s>]
-  trace diff [<path>] [--base <ref>] [--symbols]
+  trace diff [paths...] [--base <ref>] [--symbols]
   trace status [--state added|renamed|modified|deleted|untracked]
   trace history [<file>] [<symbol>] [--contains <pattern>] [--regex] [--commit <ref>]
   trace blame <file> [<symbol>] [--lines L1:L2]
   ```
 
-### Every value command supports in-process filtering
-Use `--json --filter '<jq expression>'`. The filter requires `--json`.
-Never: pipe to `jq`.
+IF a trace call is slower than expected:
+### Time its phases with `TRACE_TIMING=1`
+`TRACE_TIMING=1 trace <cmd>` prints one line per phase to stderr in microseconds — the freshness sweep, each decoded cache entry by key, every git subprocess as `timing git <first two args>`, facts, render, and total. Stdout is unchanged.
+Example: a warm `TRACE_TIMING=1 trace context <file>` prints `timing git status`, `timing git rev-parse HEAD`, and `timing git for-each-ref`, and no `ls-files` or `show-toplevel` line.
 
 IF passing more than one path to `trace context`:
 ### Add `--no-record`
 Multiple paths require `--no-record` and cannot combine with `--directory`, `--offset`, or `--limit`.
 
-## 2. Match common questions to commands
+IF a path argument names a path that does not exist:
+### Read the error, then the rest of the answer
+The missing path is named on stderr, every other path still answers, and the command exits 2, as ripgrep does.
 
-### Use centrality commands for Architecture questions
-`trace usages --path <path>` finds the most-depended-on files. `trace dependencies --path <path>` finds the highest-coupling files.
+## 2. Know each command's edge cases
 
-### Use symbol commands for relationship questions
-`trace usages X --depth N` finds what depends on X. `trace dependencies X --depth N` finds what X depends on. `trace callers X` finds direct use sites. `trace defines X` finds definitions.
-
-### Use orientation commands for unfamiliar code
-Start with `trace context`, then `trace stats`, then `trace list`, `trace tree`, `trace info`, or `trace structure`.
-
-### Use search commands by match type
-Use `trace grep` for text in code, `trace logs` for text in a log file, `trace pattern` for structural search, and `trace find` for basenames and full-path globs.
+### `-t` takes a language name or any `rg --type-list` type
+`trace grep -t` and `trace pattern -t` name the same languages. An unknown type exits 2 and names the accepted ones, never an empty result.
 
 IF a search backend fails to run:
 ### Expect a nonzero exit, not an empty match
-`grep`, `pattern`, and `grep --at` exit nonzero and name the failed backend when the search process itself fails; a genuine no-match still exits zero with the ordinary four-slot document.
+`grep`, `pattern`, and `grep --at` exit nonzero and name the failed backend when the search process itself fails; a genuine no-match prints `(no matches)` and exits zero.
 
-### Use history commands for why and ownership
-Use `trace diff` for changed files, `trace status` for dirty files by blast radius, `trace history` for file or symbol history, and `trace blame` for function or line ownership.
+### Take a `trace diff` row's declaration groups from its four arrays
+`--json` carries `changed`, `removed`, `added`, and `touches` on the row. `changed` holds a `{before, after}` pair of surface rows; the other three hold surface rows. The hunk ranges come from a `--unified=0` pass, not the rendered lines.
 
-## 3. Use `trace docs` payloads correctly
+### Check a declaration's classification with `trace structure --json`
+`results.symbols_by_kind` groups the files' surface rows by `kind`, each row carrying its `file`, `node_id`, and `annotations`; `results.imports` and `results.exports` carry their `file` too, so one file and many share one shape.
 
-### `trace docs <path>` surfaces ancestor docs once per session
-`results` is the freshly surfaced slice with content, `counts.docs` is its size, and the dedupe-skipped slice sits at `context.already_loaded` with a per-entry source.
+IF asking who calls a property:
+### Run `trace defines` instead
+`callers` and `usages` on a property exit 2 with `a property has readers, not callers; tracer does not extract reads`.
+
+## 3. Use `trace docs` correctly
+
+### `trace docs <path>` sends the docs not yet loaded, nearest first
+Text is Markdown: `## <path>` and the whole document, nearest directory first. A doc longer than the room left under `--budget` is named with `trace read <path> --all` and not recorded, so it is offered again. Nothing prints when every doc is already loaded. `--json` returns every doc whole and records them all.
 
 Template:
   ```json
@@ -83,13 +85,13 @@ Template:
     "query": {
       "path": "relative/path",
       "directory_scoped": false,
-      "source": "calling_surface",
+      "source": "trace_docs",
       "triggering_tool": "Bash",
       "triggering_command": "trace read relative/path"
     },
     "context": {
       "already_loaded": [
-        { "path": "packages/agents/Claude.md", "kind": "claude_md", "size": 15388, "large": false, "source": "trace_inject_hook" }
+        { "path": "packages/agents/Claude.md", "kind": "claude_md", "size": 15388, "large": false, "source": "inject_docs" }
       ]
     },
     "results": [
@@ -98,6 +100,9 @@ Template:
     "counts": { "docs": 1, "skipped": 1 }
   }
   ```
+
+### `trace docs prime` records what the harness loaded
+With files it records exactly those files as loaded, source `instructions_loaded`. With no file it records the root-to-cwd `Claude.md` chain.
 
 ### `trace docs <path> --graph` projects the docs graph
 The path is optional with `--graph`; it defaults to the repository root for the current working directory.
@@ -121,10 +126,7 @@ Template:
   ```
 
 ### `trace docs status` is a pure read
-Without a path it returns the session manifest: `results.loaded[]`, with `session_active` and `by_source` in `context` and the count in `counts`. Each loaded entry includes `total_lines`, `lines_read`, and `read_fraction`; a doc-injected file never read has `read_fraction: 0.0`. With a path it partitions the ancestor chain into `loaded` and `not_loaded`.
-
-### `trace docs load` is hook-facing
-It forwards to path mode and uses `--source trace_docs_load` by default. `inject_docs.py` invokes path mode with `--source trace_inject_hook`.
+Without a path it returns the session manifest: `results.loaded[]`, with `session_active` and `by_source` in `context` and the count in `counts`. Each loaded entry includes `total_lines`, `lines_read`, and `read_fraction`; a doc-injected file never read has `read_fraction: 0.0`. With a path it partitions the ancestor chain into `loaded` and `not_loaded`, nearest first.
 
 ## 4. Use `trace logs` for logs
 
@@ -145,31 +147,22 @@ Pass `--docs` to load ancestor docs. There is no `--no-docs` flag because direct
 ### `--raw` skips cleaning
 Default reads strip generated banners, decorative separators, runs of blank lines, and prefix preserved lines with `L<n>:`.
 
-### Continue a trimmed read by running the command its marker prints
-Every read carries a size budget. A read past it is cut at a whole line and ends with a marker naming the next window.
-
-- The marker reads `[trimmed at L<n> of <total> — continue: trace read <file> --lines <n+1>:<end>]`.
-- The marker sits inside the content stream and survives `--raw`.
-- The budget applies to each file of a multi-file read separately.
-- `--all` returns every line of the selection with no marker.
-- `--json` carries `truncated`, `shown_lines` as `[first, last]`, and `total_lines` on every read.
+### Several files share one budget
+Each file of a multi-file read gets an even share of `--budget`, and a read cut at its share ends with its own trim marker. The marker sits inside the content stream and survives `--raw`. `--json` carries `truncated`, `shown_lines` as `[first, last]`, and `total_lines` on every read.
 
 ### `--at` reads a git ref
 Use `--diff` with `--at` to append a symbol-level diff of added, removed, and changed top-level exports.
 
-## 6. Interpret passive-Context shoulders
+## 6. Take facts from the JSON document
 
-### The shoulder has two lines when docs awareness is available
-The first line carries lifecycle and complexity; the second line carries docs Context coverage.
+### Take a file's facts from `context.files[<path>]`
+The keys are the front matter's: `file`, `lines`, `cyclomatic_complexity`, `complexity_rank`, `imported_by`, `imports`, and `git` with `status`, `renamed_from`, `commits` (or `commits_at_least` when the history walk stopped at its cap), `commits_last_30_days`, `first_commit`, `last_commit`, `on_deploy_branches`, `usually_changed_with`, and `main_author`. `git.status` is `unmodified`, `modified`, `added`, `renamed`, `deleted`, or `untracked`; a file outside any git repository carries no `git`.
 
-Template:
-  ```text
-  [git: <state> · age: <age> · presence: <branches|local-only> · churn: N commits, N/30d · callers: N · dependents: N · loc: N · ccn: <total> <rank> · together: <files> · owner: <name> · last: <subject>]
-  [docs: M/N in Context · not loaded: <path>, <path>]
-  ```
+### Take the surface from `context.files[<path>].surface[]`
+Each row is `{header_line, line, end_line, kind, name, container, parent, header, annotations, cyclomatic_complexity}`. `parent` is the index of the row that holds it in the same array. The batch form `trace context <paths...> --no-record --json` keeps the rendered text per file, surface included, in `results[].content`.
 
-### Lifecycle labels are ordered by confidence
-Labels include `untracked`, `added (uncommitted)`, `renamed (uncommitted)`, `modified (new file)`, `modified (N commits)`, `renamed-from <path>`, `no-history`, `new (1 commit)`, and `N commits`. Presence names deploy branches such as `main` or `production`; `local-only` means no tracked branch reaches the file.
+### Take a search hit's declarations from the result row itself
+A `grep` or `pattern` row carries `declaration` and `type` as whole surface rows, so nothing joins back to `context.files`. A `-C` row adds `before` and `after`.
 
 ## 7. Know which project docs trace recognizes
 

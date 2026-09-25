@@ -123,14 +123,21 @@ fn walk_declarations(root: Node, source: &[u8]) -> Vec<Declaration> {
             "class_declaration" => Some("class"),
             "interface_declaration" => Some("interface"),
             "enum_declaration" => Some("enum"),
+            "record_declaration" => Some("class"),
+            "annotation_type_declaration" => Some("interface"),
             "method_declaration" => Some("function"),
             "constructor_declaration" => Some("function"),
+            "field_declaration" => Some("property"),
             _ => None,
         };
         let mut child_container = container.clone();
         if matches!(
             n.kind(),
-            "class_declaration" | "interface_declaration" | "enum_declaration"
+            "class_declaration"
+                | "interface_declaration"
+                | "enum_declaration"
+                | "record_declaration"
+                | "annotation_type_declaration"
         ) {
             child_container = n
                 .child_by_field_name("name")
@@ -139,21 +146,59 @@ fn walk_declarations(root: Node, source: &[u8]) -> Vec<Declaration> {
                 .or_else(|| container.clone());
         }
         if let Some(k) = kind {
-            if let Some(name_node) = n.child_by_field_name("name") {
+            if let Some(name_node) = n.child_by_field_name("name").or_else(|| {
+                if n.kind() == "field_declaration" {
+                    let mut cursor = n.walk();
+                    let name = n
+                        .named_children(&mut cursor)
+                        .find(|child| child.kind() == "variable_declarator")
+                        .and_then(|declarator| declarator.child_by_field_name("name"));
+                    name
+                } else {
+                    None
+                }
+            }) {
                 if let Ok(name) = name_node.utf8_text(source) {
                     let line = name_node.start_position().row as i64 + 1;
-                    let decl_container =
-                        if matches!(n.kind(), "method_declaration" | "constructor_declaration") {
-                            container.clone()
-                        } else {
-                            None
-                        };
+                    let decl_container = if matches!(
+                        n.kind(),
+                        "method_declaration" | "constructor_declaration" | "field_declaration"
+                    ) {
+                        container.clone()
+                    } else {
+                        None
+                    };
                     if seen.insert((name.to_string(), line)) {
                         out.push(Declaration {
                             name: name.to_string(),
                             kind: k.to_string(),
+                            header_line: line,
                             line,
+                            end_line: n.end_position().row as i64 + 1,
                             container: decl_container,
+                            parent: None,
+                            header: {
+                                let mut builder = crate::extraction::header::Builder::new(source);
+                                if n.kind() == "field_declaration" {
+                                    let mut cursor = n.walk();
+                                    if let Some(declarator) = n
+                                        .named_children(&mut cursor)
+                                        .find(|child| child.kind() == "variable_declarator")
+                                    {
+                                        builder
+                                            .slice(n.start_byte(), declarator.end_byte())
+                                            .slice(n.end_byte() - 1, n.end_byte());
+                                    } else {
+                                        builder.node(n);
+                                    };
+                                } else if let Some(body) = n.child_by_field_name("body") {
+                                    builder.slice(n.start_byte(), body.start_byte()).block(body);
+                                } else {
+                                    builder.node(n);
+                                }
+                                builder.finish()
+                            },
+                            annotations: java_annotations(n, source),
                         });
                     }
                 }
@@ -165,7 +210,38 @@ fn walk_declarations(root: Node, source: &[u8]) -> Vec<Declaration> {
         }
     }
     out.sort_by_key(|d| d.line);
+    for index in 0..out.len() {
+        if let Some((parent, _)) = out[..index]
+            .iter()
+            .enumerate()
+            .rev()
+            .find(|(_, candidate)| {
+                matches!(candidate.kind.as_str(), "class" | "interface" | "enum")
+                    && candidate.line < out[index].line
+                    && candidate.end_line >= out[index].line
+            })
+        {
+            out[index].parent = Some(parent as u32);
+        }
+    }
     out
+}
+
+fn java_annotations(node: Node, source: &[u8]) -> Vec<String> {
+    let mut cursor = node.walk();
+    node.children(&mut cursor)
+        .filter(|child| child.kind() == "marker_annotation" || child.kind() == "annotation")
+        .map(|annotation| {
+            let source = annotation.utf8_text(source).unwrap_or("").to_string();
+            let name = source
+                .trim_start_matches('@')
+                .split(['(', '.'])
+                .next()
+                .unwrap_or("")
+                .to_string();
+            name
+        })
+        .collect()
 }
 
 /// Method invocations, object creation, and parameter / return type hints,

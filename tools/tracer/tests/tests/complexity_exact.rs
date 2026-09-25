@@ -33,22 +33,26 @@ fn info(f: &Fixture, rel: &str) -> Value {
     r.view()
 }
 
-/// Assert the exact file-level complexity scalars.
+/// Assert the exact file-level complexity scalars the file's facts carry.
 fn assert_totals(v: &Value, total: i64, max: i64, count: i64) {
+    let facts = v["files"]
+        .as_object()
+        .and_then(|files| files.values().next())
+        .unwrap_or_else(|| panic!("no file facts in {v:#}"));
     assert_eq!(
-        v["ccn_total"].as_i64().unwrap(),
+        facts["cyclomatic_complexity"].as_i64().unwrap(),
         total,
-        "cyclomatic_complexity_total mismatch: {v:#}"
+        "cyclomatic_complexity mismatch: {v:#}"
     );
     assert_eq!(
-        v["ccn_max_function"].as_i64().unwrap(),
+        facts["max_function_complexity"].as_i64().unwrap(),
         max,
-        "cyclomatic_complexity_max mismatch: {v:#}"
+        "max_function_complexity mismatch: {v:#}"
     );
     assert_eq!(
-        v["functions"].as_i64().unwrap(),
+        facts["functions"].as_i64().unwrap(),
         count,
-        "function_count mismatch: {v:#}"
+        "functions mismatch: {v:#}"
     );
 }
 

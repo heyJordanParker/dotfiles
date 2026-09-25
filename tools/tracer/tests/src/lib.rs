@@ -9,6 +9,7 @@
 //! CLI's observable surface: exit code, stdout, stderr, the `--json`
 //! document shape, and wall-clock latency.
 
+use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::ffi::OsStr;
 use std::fs;
@@ -174,6 +175,136 @@ where
         stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
         elapsed,
     }
+}
+
+/// Measure one trace invocation with the same raw-sample fields the speed
+/// suite records. Callers own their workload setup; this owns the subprocess
+/// clock, environment isolation, and output contract.
+pub fn raw_sample(
+    binary: &Path,
+    root: &Path,
+    args: &[String],
+    envs: &[(&str, &str)],
+) -> Result<serde_json::Value, String> {
+    let start = Instant::now();
+    let mut command = Command::new("/usr/bin/time");
+    command
+        .arg("-l")
+        .arg(binary)
+        .args(args)
+        .current_dir(root)
+        .env("HOME", root);
+    for key in [
+        "AGENT_SESSION_ID",
+        "CODEX_THREAD_ID",
+        "CLAUDE_CODE_SESSION_ID",
+        "TRACER_AGENT_ID",
+    ] {
+        command.env_remove(key);
+    }
+    for (key, value) in envs {
+        command.env(key, value);
+    }
+    let output = command
+        .output()
+        .map_err(|error| format!("failed to spawn {}: {error}", binary.display()))?;
+    let elapsed_us = start.elapsed().as_micros() as u64;
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let rss = stderr.lines().find_map(|line| {
+        line.trim()
+            .strip_suffix("  maximum resident set size")?
+            .trim()
+            .parse::<u64>()
+            .ok()
+    });
+    if !output.status.success() {
+        return Err(format!("benchmark command failed: {args:?}\n{stderr}"));
+    }
+    if output.stdout.is_empty() {
+        return Err(format!("benchmark command returned empty output: {args:?}"));
+    }
+    let stdout_sha256 = hex::encode(Sha256::digest(&output.stdout));
+    Ok(serde_json::json!({
+        "elapsed_us": elapsed_us,
+        "peak_rss_bytes": rss,
+        "output_bytes": output.stdout.len(),
+        "status": output.status.code(),
+        "stdout_sha256": stdout_sha256,
+        "stdout": String::from_utf8_lossy(&output.stdout),
+    }))
+}
+
+/// Measure one trace invocation for the speed suite and retain its legacy JSON
+/// contract checks. New consumers that time human output use [`raw_sample`].
+pub fn measured_run(
+    binary: &Path,
+    root: &Path,
+    args: &[String],
+    envs: &[(&str, &str)],
+) -> serde_json::Value {
+    let sample = raw_sample(binary, root, args, envs).unwrap_or_else(|error| panic!("{error}"));
+    if !matches!(args.first().map(String::as_str), Some("context" | "cache")) {
+        let stdout = sample["stdout"].as_str().unwrap();
+        let document: serde_json::Value = serde_json::from_str(stdout).unwrap_or_else(|error| {
+            panic!("benchmark output was not structured JSON for {args:?}: {error}")
+        });
+        for slot in ["query", "context", "results", "counts"] {
+            assert!(
+                document.get(slot).is_some(),
+                "benchmark output lacks {slot} for {args:?}"
+            );
+        }
+    }
+    sample
+}
+
+/// Median of a non-empty set of microsecond samples.
+pub fn median(samples: &[u64]) -> u64 {
+    let mut sorted = samples.to_vec();
+    sorted.sort_unstable();
+    sorted[sorted.len() / 2]
+}
+
+/// Nearest-rank p95 of a non-empty set of microsecond samples.
+pub fn p95(samples: &[u64]) -> u64 {
+    let mut sorted = samples.to_vec();
+    sorted.sort_unstable();
+    sorted[((sorted.len() as f64 * 0.95).ceil() as usize).saturating_sub(1)]
+}
+
+/// Summarize raw benchmark samples without retaining every representative
+/// stdout payload.
+pub fn summarize(mut samples: Vec<serde_json::Value>) -> serde_json::Value {
+    let elapsed: Vec<u64> = samples
+        .iter()
+        .map(|value| value["elapsed_us"].as_u64().unwrap())
+        .collect();
+    let median_us = median(&elapsed);
+    let p95_us = p95(&elapsed);
+    let mut sorted = elapsed;
+    sorted.sort_unstable();
+    let peak_rss = samples
+        .iter()
+        .filter_map(|value| value["peak_rss_bytes"].as_u64())
+        .max();
+    let output_bytes = samples
+        .iter()
+        .map(|value| value["output_bytes"].as_u64().unwrap())
+        .max()
+        .unwrap();
+    let representative_stdout = samples[0]["stdout"].take();
+    for sample in &mut samples {
+        sample.as_object_mut().unwrap().remove("stdout");
+    }
+    serde_json::json!({
+        "median_us": median_us,
+        "p95_us": p95_us,
+        "range_us": [sorted[0], sorted[sorted.len() - 1]],
+        "peak_rss_bytes": peak_rss,
+        "output_bytes": output_bytes,
+        "representative_stdout": representative_stdout,
+        "raw": samples.drain(..).collect::<Vec<_>>(),
+    })
 }
 
 #[allow(non_upper_case_globals)] // project naming rule bans ALL_CAPS for our own identifiers
@@ -363,37 +494,6 @@ pub fn standard_repo() -> Fixture {
     );
     f.commit("init standard repo");
     f
-}
-
-/// Normalize the one genuinely non-deterministic axis in a passive-context
-/// shoulder so the rest can be pinned by exact equality.
-///
-/// exempt-(a): the age token is `today - last_modified` bucketed by
-/// `passive_context::age`. A hermetic fixture commits at test run time, so
-/// the bucket is `today` — except when the commit lands at 23:59:59 UTC and
-/// the read happens after the next UTC midnight, where it flips to `1d`.
-/// That UTC-boundary flip is the documented non-deterministic axis: the
-/// tightest stable invariant is "the age token is one of the freshly-
-/// committed buckets". This replaces the live token with the literal
-/// `<AGE>` in the ` · age: <tok>` form the canonical shoulder uses (both
-/// the full `render` and the dense `render_compact` variant carry the
-/// `age:` field), and panics if it is not a fresh-commit bucket, so a
-/// wrong age still fails loudly. The age token may itself be a
-/// `created→modified` range; the normalizer matches the single fresh-commit
-/// token a hermetic same-run commit always produces.
-pub fn normalize_age(shoulder: &str) -> String {
-    // Fresh-commit buckets only: `today` (same UTC day) or `1d` (one UTC
-    // midnight crossed mid-run). Anything else is a real bug, not the axis.
-    for tok in ["today", "1d"] {
-        let verbose = format!(" · age: {tok}");
-        if shoulder.contains(&verbose) {
-            return shoulder.replace(&verbose, " · age: <AGE>");
-        }
-    }
-    panic!(
-        "shoulder age token is not a fresh-commit bucket (today/1d) — \
-         hermetic fixture age regressed: {shoulder:?}"
-    );
 }
 
 /// Parse the human `cache stats` table into `namespace -> entry_count`.

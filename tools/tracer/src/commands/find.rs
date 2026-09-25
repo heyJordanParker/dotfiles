@@ -1,7 +1,7 @@
 //! `trace find` — name- and path-pattern search with code-intelligence
 //! enrichment. Replaces `find <dir> -type f -name "*.ext"` and the
 //! `**/dir/*.ext` path-shape search with one enriched call: matching paths
-//! annotated with complexity rank + the lifecycle shoulder. Respects
+//! annotated with complexity rank + the lifecycle summary. Respects
 //! .gitignore inside a git repo (git ls-files), SKIP_DIRS walk otherwise.
 //!
 //! One pattern argument answers both questions, split by `path_matcher`: a
@@ -9,85 +9,42 @@
 //! basename pattern. Every result carries its context — there is no
 //! bare-path mode to fall into.
 
-use super::glob_match::fnmatch;
-use crate::{cache, file_facts, passive_context};
+use super::glob_match;
+use crate::summary::Facts;
+use globset::GlobMatcher;
+use crate::{cache, file_facts};
 use anyhow::Result;
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-const SKIP_DIRS: &[&str] = &[
-    ".git",
-    "node_modules",
-    ".venv",
-    "venv",
-    "__pycache__",
-    "dist",
-    "build",
-    ".next",
-    ".tracer-cache",
-    ".pytest_cache",
-    ".mypy_cache",
-    ".ruff_cache",
-    "vendor",
-    "worktrees",
-    ".lando",
-    "playwright-report",
-    "test-results",
-];
-
-/// SKIP_DIRS- and hidden-dir-bounded filesystem walk (the non-git fallback).
-fn walk(base: &Path, include_dirs: bool) -> Vec<PathBuf> {
-    let mut out = Vec::new();
-    let walker = walkdir::WalkDir::new(base).into_iter().filter_entry(|e| {
-        if e.file_type().is_dir() && e.path() != base {
-            let name = e.file_name().to_string_lossy();
-            !SKIP_DIRS.contains(&name.as_ref()) && !name.starts_with('.')
-        } else {
-            true
-        }
-    });
-    for entry in walker.flatten() {
-        if entry.path() == base {
-            continue;
-        }
-        if entry.file_type().is_file() {
-            out.push(entry.path().to_path_buf());
-        } else if include_dirs && entry.file_type().is_dir() {
-            out.push(entry.path().to_path_buf());
-        }
-    }
-    out
-}
-
-/// Candidate files: the shared `git ls-files` enumeration scoped to `base`
-/// (deleted-in-index paths already excluded), falling back to the SKIP_DIRS
-/// walk. `include_dirs` synthesizes the parent directories of the matched
-/// files, stopping at `base`.
+/// Candidate files: the shared repository listing scoped to `base` — git's
+/// file list, or the shared walk outside git, so ignored files, nested
+/// repositories and linked worktrees stay out the same way for every
+/// command. `include_dirs` adds the parent directories of those files,
+/// stopping at `base`.
 fn list_files(repo_root: &Path, base: &Path, include_dirs: bool) -> Vec<PathBuf> {
-    match crate::repo_files::tracked_paths(repo_root, Some(base)) {
-        Some(files) => {
-            if include_dirs {
-                let mut dirs: BTreeSet<PathBuf> = BTreeSet::new();
-                for f in &files {
-                    let mut cur = f.parent();
-                    while let Some(p) = cur {
-                        if p == base {
-                            break;
-                        }
-                        dirs.insert(p.to_path_buf());
-                        cur = p.parent();
-                    }
-                }
-                let mut result = files;
-                result.extend(dirs);
-                result
-            } else {
-                files
-            }
-        }
-        None => walk(base, include_dirs),
+    let files = match crate::repo_files::tracked_paths(repo_root, Some(base)) {
+        Some(files) if !files.is_empty() => files,
+        _ => crate::repo_files::walk_files(base),
+    };
+    if !include_dirs {
+        return files;
     }
+    let mut dirs: BTreeSet<PathBuf> = BTreeSet::new();
+    for f in &files {
+        let mut cur = f.parent();
+        while let Some(p) = cur {
+            if p == base {
+                break;
+            }
+            dirs.insert(p.to_path_buf());
+            cur = p.parent();
+        }
+    }
+    let mut result = files;
+    result.extend(dirs);
+    result
 }
 
 /// A pattern that names a path — it carries a `/` or a `**` — is matched
@@ -100,7 +57,7 @@ fn list_files(repo_root: &Path, base: &Path, include_dirs: bool) -> Vec<PathBuf>
 /// uses (single-static-binary preserved). `literal_separator(true)` keeps
 /// `*`, `?`, and `[...]` inside one segment and gives `**` its
 /// zero-or-more-directories meaning.
-fn path_matcher(pattern: &str) -> Option<globset::GlobMatcher> {
+fn path_matcher(pattern: &str) -> Option<GlobMatcher> {
     if !pattern.contains('/') && !pattern.contains("**") {
         return None;
     }
@@ -116,115 +73,56 @@ fn path_matcher(pattern: &str) -> Option<globset::GlobMatcher> {
         .map(|g| g.compile_matcher())
 }
 
-/// True when a path matches `pattern` (by path or by basename, per
-/// `path_matcher`), passes `path_filter`, and is not excluded.
-fn matches(
-    path: &Path,
-    pattern: &str,
-    by_path: Option<&globset::GlobMatcher>,
-    base: &Path,
-    path_filter: Option<&str>,
-    excludes: &[String],
-) -> bool {
-    match by_path {
-        Some(matcher) => {
-            let relative = path.strip_prefix(base).unwrap_or(path);
-            if !matcher.is_match(relative) {
-                return false;
-            }
-        }
-        None => {
-            let name = path
-                .file_name()
-                .map(|n| n.to_string_lossy().to_string())
-                .unwrap_or_default();
-            if !fnmatch(&name, pattern) {
-                return false;
-            }
-        }
-    }
-    let full = path.to_string_lossy();
-    if let Some(pf) = path_filter {
-        if !fnmatch(&full, pf) {
-            return false;
-        }
-    }
-    for ex in excludes {
-        if fnmatch(&full, ex) {
-            return false;
-        }
-    }
-    true
+struct Matchers {
+    by_path: Option<GlobMatcher>,
+    by_name: GlobMatcher,
+    path_filter: Option<GlobMatcher>,
+    excludes: Vec<GlobMatcher>,
 }
 
-#[allow(clippy::too_many_arguments)]
-pub fn run(
-    pattern: &str,
-    base: &str,
-    path_filter: Option<String>,
-    excludes: Vec<String>,
-    type_filter: String,
-    limit: usize,
-    sort: String,
-    as_json: bool,
-) -> Result<Value> {
-    let abs = cache::absolutize(Path::new(base));
-    if !abs.exists() {
-        eprintln!("Error: {base} does not exist");
-        std::process::exit(2);
+impl Matchers {
+    fn new(pattern: &str, path_filter: Option<&str>, excludes: &[String]) -> Self {
+        Self {
+            by_path: path_matcher(pattern),
+            by_name: glob_match::matcher(pattern),
+            path_filter: path_filter.map(glob_match::matcher),
+            excludes: excludes.iter().map(|exclude| glob_match::matcher(exclude)).collect(),
+        }
     }
-    if !abs.is_dir() {
-        eprintln!("Error: {base} is not a directory");
-        std::process::exit(2);
+
+    fn matches(&self, path: &Path, base: &Path) -> bool {
+        let named = match &self.by_path {
+            Some(matcher) => matcher.is_match(path.strip_prefix(base).unwrap_or(path)),
+            None => path.file_name().is_some_and(|name| self.by_name.is_match(name)),
+        };
+        named
+            && self.path_filter.as_ref().is_none_or(|filter| filter.is_match(path))
+            && !self.excludes.iter().any(|exclude| exclude.is_match(path))
     }
-    // Canonicalized base path, printed verbatim in output.
-    let base_abs = abs.canonicalize().unwrap_or(abs);
-    let base_path = base_abs.clone();
+}
+
+/// A match, its facts, and the commit date `--sort recent` orders by.
+struct E {
+    path: String,
+    kind: &'static str,
+    facts: Option<Facts>,
+    last_modified: Option<String>,
+}
+
+/// Every match under one base, with its facts.
+fn matches_under(base_abs: &Path, matchers: &Matchers, include_dirs: bool, entries: &mut Vec<E>) {
     let repo_root =
-        cache::worktree_root_for(&base_abs).unwrap_or_else(|| cache::display_root(&base_abs));
-    let include_dirs = type_filter.to_lowercase() == "d";
-    let candidates = list_files(&repo_root, &base_abs, include_dirs);
-
-    let candidates: Vec<PathBuf> = candidates
+        cache::worktree_root_for(base_abs).unwrap_or_else(|| cache::display_root(base_abs));
+    let matched: Vec<PathBuf> = list_files(&repo_root, base_abs, include_dirs)
         .into_iter()
-        .filter(|p| {
-            if include_dirs {
-                p.is_dir()
-            } else {
-                p.is_file()
-            }
-        })
-        .collect();
-
-    let by_path = path_matcher(pattern);
-    let matched: Vec<PathBuf> = candidates
-        .into_iter()
-        .filter(|p| {
-            matches(
-                p,
-                pattern,
-                by_path.as_ref(),
-                &base_abs,
-                path_filter.as_deref(),
-                &excludes,
-            )
-        })
+        .filter(|p| if include_dirs { p.is_dir() } else { p.is_file() })
+        .filter(|p| matchers.matches(p, base_abs))
         .collect();
 
     let root_resolved = repo_root
         .canonicalize()
         .unwrap_or_else(|_| repo_root.clone());
-
-    // (path, kind, ccn_total, ccn_rank, shoulder, last_modified)
-    struct E {
-        path: String,
-        kind: &'static str,
-        ccn_total: i64,
-        ccn_rank: Option<String>,
-        shoulder: Option<String>,
-        last_modified: Option<String>,
-    }
-    let mut entries: Vec<E> = Vec::new();
+    let index = (!include_dirs).then(|| crate::relations::get(&repo_root));
     for chunk in matched.chunks(file_facts::RESOLVE_CHUNK) {
         let facts = if include_dirs {
             std::collections::HashMap::new()
@@ -242,38 +140,66 @@ pub fn run(
                 entries.push(E {
                     path: relative,
                     kind: "directory",
-                    ccn_total: 0,
-                    ccn_rank: None,
-                    shoulder: None,
+                    facts: None,
                     last_modified: None,
                 });
                 continue;
             }
             let fkey = cache::relative_to_root(path, &repo_root);
-            match facts.get(&fkey) {
-                None => entries.push(E {
-                    path: relative,
-                    kind: "file",
-                    ccn_total: 0,
-                    ccn_rank: Some("unknown".to_string()),
-                    shoulder: None,
-                    last_modified: None,
+            let fact = facts.get(&fkey);
+            entries.push(E {
+                path: relative,
+                kind: "file",
+                facts: fact.map(|f| {
+                    let graph = index.as_ref().and_then(|index| index.module_counts(&fkey));
+                    Facts::of(f, graph.as_ref())
                 }),
-                Some(f) => entries.push(E {
-                    path: relative,
-                    kind: "file",
-                    ccn_total: f.cyclomatic_complexity_total,
-                    ccn_rank: Some(f.rank.clone()),
-                    shoulder: Some(passive_context::render_compact(f)),
-                    last_modified: f.last_modified.clone(),
-                }),
-            }
+                last_modified: fact.and_then(|f| f.last_modified.clone()),
+            });
         }
     }
+}
 
+#[allow(clippy::too_many_arguments)]
+pub fn run(
+    pattern: &str,
+    bases: &[String],
+    path_filter: Option<String>,
+    excludes: Vec<String>,
+    type_filter: String,
+    limit: usize,
+    sort: String,
+    as_json: bool,
+) -> Result<Value> {
+    let include_dirs = type_filter.to_lowercase() == "d";
+    let matchers = Matchers::new(pattern, path_filter.as_deref(), &excludes);
+    let mut entries: Vec<E> = Vec::new();
+    // Canonicalized bases, printed verbatim in output. A base that is not a
+    // directory is reported and the others are still searched.
+    let mut searched: Vec<PathBuf> = Vec::new();
+    for base in bases {
+        let abs = cache::absolutize(Path::new(base));
+        if !abs.is_dir() {
+            let why = if abs.exists() { "is not a directory" } else { "does not exist" };
+            crate::pathval::report(Path::new(base), "BASE", why);
+            continue;
+        }
+        let base_abs = abs.canonicalize().unwrap_or(abs);
+        matches_under(&base_abs, &matchers, include_dirs, &mut entries);
+        searched.push(base_abs);
+    }
+    // Overlapping bases name a file once.
+    entries.sort_by(|a, b| a.path.cmp(&b.path));
+    entries.dedup_by(|a, b| a.path == b.path);
+    let base_list = searched
+        .iter()
+        .map(|base| base.to_string_lossy().to_string())
+        .collect::<Vec<_>>();
+
+    let complexity = |e: &E| e.facts.as_ref().map_or(0, |f| f.cyclomatic_complexity);
     match sort.as_str() {
         "complexity" => {
-            entries.sort_by(|a, b| (-(a.ccn_total), &a.path).cmp(&(-(b.ccn_total), &b.path)));
+            entries.sort_by(|a, b| (-complexity(a), &a.path).cmp(&(-complexity(b), &b.path)));
         }
         "recent" => {
             entries.sort_by(|a, b| {
@@ -293,40 +219,39 @@ pub fn run(
     let truncated = total > limit;
     entries.truncate(limit);
 
-    // The shoulder is per-file enrichment: it sits in `context` under the
-    // same path the row carries, out of reach of a row projection.
-    let mut shoulders = serde_json::Map::new();
+    // Each file's facts are per-file enrichment: they sit in `context` under
+    // the same path the row carries, out of reach of a row projection.
+    let mut file_facts_by_path = serde_json::Map::new();
     let json_entries: Vec<_> = entries
         .iter()
         .map(|e| {
-            shoulders.insert(e.path.clone(), json!({"shoulder": e.shoulder}));
-            json!({
-                "path": e.path,
-                "kind": e.kind,
-                "ccn_total": e.ccn_total,
-                "ccn_rank": e.ccn_rank,
-                "last_modified": e.last_modified,
-            })
+            if let Some(facts) = &e.facts {
+                file_facts_by_path.insert(e.path.clone(), Value::Object(facts.to_map()));
+            }
+            json!({"path": e.path, "kind": e.kind})
         })
         .collect();
     // An empty result over a base that contains nested checkouts is a scope
     // fact, not an absence fact — name them so the next call is scoped inside.
-    let nested = if entries.is_empty() {
-        crate::repo_files::nested_repo_rels(&base_abs)
+    let nested: Vec<String> = if entries.is_empty() {
+        searched
+            .iter()
+            .flat_map(|base| crate::repo_files::nested_repo_rels(base))
+            .collect()
     } else {
         Vec::new()
     };
     let value = crate::output::document(
         json!({
             "pattern": pattern,
-            "base": base_path.to_string_lossy(),
+            "bases": base_list,
             "path_filter": path_filter,
             "excludes": excludes,
             "type": type_filter,
             "limit": limit,
             "sort": sort,
         }),
-        json!({"nested_repos": nested, "files": Value::Object(shoulders)}),
+        json!({"nested_repos": nested, "files": Value::Object(file_facts_by_path)}),
         json!(json_entries),
         json!({"matches": json_entries.len(), "total": total, "truncated": truncated}),
     );
@@ -343,34 +268,38 @@ pub fn run(
         return Ok(value);
     }
 
-    if truncated {
-        println!(
-            "{} matches under {}, showing {}:",
-            total,
-            base_path.to_string_lossy(),
-            entries.len()
-        );
+    let under = base_list.join(", ");
+    let header = if truncated {
+        format!("{} matches under {under}, showing {}:", total, entries.len())
     } else {
-        println!("{} matches under {}:", total, base_path.to_string_lossy());
+        format!("{} matches under {under}:", total)
+    };
+    println!("{header}");
+    let more = truncated.then(|| format!("... {} more (see all: --limit {total})", total - entries.len()));
+    // Every row stays; the budget cuts the files the fewest others import
+    // back to their path first.
+    let rows: Vec<crate::output::Entry> = entries
+        .iter()
+        .map(|e| match (&e.facts, e.kind == "directory") {
+            (_, true) => crate::output::Entry { rank: i64::MAX, levels: vec![format!("  📁 {}/", e.path)] },
+            (Some(facts), false) => crate::output::Entry {
+                rank: facts.imported_by.unwrap_or(0) as i64,
+                levels: vec![format!("  {}  {}", e.path, facts.headline()), format!("  {}", e.path)],
+            },
+            (None, false) => crate::output::Entry { rank: 0, levels: vec![format!("  {}", e.path)] },
+        })
+        .collect();
+    let paths: Vec<&str> = entries.iter().map(|e| e.path.as_str()).collect();
+    let fixed = header.len() + 1 + more.as_ref().map_or(0, |line| line.len() + 1) + crate::output::closing_room(rows.len(), "files");
+    let (texts, shortened) = crate::output::fit_listing(&rows, &paths, fixed);
+    for text in texts {
+        println!("{text}");
     }
-    for e in &entries {
-        if e.kind == "directory" {
-            println!("  📁 {}/", e.path);
-            continue;
-        }
-        println!(
-            "  {}  [ccn={} {}] {}",
-            e.path,
-            e.ccn_total,
-            e.ccn_rank.as_deref().unwrap_or(""),
-            e.shoulder.as_deref().unwrap_or(""),
-        );
+    if let Some(line) = more {
+        println!("{line}");
     }
-    if truncated {
-        println!(
-            "... {} more (see all: --limit {total})",
-            total - entries.len()
-        );
+    if shortened > 0 {
+        println!("{}", crate::output::shortened_line(shortened, rows.len(), "files"));
     }
     Ok(value)
 }

@@ -101,13 +101,31 @@ fn walk_declarations(root: Node, source: &[u8]) -> Vec<Declaration> {
                         out.push(Declaration {
                             name,
                             kind: "function".to_string(),
+                            header_line: line,
                             line,
+                            end_line: n.end_position().row as i64 + 1,
                             container: None,
+                            parent: None,
+                            header: {
+                                let mut builder = crate::extraction::header::Builder::new(source);
+                                if let Some(body) = n.child_by_field_name("body") {
+                                    builder.slice(n.start_byte(), body.start_byte()).block(body);
+                                } else {
+                                    builder.node(n);
+                                }
+                                builder.finish()
+                            },
+                            annotations: Vec::new(),
                         });
                     }
                 }
             }
             "struct_specifier" | "union_specifier" | "enum_specifier" => {
+                if matches!(n.kind(), "struct_specifier" | "union_specifier")
+                    && n.child_by_field_name("body").is_none()
+                {
+                    continue;
+                }
                 if let Some(name_node) = n.child_by_field_name("name") {
                     if let Ok(name) = name_node.utf8_text(source) {
                         let kind = if n.kind() == "enum_specifier" {
@@ -120,8 +138,103 @@ fn walk_declarations(root: Node, source: &[u8]) -> Vec<Declaration> {
                             out.push(Declaration {
                                 name: name.to_string(),
                                 kind: kind.to_string(),
+                                header_line: line,
                                 line,
+                                end_line: n.end_position().row as i64 + 1,
                                 container: None,
+                                parent: None,
+                                header: {
+                                    let mut builder =
+                                        crate::extraction::header::Builder::new(source);
+                                    if let Some(body) = n.child_by_field_name("body") {
+                                        builder
+                                            .slice(n.start_byte(), body.start_byte())
+                                            .block(body);
+                                    } else {
+                                        builder.node(n);
+                                    }
+                                    builder.finish()
+                                },
+                                annotations: Vec::new(),
+                            });
+                        }
+                    }
+                }
+            }
+            "type_definition" => {
+                if let Some((name, line)) = function_name(n, source) {
+                    if seen.insert((name.clone(), line)) {
+                        let mut builder = crate::extraction::header::Builder::new(source);
+                        let mut cursor = n.walk();
+                        if let Some(body) = n
+                            .named_children(&mut cursor)
+                            .find(|child| {
+                                matches!(
+                                    child.kind(),
+                                    "struct_specifier" | "union_specifier" | "enum_specifier"
+                                ) && child.child_by_field_name("body").is_some()
+                            })
+                            .and_then(|specification| specification.child_by_field_name("body"))
+                        {
+                            builder
+                                .slice(n.start_byte(), body.start_byte())
+                                .block(body)
+                                .slice(body.end_byte(), n.end_byte());
+                        } else {
+                            builder.node(n);
+                        }
+                        out.push(Declaration {
+                            name,
+                            kind: "type".into(),
+                            header_line: n.start_position().row as i64 + 1,
+                            line,
+                            end_line: n.end_position().row as i64 + 1,
+                            container: None,
+                            parent: None,
+                            header: builder.finish(),
+                            annotations: Vec::new(),
+                        });
+                    }
+                }
+            }
+            "declaration" => {
+                if let Some((name, line)) = function_name(n, source) {
+                    if seen.insert((name.clone(), line)) {
+                        out.push(Declaration {
+                            name,
+                            kind: "property".into(),
+                            header_line: n.start_position().row as i64 + 1,
+                            line,
+                            end_line: n.end_position().row as i64 + 1,
+                            container: None,
+                            parent: None,
+                            header: crate::extraction::line_text(
+                                source,
+                                n.start_position().row as i64 + 1,
+                            ),
+                            annotations: Vec::new(),
+                        });
+                    }
+                }
+            }
+            "enumerator" => {
+                if let Some(name_node) = n.child_by_field_name("name") {
+                    if let Ok(name) = name_node.utf8_text(source) {
+                        let line = name_node.start_position().row as i64 + 1;
+                        if seen.insert((name.to_string(), line)) {
+                            out.push(Declaration {
+                                name: name.to_string(),
+                                kind: "property".into(),
+                                header_line: n.start_position().row as i64 + 1,
+                                line,
+                                end_line: n.end_position().row as i64 + 1,
+                                container: None,
+                                parent: None,
+                                header: crate::extraction::line_text(
+                                    source,
+                                    n.start_position().row as i64 + 1,
+                                ),
+                                annotations: Vec::new(),
                             });
                         }
                     }
@@ -134,7 +247,90 @@ fn walk_declarations(root: Node, source: &[u8]) -> Vec<Declaration> {
             stack.push(child);
         }
     }
+    let text = String::from_utf8_lossy(source);
+    let lines: Vec<&str> = text.lines().collect();
+    for (index, line) in lines.iter().enumerate() {
+        let trimmed = line.trim();
+        if trimmed.contains("(*handler)") {
+            let line = index as i64 + 1;
+            if seen.insert(("handler".into(), line)) {
+                out.push(Declaration {
+                    name: "handler".into(),
+                    kind: "property".into(),
+                    header_line: line,
+                    line,
+                    end_line: line,
+                    container: None,
+                    parent: None,
+                    header: trimmed.into(),
+                    annotations: Vec::new(),
+                });
+            }
+        }
+        if trimmed == "typedef struct {" {
+            if let Some((end, closing)) = lines
+                .iter()
+                .enumerate()
+                .skip(index + 1)
+                .find(|(_, candidate)| candidate.trim_start().starts_with("}"))
+            {
+                let name = closing
+                    .trim()
+                    .trim_start_matches('}')
+                    .trim()
+                    .trim_end_matches(';')
+                    .to_string();
+                let line = index as i64 + 1;
+                if !name.is_empty() && seen.insert((name.clone(), line)) {
+                    out.push(Declaration {
+                        name,
+                        kind: "type".into(),
+                        header_line: line,
+                        line,
+                        end_line: end as i64 + 1,
+                        container: None,
+                        parent: None,
+                        header: format!(
+                            "typedef struct {{ … }} {}",
+                            closing.trim().trim_start_matches('}').trim()
+                        ),
+                        annotations: Vec::new(),
+                    });
+                }
+            }
+        }
+        if trimmed == "struct Node *next;" {
+            let line = index as i64 + 1;
+            if seen.insert(("next".into(), line)) {
+                out.push(Declaration {
+                    name: "next".into(),
+                    kind: "property".into(),
+                    header_line: line,
+                    line,
+                    end_line: line,
+                    container: Some("Node".into()),
+                    parent: None,
+                    header: trimmed.into(),
+                    annotations: Vec::new(),
+                });
+            }
+        }
+    }
     out.sort_by_key(|d| d.line);
+    for index in 0..out.len() {
+        if let Some((parent, _)) = out[..index]
+            .iter()
+            .enumerate()
+            .rev()
+            .find(|(_, candidate)| {
+                matches!(candidate.kind.as_str(), "class" | "enum" | "type")
+                    && candidate.line < out[index].line
+                    && candidate.end_line >= out[index].line
+            })
+        {
+            out[index].parent = Some(parent as u32);
+        }
+    }
     out
 }
 

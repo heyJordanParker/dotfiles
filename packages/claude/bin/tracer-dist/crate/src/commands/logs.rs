@@ -6,7 +6,7 @@
 //! One line is one entry; a line carrying no timestamp of its own attaches
 //! to the entry above it, which is what keeps a stack trace whole.
 
-use crate::commands::glob_match::fnmatch;
+use crate::commands::glob_match;
 use anyhow::Result;
 use flate2::read::GzDecoder;
 use regex::Regex;
@@ -231,6 +231,7 @@ fn select(path: &str, file_glob: &str) -> Vec<LogFile> {
         eprintln!("Error: path not found: {path}");
         std::process::exit(2);
     }
+    let file_glob = glob_match::matcher(file_glob);
     let mut found: Vec<LogFile> = Vec::new();
     let walk = WalkDir::new(root)
         .follow_links(false)
@@ -249,8 +250,7 @@ fn select(path: &str, file_glob: &str) -> Vec<LogFile> {
         if !entry.file_type().is_file() {
             continue;
         }
-        let name = entry.file_name().to_string_lossy().into_owned();
-        if !fnmatch(&name, file_glob) {
+        if !file_glob.is_match(entry.file_name()) {
             continue;
         }
         found.push(describe(entry.path().to_path_buf()));
@@ -662,22 +662,27 @@ fn render_human(
     if entries.is_empty() {
         println!("(no entries)");
     }
+    let mut rows: Vec<crate::output::Entry> = Vec::with_capacity(entries.len());
     let mut current: Option<&str> = None;
-    for e in entries {
-        if current != Some(e.file.as_str()) {
-            println!();
-            println!("{}", e.file);
+    for (index, e) in entries.iter().enumerate() {
+        let heading = if current != Some(e.file.as_str()) {
             current = Some(e.file.as_str());
-        }
+            format!("\n{}\n", e.file)
+        } else {
+            String::new()
+        };
         let mut lines = e.text.split('\n');
-        if let Some(first) = lines.next() {
-            println!("  L{:<5} {}", e.line, first);
-        }
+        let first = format!("{heading}  L{:<5} {}", e.line, lines.next().unwrap_or(""));
+        let mut whole = first.clone();
         for rest in lines {
-            println!("         {rest}");
+            whole.push_str(&format!("\n         {rest}"));
         }
+        let mut short: String = first.chars().take(heading.chars().count() + 220).collect();
+        if short.len() < whole.len() {
+            short.push('…');
+        }
+        rows.push(crate::output::Entry { rank: index as i64, levels: vec![whole, short] });
     }
-    println!();
     let window = match (since, until) {
         (None, None) => String::new(),
         (s, u) => format!(
@@ -686,11 +691,13 @@ fn render_human(
             u.as_ref().map(stamp_str).unwrap_or_else(|| "-".into())
         ),
     };
-    println!(
-        "entries={} files={} scanned={}{}",
-        entries.len(),
-        files_matched,
-        scanned,
-        window
-    );
+    let summary = format!("\nentries={} files={} scanned={}{}", entries.len(), files_matched, scanned, window);
+    let (texts, shortened) = crate::output::fit(&rows, summary.len() + 1 + crate::output::closing_room(rows.len(), "entries"));
+    for text in texts {
+        println!("{text}");
+    }
+    println!("{summary}");
+    if shortened > 0 {
+        println!("{}", crate::output::shortened_line(shortened, rows.len(), "entries"));
+    }
 }

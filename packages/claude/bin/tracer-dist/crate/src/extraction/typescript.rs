@@ -25,6 +25,8 @@ const QUERY_SRC: &str = r#"
         ; exported function declarations
         (export_statement
           declaration: (function_declaration name: (identifier) @export.function))
+        (export_statement
+          declaration: (generator_function_declaration name: (identifier) @export.function))
 
         ; exported class declarations
         (export_statement
@@ -213,6 +215,7 @@ pub fn extract_from_tree(
             }
         }
     }
+    imports.extend(reexport_and_dynamic_imports(tree.root_node(), source));
 
     let declarations = walk_declarations(tree.root_node(), source);
     let references = walk_references(tree.root_node(), source);
@@ -226,6 +229,50 @@ pub fn extract_from_tree(
     }
 }
 
+fn reexport_and_dynamic_imports(root: Node, source: &[u8]) -> Vec<Import> {
+    let mut out = Vec::new();
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        let source_node = match node.kind() {
+            "export_statement" => node.child_by_field_name("source"),
+            "call_expression"
+                if node
+                    .child_by_field_name("function")
+                    .is_some_and(|function| function.kind() == "import") =>
+            {
+                node.child_by_field_name("arguments")
+                    .and_then(|arguments| string_fragment(arguments))
+            }
+            _ => None,
+        };
+        if let Some(source_node) = source_node.and_then(|node| string_fragment(node).or(Some(node)))
+        {
+            if let Ok(module) = source_node.utf8_text(source) {
+                out.push(Import {
+                    module: module.to_string(),
+                    symbol: None,
+                    locals: Vec::new(),
+                    line: source_node.start_position().row as i64 + 1,
+                });
+            }
+        }
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            stack.push(child);
+        }
+    }
+    out
+}
+
+fn string_fragment(node: Node) -> Option<Node> {
+    if node.kind() == "string_fragment" {
+        return Some(node);
+    }
+    let mut cursor = node.walk();
+    let fragment = node.children(&mut cursor).find_map(string_fragment);
+    fragment
+}
+
 /// Every named declaration in the tree — top-level, nested, and class
 /// members. Covers function/class/interface/type/enum/method definitions
 /// plus `const`/`let`/`var` declarators (with single-identifier names). A
@@ -234,63 +281,336 @@ pub fn extract_from_tree(
 fn walk_declarations(root: Node, source: &[u8]) -> Vec<Declaration> {
     let mut out = Vec::new();
     let mut seen = std::collections::HashSet::new();
-    // Stack carries (node, enclosing-class-name) so a method picks up the
-    // class it is declared inside without a second ancestor walk.
-    let mut stack: Vec<(Node, Option<String>)> = vec![(root, None)];
-    while let Some((n, container)) = stack.pop() {
-        let kind: Option<&str> = match n.kind() {
-            "function_declaration" => Some("function"),
-            "class_declaration" => Some("class"),
+    let mut parent_keys = HashMap::new();
+    let mut start_bytes = HashMap::new();
+    // Stack carries (node, enclosing-class-name, lexical parent, inside a
+    // function body) so a method picks up the class it is declared inside
+    // without a second ancestor walk, and a function body's data variables
+    // (and whatever they hold) never become rows: they are the body's
+    // detail, not the file's shape. Nested functions — declared, or held by
+    // a local — and classes still are.
+    let mut stack: Vec<(Node, Option<String>, Option<(String, i64)>, bool)> =
+        vec![(root, None, None, false)];
+    while let Some((n, container, lexical_parent, in_body)) = stack.pop() {
+        let holds_function = n.child_by_field_name("value").is_some_and(|value| {
+            matches!(value.kind(), "arrow_function" | "function_expression" | "function")
+        });
+        if in_body && n.kind() == "variable_declarator" && !holds_function {
+            continue;
+        }
+        let kind: Option<&str> = { match n.kind() {
+            "function_declaration" | "generator_function_declaration" | "function_signature" => {
+                Some("function")
+            }
+            "class_declaration" | "abstract_class_declaration" => Some("class"),
             "interface_declaration" => Some("interface"),
             "type_alias_declaration" => Some("type"),
             "enum_declaration" => Some("enum"),
             "method_definition" => Some("function"),
             "method_signature" => Some("function"),
             "abstract_method_signature" => Some("function"),
+            "public_field_definition" => Some("property"),
+            "property_signature" => Some("property"),
             "variable_declarator" => Some("constant"),
             _ => None,
-        };
+        } };
         // The class name this node's children are declared inside. A class
         // node sets the container for everything below it.
         let mut child_container = container.clone();
+        let mut child_parent = lexical_parent.clone();
         if let Some(k) = kind {
-            if let Some(name_node) = n.child_by_field_name("name") {
+            let names = if n.kind() == "variable_declarator" {
+                typescript_declaration_names(n)
+            } else {
+                n.child_by_field_name("name").into_iter().collect()
+            };
+            for name_node in names {
                 let name_kind = name_node.kind();
-                if name_kind == "identifier"
-                    || name_kind == "property_identifier"
-                    || name_kind == "type_identifier"
+                if name_kind != "identifier"
+                    && name_kind != "property_identifier"
+                    && name_kind != "type_identifier"
+                    && name_kind != "shorthand_property_identifier_pattern"
                 {
-                    if let Ok(name) = name_node.utf8_text(source) {
-                        let line = name_node.start_position().row as i64 + 1;
-                        // A method's container is the enclosing class; every
-                        // other declaration is a top-level / free symbol.
-                        let decl_container = if k == "function" && n.kind() == "method_definition" {
-                            container.clone()
-                        } else {
-                            None
-                        };
-                        if k == "class" {
-                            child_container = Some(name.to_string());
-                        }
-                        if seen.insert((name.to_string(), line)) {
-                            out.push(Declaration {
-                                name: name.to_string(),
-                                kind: k.to_string(),
-                                line,
-                                container: decl_container,
-                            });
-                        }
+                    continue;
+                }
+                if let Ok(name) = name_node.utf8_text(source) {
+                    let line = name_node.start_position().row as i64 + 1;
+                    let key = (name.to_string(), line);
+                    // A method's container is the enclosing class; every
+                    // other declaration is a top-level / free symbol.
+                    let decl_container = if k == "function" && n.kind() == "method_definition" {
+                        container.clone()
+                    } else {
+                        None
+                    };
+                    if k == "class" {
+                        child_container = Some(name.to_string());
+                    }
+                    if matches!(
+                        n.kind(),
+                        "class_declaration"
+                            | "abstract_class_declaration"
+                            | "interface_declaration"
+                            | "enum_declaration"
+                            | "function_declaration"
+                            | "generator_function_declaration"
+                            | "method_definition"
+                            | "variable_declarator"
+                            | "type_alias_declaration"
+                            | "property_signature"
+                            | "public_field_definition"
+                    ) {
+                        child_parent = Some(key.clone());
+                    }
+                    if seen.insert(key.clone()) {
+                        parent_keys.insert(key, lexical_parent.clone());
+                        start_bytes.insert((name.to_string(), line), name_node.start_byte());
+                        out.push(Declaration {
+                            name: name.to_string(),
+                            kind: k.to_string(),
+                            header_line: typescript_header_line(n),
+                            line,
+                            end_line: n.end_position().row as i64 + 1,
+                            container: decl_container,
+                            parent: None,
+                            header: typescript_header(n, source),
+                            annotations: typescript_annotations(n, source),
+                        });
                     }
                 }
             }
         }
+        let body = matches!(
+            n.kind(),
+            "function_declaration"
+                | "generator_function_declaration"
+                | "method_definition"
+                | "arrow_function"
+                | "function_expression"
+                | "function"
+        )
+        .then(|| n.child_by_field_name("body"))
+        .flatten();
         let mut c = n.walk();
         for child in n.children(&mut c) {
-            stack.push((child, child_container.clone()));
+            let child_in_body = in_body || body.is_some_and(|body| body.id() == child.id());
+            stack.push((child, child_container.clone(), child_parent.clone(), child_in_body));
         }
     }
-    out.sort_by_key(|d| d.line);
+    out.sort_by_key(|declaration| {
+        (
+            declaration.line,
+            start_bytes
+                .get(&(declaration.name.clone(), declaration.line))
+                .copied()
+                .unwrap_or_default(),
+        )
+    });
+    let parents: HashMap<(String, i64), u32> = out
+        .iter()
+        .enumerate()
+        .map(|(index, declaration)| ((declaration.name.clone(), declaration.line), index as u32))
+        .collect();
+    for declaration in &mut out {
+        declaration.parent = parent_keys
+            .get(&(declaration.name.clone(), declaration.line))
+            .and_then(|parent| parent.as_ref())
+            .and_then(|parent| parents.get(parent).copied());
+    }
     out
+}
+
+fn typescript_header(node: Node, source: &[u8]) -> String {
+    let start = typescript_header_start(node);
+    if node.kind() == "variable_declarator" {
+        let declaration = node.parent().unwrap_or(node);
+        let statement = declaration
+            .parent()
+            .filter(|parent| parent.kind() == "export_statement")
+            .unwrap_or(declaration);
+        let mut builder = crate::extraction::header::Builder::new(source);
+        let first_declarator = declaration
+            .named_children(&mut declaration.walk())
+            .find(|child| child.kind() == "variable_declarator")
+            .unwrap_or(node);
+        builder.slice(start.start_byte(), first_declarator.start_byte());
+        if let Some(value) = node.child_by_field_name("value") {
+            let mut bodies = Vec::new();
+            collect_typescript_function_bodies(value, &mut bodies);
+            if !bodies.is_empty() {
+                bodies.sort_by_key(Node::start_byte);
+                let mut body_start = node.start_byte();
+                for body in bodies {
+                    slice_eliding_object_types(&mut builder, node, body_start, body.start_byte());
+                    if body.kind() == "statement_block" {
+                        builder.block(body);
+                    } else {
+                        builder.expression(body);
+                    }
+                    body_start = body.end_byte();
+                }
+                slice_eliding_object_types(&mut builder, node, body_start, node.end_byte());
+                if source.get(statement.end_byte().saturating_sub(1)) == Some(&b';') {
+                    builder.slice(statement.end_byte() - 1, statement.end_byte());
+                }
+                return builder.finish();
+            }
+        }
+        slice_eliding_object_types(&mut builder, node, node.start_byte(), node.end_byte());
+        if source.get(statement.end_byte().saturating_sub(1)) == Some(&b';') {
+            builder.slice(statement.end_byte() - 1, statement.end_byte());
+        }
+        return builder.finish();
+    }
+    let body = node.children(&mut node.walk()).find(|child| {
+        matches!(
+            child.kind(),
+            "class_body" | "interface_body" | "enum_body" | "statement_block"
+        )
+    });
+    let mut builder = crate::extraction::header::Builder::new(source);
+    if let Some(body) = body {
+        slice_eliding_object_types(&mut builder, start, start.start_byte(), body.start_byte());
+        builder.block(body);
+    } else if node.kind() == "arrow_function" {
+        builder.expression(node);
+    } else {
+        slice_eliding_object_types(&mut builder, start, start.start_byte(), node.end_byte());
+        if source.get(node.end_byte()) == Some(&b';') {
+            builder.slice(node.end_byte(), node.end_byte() + 1);
+        }
+    }
+    builder.finish()
+}
+
+/// `start..end` into the header with every outermost inline object type cut
+/// to `{ … }`: its members are rows of their own, so the header does not
+/// print them a second time.
+fn slice_eliding_object_types(
+    builder: &mut crate::extraction::header::Builder,
+    root: Node,
+    start: usize,
+    end: usize,
+) {
+    let mut object_types = Vec::new();
+    collect_object_types(root, start, end, &mut object_types);
+    let mut at = start;
+    for object_type in object_types {
+        builder.slice(at, object_type.start_byte());
+        builder.block(object_type);
+        at = object_type.end_byte();
+    }
+    builder.slice(at, end);
+}
+
+fn collect_object_types<'a>(node: Node<'a>, start: usize, end: usize, out: &mut Vec<Node<'a>>) {
+    if node.end_byte() <= start || node.start_byte() >= end {
+        return;
+    }
+    if node.kind() == "object_type" && node.start_byte() >= start && node.end_byte() <= end {
+        out.push(node);
+        return;
+    }
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        collect_object_types(child, start, end, out);
+    }
+}
+
+fn typescript_declaration_names(node: Node) -> Vec<Node> {
+    let Some(name) = node.child_by_field_name("name") else {
+        return Vec::new();
+    };
+    let mut names = Vec::new();
+    collect_typescript_pattern_names(name, &mut names);
+    names
+}
+
+fn collect_typescript_pattern_names<'a>(node: Node<'a>, names: &mut Vec<Node<'a>>) {
+    match node.kind() {
+        "identifier" | "shorthand_property_identifier_pattern" => names.push(node),
+        "pair_pattern" => {
+            if let Some(value) = node.child_by_field_name("value") {
+                collect_typescript_pattern_names(value, names);
+            }
+        }
+        _ => {
+            let mut cursor = node.walk();
+            for child in node.named_children(&mut cursor) {
+                collect_typescript_pattern_names(child, names);
+            }
+        }
+    }
+}
+
+fn collect_typescript_function_bodies<'a>(node: Node<'a>, bodies: &mut Vec<Node<'a>>) {
+    if matches!(
+        node.kind(),
+        "arrow_function" | "function_expression" | "method_definition"
+    ) {
+        if let Some(body) = node
+            .child_by_field_name("body")
+        {
+            bodies.push(body);
+            return;
+        }
+    }
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        collect_typescript_function_bodies(child, bodies);
+    }
+}
+
+
+fn typescript_header_start(mut node: Node) -> Node {
+    if node.kind() == "variable_declarator" {
+        node = node.parent().unwrap_or(node);
+    }
+    if let Some(parent) = node
+        .parent()
+        .filter(|parent| parent.kind() == "export_statement")
+    {
+        node = parent;
+    }
+    while let Some(previous) = node
+        .prev_named_sibling()
+        .filter(|sibling| sibling.kind() == "decorator")
+    {
+        node = previous;
+    }
+    node
+}
+
+fn typescript_header_line(node: Node) -> i64 {
+    typescript_header_start(node).start_position().row as i64 + 1
+}
+
+fn typescript_annotations(node: Node, source: &[u8]) -> Vec<String> {
+    let annotation = |decorator: Node| {
+        let source = decorator.utf8_text(source).unwrap_or("").to_string();
+        let name = source
+            .trim_start_matches('@')
+            .split(['(', '.'])
+            .next()
+            .unwrap_or("")
+            .to_string();
+        name
+    };
+    let mut cursor = node.walk();
+    let mut decorators: Vec<String> = node
+        .children(&mut cursor)
+        .filter(|child| child.kind() == "decorator")
+        .map(annotation)
+        .collect();
+    if decorators.is_empty() {
+        let mut current = node.prev_named_sibling();
+        while let Some(decorator) = current.filter(|candidate| candidate.kind() == "decorator") {
+            decorators.push(annotation(decorator));
+            current = decorator.prev_named_sibling();
+        }
+        decorators.reverse();
+    }
+    decorators
 }
 
 /// Every `call_expression` and `new_expression` in the tree, stamped with

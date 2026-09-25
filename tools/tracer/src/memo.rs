@@ -8,6 +8,10 @@
 //! concurrent callers serialize onto one run instead of racing the same git
 //! subprocesses. Getting that wrong is silent: the map is still correct, it
 //! is just built twice and copied per caller.
+//!
+//! A build may use the pool only through a call that never blocks on a memo,
+//! and a memo consumer never runs on the pool while a build of that memo can
+//! run its work there.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};

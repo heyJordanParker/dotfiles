@@ -3,15 +3,15 @@
 //! AST-derived via `crate::ccn` (name -> line span). Supports fluff
 //! stripping, ref loading, line/anchor scoping, and nested-memory loading.
 
-use super::{nested_memory, session_log};
-use crate::{cache, ccn, extraction, file_facts, passive_context, relations};
+use super::{context, nested_memory, session_log};
+use crate::summary::Facts;
+use crate::{cache, ccn, extraction, file_facts, relations, summary, surface};
 use anyhow::Result;
 use regex::Regex;
 use serde_json::{json, Value};
 use std::borrow::Cow;
 use std::io::Write;
-use std::path::Path;
-use std::process::Command;
+use std::path::{Path, PathBuf};
 
 /// Resolve whether `read` injects project-docs. Off by default; only an
 /// explicit `--docs` turns it on.
@@ -33,15 +33,6 @@ const LICENSE_MARKERS: &[&str] = &[
     "copyright ©",
     "all rights reserved",
 ];
-
-/// Bytes of rendered content one file may emit before the trim marker.
-/// Claude Code budgets a Bash result at 30,000 characters and writes
-/// anything larger to a spill file the agent must fetch in a second call;
-/// codex truncates the middle in place with no line numbers. Neither tells
-/// the agent where the cut landed. This sits under both with headroom for
-/// the shoulder line and a `--docs` block, so a trimmed read arrives whole
-/// and says how to continue.
-const READ_CONTENT_BUDGET_CHARS: usize = 24_000;
 
 fn separator_re() -> &'static Regex {
     use std::sync::OnceLock;
@@ -65,6 +56,8 @@ struct RenderedRead {
     content_size: usize,
     total_lines: usize,
     delivered_spans: Vec<(usize, usize)>,
+    /// The rows as the text output shows them, fitted to the budget.
+    surface_text: String,
 }
 
 fn comment_syntax(file: &str) -> (Option<&'static str>, Option<(&'static str, &'static str)>) {
@@ -317,8 +310,8 @@ fn line_count(content: &str) -> usize {
 
 /// Trim rendered content to the last whole line fitting in `budget`, and
 /// retain the source position each emitted line carries. Returns whether
-/// anything was dropped. A first line larger than the whole budget remains
-/// whole and unmarked.
+/// anything was dropped. A first line larger than the whole budget — one
+/// minified line can be megabytes — is cut at a character boundary.
 fn trim_to_budget(lines: &mut Vec<RenderedLine<'_>>, budget: usize) -> bool {
     let mut bytes = 0usize;
     let mut keep = 0usize;
@@ -329,10 +322,19 @@ fn trim_to_budget(lines: &mut Vec<RenderedLine<'_>>, budget: usize) -> bool {
         bytes += line.len();
         keep += 1;
     }
-    if keep == lines.len() {
+    let first_too_long = lines.first().is_some_and(|(_, line)| line.len() > budget.max(1));
+    if keep == lines.len() && !first_too_long {
         return false;
     }
     lines.truncate(keep);
+    if first_too_long {
+        let line = &lines[0].1;
+        let mut cut = budget.max(1).min(line.len());
+        while !line.is_char_boundary(cut) {
+            cut -= 1;
+        }
+        lines[0].1 = Cow::Owned(format!("{}\u{2026}\n", &line[..cut]));
+    }
     true
 }
 
@@ -346,15 +348,18 @@ fn trim_marker(
     selection_end: usize,
     total_lines: usize,
 ) -> String {
-    if last_line >= selection_end {
-        return format!("\n[trimmed at L{last_line} of {total_lines}]\n");
-    }
     // A path carrying whitespace has to survive being pasted into a shell.
     let quoted = if file.contains(char::is_whitespace) {
         format!("'{}'", file.replace('\'', r"'\''"))
     } else {
         file.to_string()
     };
+    // The selection's last line was reached, so the trim cut that line.
+    if last_line >= selection_end {
+        return format!(
+            "\n[trimmed at L{last_line} of {total_lines} — whole: trace read {quoted} --all{flags}]\n"
+        );
+    }
     format!(
         "\n[trimmed at L{last_line} of {total_lines} — continue: trace read {quoted} --lines {}:{}{flags}]\n",
         last_line + 1,
@@ -375,9 +380,9 @@ fn extract_method_from_source<'a>(
     // `Class.name`; a bare name reaches either.
     let dotted = format!(".{method_name}");
     let scoped = format!("::{method_name}");
-    let target = functions
-        .iter()
-        .find(|f| f.name == method_name || f.name.ends_with(&dotted) || f.name.ends_with(&scoped))?;
+    let target = functions.iter().find(|f| {
+        f.name == method_name || f.name.ends_with(&dotted) || f.name.ends_with(&scoped)
+    })?;
     let lines: Vec<SourceLine<'a>> = source_lines(source).collect();
     let mut start = (target.start_line - 1).max(0) as usize;
     let end_line = target.start_line + target.nloc - 1;
@@ -397,7 +402,8 @@ fn extract_method_from_source<'a>(
             || t.starts_with("//")
             || t.starts_with('*')
             || (t.starts_with("/*")
-                && t.split_once("*/").is_none_or(|(_, after)| after.trim().is_empty()))
+                && t.split_once("*/")
+                    .is_none_or(|(_, after)| after.trim().is_empty()))
     };
     while start > 0 {
         let prev = lines[start - 1].1;
@@ -496,17 +502,17 @@ fn parse_lines(value: &str) -> (i64, i64) {
 }
 
 fn resolve_ref(ref_: &str, repo_root: &Path) -> Option<Value> {
-    let out = Command::new("git")
-        .args([
+    let out = crate::git_activity::git_output(
+        repo_root,
+        [
             "log",
             "-1",
             "--pretty=format:%H|%h|%ad|%s",
             "--date=short",
             ref_,
-        ])
-        .current_dir(repo_root)
-        .output()
-        .ok()?;
+        ],
+    )
+    .ok()?;
     if !out.status.success() {
         return None;
     }
@@ -528,15 +534,7 @@ fn resolve_ref(ref_: &str, repo_root: &Path) -> Option<Value> {
 }
 
 fn load_at_ref(ref_: &str, repo_root: &Path, relative: &str) -> Option<String> {
-    let out = Command::new("git")
-        .args(["show", &format!("{ref_}:{relative}")])
-        .current_dir(repo_root)
-        .output()
-        .ok()?;
-    if !out.status.success() {
-        return None;
-    }
-    Some(String::from_utf8_lossy(&out.stdout).to_string())
+    crate::git_activity::blob(repo_root, ref_, relative).map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
 }
 
 /// Function name -> (start_line, end_line) via the AST CCN backend, used
@@ -702,15 +700,6 @@ fn render_symbol_diff(diff: &Value) -> String {
     lines.join("\n")
 }
 
-fn clip(subject: &str, max_chars: usize) -> String {
-    let count = subject.chars().count();
-    if count <= max_chars {
-        return subject.to_string();
-    }
-    let truncated: String = subject.chars().take(max_chars - 1).collect();
-    format!("{}\u{2026}", truncated.trim_end())
-}
-
 #[allow(clippy::too_many_arguments)]
 fn render_one(
     file_arg: &str,
@@ -723,6 +712,7 @@ fn render_one(
     as_diff: bool,
     docs_on: bool,
     session_dedupe: &mut std::collections::BTreeSet<String>,
+    budget: Option<usize>,
 ) -> Result<RenderedRead> {
     let file_path_raw = Path::new(file_arg);
     let file_path = file_path_raw
@@ -737,6 +727,7 @@ fn render_one(
     let relative = cache::relative_to_root(&file_path, &repo_root);
 
     let mut ref_meta: Option<Value> = None;
+    let mut binary: Option<usize> = None;
     let source: String;
     if let Some(r) = ref_ {
         match resolve_ref(r, &repo_root) {
@@ -758,7 +749,13 @@ fn render_one(
             eprintln!("Error: file not found: {file_arg}");
             std::process::exit(2);
         }
-        source = String::from_utf8_lossy(&std::fs::read(&file_path)?).to_string();
+        let bytes = std::fs::read(&file_path)?;
+        if bytes[..bytes.len().min(8000)].contains(&0) {
+            binary = Some(bytes.len());
+            source = String::new();
+        } else {
+            source = String::from_utf8_lossy(&bytes).to_string();
+        }
     }
 
     let mut between_resolved_lines: Option<Vec<i64>> = None;
@@ -766,7 +763,23 @@ fn render_one(
         match extract_method_from_source(&source, &relative, m) {
             Some(lines) => lines,
             None => {
-                eprintln!("Error: method '{m}' not found in {relative}");
+                // Name where the word does appear, so the refusal carries the
+                // next read instead of ending the search.
+                let lines: Vec<String> = source_lines(&source)
+                    .filter(|(_, text)| text.contains(m))
+                    .map(|(number, _)| number.to_string())
+                    .take(20)
+                    .collect();
+                if lines.is_empty() {
+                    eprintln!("Error: no function '{m}' in {relative}, and the word does not appear in it");
+                } else {
+                    eprintln!(
+                        "Error: no function '{m}' in {relative}; the word appears on lines {} → trace read {relative} --lines {}:{}",
+                        lines.join(", "),
+                        lines[0],
+                        lines[lines.len() - 1],
+                    );
+                }
                 std::process::exit(2);
             }
         }
@@ -801,6 +814,57 @@ fn render_one(
     let total_lines = line_count(&source);
     let content_hash = session_log::content_hash(&source);
     let content_size = source.len();
+    let mut facts = file_facts::get(&file_path, &repo_root);
+    if let (Some(facts), Some(_)) = (facts.as_mut(), ref_) {
+        facts.extraction = extraction::extract(source.as_bytes(), &relative);
+    }
+    // The front matter: at a ref, the commit the source came from, in `git
+    // log`'s own words; in the worktree, the file's facts and its directory.
+    // A file outside any git repository has neither.
+    let in_repository = cache::worktree_root_for(&file_path).is_some();
+    let front_matter: Option<serde_json::Map<String, Value>> = if ref_.is_some() {
+        ref_meta.as_ref().map(|m| {
+            let mut map = serde_json::Map::new();
+            map.insert("file".into(), relative.clone().into());
+            map.insert("ref".into(), json!(ref_));
+            map.insert("commit".into(), m["full_sha"].clone());
+            map.insert("date".into(), m["date"].clone());
+            map.insert("subject".into(), summary::clip(m["subject"].as_str().unwrap_or(""), 60).into());
+            map
+        })
+    } else if in_repository {
+        facts.as_ref().map(|facts| {
+            let graph = relations::get(&repo_root).module_counts(&relative);
+            let mut map = Facts::of(facts, graph.as_ref()).to_map();
+            let not_loaded = context::docs_not_loaded(&file_path, &repo_root);
+            if !not_loaded.is_empty() {
+                map.insert("docs_not_loaded".into(), not_loaded.into());
+            }
+            if let Some(directory) = file_path.parent().and_then(context::directory_facts) {
+                map.insert("directory".into(), Value::Object(directory));
+            }
+            map
+        })
+    } else {
+        None
+    };
+
+    // The budget holds the whole read: the front matter first, then the rows
+    // in at most half of what is left (each still named when cut), then the
+    // content in the rest.
+    let budget = if all { None } else { budget };
+    let front_matter_size = front_matter.as_ref().map_or(0, |map| summary::front_matter(map).len());
+    let window = (start_line as i64, selection_end as i64);
+    let surface_rows = facts
+        .as_ref()
+        .map(|facts| surface::rows(facts, Some(window)))
+        .unwrap_or_default();
+    let surface_text = surface::render_within(
+        &surface_rows,
+        &relative,
+        Some(window),
+        budget.map(|budget| budget.saturating_sub(front_matter_size) / 2),
+    );
     let mut rendered: Vec<RenderedLine<'_>> = if raw {
         selected
             .into_iter()
@@ -809,7 +873,15 @@ fn render_one(
     } else {
         clean(selected, &source, &relative)
     };
-    let truncated = !all && trim_to_budget(&mut rendered, READ_CONTENT_BUDGET_CHARS);
+    // The `# <file>` header, the blank line after the rows, and the trim
+    // marker naming `file_arg` also count.
+    let reserved = relative.len() + file_arg.len() + 100;
+    let truncated = budget.is_some_and(|budget| {
+        trim_to_budget(
+            &mut rendered,
+            budget.saturating_sub(front_matter_size + surface_text.len() + reserved),
+        )
+    });
     let shown_end = rendered
         .last()
         .map(|(number, _)| *number)
@@ -825,6 +897,9 @@ fn render_one(
     let mut content = String::new();
     for (_, line) in &rendered {
         content.push_str(line);
+    }
+    if let Some(size) = binary {
+        content = format!("[binary file, {size} bytes: not shown]\n");
     }
     if truncated {
         if let Some(last_line) = rendered.last().map(|(number, _)| *number) {
@@ -856,32 +931,6 @@ fn render_one(
             symbol_diff(Some(source.as_str()), worktree_source.as_deref(), &relative);
     }
 
-    let facts = if ref_.is_none() && file_path.is_file() {
-        file_facts::get(&file_path, &repo_root)
-    } else {
-        None
-    };
-    let graph = if facts.is_some() {
-        relations::get(&repo_root).module_counts(&cache::relative_to_root(&file_path, &repo_root))
-    } else {
-        None
-    };
-    let context_line: Option<String> = if ref_.is_some() {
-        ref_meta.as_ref().map(|m| {
-            format!(
-                "[source: ref {} · resolved: {} · date: {} · subject: {}]",
-                m["short_sha"].as_str().unwrap_or(""),
-                m["full_sha"].as_str().unwrap_or(""),
-                m["date"].as_str().unwrap_or(""),
-                clip(m["subject"].as_str().unwrap_or(""), 60)
-            )
-        })
-    } else {
-        facts
-            .as_ref()
-            .map(|f| passive_context::render(f, graph.as_ref()))
-    };
-
     let memories = if docs_on {
         nested_memory::load_for_file(&file_path, &repo_root, session_dedupe, false)
     } else {
@@ -904,9 +953,9 @@ fn render_one(
         "truncated": truncated,
         "shown_lines": if selection_empty { None } else { Some(vec![start_line as i64, shown_end as i64]) },
         "total_lines": total_lines,
-        "passive_context": context_line,
-        "graph": graph,
+        "facts": front_matter,
         "symbol_diff": symbol_diff_data,
+        "surface": surface_rows,
     });
     if !memories.is_empty() {
         payload["nested_memories"] = json!(memories
@@ -928,12 +977,14 @@ fn render_one(
         content_size,
         total_lines,
         delivered_spans,
+        surface_text,
     })
 }
 
 fn emit_human(
     payload: &Value,
     memories: &[nested_memory::LoadedMemory],
+    surface_text: &str,
     output: &mut impl Write,
 ) -> Result<()> {
     let mut header = format!("# {}", payload["file"].as_str().unwrap_or(""));
@@ -963,9 +1014,11 @@ fn emit_human(
         }
     }
     writeln!(output, "{header}")?;
-    if let Some(pc) = payload["passive_context"].as_str() {
-        writeln!(output, "{pc}")?;
+    if let Some(facts) = payload["facts"].as_object() {
+        write!(output, "{}", summary::front_matter(facts))?;
     }
+    write!(output, "{surface_text}")?;
+    output.flush()?;
     let memories_block = if memories.is_empty() {
         String::new()
     } else {
@@ -973,6 +1026,9 @@ fn emit_human(
     };
     if !memories_block.is_empty() {
         writeln!(output, "{memories_block}")?;
+        writeln!(output)?;
+    }
+    if !surface_text.is_empty() {
         writeln!(output)?;
     }
     write!(output, "{}", payload["content"].as_str().unwrap_or(""))?;
@@ -983,16 +1039,19 @@ fn emit_human(
 }
 
 fn record_delivered_read(rendered: &RenderedRead) {
-    for span in &rendered.delivered_spans {
-        session_log::record_read(
-            &rendered.file_path,
-            "trace_read",
-            &rendered.content_hash,
-            rendered.content_size,
-            rendered.total_lines,
-            Some(*span),
-        );
+    if rendered.delivered_spans.is_empty() {
+        return;
     }
+    let spans: Vec<Option<(usize, usize)>> =
+        rendered.delivered_spans.iter().copied().map(Some).collect();
+    session_log::record_read(
+        &rendered.file_path,
+        "trace_read",
+        &rendered.content_hash,
+        rendered.content_size,
+        rendered.total_lines,
+        &spans,
+    );
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1022,39 +1081,21 @@ pub fn run(
 
     let line_range = lines_arg.map(parse_lines);
 
-    let multi_scope = line_range.is_some() || between.is_some();
-    let files: Vec<String>;
-    let positional_method: Option<String>;
-    if multi_scope {
-        files = paths.to_vec();
-        positional_method = None;
+    // Every positional is a path, and a directory reads as the files under
+    // it; `--method` names a function. At `--at <ref>` a path may exist only
+    // in that commit, so it is taken as written.
+    let files: Vec<String> = if ref_.is_some() {
+        paths.to_vec()
     } else {
-        if paths.is_empty() {
-            eprintln!("Error: missing file argument");
-            std::process::exit(2);
-        }
-        if paths.len() > 2 {
-            eprintln!(
-                "Error: too many positionals — use --lines or --between for multi-file reads"
-            );
-            std::process::exit(2);
-        }
-        files = vec![paths[0].clone()];
-        positional_method = paths.get(1).cloned();
-    }
-
-    if method_flag.is_some() && positional_method.is_some() {
-        eprintln!("Error: --method and positional METHOD are mutually exclusive");
-        std::process::exit(2);
-    }
-    let method = method_flag.map(|s| s.to_string()).or(positional_method);
-
-    if method.is_some() && multi_scope {
-        eprintln!("Error: METHOD is not valid with --lines or --between");
-        std::process::exit(2);
-    }
-    if method.is_some() && files.len() > 1 {
-        eprintln!("Error: METHOD requires exactly one file");
+        let requested: Vec<PathBuf> = paths.iter().map(PathBuf::from).collect();
+        crate::pathval::files_under(&requested, "PATH")
+            .iter()
+            .map(|path| path.to_string_lossy().to_string())
+            .collect()
+    };
+    let method = method_flag.map(str::to_string);
+    if method.is_some() && (line_range.is_some() || between.is_some()) {
+        eprintln!("Error: --method is not valid with --lines or --between");
         std::process::exit(2);
     }
 
@@ -1065,6 +1106,8 @@ pub fn run(
     };
     let between_ref = between.as_ref().map(|(a, b)| (a.as_str(), b.as_str()));
 
+    // Several files share one budget evenly.
+    let budget = crate::output::budget().map(|budget| budget / files.len().max(1));
     let mut results: Vec<RenderedRead> = Vec::new();
     for f in &files {
         let rendered = render_one(
@@ -1078,6 +1121,7 @@ pub fn run(
             as_diff,
             docs_on,
             &mut session_dedupe,
+            budget,
         )?;
         results.push(rendered);
     }
@@ -1100,16 +1144,14 @@ pub fn run(
             "total_lines": payload["total_lines"],
             "between_resolved_lines": payload["between_resolved_lines"],
         }));
-        context.insert(
-            file,
-            json!({
-                "shoulder": payload["passive_context"],
-                "graph": payload["graph"],
-                "ref_resolved": payload["ref_resolved"],
-                "symbol_diff": payload["symbol_diff"],
-                "nested_memories": payload["nested_memories"],
-            }),
-        );
+        // The front matter's keys, then what else the read carried.
+        let mut entry = payload["facts"].as_object().cloned().unwrap_or_default();
+        for key in ["surface", "symbol_diff", "nested_memories"] {
+            if !payload[key].is_null() {
+                entry.insert(key.into(), payload[key].clone());
+            }
+        }
+        context.insert(file, Value::Object(entry));
     }
     let value = crate::output::document(
         json!({
@@ -1149,7 +1191,7 @@ pub fn run(
             writeln!(output)?;
             writeln!(output, "---")?;
         }
-        emit_human(&rendered.payload, &rendered.memories, &mut output)?;
+        emit_human(&rendered.payload, &rendered.memories, &rendered.surface_text, &mut output)?;
         output.flush()?;
         if record {
             if docs_on {

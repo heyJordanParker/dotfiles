@@ -107,6 +107,47 @@ def test_unsupported_codex_event_fails_without_writing_dead_wiring(tmp_path):
     assert config.read_bytes() == before
 
 
+def test_codex_trust_hash_equals_codex_own_for_matcher_groups():
+    """Pins silently untrusted codex hooks once groups carry a matcher.
+
+    The expected hashes are the ones codex 0.153.4 itself wrote for hcom's
+    hooks.json handlers, which carry `Bash` and `startup|resume|clear` matchers."""
+    assert hooks._codex_trust_hash("PreToolUse", "Bash", "hcom codex-pretooluse", None, None) == (
+        "804232e05467ffbbff62fb52017d8c737cb8c9b83fdab2b67d1a8ece730f01ec")
+    assert hooks._codex_trust_hash(
+        "SessionStart", "startup|resume|clear", "hcom codex-sessionstart", None, None) == (
+        "6db80d9e846b72464980b4ce5d0e9c5e29116d58a4f171739e19ad1360285883")
+
+
+def test_codex_groups_carry_tool_matchers():
+    """Pins every codex hook starting on every tool call because no group had a matcher."""
+    rendered = hooks.render_codex(
+        "[[hooks.old]]\n\n[hooks.state]\n",
+        {"shell": {"events": {"PreToolUse": ["Bash"]}, "harness": "codex"},
+         "patch": {"events": {"PreToolUse": ["Write"]}, "harness": "codex"}},
+    )
+
+    assert 'matcher = "Bash"' in rendered
+    assert 'matcher = "Write"' in rendered
+
+
+def test_one_tool_call_starts_one_runner():
+    """Pins a separate interpreter per quick hook on every tool call."""
+    bindings = {
+        "a": {"events": {"PreToolUse": ["Bash"]}, "timeout": 5},
+        "b": {"events": {"PreToolUse": ["Bash"]}, "timeout": 5},
+        "c": {"events": {"PreToolUse": ["Bash", "Write"]}, "timeout": 5},
+        "slow": {"events": {"PreToolUse": ["Bash"]}, "standalone": True},
+    }
+
+    groups = hooks.render_claude({}, bindings)["hooks"]["PreToolUse"]
+    bash = [hook["command"] for group in groups if group["matcher"] == "Bash"
+            for hook in group["hooks"]]
+
+    assert bash == ["python3 ~/.agents/hooks/slow.py",
+                    "python3 ~/.agents/hooks/combine_hooks.py a b c"]
+
+
 def test_shipped_bindings_only_name_events_their_harness_fires():
     """Pins silently inert shipped hooks bound to events their harness never fires."""
     invalid = []

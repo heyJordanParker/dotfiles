@@ -54,6 +54,16 @@ def test_plain_trace_passes(monkeypatch, tmp_path):
     assert _run(monkeypatch, "trace grep pattern", str(tmp_path)) == 0
 
 
+def test_trace_search_for_an_arrow_passes(monkeypatch, tmp_path):
+    (tmp_path / "app.rs").write_text("None => 1\n")
+    assert _run(monkeypatch, "trace grep 'None =>' app.rs", str(tmp_path)) == 0
+
+
+def test_trace_redirected_into_a_repo_file_is_refused(monkeypatch, tmp_path):
+    (tmp_path / "app.rs").write_text("None => 1\n")
+    assert _run(monkeypatch, "trace grep None > app.rs", str(tmp_path)) == 2
+
+
 def test_cat_on_a_repo_glob_is_refused(monkeypatch, tmp_path):
     (tmp_path / "output.rs").write_text("fn main() {}\n")
     assert _run(monkeypatch, "cat outp*.rs", str(tmp_path)) == 2
@@ -69,8 +79,9 @@ def test_git_grep_on_the_worktree_is_refused(monkeypatch, capsys, tmp_path):
     assert "trace grep" in capsys.readouterr().err
 
 
-def test_git_grep_at_a_ref_passes(monkeypatch, tmp_path):
-    assert _run(monkeypatch, "git grep pattern HEAD -- admin", str(tmp_path)) == 0
+def test_git_grep_at_a_ref_is_refused(monkeypatch, capsys, tmp_path):
+    assert _run(monkeypatch, "git grep 'new Contact' HEAD~1", str(tmp_path)) == 2
+    assert "trace grep 'new Contact' --at HEAD~1" in capsys.readouterr().err
 
 
 def test_git_show_of_a_blob_is_refused(monkeypatch, capsys, tmp_path):

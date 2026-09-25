@@ -9,10 +9,11 @@
 //! the edge named, and the human wording.
 
 use crate::commands::enrich;
-use crate::{cache, relations};
+use crate::{cache, file_facts, relations, surface};
 use anyhow::Result;
 use serde_json::{json, Value};
-use std::path::Path;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 
 /// Which way to read the import inversion, and every word that changes with
 /// it. One value per command, so a new direction cannot half-exist.
@@ -97,10 +98,33 @@ pub fn run(
 /// dependency, so `from util import helper` names `helper`; read backward the
 /// row is about the importer, which the symbol says nothing about, so it is
 /// named by its module. The asymmetry is the edge's, not the renderer's.
+type Rows<'a> = HashMap<&'a str, Vec<surface::Row>>;
+
+fn loaded(files: &[String], repo_root: &Path) -> HashMap<String, file_facts::FileFacts> {
+    let paths: Vec<PathBuf> = files.iter().map(|file| repo_root.join(file)).collect();
+    file_facts::get_batch(&paths, repo_root)
+}
+
+fn rows_of(facts: &HashMap<String, file_facts::FileFacts>, named: bool) -> Rows<'_> {
+    if !named {
+        return Rows::new();
+    }
+    facts
+        .iter()
+        .map(|(file, facts)| (file.as_str(), surface::rows(facts, None)))
+        .collect()
+}
+
+fn declaration(rows: &Rows, file: &str, symbol: Option<&String>) -> Option<surface::Row> {
+    let symbol = symbol?;
+    rows.get(file)?.iter().find(|row| row.name == *symbol).cloned()
+}
+
 fn reached_row(
     direction: Direction,
     reached: &relations::Reached,
     index: &relations::Relations,
+    declared: Option<&surface::Row>,
 ) -> Value {
     let language = index.language(&reached.file);
     let named = match direction {
@@ -125,6 +149,7 @@ fn reached_row(
         "kind": kind,
         "source_file": reached.file,
         "depth": reached.depth,
+        "declaration": declared,
     })
 }
 
@@ -139,6 +164,14 @@ fn symbol_mode(direction: Direction, symbol: &str, depth: i64, as_json: bool) ->
     };
     if declarations.is_empty() && modules.is_empty() {
         eprintln!("Symbol '{symbol}' not declared anywhere in this repository.");
+        std::process::exit(2);
+    }
+    if !declarations.is_empty()
+        && declarations
+            .iter()
+            .all(|declaration| declaration.declaration.kind == "property")
+    {
+        eprintln!("a property has readers, not callers; tracer does not extract reads");
         std::process::exit(2);
     }
     let index = relations::get(&repo_root);
@@ -172,20 +205,37 @@ fn symbol_mode(direction: Direction, symbol: &str, depth: i64, as_json: bool) ->
 
     // Both directions carry the same file state, so they answer with
     // identical context.
-    let reached_files: Vec<String> = chains
+    let mut reached_files: Vec<String> = chains
         .iter()
         .flat_map(|chain| chain.iter().map(|r| r.file.clone()))
         .collect();
-    let shoulders = enrich::file_shoulders(&reached_files, &repo_root);
+    reached_files.sort();
+    reached_files.dedup();
+    let facts = loaded(&reached_files, &repo_root);
+    let file_facts_by_path = enrich::facts_of(&facts, &repo_root);
+    let file_rows = rows_of(&facts, matches!(direction, Direction::Dependencies));
+    let declared: Vec<Vec<Option<surface::Row>>> = chains
+        .iter()
+        .map(|chain| {
+            chain
+                .iter()
+                .map(|r| match direction {
+                    Direction::Dependencies => declaration(&file_rows, &r.file, r.symbol.as_ref()),
+                    Direction::Dependents => None,
+                })
+                .collect()
+        })
+        .collect();
 
     let rows_key = direction.rows_key();
     let mut symbols: Vec<Value> = Vec::with_capacity(subjects.len());
-    for ((node_id, label, kind, source_file, source_line), chain) in
-        subjects.iter().zip(chains.iter())
+    for ((node_id, label, kind, source_file, source_line), (chain, declared)) in
+        subjects.iter().zip(chains.iter().zip(&declared))
     {
         let rows: Vec<Value> = chain
             .iter()
-            .map(|r| reached_row(direction, r, &index))
+            .zip(declared)
+            .map(|(r, declared)| reached_row(direction, r, &index, declared.as_ref()))
             .collect();
         symbols.push(json!({
             "node_id": node_id,
@@ -198,29 +248,37 @@ fn symbol_mode(direction: Direction, symbol: &str, depth: i64, as_json: bool) ->
     }
 
     if !as_json {
-        for ((_, label, kind, source_file, source_line), chain) in
-            subjects.iter().zip(chains.iter())
+        let mut sections: Vec<enrich::Section> = Vec::with_capacity(subjects.len());
+        for ((_, label, kind, source_file, source_line), ((chain, symbol), declared)) in
+            subjects.iter().zip(chains.iter().zip(&symbols).zip(&declared))
         {
-            println!("\n{label} [{kind}] @ {source_file}:{source_line}");
-            println!("  {} (depth ≤ {depth}):", direction.symbol_heading());
+            let mut heading = format!(
+                "\n{label} [{kind}] @ {source_file}:{source_line}\n  {} (depth ≤ {depth}):",
+                direction.symbol_heading()
+            );
             if chain.is_empty() {
-                println!("    (no {rows_key} found)");
-                continue;
+                heading.push_str(&format!("\n    (no {rows_key} found)"));
             }
-            for r in chain {
-                let row = reached_row(direction, r, &index);
-                println!(
-                    "    [d={}] {} [{}] @ {}:1",
-                    r.depth,
-                    row["label"].as_str().unwrap_or(""),
-                    row["kind"].as_str().unwrap_or(""),
-                    r.file,
-                );
-                if let Some(s) = shoulders.get(&r.file) {
-                    println!("        {s}");
+            let mut files: Vec<(String, Vec<String>, usize)> = Vec::new();
+            for ((r, row), declared) in chain.iter().zip(symbol[rows_key].as_array().into_iter().flatten()).zip(declared) {
+                let rendered = declared
+                    .as_ref()
+                    .map(|declaration| surface::inline(declaration, &r.file))
+                    .unwrap_or_else(|| format!("{} [{}]", row["label"].as_str().unwrap_or(""), row["kind"].as_str().unwrap_or("")));
+                if files.last().is_none_or(|(last, _, _)| *last != r.file) {
+                    files.push((r.file.clone(), Vec::new(), 0));
                 }
+                let (_, rows, count) = files.last_mut().unwrap();
+                rows.push(format!("      [d={}] {rendered}", r.depth));
+                *count += 1;
             }
+            sections.push(enrich::Section { heading, files });
         }
+        let (one, many) = match direction {
+            Direction::Dependents => ("dependent", "dependents"),
+            Direction::Dependencies => ("dependency", "dependencies"),
+        };
+        enrich::render_sections(&sections, &file_facts_by_path, one, many);
     }
     let total: i64 = symbols
         .iter()
@@ -228,7 +286,7 @@ fn symbol_mode(direction: Direction, symbol: &str, depth: i64, as_json: bool) ->
         .sum();
     Ok(crate::output::document(
         json!({"symbol": symbol, "depth": depth, "mode": "symbol"}),
-        json!({"files": enrich::shoulder_context(&shoulders)}),
+        json!({"files": enrich::facts_context(&file_facts_by_path)}),
         json!(symbols),
         json!({"symbols": symbols.len(), rows_key: total}),
     ))
@@ -266,7 +324,16 @@ fn path_mode(
     let index = relations::get(&repo_root);
 
     let ranked_files: Vec<String> = ranked.iter().map(|r| r.file.clone()).collect();
-    let shoulders = enrich::file_shoulders(&ranked_files, &repo_root);
+    let facts = loaded(&ranked_files, &repo_root);
+    let file_facts_by_path = enrich::facts_of(&facts, &repo_root);
+    let file_rows = rows_of(&facts, matches!(direction, Direction::Dependents));
+    let declared: Vec<Option<surface::Row>> = ranked
+        .iter()
+        .map(|r| match direction {
+            Direction::Dependents => declaration(&file_rows, &r.file, r.symbol.as_ref()),
+            Direction::Dependencies => None,
+        })
+        .collect();
 
     let (direct_key, transitive_key) = (direction.direct_key(), direction.transitive_key());
     // Ranked by dependents the file is every counted edge's TARGET, so the
@@ -275,8 +342,9 @@ fn path_mode(
     // own module and never by what it imported.
     let rows: Vec<Value> = ranked
         .iter()
+        .zip(&declared)
         .enumerate()
-        .map(|(i, r)| {
+        .map(|(i, (r, declared))| {
             let language = index.language(&r.file);
             let named = match direction {
                 Direction::Dependents => r.symbol.as_ref(),
@@ -303,6 +371,7 @@ fn path_mode(
                 "source_line": 1,
                 direct_key: r.direct,
                 transitive_key: r.transitive,
+                "declaration": declared,
             })
         })
         .collect();
@@ -314,7 +383,7 @@ fn path_mode(
             "depth": depth,
             "mode": "path",
         }),
-        json!({"files": enrich::shoulder_context(&shoulders)}),
+        json!({"files": enrich::facts_context(&file_facts_by_path)}),
         json!(rows),
         json!({"nodes": rows.len()}),
     );
@@ -336,7 +405,7 @@ fn path_mode(
                 "  {:<3} {:>6}  {:>10}  {:<10}  symbol @ source",
                 "#", "direct", "transitive", "kind"
             );
-            for row in &rows {
+            for (row, declared) in rows.iter().zip(&declared) {
                 println!(
                     "  {:<3} {:>6}  {:>10}  {:<10}  {} @ {}:1",
                     row["rank"].as_i64().unwrap_or(0),
@@ -346,8 +415,13 @@ fn path_mode(
                     row["label"].as_str().unwrap_or(""),
                     row["source_file"].as_str().unwrap_or(""),
                 );
-                if let Some(s) = row["source_file"].as_str().and_then(|f| shoulders.get(f)) {
-                    println!("        {s}");
+                if let Some(declaration) = declared {
+                    println!("        {}", surface::inline(declaration, row["source_file"].as_str().unwrap_or("")));
+                }
+                if let Some(facts) =
+                    row["source_file"].as_str().and_then(|f| file_facts_by_path.get(f))
+                {
+                    println!("        {}", facts.headline());
                 }
             }
         }

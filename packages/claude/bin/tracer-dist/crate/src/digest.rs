@@ -19,7 +19,11 @@ const DOC_FILENAMES: &[&str] = &[
 /// Walk up from the file to find the nearest project doc. Iterates the
 /// fixed `DOC_FILENAMES` list and returns the first existing: any match in
 /// a directory wins, and list order is the deterministic tiebreak.
-pub fn nearest_doc(path: &Path) -> Option<String> {
+///
+/// The doc is named relative to `repo_root` where it sits: its directory is
+/// resolved, its own name is not, so a `Claude.md` symlinked into a
+/// directory is named in that directory, not at the file it points to.
+pub fn nearest_doc(path: &Path, repo_root: &Path) -> Option<String> {
     let abs = crate::cache::absolutize(path);
     let mut current = if abs.is_file() {
         abs.parent().map(|p| p.to_path_buf())
@@ -34,32 +38,17 @@ pub fn nearest_doc(path: &Path) -> Option<String> {
         for name in DOC_FILENAMES {
             let candidate = dir.join(name);
             if candidate.exists() {
-                // `absolutize` (cwd-join) leaves `.` components when
-                // `--path` defaulted to `.`; normalize them out lexically
-                // so the returned path has no `/./` segments.
-                return Some(normalize_dots(&candidate).to_string_lossy().to_string());
+                let directory = crate::cache::relative_to_root(&dir, repo_root);
+                return Some(if directory.is_empty() {
+                    (*name).to_string()
+                } else {
+                    format!("{directory}/{name}")
+                });
             }
         }
         current = dir.parent().map(|p| p.to_path_buf());
     }
     None
-}
-
-/// Lexically collapse `.` and `..` components — no filesystem access,
-/// pure path arithmetic.
-fn normalize_dots(p: &Path) -> std::path::PathBuf {
-    use std::path::Component;
-    let mut out = std::path::PathBuf::new();
-    for comp in p.components() {
-        match comp {
-            Component::CurDir => {}
-            Component::ParentDir => {
-                out.pop();
-            }
-            other => out.push(other.as_os_str()),
-        }
-    }
-    out
 }
 
 const BLOCK_OPEN: &[&str] = &["/*", "/**"];
@@ -210,21 +199,20 @@ pub fn top_callers(
 ) -> Vec<Value> {
     let mut out = Vec::new();
     let mut importers: Vec<&str> = index
-        .importers_of(relative_file)
-        .iter()
+        .resolved_importers_of(relative_file)
         .map(|importer| &*importer.file)
         .collect();
     importers.sort_by(|a, b| {
         index
-            .importers_of(b)
-            .len()
-            .cmp(&index.importers_of(a).len())
+            .resolved_importers_of(b)
+            .count()
+            .cmp(&index.resolved_importers_of(a).count())
             .then_with(|| a.cmp(b))
     });
     importers.dedup();
     for importer in importers {
         let language = index.language(importer);
-        let mut summary: Option<String> = None;
+        let mut purpose: Option<String> = None;
         if let Some(root) = repo_root {
             let caller_path = root.join(importer);
             if caller_path.is_file() {
@@ -232,7 +220,7 @@ pub fn top_callers(
                     if let Some(first) = c.lines().next() {
                         let t = first.trim();
                         if !t.is_empty() {
-                            summary = Some(t.to_string());
+                            purpose = Some(t.to_string());
                         }
                     }
                 }
@@ -243,7 +231,7 @@ pub fn top_callers(
             "source_line": Value::Null,
             "label": relations::file_to_module(importer, language),
             "kind": "module",
-            "summary": summary,
+            "purpose": purpose,
         }));
         if out.len() >= limit {
             break;

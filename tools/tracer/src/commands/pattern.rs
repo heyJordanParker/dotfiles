@@ -136,12 +136,14 @@ fn parse_entry(line: &str, anchor: Option<&str>) -> Result<Match> {
         file: file.to_string(),
         line: start + offset + 1,
         snippet,
+        ..Match::default()
     })
 }
 
 fn run_prefilter(literal: &str, rg_type: &str, paths: &[String]) -> Result<Vec<String>> {
     let mut cmd = Command::new("rg");
     cmd.args(["--files-with-matches", "--fixed-strings", "--null"]);
+    cmd.args(["--threads", &rayon::current_num_threads().to_string()]);
     if !rg_type.is_empty() {
         cmd.args(["--type", rg_type]);
     }
@@ -193,16 +195,16 @@ fn run_prefilter(literal: &str, rg_type: &str, paths: &[String]) -> Result<Vec<S
         .collect())
 }
 
-/// The files under `path` that contain every literal word in the pattern.
+/// The files under `paths` that contain every literal word in the pattern.
 /// Parsing a file is orders of magnitude dearer than scanning it, and a
 /// pattern's literal words must appear verbatim in any file that can match
 /// it, so this narrows the parse set without changing the answer. `None`
-/// means "no usable literal" — the whole path is parsed, as before.
-fn candidate_files(literals: &[String], path: &str, rg_type: &str) -> Result<Option<Vec<String>>> {
+/// means "no usable literal" — the whole paths are parsed, as before.
+fn candidate_files(literals: &[String], paths: &[String], rg_type: &str) -> Result<Option<Vec<String>>> {
     let Some(first) = literals.first() else {
         return Ok(None);
     };
-    let mut files = run_prefilter(first, rg_type, &[path.to_string()])?;
+    let mut files = run_prefilter(first, rg_type, paths)?;
     for word in literals.iter().skip(1) {
         if files.is_empty() {
             break;
@@ -223,6 +225,7 @@ fn ast_grep(
 ) -> Result<Vec<Match>> {
     let mut cmd = Command::new("sg");
     cmd.args(["run", "-p", pattern, "-l", lang, "--json=stream"]);
+    cmd.args(["--threads", &rayon::current_num_threads().to_string()]);
     if paths.is_empty() {
         cmd.arg("--stdin").stdin(Stdio::null());
     } else {
@@ -295,8 +298,8 @@ fn ast_grep_batches(
     }
 }
 
-pub fn run(pattern: &str, lang: &str, path: &str, as_json: bool, sink: &Sink) -> Result<()> {
-    let row = match crate::lang::resolve(lang) {
+pub fn run(pattern: &str, language: &str, paths: &[String], as_json: bool, sink: &Sink) -> Result<()> {
+    let row = match crate::lang::resolve(language) {
         Some(row) if !row.sg.is_empty() => row,
         Some(row) => {
             eprintln!(
@@ -307,7 +310,7 @@ pub fn run(pattern: &str, lang: &str, path: &str, as_json: bool, sink: &Sink) ->
         }
         None => {
             eprintln!(
-                "Error: unknown language {lang:?}. Accepted: {}",
+                "Error: unknown type {language:?}. Accepted: {}",
                 crate::lang::accepted()
             );
             std::process::exit(2);
@@ -315,29 +318,31 @@ pub fn run(pattern: &str, lang: &str, path: &str, as_json: bool, sink: &Sink) ->
     };
     let words = literals(pattern);
     let anchor = words.first().cloned();
-    let paths = candidate_files(&words, path, row.rg)?.unwrap_or_else(|| vec![path.to_string()]);
-    let matches = if paths.is_empty() {
+    let candidates = candidate_files(&words, paths, row.rg)?.unwrap_or_else(|| paths.to_vec());
+    let matches = if candidates.is_empty() {
         ast_grep(pattern, row.sg, &[], anchor.as_deref())?
     } else {
-        ast_grep_batches(pattern, row.sg, &paths, anchor.as_deref())?
+        ast_grep_batches(pattern, row.sg, &candidates, anchor.as_deref())?
     };
-    let abs = cache::absolutize(Path::new(path));
+    // Facts resolve against the first path's repository.
+    let abs = cache::absolutize(Path::new(&paths[0]));
     let search_root = cache::worktree_root_for(&abs).unwrap_or_else(|| cache::display_root(&abs));
-    let ((enriched, files, signpost), repo_ctx) = rayon::join(
+    let ((enriched, files, surfaces, signpost), repo_ctx) = rayon::join(
         || {
             let signpost = enrich::signpost(anchor.as_deref(), &search_root);
-            let (enriched, files) = enrich::enrich(&matches, &search_root);
-            (enriched, files, signpost)
+            let (enriched, files, surfaces) = enrich::enrich(&matches, &search_root, None, None);
+            (enriched, files, surfaces, signpost)
         },
-        || repo_context::repo_context(&abs),
+        || if as_json { repo_context::repo_context(&abs) } else { Value::Null },
     );
 
     if !as_json {
-        enrich::render_human(&enriched, &files, &repo_ctx, signpost.as_deref());
+        enrich::render_human(&enriched, &files, &surfaces, signpost.as_deref(), false);
     }
+    drop(surfaces);
 
     sink.emit(&enrich::SearchDocument {
-        query: json!({"pattern": pattern, "lang": lang, "path": path}),
+        query: json!({"pattern": pattern, "type": language, "paths": paths}),
         context: enrich::SearchContext {
             files: &files,
             repo: &repo_ctx,

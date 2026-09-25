@@ -23,17 +23,17 @@ const PICKAXE_COMMITS: i64 = 30;
 // ---------- mode 1: whole-file ----------
 
 fn recent_commits(repo_root: &Path, relative: &str, n: i64) -> Vec<Value> {
-    let out = Command::new("git")
-        .args([
+    let out = crate::git_activity::git_output(
+        repo_root,
+        [
             "log",
             &format!("-{n}"),
             "--pretty=format:%h|%an|%ad|%s",
             "--date=short",
             "--",
             relative,
-        ])
-        .current_dir(repo_root)
-        .output();
+        ],
+    );
     let mut commits = Vec::new();
     if let Ok(o) = out {
         for line in String::from_utf8_lossy(&o.stdout).split('\n') {
@@ -53,10 +53,10 @@ fn recent_commits(repo_root: &Path, relative: &str, n: i64) -> Vec<Value> {
 }
 
 fn blame_top_authors(repo_root: &Path, file: &Path, top: usize) -> Vec<Value> {
-    let out = Command::new("git")
-        .args(["blame", "--line-porcelain", &file.to_string_lossy()])
-        .current_dir(repo_root)
-        .output();
+    let out = crate::git_activity::git_output(
+        repo_root,
+        ["blame", "--line-porcelain", &file.to_string_lossy()],
+    );
     let mut order: Vec<String> = Vec::new();
     let mut counts: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
     if let Ok(o) = out {
@@ -85,8 +85,9 @@ fn blame_top_authors(repo_root: &Path, file: &Path, top: usize) -> Vec<Value> {
 /// Full transitive rename lineage, newest -> oldest, via
 /// `git log --follow --name-status --diff-filter=R`.
 fn rename_chain(repo_root: &Path, relative: &str) -> Vec<String> {
-    let out = Command::new("git")
-        .args([
+    let out = crate::git_activity::git_output(
+        repo_root,
+        [
             "log",
             "--follow",
             "--name-status",
@@ -94,9 +95,8 @@ fn rename_chain(repo_root: &Path, relative: &str) -> Vec<String> {
             "--pretty=format:",
             "--",
             relative,
-        ])
-        .current_dir(repo_root)
-        .output();
+        ],
+    );
     let mut chain: Vec<String> = Vec::new();
     let mut current = relative.to_string();
     if let Ok(o) = out {
@@ -243,17 +243,17 @@ fn render_whole_file(p: &Value) {
 // ---------- mode 2: function-level ----------
 
 fn function_history(repo_root: &Path, relative: &str, symbol: &str, n: i64) -> Result<Vec<Value>> {
-    let out = Command::new("git")
-        .args([
+    let out = crate::git_activity::git_output(
+        repo_root,
+        [
             "log",
             &format!("-L:{symbol}:{relative}"),
             &format!("-{n}"),
             "--pretty=format:%x00COMMIT%x00%H%x00%an%x00%ad%x00%s",
             "--date=short",
             "--no-color",
-        ])
-        .current_dir(repo_root)
-        .output()?;
+        ],
+    )?;
     if !out.status.success() {
         let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
         bail!("git log -L failed for symbol '{symbol}' in {relative}: {stderr}");
@@ -300,26 +300,35 @@ fn function_history(repo_root: &Path, relative: &str, symbol: &str, n: i64) -> R
 }
 
 fn render_function(p: &Value) {
-    println!("File: {}", p["file"].as_str().unwrap_or(""));
-    println!("Symbol: {}", p["symbol"].as_str().unwrap_or(""));
     let commits = p["commits"].as_array().cloned().unwrap_or_default();
-    println!("Commits touching symbol: {}", commits.len());
-    println!();
-    for c in &commits {
-        println!(
+    let head = format!(
+        "File: {}\nSymbol: {}\nCommits touching symbol: {}\n\n",
+        p["file"].as_str().unwrap_or(""),
+        p["symbol"].as_str().unwrap_or(""),
+        commits.len()
+    );
+    print!("{head}");
+    let mut entries: Vec<crate::output::Entry> = Vec::with_capacity(commits.len());
+    for (index, c) in commits.iter().enumerate() {
+        let header = format!(
             "{} {} {}: {}",
             c["sha"].as_str().unwrap_or(""),
             c["date"].as_str().unwrap_or(""),
             c["author"].as_str().unwrap_or(""),
             c["subject"].as_str().unwrap_or("")
         );
-        let hunk = c["hunk"].as_str().unwrap_or("");
-        if !hunk.is_empty() {
-            for line in hunk.split('\n') {
-                println!("  {line}");
-            }
+        let mut whole = header.clone();
+        for line in c["hunk"].as_str().unwrap_or("").split('\n').filter(|line| !line.is_empty()) {
+            whole.push_str(&format!("\n  {line}"));
         }
-        println!();
+        entries.push(crate::output::Entry { rank: -(index as i64), levels: vec![format!("{whole}\n"), header] });
+    }
+    let (texts, shortened) = crate::output::fit(&entries, head.len() + crate::output::closing_room(entries.len(), "commits"));
+    for text in texts {
+        println!("{text}");
+    }
+    if shortened > 0 {
+        println!("{}", crate::output::shortened_line(shortened, entries.len(), "commits"));
     }
 }
 
@@ -348,17 +357,17 @@ fn pickaxe_commits(
     } else {
         format!("-S{pattern}")
     };
-    let out = Command::new("git")
-        .args([
+    let out = crate::git_activity::git_output(
+        repo_root,
+        [
             "log",
             &format!("-{n}"),
             &needle,
             "--name-only",
             "--pretty=format:%x00COMMIT%x00%H%x00%an%x00%ad%x00%s",
             "--date=short",
-        ])
-        .current_dir(repo_root)
-        .output()?;
+        ],
+    )?;
     if !out.status.success() {
         let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
         bail!("git log -S failed: {stderr}");
@@ -400,15 +409,7 @@ fn pickaxe_commits(
 /// and the enclosing-symbol walk; asking twice doubled the process count of
 /// every pickaxe query.
 fn blob(commit_sha: &str, path: &str, repo_root: &Path) -> Option<Vec<u8>> {
-    let out = Command::new("git")
-        .args(["show", &format!("{commit_sha}:{path}")])
-        .current_dir(repo_root)
-        .output()
-        .ok()?;
-    if !out.status.success() || out.stdout.is_empty() {
-        return None;
-    }
-    Some(out.stdout)
+    crate::git_activity::blob(repo_root, commit_sha, path).filter(|bytes| !bytes.is_empty())
 }
 
 fn commit_line_for_pattern(blob: &[u8], pattern: &str) -> Option<i64> {
@@ -561,16 +562,16 @@ fn render_pickaxe(p: &Value) {
 /// change protects — which is why `git show -s --format=full` is the one raw
 /// git command the understand Process still prescribes. This answers it.
 fn commit_payload(reference: &str, repo_root: &Path) -> Result<Value> {
-    let meta = Command::new("git")
-        .args([
+    let meta = crate::git_activity::git_output(
+        repo_root,
+        [
             "show",
             "-s",
             "--pretty=format:%H%x00%h%x00%an%x00%ae%x00%ad%x00%P%x00%s%x00%b",
             "--date=short",
             reference,
-        ])
-        .current_dir(repo_root)
-        .output()?;
+        ],
+    )?;
     if !meta.status.success() {
         let stderr = String::from_utf8_lossy(&meta.stderr).trim().to_string();
         bail!("commit not found: {reference} ({stderr})");
@@ -579,10 +580,10 @@ fn commit_payload(reference: &str, repo_root: &Path) -> Result<Value> {
     let f: Vec<&str> = text.split('\u{0}').collect();
     let field = |i: usize| f.get(i).unwrap_or(&"").to_string();
 
-    let files = Command::new("git")
-        .args(["show", "--name-status", "--pretty=format:", "-M", reference])
-        .current_dir(repo_root)
-        .output()?;
+    let files = crate::git_activity::git_output(
+        repo_root,
+        ["show", "--name-status", "--pretty=format:", "-M", reference],
+    )?;
     let changed: Vec<Value> = String::from_utf8_lossy(&files.stdout)
         .lines()
         .filter(|l| !l.trim().is_empty())
@@ -594,16 +595,16 @@ fn commit_payload(reference: &str, repo_root: &Path) -> Result<Value> {
         })
         .collect();
 
-    let patch = Command::new("git")
-        .args([
+    let patch = crate::git_activity::git_output(
+        repo_root,
+        [
             "show",
             "--unified=3",
             "--no-color",
             "--pretty=format:",
             reference,
-        ])
-        .current_dir(repo_root)
-        .output()?;
+        ],
+    )?;
     let lines = String::from_utf8_lossy(&patch.stdout).trim().to_string();
 
     Ok(json!({
@@ -627,8 +628,8 @@ fn status_label(kind: char) -> String {
 }
 
 fn render_commit(p: &Value) {
-    println!(
-        "{} {}  {}  {}",
+    let mut head = format!(
+        "{} {}  {}  {}\n",
         p["short_sha"].as_str().unwrap_or(""),
         p["date"].as_str().unwrap_or(""),
         p["author"].as_str().unwrap_or(""),
@@ -639,26 +640,50 @@ fn render_commit(p: &Value) {
         .map(|a| a.iter().filter_map(|x| x.as_str()).collect())
         .unwrap_or_default();
     if !parents.is_empty() {
-        println!("parents: {}", parents.join(" "));
+        head.push_str(&format!("parents: {}\n", parents.join(" ")));
     }
     let body = p["body"].as_str().unwrap_or("");
     if !body.is_empty() {
-        println!();
-        println!("{body}");
+        head.push_str(&format!("\n{body}\n"));
     }
-    println!();
+    head.push('\n');
     for file in p["files"].as_array().cloned().unwrap_or_default() {
-        println!(
-            "  {:<12} {}",
+        head.push_str(&format!(
+            "  {:<12} {}\n",
             file["status"].as_str().unwrap_or(""),
             file["path"].as_str().unwrap_or("")
-        );
+        ));
     }
-    if let Some(lines) = p["lines"].as_str() {
-        if !lines.is_empty() {
-            println!();
-            println!("{lines}");
+    print!("{head}");
+    let lines = p["lines"].as_str().unwrap_or("");
+    if lines.is_empty() {
+        return;
+    }
+    println!();
+    let mut files: Vec<String> = Vec::new();
+    for line in lines.split('\n') {
+        if line.starts_with("diff --git ") || files.is_empty() {
+            files.push(line.to_string());
+        } else if let Some(file) = files.last_mut() {
+            file.push('\n');
+            file.push_str(line);
         }
+    }
+    let entries: Vec<crate::output::Entry> = files
+        .iter()
+        .enumerate()
+        .map(|(index, file)| crate::output::Entry {
+            rank: -(index as i64),
+            levels: vec![file.clone(), file.lines().next().unwrap_or("").to_string()],
+        })
+        .collect();
+    let fixed = head.len() + 1 + crate::output::closing_room(entries.len(), "files");
+    let (texts, shortened) = crate::output::fit(&entries, fixed);
+    for text in texts {
+        println!("{text}");
+    }
+    if shortened > 0 {
+        println!("{}", crate::output::shortened_line(shortened, entries.len(), "files"));
     }
 }
 

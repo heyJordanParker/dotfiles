@@ -15,7 +15,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-use tracer_cli_tests::{standard_repo, trace_bin, Fixture};
+use tracer_cli_tests::{measured_run, standard_repo, summarize, trace_bin, Fixture};
 
 /// A repo big enough that re-extracting every file is unmistakably slower
 /// than serving a warm cache. The dead-cache signal needs this: on
@@ -95,7 +95,7 @@ fn architecture_query_warm_is_fast() {
 #[test]
 fn search_commands_within_budget() {
     let f = standard_repo();
-    f.trace(&["grep", "helper", "--path", "."])
+    f.trace(&["grep", "helper", "."])
         .ok()
         .within(SLOW);
     f.trace(&["find", "**/*.py", "."]).ok().within(SLOW);
@@ -350,20 +350,20 @@ fn workload_args(
         ("structure", vec!["structure", read_file, "--json"]),
         (
             "grep_bare_name",
-            vec!["grep", symbol, "--path", scope, "--json"],
+            vec!["grep", symbol, scope, "--json"],
         ),
         (
             "grep_equivalent_regex",
-            vec!["grep", &format!("{symbol}.*"), "--path", scope, "--json"],
+            vec!["grep", &format!("{symbol}.*"), scope, "--json"],
         ),
         (
             "grep_broad",
-            vec!["grep", "function|class|def", "--path", scope, "--json"],
+            vec!["grep", "function|class|def", scope, "--json"],
         ),
         (
             "pattern",
             vec![
-                "pattern", "$F($A)", "-l", language, "--path", scope, "--json",
+                "pattern", "$F($A)", "-t", language, scope, "--json",
             ],
         ),
         ("scoped_reach", vec!["usages", "--path", scope, "--json"]),
@@ -398,107 +398,6 @@ fn measure_set(
         results.insert((*name).into(), summary);
     }
     serde_json::Value::Object(results)
-}
-
-fn measured_run(
-    binary: &Path,
-    root: &Path,
-    args: &[String],
-    envs: &[(&str, &str)],
-) -> serde_json::Value {
-    let start = Instant::now();
-    let mut command = Command::new("/usr/bin/time");
-    command
-        .arg("-l")
-        .arg(binary)
-        .args(args)
-        .current_dir(root)
-        .env("HOME", root);
-    for key in [
-        "AGENT_SESSION_ID",
-        "CODEX_THREAD_ID",
-        "CLAUDE_CODE_SESSION_ID",
-        "TRACER_AGENT_ID",
-    ] {
-        command.env_remove(key);
-    }
-    for (key, value) in envs {
-        command.env(key, value);
-    }
-    let output = command.output().unwrap();
-    let elapsed_us = start.elapsed().as_micros() as u64;
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    let rss = stderr.lines().find_map(|line| {
-        line.trim()
-            .strip_suffix("  maximum resident set size")?
-            .trim()
-            .parse::<u64>()
-            .ok()
-    });
-    assert!(
-        output.status.success(),
-        "benchmark command failed: {:?}\n{}",
-        args,
-        stderr
-    );
-    assert!(
-        !output.stdout.is_empty(),
-        "benchmark command returned empty output: {:?}",
-        args
-    );
-    if !matches!(args.first().map(String::as_str), Some("context" | "cache")) {
-        let document: serde_json::Value =
-            serde_json::from_slice(&output.stdout).unwrap_or_else(|error| {
-                panic!("benchmark output was not structured JSON for {args:?}: {error}")
-            });
-        for slot in ["query", "context", "results", "counts"] {
-            assert!(
-                document.get(slot).is_some(),
-                "benchmark output lacks {slot} for {args:?}"
-            );
-        }
-    }
-    let stdout_sha256 = hex::encode(Sha256::digest(&output.stdout));
-    serde_json::json!({
-        "elapsed_us": elapsed_us,
-        "peak_rss_bytes": rss,
-        "output_bytes": output.stdout.len(),
-        "status": output.status.code(),
-        "stdout_sha256": stdout_sha256,
-        "stdout": String::from_utf8_lossy(&output.stdout),
-    })
-}
-
-fn summarize(mut samples: Vec<serde_json::Value>) -> serde_json::Value {
-    let mut elapsed: Vec<u64> = samples
-        .iter()
-        .map(|v| v["elapsed_us"].as_u64().unwrap())
-        .collect();
-    elapsed.sort_unstable();
-    let median = elapsed[elapsed.len() / 2];
-    let p95 = elapsed[((elapsed.len() as f64 * 0.95).ceil() as usize).saturating_sub(1)];
-    let peak_rss = samples
-        .iter()
-        .filter_map(|v| v["peak_rss_bytes"].as_u64())
-        .max();
-    let output_bytes = samples
-        .iter()
-        .map(|v| v["output_bytes"].as_u64().unwrap())
-        .max()
-        .unwrap();
-    let representative_stdout = samples[0]["stdout"].take();
-    for sample in &mut samples {
-        sample.as_object_mut().unwrap().remove("stdout");
-    }
-    serde_json::json!({
-        "median_us": median,
-        "p95_us": p95,
-        "range_us": [elapsed[0], elapsed[elapsed.len() - 1]],
-        "peak_rss_bytes": peak_rss,
-        "output_bytes": output_bytes,
-        "representative_stdout": representative_stdout,
-        "raw": samples.drain(..).collect::<Vec<_>>(),
-    })
 }
 
 fn measure_subprocess_counts(

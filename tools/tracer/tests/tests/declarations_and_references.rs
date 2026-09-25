@@ -75,6 +75,136 @@ fn def_files(v: &serde_json::Value) -> Vec<(String, i64)> {
         .collect()
 }
 
+#[test]
+fn structure_json_carries_cached_php_and_typescript_headers() {
+    let f = Fixture::new();
+    f.write(
+        "sample.php",
+        r#"<?php
+enum Suit: string {
+    case Hearts = 'H';
+}
+
+class Sample {
+    public int $a = 1, $b = 2;
+    public string $name {
+        &get { return ''; }
+        set(string $value) { $this->name = $value; }
+    }
+    private const VERSION = 3;
+    public function __construct(private readonly Level $level) {}
+    /** @internal since 2.0 */
+    public function old(): void {}
+    #[Access(System::class)]
+    #[Action(Mode::Write)]
+    public static function create(array $attributes = []): static { return new static; }
+}
+function blockOnNextLine(): void
+{
+}
+"#,
+    );
+    f.write(
+        "sample.ts",
+        r#"@Injectable()
+export default class App extends React.Component<Props> {
+    private count = 0;
+    static readonly MAX = 3;
+}
+export interface Props {
+    onSave(): void;
+}
+export type Status = 'idle' | 'saving';
+function save(value: string): void;
+function save(value: number): void;
+function save(value: string | number): void {}
+export const load = async ({ id }: Params): Promise<Item> => { return get(id); };
+const labels = { save: 'Save', cancel: 'Cancel' };
+abstract class Worker {
+    abstract run(): void;
+}
+function outer() {
+    const nested = () => 1;
+}
+const form = useForm({
+  defaultValues: { email: "", password: "", remember: false } as LoginValues,
+  onSubmit: async ({ value }) => { return value; },
+});
+const [a, setA] = useState(0);
+"#,
+    );
+    f.commit("inventory headers");
+    for (path, name, line, header_line, end_line, kind, container, parent, header) in [
+        ("sample.php", "Suit", 2, 2, 4, "enum", None, None, "enum Suit: string { … }"),
+        ("sample.php", "Hearts", 3, 3, 3, "property", Some("Suit"), Some(0), "case Hearts = 'H';"),
+        ("sample.php", "Sample", 6, 6, 19, "class", None, None, "class Sample { … }"),
+        ("sample.php", "$a", 7, 7, 7, "property", Some("Sample"), Some(2), "public int $a = 1;"),
+        ("sample.php", "$b", 7, 7, 7, "property", Some("Sample"), Some(2), "public int $b = 2;"),
+        ("sample.php", "$name", 8, 8, 11, "property", Some("Sample"), Some(2), "public string $name { &get { … } set(string $value) { … } }"),
+        ("sample.php", "VERSION", 12, 12, 12, "constant", Some("Sample"), Some(2), "private const VERSION = 3;"),
+        ("sample.php", "$level", 13, 13, 13, "property", Some("Sample"), Some(2), "private readonly Level $level"),
+        ("sample.php", "old", 15, 14, 15, "function", Some("Sample"), Some(2), "/** @internal since 2.0 */\npublic function old(): void { … }"),
+        ("sample.php", "create", 18, 16, 18, "function", Some("Sample"), Some(2), "#[Access(System::class)]\n#[Action(Mode::Write)]\npublic static function create(array $attributes = []): static { … }"),
+        ("sample.php", "blockOnNextLine", 20, 20, 22, "function", None, None, "function blockOnNextLine(): void { … }"),
+        ("sample.ts", "App", 2, 1, 5, "class", None, None, "@Injectable()\nexport default class App extends React.Component<Props> { … }"),
+        ("sample.ts", "count", 3, 3, 3, "property", None, Some(0), "private count = 0;"),
+        ("sample.ts", "MAX", 4, 4, 4, "property", None, Some(0), "static readonly MAX = 3;"),
+        ("sample.ts", "Props", 6, 6, 8, "interface", None, None, "export interface Props { … }"),
+        ("sample.ts", "onSave", 7, 7, 7, "function", None, Some(3), "onSave(): void;"),
+        ("sample.ts", "Status", 9, 9, 9, "type", None, None, "export type Status = 'idle' | 'saving';"),
+        ("sample.ts", "save", 10, 10, 10, "function", None, None, "function save(value: string): void;"),
+        ("sample.ts", "save", 11, 11, 11, "function", None, None, "function save(value: number): void;"),
+        ("sample.ts", "save", 12, 12, 12, "function", None, None, "function save(value: string | number): void { … }"),
+        ("sample.ts", "load", 13, 13, 13, "constant", None, None, "export const load = async ({ id }: Params): Promise<Item> => { … };"),
+        ("sample.ts", "labels", 14, 14, 14, "constant", None, None, "const labels = { save: 'Save', cancel: 'Cancel' };"),
+        ("sample.ts", "Worker", 15, 15, 17, "class", None, None, "abstract class Worker { … }"),
+        ("sample.ts", "run", 16, 16, 16, "function", None, Some(11), "abstract run(): void;"),
+        ("sample.ts", "outer", 18, 18, 20, "function", None, None, "function outer() { … }"),
+        ("sample.ts", "nested", 19, 19, 19, "constant", None, Some(13), "const nested = () => …;"),
+        ("sample.ts", "form", 21, 21, 24, "constant", None, None, "const form = useForm({\n  defaultValues: { email: \"\", password: \"\", remember: false } as LoginValues,\n  onSubmit: async ({ value }) => { … },\n});"),
+        ("sample.ts", "a", 25, 25, 25, "constant", None, None, "const [a, setA] = useState(0);"),
+    ] {
+        let result = if path == "deploy.sh" {
+            f.trace_env(
+                &["structure", path, "--json"],
+                &[("TRACE_TIMING", "1")],
+            )
+        } else {
+            f.trace(&["structure", path, "--json"])
+        };
+        result.ok();
+        if path == "deploy.sh" {
+            assert!(result.stderr.contains("timing ctags "), "{}", result.stderr);
+        }
+        let view = result.view();
+        let rows = view["symbols_by_kind"].as_object().unwrap();
+        let row = rows
+            .values()
+            .flat_map(|rows| rows.as_array().into_iter().flatten())
+            .find(|row| row["name"] == name && row["line"] == line)
+            .unwrap_or_else(|| panic!("missing {path}:{line} {name}: {view:#}"));
+        assert_eq!(row["header_line"], header_line, "{path}:{line} {name}");
+        assert_eq!(row["line"], line, "{path}:{line} {name}");
+        assert_eq!(row["end_line"], end_line, "{path}:{line} {name}");
+        assert_eq!(row["kind"], kind, "{path}:{line} {name}");
+        assert_eq!(row["container"].as_str(), container, "{path}:{line} {name}");
+        assert_eq!(row["parent"].as_u64(), parent.map(|parent| parent as u64), "{path}:{line} {name}");
+        assert_eq!(row["header"], header, "{path}:{line} {name}");
+    }
+    let result = f.trace(&["structure", "sample.ts", "--json"]);
+    result.ok();
+    let rows = result.view()["symbols_by_kind"]
+        .as_object()
+        .unwrap()
+        .clone();
+    let destructured = rows
+        .values()
+        .flat_map(|rows| rows.as_array().into_iter().flatten())
+        .filter(|row| row["header"] == "const [a, setA] = useState(0);")
+        .count();
+    assert_eq!(destructured, 2, "{rows:#?}");
+}
+
 // ---------------------------------------------------------------------------
 // Python — every declaration kind, every confidence
 
@@ -1287,9 +1417,8 @@ fn callers_source_is_calling_function_not_module() {
 
 #[test]
 fn callers_carry_calling_symbol_signature() {
-    // A caller row carries the calling symbol's signature (the same surface
-    // `structure` extracts): parameters, types, return type. Here `first`
-    // calls `helper`, so `helper`'s caller row exposes `first`'s signature.
+    // A caller row carries the calling declaration's source header. Here
+    // `first` calls `helper`, so `helper`'s caller row exposes `first`.
     let f = Fixture::new();
     f.write(
         "util.ts",
@@ -1320,27 +1449,9 @@ fn callers_carry_calling_symbol_signature() {
         .find(|c| c["label"].as_str() == Some("first"))
         .cloned()
         .unwrap_or_else(|| panic!("missing `first` caller row: {}", v));
-    let sig = &row["signature"];
     assert!(
-        sig.is_object(),
-        "caller row must carry the calling symbol's signature object, got {:?}",
-        sig
-    );
-    let params = sig["parameters"]
-        .as_array()
-        .unwrap_or_else(|| panic!("signature must list parameters, got {:?}", sig));
-    assert!(
-        params
-            .iter()
-            .any(|p| p["name"].as_str() == Some("a") && p["type"].as_str() == Some("string")),
-        "first's parameter `a: string` must surface in the caller signature: {:?}",
-        params
-    );
-    assert_eq!(
-        sig["return_type"].as_str(),
-        Some("number"),
-        "first's return type must surface: {:?}",
-        sig
+        row["declaration"]["header"] == "export function first(a: string): number { … }",
+        "caller row must carry the calling declaration header, got {row}"
     );
 }
 
@@ -1437,16 +1548,28 @@ fn rust_callers_resolve_to_calling_function() {
     // app.rs. The caller rows are the calling FUNCTIONS at their use-site
     // lines — the cross-file, function-granular Rust contract.
     let f = Fixture::new();
-    f.write("util.rs", "pub fn helper(x: i32) -> i32 {\n    x + 1\n}\n");
+    f.write(
+        "util.rs",
+        "pub fn helper(x: i32) -> i32 {\n    x + 1\n}\n\npub struct Reader;\n\nimpl Reader {\n    pub fn open() {}\n}\n",
+    );
     f.write(
         "app.rs",
         concat!(
-            "use crate::util::helper;\n",
+            "use crate::util::{helper, Reader};\n",
             "pub fn first() -> i32 {\n",
             "    helper(1)\n",
             "}\n",
             "pub fn second() -> i32 {\n",
             "    helper(2)\n",
+            "}\n",
+            "pub fn associated() {\n",
+            "    Reader::open();\n",
+            "}\n",
+            "pub fn outer() {\n",
+            "    fn nested() {\n",
+            "        helper(3);\n",
+            "    }\n",
+            "    nested();\n",
             "}\n",
         ),
     );
@@ -1475,6 +1598,33 @@ fn rust_callers_resolve_to_calling_function() {
     assert!(
         ids.contains(&"app.rs::first".to_string()) && ids.contains(&"app.rs::second".to_string()),
         "Rust caller sources must be the calling functions: {:?}",
+        ids
+    );
+    assert!(
+        ids.contains(&"app.rs::nested".to_string()),
+        "nested free call must resolve to its nested function: {:?}",
+        ids
+    );
+
+    let r = f.trace(&["callers", "open", "--json"]);
+    r.ok();
+    let v = r.view();
+    let rows = caller_rows(&v, "util.rs::open");
+    assert!(
+        rows.iter()
+            .any(|(file, line, _)| file == "app.rs" && *line == 9),
+        "Reader::open() at app.rs:9 must resolve: {:?}",
+        rows
+    );
+    let ids: Vec<String> = symbol(&v, "util.rs::open")["callers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|caller| caller["node_id"].as_str().unwrap_or("").to_string())
+        .collect();
+    assert!(
+        ids.contains(&"app.rs::associated".to_string()),
+        "associated call source must be associated: {:?}",
         ids
     );
 }
@@ -1798,5 +1948,647 @@ fn rust_call_does_not_resolve_onto_go_function() {
         !rows_go.iter().any(|(file, _, _)| file == "lib.rs"),
         "a Rust process() must never resolve onto the Go process function: {:?}",
         rows_go
+    );
+}
+
+#[test]
+fn php_psr4_roots_resolve_imports_and_exclude_external_names() {
+    let f = Fixture::new();
+    f.write(
+        "composer.json",
+        r#"{"autoload":{"psr-4":{"App\\":"src/"}},"autoload-dev":{"psr-4":{"Tests\\Lib\\":"tests/lib/"}}}"#,
+    );
+    f.write(
+        "src/Billing/Cart.php",
+        "<?php\nnamespace App\\Billing; class Cart {}\n",
+    );
+    f.write(
+        "src/Billing/Order.php",
+        "<?php\nnamespace App\\Billing; class Order {}\n",
+    );
+    f.write(
+        "tests/lib/Case.php",
+        "<?php\nnamespace Tests\\Lib; class Case {}\n",
+    );
+    f.write("src/Cache.php", "<?php\nnamespace App; class Cache {}\n");
+    f.write(
+        "app.php",
+        "<?php\nuse App\\Billing\\{Cart, Order};\nuse App\\Billing\\Cart as C;\nuse Tests\\Lib\\Case;\nuse Illuminate\\Support\\Facades\\Cache;\nnew Cart(); new Order(); new Case(); new C();\n",
+    );
+    f.commit("PHP PSR-4 roots");
+    f.trace(&["cache", "build", "."]).ok();
+
+    let info = f.trace(&["info", "app.php", "--json"]);
+    info.ok();
+    let document = info.json();
+    let dependencies = &document["context"]["files"].as_object().unwrap().values().next().unwrap()["dependencies"];
+    let resolved: Vec<(&str, &str)> = dependencies
+        .as_array()
+        .unwrap_or_else(|| panic!("dependencies missing: {dependencies}"))
+        .iter()
+        .map(|dependency| {
+            (
+                dependency["module"].as_str().unwrap_or(""),
+                dependency["confidence"].as_str().unwrap_or(""),
+            )
+        })
+        .collect();
+    assert!(
+        resolved.contains(&("src/Billing/Cart", "EXTRACTED")),
+        "{resolved:?}"
+    );
+    assert!(
+        resolved.contains(&("src/Billing/Order", "EXTRACTED")),
+        "{resolved:?}"
+    );
+    assert!(
+        resolved.contains(&("tests/lib/Case", "EXTRACTED")),
+        "{resolved:?}"
+    );
+    assert!(
+        resolved.iter().all(|(module, _)| *module != "src/Cache"),
+        "{resolved:?}"
+    );
+
+    let structure = f.trace(&["structure", "app.php", "--json"]);
+    structure.ok();
+    let structure = structure.view();
+    let imports = &structure["imports"];
+    assert!(
+        imports
+            .as_array()
+            .is_some_and(|imports| imports.iter().any(|import| {
+                import["module"].as_str() == Some("App\\Billing")
+                    && import["symbol"].as_str() == Some("Cart")
+            })),
+        "alias import must retain Cart: {imports}"
+    );
+    assert!(
+        imports.as_array().is_some_and(|imports| imports
+            .iter()
+            .all(|import| { import["symbol"].as_str() != Some("C") })),
+        "alias must not replace the imported symbol: {imports}"
+    );
+}
+
+#[test]
+fn composer_change_reresolves_warmed_php_imports() {
+    let f = Fixture::new();
+    f.write(
+        "composer.json",
+        r#"{"autoload":{"psr-4":{"App\\":"src/"}}}"#,
+    );
+    f.write(
+        "src/Billing/Cart.php",
+        "<?php\nnamespace App\\Billing; class Cart {}\n",
+    );
+    f.write(
+        "lib/Billing/Cart.php",
+        "<?php\nnamespace App\\Billing; class Cart {}\n",
+    );
+    f.write("app.php", "<?php\nuse App\\Billing\\Cart;\nnew Cart();\n");
+    f.commit("first Composer root");
+
+    let dependency = |fixture: &Fixture| {
+        let run = fixture.trace(&["info", "app.php", "--json"]);
+        run.ok();
+        let document = run.json();
+        document["context"]["files"].as_object().unwrap().values().next().unwrap()["dependencies"].clone()
+    };
+    assert!(dependency(&f)
+        .as_array()
+        .is_some_and(|dependencies| dependencies
+            .iter()
+            .any(|dependency| { dependency["module"].as_str() == Some("src/Billing/Cart") })));
+
+    f.write(
+        "composer.json",
+        r#"{"autoload":{"psr-4":{"App\\":"lib/"}}}"#,
+    );
+    f.commit("second Composer root");
+    let dependencies = dependency(&f);
+    assert!(
+        dependencies
+            .as_array()
+            .is_some_and(|dependencies| dependencies.iter().any(|dependency| {
+                dependency["module"].as_str() == Some("lib/Billing/Cart")
+                    && dependency["confidence"].as_str() == Some("EXTRACTED")
+            })),
+        "Composer root change did not re-resolve warmed importer: {dependencies}"
+    );
+}
+
+#[test]
+fn typescript_paths_resolve_files_barrels_and_dynamic_imports() {
+    let f = Fixture::new();
+    f.write(
+        "tsconfig.json",
+        r#"{"compilerOptions":{"baseUrl":".","paths":{"@/*":["./web/*"],"@shell":["./web/shell/Frame.tsx"]}}}"#,
+    );
+    f.write("web/lib/a.ts", "export const A = 1;\n");
+    f.write("web/lib/x.ts", "export const x = 1;\n");
+    f.write("web/pages/p.ts", "export const p = 1;\n");
+    f.write("web/shell/Frame.tsx", "export const Frame = () => null;\n");
+    f.write(
+        "web/form-user.ts",
+        "import { form } from '@/components/form'; void form;\n",
+    );
+    f.write(
+        "web/main.ts",
+        "export { A } from '@/lib/a';\nimport('@/pages/p');\nimport { x } from '@/lib/x';\nimport { Frame } from '@shell';\nvoid x; void Frame;\n",
+    );
+    f.commit("TypeScript paths");
+    f.trace(&["cache", "build", "."]).ok();
+
+    let info = f.trace(&["info", "web/main.ts", "--json"]);
+    info.ok();
+    let document = info.json();
+    let dependencies = &document["context"]["files"].as_object().unwrap().values().next().unwrap()["dependencies"];
+    let resolved: Vec<(&str, &str)> = dependencies
+        .as_array()
+        .unwrap_or_else(|| panic!("dependencies missing: {dependencies}"))
+        .iter()
+        .map(|dependency| {
+            (
+                dependency["module"].as_str().unwrap_or(""),
+                dependency["confidence"].as_str().unwrap_or(""),
+            )
+        })
+        .collect();
+    for module in ["web/lib/a", "web/lib/x", "web/pages/p", "web/shell/Frame"] {
+        assert!(
+            resolved.contains(&(module, "EXTRACTED")),
+            "{module} missing from {resolved:?}"
+        );
+    }
+
+    f.write("web/components/form/index.ts", "export const form = 1;\n");
+    f.commit("add TypeScript barrel");
+    let barrel = f.trace(&["info", "web/form-user.ts", "--json"]);
+    barrel.ok();
+    let document = barrel.json();
+    let dependencies = &document["context"]["files"].as_object().unwrap().values().next().unwrap()["dependencies"];
+    assert!(
+        dependencies
+            .as_array()
+            .unwrap_or_else(|| panic!("dependencies missing: {dependencies}"))
+            .iter()
+            .any(|dependency| {
+                dependency["module"].as_str() == Some("web/components/form/index")
+                    && dependency["confidence"].as_str() == Some("EXTRACTED")
+            }),
+        "{dependencies}"
+    );
+}
+
+#[test]
+fn exact_typescript_import_replaces_an_ambiguous_alias_target() {
+    let f = Fixture::new();
+    f.write(
+        "tsconfig.json",
+        r#"{"compilerOptions":{"paths":{"@/*":["first/*","second/*"]}}}"#,
+    );
+    f.write("first/target.ts", "export const target = 1;\n");
+    f.write("second/target.ts", "export const target = 2;\n");
+    f.write(
+        "entry.ts",
+        "import { target as ambiguous } from '@/target';\nimport { target } from './first/target';\nvoid ambiguous; void target;\n",
+    );
+    f.commit("ambiguous alias then exact TypeScript import");
+
+    let info = f.trace(&["info", "entry.ts", "--json"]);
+    info.ok();
+    let document = info.json();
+    let dependencies = &document["context"]["files"].as_object().unwrap().values().next().unwrap()["dependencies"];
+    assert!(
+        dependencies
+            .as_array()
+            .is_some_and(|dependencies| dependencies.iter().any(|dependency| {
+                dependency["module"].as_str() == Some("first/target")
+                    && dependency["confidence"].as_str() == Some("EXTRACTED")
+            })),
+        "the exact import must replace ambiguity for first/target: {dependencies}"
+    );
+}
+
+#[test]
+fn properties_define_without_callers_and_abstract_classes_resolve_statically() {
+    let f = Fixture::new();
+    f.write("types.ts", "abstract class A {}\ninterface Props { a: string }\ninterface Ctx { save: () => void }\ninterface Repo { find(): T }\ntype P = { onClick: () => void }\ninterface Marker {}\ninterface Box extends A, B {}\ntype U = A | B\n");
+    f.write("use.ts", "new A();\n");
+    f.write("model.php", "<?php\nclass Model {\n    #[Field(label: 'x')] public string $current;\n    public function current() {}\n}\n");
+    f.commit("declaration kinds");
+
+    let r = f.trace(&["callers", "A", "--json"]);
+    r.ok();
+    assert!(caller_rows(&r.view(), "types.ts::A")
+        .iter()
+        .any(|(file, _, _)| file == "use.ts"));
+
+    let r = f.trace(&["defines", "$current", "--json"]);
+    r.ok();
+    assert_eq!(def_files(&r.view()), vec![("model.php".to_string(), 3)]);
+    let r = f.trace(&["defines", "current", "--json"]);
+    r.ok();
+    assert_eq!(def_files(&r.view()), vec![("model.php".to_string(), 4)]);
+    let r = f.trace(&["callers", "$current"]);
+    r.code_is(2);
+    assert!(r
+        .combined()
+        .contains("a property has readers, not callers; tracer does not extract reads"));
+}
+
+#[test]
+fn php_declaration_annotations_belong_to_their_declaration() {
+    let f = Fixture::new();
+    f.write(
+        "model.php",
+        "<?php\n/** @internal since 2.0 */\n#[Entity]\nclass Model {\n    #[Action] public function save() {}\n    #[Field(label: 'Owner\\'s inbox', options: App\\Options::class)] public string $inbox;\n}\n",
+    );
+    f.commit("PHP declaration annotations");
+
+    let r = f.trace(&["structure", "model.php", "--json"]);
+    r.ok();
+    let view = r.view();
+    let model = view["symbols_by_kind"]["class"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|symbol| symbol["name"] == "Model")
+        .unwrap();
+    assert_eq!(
+        model["annotations"],
+        serde_json::json!(["@internal", "Entity"]),
+        "{model}"
+    );
+    assert!(
+        model["annotations"]
+            .as_array()
+            .is_some_and(|annotations| annotations.iter().all(|annotation| annotation != "Action")),
+        "{model}"
+    );
+    let inbox = view["symbols_by_kind"]["property"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|symbol| symbol["name"] == "$inbox")
+        .unwrap();
+    assert_eq!(inbox["annotations"][0], "Field", "{inbox}");
+}
+
+#[test]
+fn python_protocols_and_decorators_have_declaration_metadata() {
+    let f = Fixture::new();
+    f.write(
+        "types.py",
+        "from abc import ABC, ABCMeta\nfrom typing import Callable, Protocol\n\n@injectable()\nclass Service:\n    pass\n\nclass Shape(Protocol):\n    name: str\n\nclass Contract(Protocol):\n    save: Callable[[], None]\n\nclass AbstractBase(ABC):\n    pass\n\nclass Meta(metaclass=ABCMeta):\n    pass\n",
+    );
+    f.commit("Python declaration metadata");
+
+    let r = f.trace(&["structure", "types.py", "--json"]);
+    r.ok();
+    let view = r.view();
+    let classes = view["symbols_by_kind"]["class"].as_array().unwrap();
+    let service = classes
+        .iter()
+        .find(|symbol| symbol["name"] == "Service")
+        .unwrap();
+    assert_eq!(
+        service["annotations"],
+        serde_json::json!(["injectable"]),
+        "{service}"
+    );
+}
+
+#[test]
+fn typescript_member_decorators_stay_with_their_member() {
+    let f = Fixture::new();
+    f.write(
+        "members.ts",
+        "class Members {\n    @A()\n    first() {}\n    second() {}\n    @B()\n    third() {}\n}\n",
+    );
+    f.commit("TypeScript member decorators");
+
+    let r = f.trace(&["structure", "members.ts", "--json"]);
+    r.ok();
+    let view = r.view();
+    let functions = view["symbols_by_kind"]["function"].as_array().unwrap();
+    let first = functions
+        .iter()
+        .find(|symbol| symbol["name"] == "first")
+        .unwrap();
+    let second = functions
+        .iter()
+        .find(|symbol| symbol["name"] == "second")
+        .unwrap();
+    let third = functions
+        .iter()
+        .find(|symbol| symbol["name"] == "third")
+        .unwrap();
+    assert_eq!(first["annotations"], serde_json::json!(["A"]), "{first}");
+    assert_eq!(second["annotations"], serde_json::json!([]), "{second}");
+    assert_eq!(third["annotations"], serde_json::json!(["B"]), "{third}");
+}
+
+#[test]
+fn structure_carries_headers_for_remaining_languages_and_ctags() {
+    let f = Fixture::new();
+    f.write("sample.py", "from dataclasses import dataclass\n\n@dataclass(frozen=True)\nclass Point:\n    x: int = 1\n\n    async def fetch(self, url: str) -> bytes:\n        return url.encode()\n");
+    f.write("Point.java", "import java.io.IOException;\nimport java.util.List;\n\npublic record Point(int x, int y) {\n    private static final int MAX = 3, MIN = 0;\n\n    public <T> List<T> load(String id) throws IOException {\n        return null;\n    }\n}\n");
+    f.write("reader.go", "package storage\n\ntype (\n    Reader struct {\n        data []byte\n    }\n)\n\ntype Writer interface {\n    Write(p []byte) (int, error)\n}\n\nconst (\n    Busy = iota\n    Idle\n)\n\nfunc (r *Reader) Read(p []byte) (int, error) {\n    return 0, nil\n}\n");
+    f.write("reader.rs", "#[derive(Debug)]\npub struct Reader<T> {\n    value: T,\n}\n\nimpl<T> Reader<T>\nwhere\n    T: Clone,\n{\n    pub fn read(&self, value: T) -> T {\n        value\n    }\n}\n\nimpl std::fmt::Display for Reader<()> {\n    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {\n        Ok(())\n    }\n}\n\nenum Result<T> {\n    Some(T),\n}\n\npub const MAX: usize = 3;\n");
+    f.write("reader.rb", "class Reader\n  attr_reader :name\n\n  private\n\n  def read(value)\n    value\n  end\n\n  def self.open(path)\n    new\n  end\n\n  def size = @data.size\nend\n");
+    f.write("reader.c", "int (*handler)(int, char *);\ntypedef struct {\n    int x;\n} Point;\n\nstatic int count(const char *s) {\n    return 0;\n}\n\nenum Color {\n    RED,\n};\n\nstruct Node {\n    struct Node *next;\n};\n");
+    f.write("deploy.sh", "deploy() {\n  cat >&2 <<EOF\ndeploy\nEOF\n}\n");
+    f.write(
+        "declarations.ts",
+        "export function* walkPersistedElements(state: number): Generator<number> {\n    yield state;\n}\n\nexport const first = 1, second = 2;\nexport const handlers = { onClick: (event: Event): void => console.log(event) };\n",
+    );
+    f.write(
+        "package.json",
+        "{\"scripts\": {\"build\": \"cargo build\"}}\n",
+    );
+    f.write("README.md", "# Tracer\n\n## Cache\n");
+    f.commit("remaining declaration headers");
+
+    for (path, expected_headers) in [
+        (
+            "sample.py",
+            vec![
+                "@dataclass(frozen=True)\nclass Point: …",
+                "x: int = 1",
+                "async def fetch(self, url: str) -> bytes: …",
+            ],
+        ),
+        (
+            "Point.java",
+            vec![
+                "public record Point(int x, int y) { … }",
+                "private static final int MAX = 3;",
+                "public <T> List<T> load(String id) throws IOException { … }",
+            ],
+        ),
+        (
+            "reader.go",
+            vec![
+                "package storage",
+                "type Reader struct { … }",
+                "data []byte",
+                "Write(p []byte) (int, error)",
+                "type Writer interface { … }",
+                "const Busy = iota",
+                "const Idle",
+                "func (r *Reader) Read(p []byte) (int, error) { … }",
+            ],
+        ),
+        (
+            "declarations.ts",
+            vec![
+                "export function* walkPersistedElements(state: number): Generator<number> { … }",
+                "export const first = 1;",
+                "export const second = 2;",
+                "export const handlers = { onClick: (event: Event): void => … };",
+            ],
+        ),
+        (
+            "reader.rs",
+            vec![
+                "#[derive(Debug)]\npub struct Reader<T> { … }",
+                "impl<T> Reader<T>\nwhere\n    T: Clone, { … }",
+                "pub fn read(&self, value: T) -> T { … }",
+                "impl std::fmt::Display for Reader<()> { … }",
+                "Some(T)",
+                "pub const MAX: usize = 3;",
+            ],
+        ),
+        (
+            "reader.rb",
+            vec![
+                "class Reader { … }",
+                "attr_reader :name",
+                "private",
+                "def read(value) { … }",
+                "def self.open(path) { … }",
+                "def size = …",
+            ],
+        ),
+        (
+            "reader.c",
+            vec![
+                "int (*handler)(int, char *);",
+                "typedef struct { … } Point;",
+                "static int count(const char *s) { … }",
+                "enum Color { … }",
+                "RED,",
+                "struct Node *next;",
+            ],
+        ),
+        ("deploy.sh", vec!["deploy()"]),
+    ] {
+        let result = f.trace(&["structure", path, "--json"]);
+        result.ok();
+        let view = result.view();
+        let records = view["symbols_by_kind"]
+            .as_object()
+            .unwrap()
+            .values()
+            .flat_map(|rows| rows.as_array().into_iter().flatten())
+            .collect::<Vec<_>>();
+        for expected_header in expected_headers {
+            assert!(
+                records
+                    .iter()
+                    .any(|candidate| candidate["header"] == expected_header),
+                "missing {path} row `{expected_header}`: {records:#?}"
+            );
+        }
+        if path == "deploy.sh" {
+            assert!(
+                records
+                    .iter()
+                    .all(|candidate| candidate["kind"] != "heredoc"),
+                "heredocs are shell syntax, not declarations: {records:#?}"
+            );
+        }
+    }
+
+    let generator = f.trace(&["defines", "walkPersistedElements"]);
+    generator.ok();
+    assert!(
+        generator
+            .stdout
+            .contains("export function* walkPersistedElements(state: number): Generator<number> { … }"),
+        "generator definition did not retain its header: {}",
+        generator.stdout
+    );
+
+    let package = f.trace(&["structure", "package.json", "--json"]);
+    package.ok();
+    assert_eq!(
+        package.view()["symbols"],
+        0,
+        "JSON keys are not declarations: {}",
+        package.stdout
+    );
+    let readme = f.trace(&["structure", "README.md", "--json"]);
+    readme.ok();
+    assert!(
+        readme.view()["symbols"].as_i64().unwrap_or_default() > 0,
+        "Markdown headings remain declarations: {}",
+        readme.stdout
+    );
+
+    f.trace(&["context", "sample.py"]).ok();
+    for args in [["context", "sample.py"], ["read", "deploy.sh"]] {
+        let warm = f.trace_env(&args, &[("TRACE_TIMING", "1")]);
+        warm.ok();
+        assert!(
+            !warm.stderr.contains("timing ctags"),
+            "warm {args:?} spawned ctags:\n{}",
+            warm.stderr
+        );
+    }
+}
+
+#[test]
+fn structure_nests_python_declarations_under_the_nearest_definition() {
+    let f = Fixture::new();
+    f.write(
+        "nested.py",
+        "def outer(value: int) -> int:\n    def inner(offset: int) -> int:\n        return value + offset\n    class Result:\n        def get(self) -> int:\n            return inner(1)\n    return Result().get()\n",
+    );
+    f.commit("Python nested declarations");
+
+    let result = f.trace(&["structure", "nested.py"]);
+    result.ok();
+    assert!(
+        result.stdout.contains("L2      def inner(offset: int) -> int: …")
+            && result.stdout.contains("L4      class Result: …")
+            && result.stdout.contains("L5        def get(self) -> int: …"),
+        "nested Python declarations did not retain their lexical parents:\n{}",
+        result.stdout
+    );
+}
+
+#[test]
+fn rust_attribute_stack_keeps_the_first_header_line() {
+    let f = Fixture::new();
+    f.write(
+        "reader.rs",
+        "#[derive(Debug)]\n#[repr(C)]\npub struct Reader {\n    value: u8,\n}\n",
+    );
+    f.commit("stacked Rust attributes");
+
+    let structure = f.trace(&["structure", "reader.rs", "--json"]);
+    structure.ok();
+    let view = structure.view();
+    let reader = view["symbols_by_kind"]["class"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["name"] == "Reader")
+        .unwrap();
+    assert_eq!(reader["header_line"], 1, "{}", structure.stdout);
+    assert_eq!(
+        reader["header"],
+        "#[derive(Debug)]\n#[repr(C)]\npub struct Reader { … }",
+        "{}",
+        structure.stdout
+    );
+
+    let read = f.trace(&["read", "reader.rs", "--lines", "1:1"]);
+    read.ok();
+    assert!(
+        read.stdout
+            .contains("L3    #[derive(Debug)]\n      #[repr(C)]\n      pub struct Reader { … }"),
+        "{}",
+        read.stdout
+    );
+}
+
+#[test]
+fn go_interface_header_uses_the_ast_body_boundary() {
+    let f = Fixture::new();
+    f.write(
+        "writer.go",
+        "package storage\ntype Writer interface /* { */ {\n    Write(p []byte) (int, error)\n}\n",
+    );
+    f.commit("Go interface comment brace");
+
+    let result = f.trace(&["structure", "writer.go", "--json"]);
+    result.ok();
+    let view = result.view();
+    let writer = view["symbols_by_kind"]["interface"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["name"] == "Writer")
+        .unwrap();
+    assert_eq!(
+        writer["header"],
+        "type Writer interface /* { */ { … }",
+        "{}",
+        result.stdout
+    );
+}
+
+#[test]
+fn same_line_declarations_keep_source_order() {
+    let f = Fixture::new();
+    f.write("generators.ts", "export const first = 1, second = 2;\n");
+    f.commit("same-line TypeScript declarations");
+
+    let result = f.trace(&["structure", "generators.ts", "--json"]);
+    result.ok();
+    let view = result.view();
+    let constants = view["symbols_by_kind"]["constant"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| row["name"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(constants, vec!["first", "second"], "{}", result.stdout);
+}
+
+#[test]
+fn rust_where_clause_keeps_its_trailing_comma() {
+    let f = Fixture::new();
+    f.write("reader.rs", "impl<T> Reader<T>\nwhere\n    T: Clone,\n{\n}\n");
+    f.commit("Rust where comma");
+    let result = f.trace(&["structure", "reader.rs", "--json"]);
+    result.ok();
+    let view = result.view();
+    assert_eq!(view["symbols_by_kind"]["impl"][0]["header"], "impl<T> Reader<T>\nwhere\n    T: Clone, { … }");
+}
+
+#[test]
+fn ctags_rows_keep_their_body_extent_and_qualified_scope() {
+    let f = Fixture::new();
+    f.write(
+        "headings.md",
+        "# Overview\n\n## Runtime\n\n### Storage\n\n## Usage\n",
+    );
+    f.write(
+        "functions.sh",
+        "normalize_path() {\n    local path=$1\n    printf '%s\\n' \"$path\"\n}\n\nother() {\n    true\n}\n",
+    );
+    f.commit("ctags extent and scope");
+
+    let headings = f.trace(&["structure", "headings.md"]);
+    headings.ok();
+    assert!(
+        headings.stdout.contains("L1    # Overview")
+            && headings.stdout.contains("L3      ## Runtime")
+            && headings.stdout.contains("L5        ### Storage"),
+        "Markdown headings did not retain their parent chain:\n{}",
+        headings.stdout
+    );
+
+    let context = f.trace(&["context", "functions.sh", "--offset", "2", "--limit", "1"]);
+    context.ok();
+    assert!(
+        context.stdout.contains("L1    normalize_path()"),
+        "the shell function did not own its body window:\n{}",
+        context.stdout
     );
 }

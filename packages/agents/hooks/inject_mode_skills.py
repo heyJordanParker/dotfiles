@@ -31,6 +31,7 @@ from lib.session_mode import resolve, state
 BINDING = {
     "events": {"SessionStart": ["compact"]},
     "harness": "codex",
+    "standalone": True,
 }
 
 PREAMBLE = ("### Use the Skills the compaction dropped\n"

@@ -234,10 +234,7 @@ fn reset_preserves_append_only_history_and_clears_only_the_view() {
     f.trace_env(&["docs", "sub/util.py", "--json"], &env).ok();
 
     let events = read_events_jsonl(&f.root, &sid, "root");
-    let kinds: Vec<&str> = events
-        .iter()
-        .map(|e| e["kind"].as_str().unwrap())
-        .collect();
+    let kinds: Vec<&str> = events.iter().map(|e| e["kind"].as_str().unwrap()).collect();
     assert_eq!(
         kinds,
         vec![

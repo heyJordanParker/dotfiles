@@ -97,6 +97,26 @@ fn walk_declarations(root: Node, source: &[u8]) -> Vec<Declaration> {
     let mut stack = vec![root];
     while let Some(n) = stack.pop() {
         match n.kind() {
+            "package_clause" => {
+                if let Some(name) = n.child_by_field_name("name").or_else(|| n.named_child(0)) {
+                    if let Ok(name) = name.utf8_text(source) {
+                        let line = n.start_position().row as i64 + 1;
+                        if seen.insert((name.to_string(), line)) {
+                            out.push(Declaration {
+                                name: name.to_string(),
+                                kind: "module".into(),
+                                header_line: line,
+                                line,
+                                end_line: n.end_position().row as i64 + 1,
+                                container: None,
+                                parent: None,
+                                header: crate::extraction::line_text(source, line),
+                                annotations: Vec::new(),
+                            });
+                        }
+                    }
+                }
+            }
             "function_declaration" => {
                 push_named(&n, source, "function", None, &mut seen, &mut out);
             }
@@ -114,11 +134,129 @@ fn walk_declarations(root: Node, source: &[u8]) -> Vec<Declaration> {
                         };
                         let line = name_node.start_position().row as i64 + 1;
                         if seen.insert((name.to_string(), line)) {
+                            let start = n
+                                .parent()
+                                .filter(|parent| parent.kind() == "type_declaration")
+                                .map(|parent| parent.start_byte())
+                                .unwrap_or(n.start_byte());
+                            let mut builder = crate::extraction::header::Builder::new(source);
+                            if start != n.start_byte() {
+                                builder.slice(start, start + 4);
+                            }
+                            if let Some(type_node) = n.child_by_field_name("type").filter(|body| {
+                                matches!(body.kind(), "struct_type" | "interface_type")
+                            }) {
+                                let mut cursor = type_node.walk();
+                                if let Some(body) =
+                                    type_node.child_by_field_name("body").or_else(|| {
+                                        type_node.named_children(&mut cursor).find(|child| {
+                                            matches!(
+                                                child.kind(),
+                                                "field_declaration_list" | "method_elem_list"
+                                            )
+                                        })
+                                    })
+                                    .or_else(|| {
+                                        let mut cursor = type_node.walk();
+                                        let body = type_node
+                                            .children(&mut cursor)
+                                            .find(|child| child.kind() == "{");
+                                        body
+                                    })
+                                {
+                                    builder.slice(n.start_byte(), body.start_byte()).block(body);
+                                } else {
+                                    builder.node(n);
+                                }
+                            } else {
+                                builder.node(n);
+                            }
                             out.push(Declaration {
                                 name: name.to_string(),
                                 kind: kind.to_string(),
+                                header_line: line,
                                 line,
+                                end_line: n.end_position().row as i64 + 1,
                                 container: None,
+                                parent: None,
+                                header: builder.finish(),
+                                annotations: Vec::new(),
+                            });
+                        }
+                    }
+                }
+            }
+            "field_declaration" => {
+                if let Some(name_node) = n.child_by_field_name("name").or_else(|| n.named_child(0))
+                {
+                    if let Ok(name) = name_node.utf8_text(source) {
+                        let line = name_node.start_position().row as i64 + 1;
+                        if seen.insert((name.to_string(), line)) {
+                            out.push(Declaration {
+                                name: name.to_string(),
+                                kind: "property".into(),
+                                header_line: n.start_position().row as i64 + 1,
+                                line,
+                                end_line: n.end_position().row as i64 + 1,
+                                container: None,
+                                parent: None,
+                                header: crate::extraction::line_text(
+                                    source,
+                                    n.start_position().row as i64 + 1,
+                                ),
+                                annotations: Vec::new(),
+                            });
+                        }
+                    }
+                }
+            }
+            "method_spec" | "method_elem" => {
+                if let Some(name_node) = n.child_by_field_name("name") {
+                    if let Ok(name) = name_node.utf8_text(source) {
+                        let line = name_node.start_position().row as i64 + 1;
+                        if seen.insert((name.to_string(), line)) {
+                            out.push(Declaration {
+                                name: name.to_string(),
+                                kind: "function".into(),
+                                header_line: n.start_position().row as i64 + 1,
+                                line,
+                                end_line: n.end_position().row as i64 + 1,
+                                container: None,
+                                parent: None,
+                                header: crate::extraction::line_text(
+                                    source,
+                                    n.start_position().row as i64 + 1,
+                                ),
+                                annotations: Vec::new(),
+                            });
+                        }
+                    }
+                }
+            }
+            "const_spec" | "var_spec" => {
+                if let Some(name_node) = n.child_by_field_name("name").or_else(|| n.named_child(0))
+                {
+                    if let Ok(name) = name_node.utf8_text(source) {
+                        let line = name_node.start_position().row as i64 + 1;
+                        if seen.insert((name.to_string(), line)) {
+                            let keyword = if n.kind() == "const_spec" {
+                                "const"
+                            } else {
+                                "var"
+                            };
+                            out.push(Declaration {
+                                name: name.to_string(),
+                                kind: "constant".into(),
+                                header_line: n.start_position().row as i64 + 1,
+                                line,
+                                end_line: n.end_position().row as i64 + 1,
+                                container: None,
+                                parent: None,
+                                header: format!(
+                                    "{keyword} {}",
+                                    String::from_utf8_lossy(&source[n.start_byte()..n.end_byte()])
+                                ),
+                                annotations: Vec::new(),
                             });
                         }
                     }
@@ -132,6 +270,20 @@ fn walk_declarations(root: Node, source: &[u8]) -> Vec<Declaration> {
         }
     }
     out.sort_by_key(|d| d.line);
+    for index in 0..out.len() {
+        if let Some((parent, _)) = out[..index]
+            .iter()
+            .enumerate()
+            .rev()
+            .find(|(_, candidate)| {
+                matches!(candidate.kind.as_str(), "class" | "interface")
+                    && candidate.line < out[index].line
+                    && candidate.end_line >= out[index].line
+            })
+        {
+            out[index].parent = Some(parent as u32);
+        }
+    }
     out
 }
 
@@ -150,8 +302,21 @@ fn push_named(
                 out.push(Declaration {
                     name: name.to_string(),
                     kind: kind.to_string(),
+                    header_line: line,
                     line,
+                    end_line: n.end_position().row as i64 + 1,
                     container,
+                    parent: None,
+                    header: {
+                        let mut builder = crate::extraction::header::Builder::new(source);
+                        if let Some(body) = n.child_by_field_name("body") {
+                            builder.slice(n.start_byte(), body.start_byte()).block(body);
+                        } else {
+                            builder.node(*n);
+                        }
+                        builder.finish()
+                    },
+                    annotations: Vec::new(),
                 });
             }
         }

@@ -8,7 +8,6 @@ Prompt building-block workspace where each file type owns exactly one kind of Pr
 - One `agents/<agent>.md` is the whole Agent on both Harnesses: dispatched as a Claude Subagent by that name, and run on codex as `codex-run @<name>`. This holds for a profile's own Agents under `packages/claude/profiles/<name>/agents/` too.
 - `codex-run` resolves `@<name>` against the active config root's `agents/` first and `~/.agents/agents` second, so a profile adds its roster to the shared one and a name held by both runs as the profile's.
 - `scripts/sync.py` generates the codex artifacts for every profile's own Agents as well as this roster, skipping a symlinked `agents/` or `<agent>.md` because those generate where they really live.
-- The copywriter profile reaches `designer.md` and `context-engineer.md` by symlink into this roster.
 - The Harness's own per-Agent memory (`memory: user|project|local`, `~/.claude/agent-memory/<name>/`) is switched off by `autoMemoryEnabled: false` in every root, the default one and each profile.
 - `memory: none` in an Agent's frontmatter denies it Memory on a Claude Subagent dispatch and on a `codex-run` run, founding or resumed; omitting the key leaves Memory reachable.
 - Memory is Honcho, reached through the `honcho` command in `packages/bin/`, which wraps `lib/honcho.py` the way `codex-run` wraps `lib/codex_run.py`. There is no memory MCP server on either Harness.
@@ -52,4 +51,7 @@ Prompt building-block workspace where each file type owns exactly one kind of Pr
 - `scripts/agents.py` generates Codex Agent artifacts from `agents/<agent>.md`.
 - `scripts/hooks.py` generates Hook wiring from each Hook's `BINDING`.
 - A `BINDING` declaring `roots: "all"` is generated into every profile's `settings.json` as well as the default root's.
+- The Hooks bound to one event and tool run in one `hooks/combine_hooks.py` process, which feeds each the event and merges their refusals, context, and one input rewrite into one answer.
+- A `BINDING` declaring `standalone: True` keeps its own process: the Hooks that inject large context or call the network or a model.
+- A Hook's injected context stays under `lib/feedback.py`'s `CONTEXT_LIMIT`, 10,000 characters, because Claude Code replaces a longer hook message with a 2,000-character preview.
 - The `/cc` Skill is the Process for writing Prompts.

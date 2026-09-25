@@ -4,11 +4,10 @@
 //! untracked-file synthesis emit per-region commit + subject so no
 //! follow-up `git show` is needed.
 
-use crate::{cache, ccn, file_facts};
+use crate::{cache, file_facts, surface};
 use anyhow::{bail, Result};
 use serde_json::{json, Value};
 use std::path::Path;
-use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 fn parse_lines(spec: &str) -> Result<(i64, i64)> {
@@ -27,18 +26,15 @@ fn parse_lines(spec: &str) -> Result<(i64, i64)> {
     Ok((start, end))
 }
 
-/// Resolve a symbol name to its (start_line, end_line) range via the AST CCN
-/// backend. Matches an exact function name or a qualified suffix
-/// (`Class.method`) — the same matcher shape `trace read` uses. end_line
-/// is start_line + nloc - 1 (AST line span).
 fn resolve_symbol_range(file: &Path, symbol: &str) -> Option<(i64, i64)> {
-    let source = std::fs::read(file).ok()?;
-    let functions = ccn::analyze(&source, &file.to_string_lossy())?;
-    let suffix = format!(".{symbol}");
-    let target = functions
-        .iter()
-        .find(|f| f.name == symbol || f.name.ends_with(&suffix))?;
-    Some((target.start_line, target.start_line + target.nloc - 1))
+    let root = cache::worktree_root_for(file).unwrap_or_else(|| cache::display_root(file));
+    let facts = file_facts::get(file, &root)?;
+    let declaration = facts
+        .extraction?
+        .declarations
+        .into_iter()
+        .find(|declaration| declaration.name == symbol)?;
+    Some((declaration.header_line, declaration.end_line))
 }
 
 const UNTRACKED_MARKERS: &[&str] = &[
@@ -56,10 +52,7 @@ fn run_blame(file: &Path, line_range: Option<(i64, i64)>) -> Result<String> {
     args.push("--".into());
     args.push(file.to_string_lossy().to_string());
     let parent = file.parent().unwrap_or_else(|| Path::new("."));
-    let out = Command::new("git")
-        .args(&args)
-        .current_dir(parent)
-        .output()?;
+    let out = crate::git_activity::git_output(parent, &args)?;
     if out.status.success() {
         return Ok(String::from_utf8_lossy(&out.stdout).to_string());
     }
@@ -352,7 +345,10 @@ pub fn run(
     let repo_root = cache::worktree_root_for(&path).unwrap_or_else(|| cache::display_root(&path));
     let facts = file_facts::get(&path, &repo_root);
     let display_file = cache::relative_to_root(&path, &repo_root);
-
+    let surface_rows = match (facts.as_ref(), symbol, line_range) {
+        (Some(facts), Some(_), Some((start, end))) => surface::rows(facts, Some((start, end))),
+        _ => Vec::new(),
+    };
     let payload = crate::output::document(
         json!({
             "file": display_file,
@@ -364,7 +360,7 @@ pub fn run(
             "files": {
                 display_file.clone(): {
                     "language": facts.as_ref().and_then(|f| f.language.clone()),
-                    "shoulder": facts.as_ref().map(|f| crate::passive_context::render(f, None)),
+                    "surface": surface_rows,
                 }
             },
         }),
@@ -396,6 +392,14 @@ pub fn run(
         header += &format!("  L{s}-L{e}");
     }
     println!("{header}");
+    let surface: Vec<surface::Row> =
+        serde_json::from_value(payload["context"]["files"][&display_file]["surface"].clone())
+            .unwrap_or_default();
+    if !surface.is_empty() {
+        // The rows take at most half the budget; the blame regions take the rest.
+        let budget = crate::output::budget().map(|budget| budget / 2);
+        print!("{}", surface::render_within(&surface, &display_file, None, budget));
+    }
     println!(
         "Regions: {}  Lines blamed: {}",
         regions.len(),

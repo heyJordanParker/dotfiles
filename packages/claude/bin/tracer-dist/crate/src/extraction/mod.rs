@@ -7,6 +7,7 @@
 
 pub mod c;
 pub mod go;
+pub mod header;
 pub mod java;
 pub mod php;
 pub mod python;
@@ -15,7 +16,35 @@ pub mod rust;
 pub mod typescript;
 
 use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
+use std::fs;
+use std::io::Write;
 use std::path::Path;
+use std::process::Command;
+use std::sync::OnceLock;
+use std::time::UNIX_EPOCH;
+
+#[allow(non_upper_case_globals)]
+const ctags_denied_languages: &[&str] = &[
+    "Json",
+    "Yaml",
+    "Iniconf",
+    "Diff",
+    "XML",
+    "DTD",
+    "SVG",
+    "XSLT",
+    "RelaxNG",
+    "PlistXML",
+    "Maven2",
+    "Glade",
+    "DBusIntrospect",
+    "Ant",
+    "Toml",
+];
+
+#[allow(non_upper_case_globals)]
+const ctags_denied_kinds: &[&str] = &["heredoc"];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Import {
@@ -43,8 +72,23 @@ pub struct Export {
 pub struct Declaration {
     pub name: String,
     pub kind: String,
+    pub header_line: i64,
     pub line: i64,
+    pub end_line: i64,
     pub container: Option<String>,
+    pub parent: Option<u32>,
+    pub header: String,
+    #[serde(default)]
+    pub annotations: Vec<String>,
+}
+
+pub fn line_text(source: &[u8], line: i64) -> String {
+    String::from_utf8_lossy(source)
+        .lines()
+        .nth(line.saturating_sub(1) as usize)
+        .unwrap_or("")
+        .trim()
+        .to_string()
 }
 
 /// The syntactic shape of a call/use site. `Free` is a bare call
@@ -90,7 +134,20 @@ pub struct ExtractionResult {
     pub references: Vec<Reference>,
 }
 
-/// Extensions with a registered extractor (lowercase, no leading dot).
+#[derive(Deserialize, Serialize)]
+struct CtagsMap {
+    binary: CtagsBinary,
+    extensions: HashMap<String, String>,
+}
+
+#[derive(Deserialize, Serialize, PartialEq, Eq)]
+struct CtagsBinary {
+    path: String,
+    size: u64,
+    modified_nanos: u128,
+}
+
+/// Extensions with a tree-sitter extractor (lowercase, no leading dot).
 pub fn supported_extensions() -> &'static [&'static str] {
     &[
         "py", "ts", "tsx", "js", "jsx", "php", "rs", "go", "rb", "java", "c", "h",
@@ -98,10 +155,13 @@ pub fn supported_extensions() -> &'static [&'static str] {
 }
 
 pub fn is_supported(path: &Path) -> bool {
-    match path.extension().and_then(|e| e.to_str()) {
-        Some(ext) => supported_extensions().contains(&ext.to_lowercase().as_str()),
-        None => false,
-    }
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| {
+            let extension = extension.to_lowercase();
+            supported_extensions().contains(&extension.as_str())
+                || ctags_languages(path).contains_key(&extension)
+        })
 }
 
 /// Dispatch to the per-language extractor. None for unsupported extensions.
@@ -110,16 +170,264 @@ pub fn extract(source: &[u8], path: &str) -> Option<ExtractionResult> {
         .extension()
         .and_then(|e| e.to_str())
         .map(|s| s.to_lowercase())?;
-    match ext.as_str() {
-        "py" => Some(python::extract(source)),
-        "ts" | "js" => Some(typescript::extract(source, path, false)),
-        "tsx" | "jsx" => Some(typescript::extract(source, path, true)),
-        "php" => Some(php::extract(source)),
-        "rs" => Some(rust::extract(source)),
-        "go" => Some(go::extract(source)),
-        "rb" => Some(ruby::extract(source)),
-        "java" => Some(java::extract(source)),
-        "c" | "h" => Some(c::extract(source)),
-        _ => None,
+    let extraction = match ext.as_str() {
+        "py" => python::extract(source),
+        "ts" | "js" => typescript::extract(source, path, false),
+        "tsx" | "jsx" => typescript::extract(source, path, true),
+        "php" => php::extract(source),
+        "rs" => rust::extract(source),
+        "go" => go::extract(source),
+        "rb" => ruby::extract(source),
+        "java" => java::extract(source),
+        "c" | "h" => c::extract(source),
+        _ => return ctags_extract(source, path, &ext),
+    };
+    Some(extraction)
+}
+
+fn ctags_languages(path: &Path) -> &'static HashMap<String, String> {
+    static LANGUAGES: OnceLock<HashMap<String, String>> = OnceLock::new();
+    LANGUAGES.get_or_init(|| {
+        let Some(root) = crate::cache::worktree_root_for(path) else {
+            return HashMap::new();
+        };
+        let binary = ctags_binary();
+        if let Some(map) = load_ctags_map(&root, &binary) {
+            return map.extensions;
+        }
+
+        let _maintenance = crate::cache::maintain(&root);
+        if let Some(map) = load_ctags_map(&root, &binary) {
+            return map.extensions;
+        }
+
+        let map = CtagsMap {
+            binary,
+            extensions: list_ctags_maps(),
+        };
+        let _ = crate::cache::save(crate::cache::NAMESPACE_FILE, "ctags_maps_v1", &map, &root);
+        map.extensions
+    })
+}
+
+fn ctags_binary() -> CtagsBinary {
+    let path = std::env::var_os("PATH")
+        .into_iter()
+        .flat_map(|paths| std::env::split_paths(&paths).collect::<Vec<_>>())
+        .map(|directory| directory.join("ctags"))
+        .find(|candidate| candidate.is_file())
+        .and_then(|candidate| candidate.canonicalize().ok())
+        .unwrap_or_else(|| {
+            eprintln!("ctags failed: could not resolve ctags on PATH");
+            std::process::exit(2);
+        });
+    let metadata = fs::metadata(&path).unwrap_or_else(|error| {
+        eprintln!("ctags failed: {error}");
+        std::process::exit(2);
+    });
+    let modified_nanos = metadata
+        .modified()
+        .and_then(|modified| {
+            modified
+                .duration_since(UNIX_EPOCH)
+                .map_err(std::io::Error::other)
+        })
+        .map(|duration| duration.as_nanos())
+        .unwrap_or_else(|error| {
+            eprintln!("ctags failed: {error}");
+            std::process::exit(2);
+        });
+    CtagsBinary {
+        path: path.to_string_lossy().into_owned(),
+        size: metadata.len(),
+        modified_nanos,
     }
+}
+
+fn load_ctags_map(root: &Path, binary: &CtagsBinary) -> Option<CtagsMap> {
+    let map: CtagsMap = serde_json::from_slice(&crate::cache::load_bytes(
+        crate::cache::NAMESPACE_FILE,
+        "ctags_maps_v1",
+        root,
+    )?)
+    .ok()?;
+    (map.binary == *binary).then_some(map)
+}
+
+fn list_ctags_maps() -> HashMap<String, String> {
+    let maps = crate::timing::phase("ctags list maps", || {
+        Command::new("ctags").arg("--list-maps").output()
+    })
+    .unwrap_or_else(|error| {
+        eprintln!("ctags failed: {error}");
+        std::process::exit(2);
+    });
+    if !maps.status.success() {
+        eprintln!(
+            "ctags failed: {}",
+            String::from_utf8_lossy(&maps.stderr).trim()
+        );
+        std::process::exit(2);
+    }
+    let mut extensions = HashMap::new();
+    for line in String::from_utf8_lossy(&maps.stdout).lines() {
+        let mut fields = line.split_whitespace();
+        let Some(language) = fields.next() else {
+            continue;
+        };
+        if ctags_denied_languages
+            .iter()
+            .any(|denied_language| language.eq_ignore_ascii_case(denied_language))
+        {
+            continue;
+        }
+        for pattern in fields {
+            let Some(extension) = pattern.strip_prefix("*.") else {
+                continue;
+            };
+            if !extension.contains(['*', '[', ']']) {
+                extensions
+                    .entry(extension.to_lowercase())
+                    .or_insert_with(|| language.to_string());
+            }
+        }
+    }
+    extensions
+}
+
+fn ctags_extract(source: &[u8], path: &str, extension: &str) -> Option<ExtractionResult> {
+    let language = ctags_languages(Path::new(path)).get(extension)?.clone();
+    let root = crate::cache::worktree_root_for(Path::new(path))?;
+    let temporary_dir = root.join(crate::cache::CACHE_DIR_NAME).join("tmp");
+    std::fs::create_dir_all(&temporary_dir).ok()?;
+    let mut source_file = tempfile::Builder::new()
+        .suffix(&format!(".{extension}"))
+        .tempfile_in(temporary_dir)
+        .ok()?;
+    source_file.write_all(source).ok()?;
+    let output = crate::timing::phase("ctags", || {
+        Command::new("ctags")
+            .args([
+                "--output-format=json",
+                &format!("--language-force={language}"),
+                "--fields=+nezKSt",
+                "--sort=no",
+                "-f",
+                "-",
+            ])
+            .arg(source_file.path())
+            .output()
+    })
+    .unwrap_or_else(|error| {
+        eprintln!("ctags failed: {error}");
+        std::process::exit(2);
+    });
+    if !output.status.success() {
+        eprintln!(
+            "ctags failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+        std::process::exit(2);
+    }
+    let mut declarations = Vec::new();
+    let mut missing_ends = HashSet::new();
+    for tag in String::from_utf8_lossy(&output.stdout).lines() {
+        let tag: serde_json::Value = serde_json::from_str(tag).ok()?;
+        let raw_kind = tag.get("kind")?.as_str()?;
+        if ctags_denied_kinds.contains(&raw_kind) {
+            continue;
+        }
+        let name = tag.get("name")?.as_str()?.to_string();
+        let line = tag.get("line")?.as_i64()?;
+        let scope = tag
+            .get("scope")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string);
+        let end = tag.get("end").and_then(serde_json::Value::as_i64);
+        if end.is_none() {
+            missing_ends.insert((name.clone(), line));
+        }
+        declarations.push(Declaration {
+            name,
+            kind: ctags_kind(raw_kind),
+            header_line: line,
+            line,
+            end_line: end.unwrap_or(line),
+            container: scope,
+            parent: None,
+            header: line_text(source, line)
+                .split('{')
+                .next()
+                .unwrap_or("")
+                .trim()
+                .to_string(),
+            annotations: Vec::new(),
+        });
+    }
+    declarations.sort_by_key(|declaration| declaration.line);
+    let last_line = (source.iter().filter(|byte| **byte == b'\n').count() + 1) as i64;
+    for index in 0..declarations.len() {
+        if !missing_ends.contains(&(declarations[index].name.clone(), declarations[index].line)) {
+            continue;
+        }
+        let depth = declarations[index]
+            .container
+            .as_deref()
+            .map(|scope| (scope.matches("::").count() + scope.matches("\"\"").count()) as i64 + 1)
+            .unwrap_or(1);
+        declarations[index].end_line = declarations
+            .iter()
+            .skip(index + 1)
+            .find(|next| {
+                next.container
+                    .as_deref()
+                    .map(|scope| {
+                        (scope.matches("::").count() + scope.matches("\"\"").count()) as i64 + 1
+                    })
+                    .unwrap_or(1)
+                    <= depth
+            })
+            .map(|next| next.line - 1)
+            .unwrap_or(last_line);
+    }
+    let mut parents = HashMap::new();
+    for (index, declaration) in declarations.iter().enumerate() {
+        parents.insert(declaration.name.clone(), index as u32);
+        if let Some(scope) = declaration.container.as_deref() {
+            parents.insert(format!("{scope}::{}", declaration.name), index as u32);
+            parents.insert(format!("{scope}\"\"{}", declaration.name), index as u32);
+        }
+    }
+    for declaration in &mut declarations {
+        declaration.parent = declaration
+            .container
+            .as_ref()
+            .and_then(|scope| parents.get(scope).copied());
+    }
+    Some(ExtractionResult {
+        language: language.to_lowercase(),
+        imports: Vec::new(),
+        exports: Vec::new(),
+        declarations,
+        references: Vec::new(),
+    })
+}
+
+fn ctags_kind(raw: &str) -> String {
+    match raw {
+        "c" => "class",
+        "f" => "function",
+        "m" => "method",
+        "v" => "variable",
+        "p" => "property",
+        "F" => "field",
+        "i" | "I" => "import",
+        "n" => "namespace",
+        "s" => "struct",
+        "e" | "g" => "enum",
+        "t" => "trait",
+        "u" => "union",
+        other => other,
+    }
+    .to_string()
 }

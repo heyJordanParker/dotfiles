@@ -20,8 +20,9 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Output};
 use std::sync::{Arc, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -184,23 +185,47 @@ fn intern_co_changed(mut activities: HashMap<String, GitActivity>) -> HashMap<St
     activities
 }
 
-/// Run git in `repo_root` and return stdout with the trailing newline
-/// stripped, or `None` when git fails. Git terminates every command's output
-/// with a newline that is never part of the value, so `rev-parse HEAD` yields
-/// `"<sha>\n"`; stripping it here is what stops each caller having to
-/// remember. Only the tail is cut — a leading space is data in some git
-/// formats (the `XY` field of `status --porcelain`), and `porcelain_uncached`
-/// reads those raw bytes itself rather than through this.
+pub fn git_command<I, S, T>(repo_root: &Path, args: I, run: impl FnOnce(&mut Command) -> T) -> T
+where
+    I: IntoIterator<Item = S>,
+    S: Into<OsString>,
+{
+    let args: Vec<OsString> = args.into_iter().map(Into::into).collect();
+    let detail = args
+        .iter()
+        .take(2)
+        .map(|arg| arg.to_string_lossy())
+        .collect::<Vec<_>>()
+        .join(" ");
+    crate::timing::phase(&format!("git {detail}"), || {
+        let mut command = Command::new("git");
+        command.args(&args).current_dir(repo_root);
+        run(&mut command)
+    })
+}
+
+pub fn git_output<I, S>(repo_root: &Path, args: I) -> std::io::Result<Output>
+where
+    I: IntoIterator<Item = S>,
+    S: Into<OsString>,
+{
+    git_command(repo_root, args, |command| command.output())
+}
+
+/// Run git in `repo_root` and return stdout with the trailing newline stripped.
 pub fn git_str(repo_root: &Path, args: &[&str]) -> Option<String> {
-    let out = Command::new("git")
-        .args(args)
-        .current_dir(repo_root)
-        .output()
-        .ok()?;
+    let out = git_output(repo_root, args).ok()?;
     if !out.status.success() {
         return None;
     }
     Some(String::from_utf8_lossy(&out.stdout).trim_end().to_string())
+}
+
+pub fn blob(repo_root: &Path, revision: &str, path: &str) -> Option<Vec<u8>> {
+    git_output(repo_root, ["show", &format!("{revision}:{path}")])
+        .ok()
+        .filter(|output| output.status.success())
+        .map(|output| output.stdout)
 }
 
 pub fn head_sha(repo_root: &Path) -> Option<String> {
@@ -269,34 +294,87 @@ fn historical(repo_root: &Path) -> HashMap<String, GitActivity> {
     out
 }
 
+fn activity_for(
+    path: &str,
+    history: &HashMap<String, GitActivity>,
+    working: Option<&(String, Option<String>, Option<String>)>,
+    presence: Option<&Vec<&'static str>>,
+) -> GitActivity {
+    let renamed_from = working.and_then(|(_, _, from)| from.as_ref());
+    let mut activity = history
+        .get(path)
+        .cloned()
+        .or_else(|| {
+            let from = renamed_from?;
+            let mut earlier = history.get(from)?.clone();
+            earlier.rename_from = Some(from.clone());
+            Some(earlier)
+        })
+        .unwrap_or_else(GitActivity::empty);
+    activity.working_state = working.map(|(state, _, _)| state.clone());
+    activity.present_in = presence.cloned().unwrap_or_default();
+    activity
+}
+
 fn compose_live(
-    mut out: HashMap<String, GitActivity>,
-    working: HashMap<String, String>,
-    presence: HashMap<String, Vec<&'static str>>,
+    history: &HashMap<String, GitActivity>,
+    working: &Porcelain,
+    presence: &HashMap<String, Vec<&'static str>>,
 ) -> HashMap<String, GitActivity> {
-    for activity in out.values_mut() {
-        activity.working_state = None;
-        activity.present_in.clear();
-    }
-    for (path, state) in working {
-        let entry = out.entry(path).or_insert_with(GitActivity::empty);
-        entry.working_state = Some(state);
-    }
-    // Deploy-branch presence is a fact about the current refs, not about
-    // history, so it survives a repo whose history the walk dropped. In a
-    // shallow clone every file's only commit is a graft, which leaves no
-    // history entry and previously no entry at all — silently turning a file
-    // that is on origin/main into `presence: local-only`.
-    for (path, refs) in presence {
-        let entry = out.entry(path).or_insert_with(GitActivity::empty);
-        entry.present_in = refs;
-    }
-    intern_co_changed(out)
+    let mut paths: HashSet<&str> = history.keys().map(String::as_str).collect();
+    paths.extend(working.keys().map(String::as_str));
+    paths.extend(presence.keys().map(String::as_str));
+    intern_co_changed(
+        paths
+            .into_iter()
+            .map(|path| {
+                (
+                    path.to_string(),
+                    activity_for(path, history, working.get(path), presence.get(path)),
+                )
+            })
+            .collect(),
+    )
 }
 
 /// Complete disk-cached activity, memoized once per repository root.
 pub fn bulk_cached(repo_root: &Path) -> Arc<HashMap<String, GitActivity>> {
     complete_cached(repo_root)
+}
+
+pub fn for_paths(repo_root: &Path, paths: &[String]) -> HashMap<String, GitActivity> {
+    let listing = crate::repo_files::tracked_set_state(repo_root);
+    let tracked = crate::repo_files::tracked_set(repo_root).unwrap_or_default();
+    let (history, (presence, working)) = rayon::join(
+        || cached_history(repo_root),
+        || {
+            rayon::join(
+                || cached_presence(repo_root),
+                || {
+                    if listing.as_ref().is_some_and(|listing| listing.discovered) {
+                        porcelain(repo_root)
+                    } else {
+                        tracked_porcelain(repo_root)
+                    }
+                },
+            )
+        },
+    );
+    paths
+        .iter()
+        .filter_map(|path| {
+            let working_entry = working.as_ref().and_then(|entries| entries.get(path));
+            let mut activity = activity_for(path, &history, working_entry, presence.get(path));
+            if !tracked.contains(path)
+                && listing
+                    .as_ref()
+                    .is_some_and(|listing| listing.untracked.contains(path))
+            {
+                activity.working_state = Some("untracked".to_string());
+            }
+            (activity != GitActivity::empty()).then_some((path.clone(), activity))
+        })
+        .collect()
 }
 
 static COMPLETE_MEMO: memo::Memo<HashMap<String, GitActivity>> = OnceLock::new();
@@ -315,21 +393,21 @@ fn complete_cached(repo_root: &Path) -> Arc<HashMap<String, GitActivity>> {
 /// today's date: keyed by HEAD alone, a branch that sits idle keeps serving
 /// the velocity it had on the day the entry was written.
 fn bulk_cached_uncached(repo_root: &Path) -> HashMap<String, GitActivity> {
-    // Three sources, each behind its own git subprocess, and none of them
-    // depends on another: they run side by side instead of in a row.
     let (history, (working, presence)) = rayon::join(
         || cached_history(repo_root),
-        || {
-            rayon::join(
-                || working_tree_state(repo_root),
-                || presence_by_path(repo_root),
-            )
-        },
+        || rayon::join(|| porcelain(repo_root), || cached_presence(repo_root)),
     );
-    compose_live(history, working, presence)
+    compose_live(&history, working.as_deref().unwrap_or(&Porcelain::new()), &presence)
 }
 
-fn cached_history(repo_root: &Path) -> HashMap<String, GitActivity> {
+fn cached_history(repo_root: &Path) -> Arc<HashMap<String, GitActivity>> {
+    static HISTORY_MEMO: memo::Memo<HashMap<String, GitActivity>> = OnceLock::new();
+    memo::get_or_build(&HISTORY_MEMO, repo_root, || {
+        cached_history_uncached(repo_root)
+    })
+}
+
+fn cached_history_uncached(repo_root: &Path) -> HashMap<String, GitActivity> {
     let head = match head_sha(repo_root) {
         Some(h) => h,
         None => return historical(repo_root),
@@ -382,8 +460,9 @@ struct History {
 fn walk_history(repo_root: &Path) -> History {
     let cap_arg = format!("-n{HISTORY_CAP}");
     // `%H` leads the record so a graft commit can be recognized and dropped.
-    let stdout = match Command::new("git")
-        .args([
+    let stdout = match git_output(
+        repo_root,
+        [
             "log",
             &cap_arg,
             "-M",
@@ -392,10 +471,8 @@ fn walk_history(repo_root: &Path) -> History {
             "-z",
             "--pretty=format:COMMIT|%H|%ad|%an|%s%x00",
             "--date=short",
-        ])
-        .current_dir(repo_root)
-        .output()
-    {
+        ],
+    ) {
         Ok(output) if output.status.success() => output.stdout,
         _ => return History::default(),
     };
@@ -663,7 +740,7 @@ pub fn working_tree_state(repo_root: &Path) -> HashMap<String, String> {
         .as_deref()
         .into_iter()
         .flat_map(|entries| entries.iter())
-        .map(|(path, (state, _))| (path.clone(), state.clone()))
+        .map(|(path, (state, _, _))| (path.clone(), state.clone()))
         .collect()
 }
 
@@ -679,11 +756,11 @@ pub fn staging_state(repo_root: &Path) -> HashMap<String, String> {
         .as_deref()
         .into_iter()
         .flat_map(|entries| entries.iter())
-        .filter_map(|(path, (_, staging))| staging.as_ref().map(|s| (path.clone(), s.clone())))
+        .filter_map(|(path, (_, staging, _))| staging.as_ref().map(|s| (path.clone(), s.clone())))
         .collect()
 }
 
-/// Per-file `(working-tree state, staging state)` via
+/// Per-file `(working-tree state, staging state, renamed-from path)` via
 /// `git status --porcelain=v1 -z`.
 ///
 /// Process-wide memo, keyed by repo root: the working tree does not change
@@ -691,12 +768,29 @@ pub fn staging_state(repo_root: &Path) -> HashMap<String, String> {
 /// most once per root. The lock is held across the compute so concurrent
 /// callers (parallel primer sections, file-facts working-state overlay)
 /// serialize onto one status run rather than racing `index.lock`.
-pub(crate) type Porcelain = HashMap<String, (String, Option<String>)>;
+pub(crate) type Porcelain = HashMap<String, (String, Option<String>, Option<String>)>;
 static PORCELAIN_MEMO: memo::Memo<Option<Arc<Porcelain>>> = OnceLock::new();
 
 pub(crate) fn porcelain(repo_root: &Path) -> Option<Arc<Porcelain>> {
     memo::get_or_build(&PORCELAIN_MEMO, repo_root, || {
         porcelain_uncached(repo_root, "all").map(Arc::new)
+    })
+    .as_ref()
+    .as_ref()
+    .map(Arc::clone)
+}
+
+static TRACKED_PORCELAIN_MEMO: memo::Memo<Option<Arc<Porcelain>>> = OnceLock::new();
+
+pub(crate) fn tracked_porcelain(repo_root: &Path) -> Option<Arc<Porcelain>> {
+    if let Some(full) = PORCELAIN_MEMO
+        .get()
+        .and_then(|memo| memo.lock().unwrap().get(repo_root).cloned())
+    {
+        return full.as_ref().as_ref().map(Arc::clone);
+    }
+    memo::get_or_build(&TRACKED_PORCELAIN_MEMO, repo_root, || {
+        porcelain_uncached(repo_root, "no").map(Arc::new)
     })
     .as_ref()
     .as_ref()
@@ -730,11 +824,7 @@ fn staging_word(x: char, y: char) -> Option<String> {
 
 pub(crate) fn porcelain_uncached(repo_root: &Path, untracked: &str) -> Option<Porcelain> {
     let untracked = format!("--untracked-files={untracked}");
-    let out = match Command::new("git")
-        .args(["status", "--porcelain=v1", "-z", &untracked])
-        .current_dir(repo_root)
-        .output()
-    {
+    let out = match git_output(repo_root, ["status", "--porcelain=v1", "-z", &untracked]) {
         Ok(o) if o.status.success() => o.stdout,
         _ => return None,
     };
@@ -757,12 +847,12 @@ fn parse_porcelain(out: &[u8]) -> Porcelain {
         let x = xy[0];
         let y = xy[1];
         if x == 'R' || x == 'C' || y == 'R' || y == 'C' {
-            if i + 1 < parts.len() {
-                i += 2;
-            } else {
-                i += 1;
-            }
-            result.insert(path, ("renamed".to_string(), staging_word(x, y)));
+            let from = parts
+                .get(i + 1)
+                .filter(|from| !from.is_empty())
+                .map(|from| String::from_utf8_lossy(from).into_owned());
+            i += if i + 1 < parts.len() { 2 } else { 1 };
+            result.insert(path, ("renamed".to_string(), staging_word(x, y), from));
             continue;
         }
         let state = if x == '?' || y == '?' {
@@ -774,7 +864,7 @@ fn parse_porcelain(out: &[u8]) -> Porcelain {
         } else {
             "modified"
         };
-        result.insert(path, (state.to_string(), staging_word(x, y)));
+        result.insert(path, (state.to_string(), staging_word(x, y), None));
         i += 1;
     }
     result
@@ -799,18 +889,26 @@ fn normalize_working_path(path: String) -> String {
 /// of both the key and the result, exactly as the live computation does). A
 /// local commit that doesn't touch a deploy branch reuses this cache; a
 /// deploy-branch fast-forward rotates the key and recomputes.
+fn cached_presence(repo_root: &Path) -> Arc<HashMap<String, Vec<&'static str>>> {
+    static PRESENCE_MEMO: memo::Memo<HashMap<String, Vec<&'static str>>> = OnceLock::new();
+    memo::get_or_build(&PRESENCE_MEMO, repo_root, || presence_by_path(repo_root))
+}
+
 fn presence_by_path(repo_root: &Path) -> HashMap<String, Vec<&'static str>> {
     let configured: Vec<(&str, &str, String)> = DEPLOY_BRANCHES
         .iter()
         .map(|(label, r#ref)| (*label, *r#ref, format!("refs/remotes/{ref}")))
         .collect();
-    let output = match Command::new("git")
-        .arg("for-each-ref")
-        .arg("--format=%(refname)%00%(objectname)")
-        .args(configured.iter().map(|(_, _, full_ref)| full_ref))
-        .current_dir(repo_root)
-        .output()
-    {
+    let mut args = vec![
+        OsString::from("for-each-ref"),
+        OsString::from("--format=%(refname)%00%(objectname)"),
+    ];
+    args.extend(
+        configured
+            .iter()
+            .map(|(_, _, full_ref)| OsString::from(full_ref)),
+    );
+    let output = match git_output(repo_root, args) {
         Ok(output) if output.status.success() => output.stdout,
         _ => return HashMap::new(),
     };
@@ -882,11 +980,7 @@ fn compute_presence(
 ) -> HashMap<String, Vec<&'static str>> {
     let mut labels_for: HashMap<String, Vec<&'static str>> = HashMap::new();
     for (label, _, tip) in present {
-        let output = match Command::new("git")
-            .args(["ls-tree", "-rz", "--name-only", tip])
-            .current_dir(repo_root)
-            .output()
-        {
+        let output = match git_output(repo_root, ["ls-tree", "-rz", "--name-only", tip]) {
             Ok(output) if output.status.success() => output.stdout,
             _ => continue,
         };

@@ -56,10 +56,8 @@ struct WalkSkips {
 
 impl WalkSkips {
     fn new(repo_root: &Path, tracked: &[String]) -> Self {
-        let mut ignore_files: Vec<&String> = tracked
-            .iter()
-            .filter(|path| is_ignore_file(path))
-            .collect();
+        let mut ignore_files: Vec<&String> =
+            tracked.iter().filter(|path| is_ignore_file(path)).collect();
         ignore_files.sort_by_key(|path| std::cmp::Reverse(path.matches('/').count()));
         let matchers = ignore_files
             .into_iter()
@@ -438,7 +436,12 @@ fn load_or_compute_uncached(repo_root: &Path) -> Payload {
         .ok()
         .and_then(|value| cache::save(cache::NAMESPACE_FILE, CACHE_KEY, &value, repo_root).ok())
     {
-        cache::evict_prefixed(cache::NAMESPACE_FILE, "repo_context_v", CACHE_KEY, repo_root);
+        cache::evict_prefixed(
+            cache::NAMESPACE_FILE,
+            "repo_context_v",
+            CACHE_KEY,
+            repo_root,
+        );
     }
     payload_from(entry.per_file)
 }
@@ -544,12 +547,9 @@ mod tests {
     #[test]
     fn an_ignore_file_change_recounts_the_whole_tree() {
         let stamp = repo_files::Stamp {
-            mode: 0o100644,
             size: 1,
             mtime: 1,
-            mtime_nsec: 0,
             ctime: 1,
-            ctime_nsec: 0,
             inode: 1,
         };
         let stored = Stored {
@@ -576,13 +576,7 @@ mod tests {
             Refresh::Nothing
         ));
         let mut edited = stored.stamps.clone();
-        edited.insert(
-            "u.py".to_string(),
-            repo_files::Stamp {
-                size: 2,
-                ..stamp
-            },
-        );
+        edited.insert("u.py".to_string(), repo_files::Stamp { size: 2, ..stamp });
         assert!(matches!(
             refresh_for(&stored, "scc", &edited, |_| false),
             Refresh::Paths { changed, removed } if changed == vec!["u.py".to_string()] && removed.is_empty()
@@ -592,12 +586,9 @@ mod tests {
     #[test]
     fn a_new_path_is_counted_alone_unless_the_walk_would_skip_it() {
         let stamp = repo_files::Stamp {
-            mode: 0o100644,
             size: 1,
             mtime: 1,
-            mtime_nsec: 0,
             ctime: 1,
-            ctime_nsec: 0,
             inode: 1,
         };
         let stored = Stored {
@@ -643,7 +634,13 @@ mod tests {
 
         let first = scc_rows(directory.path(), &executable, None).unwrap();
         let first_value = serde_json::to_value(first).unwrap();
-        cache::save("file", "repo_context_fixture", &first_value, directory.path()).unwrap();
+        cache::save(
+            "file",
+            "repo_context_fixture",
+            &first_value,
+            directory.path(),
+        )
+        .unwrap();
         let first_bytes = fs::read(
             directory
                 .path()
@@ -653,7 +650,13 @@ mod tests {
 
         let second = scc_rows(directory.path(), &executable, None).unwrap();
         let second_value = serde_json::to_value(second).unwrap();
-        cache::save("file", "repo_context_fixture", &second_value, directory.path()).unwrap();
+        cache::save(
+            "file",
+            "repo_context_fixture",
+            &second_value,
+            directory.path(),
+        )
+        .unwrap();
         let second_bytes = fs::read(
             directory
                 .path()

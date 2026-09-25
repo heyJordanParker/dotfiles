@@ -1,7 +1,7 @@
 //! Per-file commands: doctor, read, info, structure, tree, list, survey,
 //! context (file mode). Correctness on both human and `--json` output.
 
-use tracer_cli_tests::{normalize_age, standard_repo, Fixture};
+use tracer_cli_tests::{standard_repo, Fixture};
 
 /// Run a raw git command in `root` with the suite's hermetic env plus a
 /// fixed author+committer date, so a fixture can place a commit at an
@@ -32,13 +32,10 @@ fn git_at_date(root: &std::path::Path, date: &str, args: &[&str]) {
 }
 
 #[test]
-fn shoulder_carries_first_seen_range_and_changed_together() {
-    // Proves the two newest signals on the canonical shoulder: the age field
-    // spans `first_seen → last_modified` (created→modified) when the file's
-    // first and last commits fall in different age buckets, and the
-    // `together:` field carries the co-changed files. Two dated commits make
-    // the range deterministic: the file is created ~400 days ago (a `1y…`
-    // bucket) alongside a sibling, then modified today.
+fn facts_carry_first_commit_age_and_changed_together() {
+    // The facts date the first and the last commit separately, and name the
+    // files that change together. Two dated commits make it deterministic:
+    // the file is created in 2024 alongside a sibling, then modified today.
     let f = Fixture::new();
     f.write(
         "core.py",
@@ -63,33 +60,21 @@ fn shoulder_carries_first_seen_range_and_changed_together() {
     let r = f.trace(&["read", "core.py", "--json"]);
     r.ok();
     let v = r.view();
-    let shoulder = v["files"]["core.py"]["shoulder"].as_str().unwrap();
-    // first_seen drives the left side of the age range: an old created bucket
-    // joined by `→` to the fresh modified bucket. The exact old bucket is
-    // time-relative (≈1y); assert the structural range form and that the
-    // right side is a fresh-commit bucket.
-    assert!(
-        shoulder.contains("\u{00b7} age: ")
-            && shoulder.contains('\u{2192}')
-            && (shoulder.contains("\u{2192}today") || shoulder.contains("\u{2192}1d")),
-        "shoulder age must span first_seen \u{2192} last_modified: {shoulder:?}"
-    );
-    // co_changed surfaces as `together: sibling.py` (the only co-change pair).
-    assert!(
-        shoulder.contains("\u{00b7} together: sibling.py \u{00b7}"),
-        "shoulder must carry the changed-together file from co_changed: {shoulder:?}"
-    );
+    let git = &v["files"]["core.py"]["git"];
+    // The first commit's age is time-relative (2024 → "N years ago"); the
+    // last is today.
+    let first = git["first_commit"].as_str().unwrap();
+    assert!(first.ends_with("years ago") || first.ends_with("year ago"), "{git}");
+    let last = git["last_commit"].as_str().unwrap();
+    assert!(last.starts_with("today") || last.starts_with("yesterday"), "{git}");
+    assert_eq!(git["usually_changed_with"], serde_json::json!(["sibling.py"]), "{git}");
 }
 
 #[test]
-fn shoulder_churn_velocity_diverges_from_lifetime_total() {
-    // The churn field carries BOTH the lifetime commit total and the recent
-    // velocity (commits in the last 30 days) — and they are independent
-    // signals. A file with three lifetime commits, only one of them recent,
-    // must read `churn: 3 commits, 1/30d`: the velocity is NOT the total. This
-    // pins the velocity signal in the case that actually exercises it (an old,
-    // settled file with one recent touch), not the same-run fixture where
-    // total and velocity coincide.
+fn facts_split_lifetime_commits_from_recent_ones() {
+    // `commits` is the lifetime total and `commits_last_30_days` the recent
+    // velocity — independent signals. A file with three lifetime commits,
+    // only one of them recent, must carry 3 and 1.
     let f = Fixture::new();
     // Two old commits, well outside the 30-day window.
     f.write(
@@ -122,11 +107,9 @@ fn shoulder_churn_velocity_diverges_from_lifetime_total() {
     let r = f.trace(&["read", "svc.py", "--json"]);
     r.ok();
     let v = r.view();
-    let shoulder = v["files"]["svc.py"]["shoulder"].as_str().unwrap();
-    assert!(
-        shoulder.contains("\u{00b7} churn: 3 commits, 1/30d \u{00b7}"),
-        "churn must carry lifetime total 3 and recent velocity 1 (they diverge): {shoulder:?}"
-    );
+    let git = &v["files"]["svc.py"]["git"];
+    assert_eq!(git["commits"], 3, "{git}");
+    assert_eq!(git["commits_last_30_days"], 1, "{git}");
 }
 
 #[test]
@@ -152,14 +135,33 @@ fn doctor_reports_all_required_binaries_present() {
 }
 
 #[test]
-fn read_whole_file_human_has_passive_context_and_line_numbers() {
+fn timing_keeps_context_stdout_identical() {
+    let f = standard_repo();
+    let plain = f.trace(&["context", "src/util.py", "--no-record"]);
+    plain.ok();
+    let timed = f.trace_env(
+        &["context", "src/util.py", "--no-record"],
+        &[("TRACE_TIMING", "1")],
+    );
+    timed.ok();
+    assert_eq!(timed.stdout, plain.stdout);
+    for phase in ["timing freshness ", "timing decode ", "timing total "] {
+        assert!(
+            timed.stderr.contains(phase),
+            "missing {phase}: {}",
+            timed.stderr
+        );
+    }
+}
+
+#[test]
+fn read_whole_file_human_has_front_matter_and_line_numbers() {
     let f = standard_repo();
     let r = f.trace(&["read", "src/util.py"]);
     r.ok();
-    assert!(r.stdout.contains("# src/util.py"), "{}", r.stdout);
     assert!(
-        r.stdout.contains("[git:"),
-        "missing passive shoulder:\n{}",
+        r.stdout.starts_with("# src/util.py\n---\nfile: src/util.py\n"),
+        "missing front matter:\n{}",
         r.stdout
     );
     assert!(r.stdout.contains("def helper"), "{}", r.stdout);
@@ -179,54 +181,64 @@ fn read_json_shape_is_stable() {
     assert_eq!(v["results"][0]["file"], "src/util.py");
     assert_eq!(v["results"][0]["source"], "worktree");
     // src/util.py is a known four-line file; `read` line-numbers it as
-    // L1..L4. The passive_context shoulder is the settled single-commit
-    // hermetic string: new (1 commit), local-only, churn of one commit (in
-    // the last 30 days), CCN 2 (one `if`), the three files committed in the
-    // same "init standard repo" commit as the top changed-together set
-    // (co_changed surfacing in the shoulder), the fixed author, the init
-    // subject. The reach counts come from the relations index, which is
-    // built on demand, so `read` carries them with no prior `cache build`:
-    // src/app.py calls helper(), and util.py imports nothing.
-    // The age component is normalized; the rest is pinned exactly.
+    // L1..L4. Its facts are the settled single-commit fixture's: one commit
+    // (in the last 30 days), no deploy branch, CCN 2 (one `if`), the files
+    // committed alongside it as the changed-together set, the fixed author,
+    // the init subject. The graph counts come from the relations index,
+    // which is built on demand, so `read` carries them with no prior
+    // `cache build`: src/app.py imports util.py, and util.py imports nothing.
     assert_eq!(
         v["results"][0]["content"].as_str().unwrap(),
         "L1: def helper(v):\nL2:     if v > 0:\nL3:         return v + 1\nL4:     return 0\n",
         "read content must be the exact line-numbered fixture file: {}",
         v["results"][0]["content"]
     );
-    assert_eq!(
-        normalize_age(v["files"]["src/util.py"]["shoulder"].as_str().unwrap()),
-        "[git: new (1 commit) \u{00b7} age: <AGE> \u{00b7} presence: local-only \u{00b7} churn: 1 commit, 1/30d \u{00b7} incoming: 1 \u{00b7} outgoing: 0 \u{00b7} loc: 4 \u{00b7} ccn: 2 low \u{00b7} together: readme.md, widget.php, pyproject.toml \u{00b7} owner: Tracer Test \u{00b7} last: init standard repo]",
-        "read shoulder must be the exact settled shoulder: {}",
-        v["files"]["src/util.py"]["shoulder"]
+    let facts = &v["files"]["src/util.py"];
+    for (key, want) in [
+        ("file", serde_json::json!("src/util.py")),
+        ("lines", serde_json::json!(4)),
+        ("cyclomatic_complexity", serde_json::json!(2)),
+        ("complexity_rank", serde_json::json!("low")),
+        ("imported_by", serde_json::json!(1)),
+        ("imports", serde_json::json!(0)),
+    ] {
+        assert_eq!(facts[key], want, "`{key}` wrong: {facts:#}");
+    }
+    let git = &facts["git"];
+    assert_eq!(git["status"], "unmodified", "{facts:#}");
+    assert_eq!(git["commits"], 1, "{facts:#}");
+    assert_eq!(git["commits_last_30_days"], 1, "{facts:#}");
+    assert_eq!(git["main_author"], "Tracer Test", "{facts:#}");
+    assert!(
+        git["last_commit"].as_str().unwrap().ends_with("by Tracer Test: init standard repo"),
+        "{facts:#}"
     );
-    assert!(v["files"]["src/util.py"]["nested_memories"].is_null());
+    assert!(git["on_deploy_branches"].is_null(), "{facts:#}");
+    assert_eq!(git["usually_changed_with"].as_array().unwrap().len(), 3, "{facts:#}");
+    assert_eq!(facts["directory"]["path"], "src/", "{facts:#}");
+    assert!(facts["nested_memories"].is_null());
 }
 
 #[test]
-fn shoulder_labels_incoming_and_outgoing_from_the_subject_file() {
+fn facts_count_importers_and_imports_from_the_subject_file() {
     let f = standard_repo();
 
     let incoming = f.trace(&["read", "src/util.py", "--json"]);
     incoming.ok();
-    let incoming_shoulder = incoming.view()["files"]["src/util.py"]["shoulder"]
-        .as_str()
-        .unwrap()
-        .to_string();
-    assert!(
-        incoming_shoulder.contains("\u{00b7} incoming: 1 \u{00b7} outgoing: 0 \u{00b7}"),
-        "util.py is imported by app.py and imports no internal file: {incoming_shoulder}"
+    let util = &incoming.view()["files"]["src/util.py"];
+    assert_eq!(
+        (util["imported_by"].clone(), util["imports"].clone()),
+        (serde_json::json!(1), serde_json::json!(0)),
+        "util.py is imported by app.py and imports no internal file: {util}"
     );
 
     let outgoing = f.trace(&["read", "src/app.py", "--json"]);
     outgoing.ok();
-    let outgoing_shoulder = outgoing.view()["files"]["src/app.py"]["shoulder"]
-        .as_str()
-        .unwrap()
-        .to_string();
-    assert!(
-        outgoing_shoulder.contains("\u{00b7} incoming: 0 \u{00b7} outgoing: 1 \u{00b7}"),
-        "app.py imports util.py and no internal file imports app.py: {outgoing_shoulder}"
+    let app = &outgoing.view()["files"]["src/app.py"];
+    assert_eq!(
+        (app["imported_by"].clone(), app["imports"].clone()),
+        (serde_json::json!(0), serde_json::json!(1)),
+        "app.py imports util.py and no internal file imports app.py: {app}"
     );
 }
 
@@ -240,29 +252,29 @@ fn search_signpost_counts_mentioning_files_without_claiming_resolved_callers() {
     );
     f.commit("two references in one mentioning file");
 
-    let r = f.trace(&["grep", "dispatch", "--path", ".", "--json"]);
+    let r = f.trace(&["grep", "dispatch", ".", "--json"]);
     r.ok();
     assert_eq!(
         r.view()["signpost"].as_str().unwrap_or(""),
-        "dispatch is a function \u{00b7} 1 mentioning file \u{00b7} 1 definitions \u{2192} trace callers dispatch",
+        "dispatch: 1 definition (function) \u{00b7} mentioned in 1 file \u{2192} trace callers dispatch",
         "the index knows one mentioning file without resolving its two call sites: {}",
         r.stdout
     );
 
     f.write("other.py", "from lib import dispatch\n\ndispatch(None)\n");
     f.commit("second mentioning file");
-    let plural = f.trace(&["grep", "dispatch", "--path", ".", "--json"]);
+    let plural = f.trace(&["grep", "dispatch", ".", "--json"]);
     plural.ok();
     assert_eq!(
         plural.view()["signpost"].as_str().unwrap_or(""),
-        "dispatch is a function \u{00b7} 2 mentioning files \u{00b7} 1 definitions \u{2192} trace callers dispatch",
+        "dispatch: 1 definition (function) \u{00b7} mentioned in 2 files \u{2192} trace callers dispatch",
         "plural grammar must follow the number of mentioning files: {}",
         plural.stdout
     );
 }
 
 #[test]
-fn callers_keeps_complete_shoulders_beyond_one_resolve_chunk() {
+fn callers_keeps_complete_facts_beyond_one_resolve_chunk() {
     let f = Fixture::new();
     f.write("target.py", "def shared_target(value):\n    return value\n");
     for index in 0..513 {
@@ -293,18 +305,17 @@ fn callers_keeps_complete_shoulders_beyond_one_resolve_chunk() {
     assert_eq!(
         files.len(),
         513,
-        "duplicate caller rows must resolve to one shoulder per mentioning file"
+        "duplicate caller rows must resolve to one facts entry per mentioning file"
     );
     for index in 0..513 {
         let path = format!("callers/caller_{index:03}.py");
-        let shoulder = files[&path]["shoulder"]
-            .as_str()
-            .unwrap_or_else(|| panic!("{path} must retain its complete shoulder"));
-        assert_eq!(
-            normalize_age(shoulder),
-            "[git: new (1 commit) · age: <AGE> · presence: local-only · churn: 1 commit, 1/30d · loc: 3 · ccn: 1 low · owner: Tracer Test · last: broad callers]",
-            "{path} must retain its complete canonical shoulder"
-        );
+        let facts = &files[&path];
+        assert_eq!(facts["file"], path.as_str(), "{path} lost its facts: {facts}");
+        assert_eq!(facts["lines"], 5, "{facts}");
+        assert_eq!(facts["cyclomatic_complexity"], 1, "{facts}");
+        assert_eq!(facts["imported_by"], 0, "{facts}");
+        assert_eq!(facts["imports"], 1, "{facts}");
+        assert_eq!(facts["git"]["commits"], 1, "{facts}");
     }
 }
 
@@ -470,12 +481,11 @@ fn read_raw_over_budget_is_trimmed_and_marked() {
 }
 
 #[test]
-fn read_single_line_past_the_budget_is_whole_and_unmarked() {
-    // A minified bundle is one line longer than the whole budget. Cutting
-    // inside it would break the `L<n>: ` format and hand back a half-token,
-    // so it is returned whole. It must not then claim a trim: an earlier
-    // build appended `[trimmed at L1 of 1]` to untrimmed content and
-    // reported `truncated: false` in the same payload.
+fn read_cuts_a_line_longer_than_the_budget() {
+    // A minified bundle is one line longer than the whole budget. Returned
+    // whole, a megabyte line reaches the harness, which cuts it to a preview;
+    // cut here, the line keeps its `L<n>: ` prefix, the payload says it was
+    // cut, and the marker names the command for the whole line.
     let f = standard_repo();
     f.write(
         "bundle.js",
@@ -486,17 +496,23 @@ fn read_single_line_past_the_budget_is_whole_and_unmarked() {
     let r = f.trace(&["read", "bundle.js", "--json"]);
     r.ok();
     let v = r.view();
-    assert_eq!(v["results"][0]["truncated"], false);
+    assert_eq!(v["results"][0]["truncated"], true);
     assert_eq!(v["results"][0]["total_lines"], 1);
     let content = v["results"][0]["content"].as_str().unwrap();
+    assert!(content.starts_with("L1: var x = \"yyy"), "{}", &content[..80]);
     assert!(
-        trim_marker_of(content).is_none(),
-        "untrimmed content must carry no marker"
+        content.contains("[trimmed at L1 of 1 — whole: trace read bundle.js --all]"),
+        "the cut must name the command for the whole line"
     );
-    assert!(
-        content.contains(&"y".repeat(40_000)),
-        "the whole line must survive"
-    );
+
+    let text = f.trace(&["read", "bundle.js", "--budget", "3000"]);
+    text.ok();
+    let size = text.stdout.chars().count();
+    assert!(size <= 3000, "read spent {size} characters of a 3000 budget");
+
+    let whole = f.trace(&["read", "bundle.js", "--all"]);
+    whole.ok();
+    assert!(whole.stdout.contains(&"y".repeat(40_000)), "--all returns the whole line");
 }
 
 #[test]
@@ -623,7 +639,7 @@ fn read_method_scopes_to_one_function() {
     // return exactly that span, line-numbered from 5, with the leading
     // imports excluded and no trailing code.
     let f = standard_repo();
-    let r = f.trace(&["read", "src/app.py", "main", "--json"]);
+    let r = f.trace(&["read", "src/app.py", "--method", "main", "--json"]);
     r.ok();
     let v = r.view();
     assert_eq!(v["method"], "main");
@@ -669,7 +685,10 @@ fn read_method_bare_name_reaches_a_php_method_with_its_markers() {
     f.commit("php method");
     let r = f.trace(&["read", "src/Account.php", "--method", "rename", "--json"]);
     r.ok();
-    let body = r.view()["results"][0]["content"].as_str().unwrap().to_string();
+    let body = r.view()["results"][0]["content"]
+        .as_str()
+        .unwrap()
+        .to_string();
     assert_eq!(
         body,
         concat!(
@@ -704,7 +723,7 @@ fn read_method_at_ref_extracts_committed_body() {
             "    return 1\n",
         ),
     );
-    let r = f.trace(&["read", "m.py", "target", "--at", "HEAD", "--json"]);
+    let r = f.trace(&["read", "m.py", "--method", "target", "--at", "HEAD", "--json"]);
     r.ok();
     let v = r.view();
     assert_eq!(v["results"][0]["source"], "ref");
@@ -1014,8 +1033,8 @@ fn read_cleaning_removes_only_standalone_generated_comment_banners() {
          L10: /* Generated by tracer. */ const VALUE: usize = 1;\n",
         "cleaned source must preserve strings and source line numbers around the removed banner"
     );
-    assert!(
-        document["context"]["files"]["generated.rs"]["shoulder"].is_string(),
+    assert_eq!(
+        document["context"]["files"]["generated.rs"]["file"], "generated.rs",
         "cleaned JSON read lost passive file context: {document}"
     );
 
@@ -1536,15 +1555,14 @@ fn info_file_json_reports_complexity_and_graph_fields() {
     let v = r.view();
     assert_eq!(v["file"].as_str().unwrap().ends_with("src/app.py"), true);
     // standard_repo()'s main(x): base 1 + if(1) + for(1) + if(1) = 4,
-    // exactly one function. Hand-verifiable McCabe — no lower bound.
+    // exactly one function. Hand-verifiable McCabe — no lower bound. The
+    // facts sit under the repo-relative path, as on every other command.
     assert_eq!(v["functions"].as_i64().unwrap(), 1);
-    assert_eq!(
-        v["ccn_total"].as_i64().unwrap(),
-        4,
-        "main(): if + for + if over base 1 = 4: {}",
-        v["ccn_total"]
-    );
-    assert_eq!(v["ccn_max_function"].as_i64().unwrap(), 4);
+    let facts = &v["files"]["src/app.py"];
+    assert_eq!(facts["cyclomatic_complexity"], 4, "main(): if + for + if over base 1 = 4: {facts}");
+    assert_eq!(facts["max_function_complexity"], 4, "{facts}");
+    assert_eq!(facts["functions"], 1, "{facts}");
+    assert_eq!(facts["imports"], 1, "{facts}");
     let main_fn = v["results"]
         .as_array()
         .unwrap()
@@ -1580,38 +1598,35 @@ fn info_directory_aggregates_files() {
     );
     // Exact aggregate: app.py 4 + util.py 2 + front.tsx 2 + consts.ts 0.
     assert_eq!(
-        v["ccn_total"].as_i64().unwrap(),
-        8,
-        "src aggregate CCN (4+2+2+0): {}",
-        v["ccn_total"]
+        counts["cyclomatic_complexity"], 8,
+        "src aggregate CCN (4+2+2+0): {counts}"
     );
-    // Each files[] entry also carries `abs_path` — the fixture's temp
-    // directory path, which varies per run; the rest of every entry is
-    // fully determinable. Pin the exact deterministic projection (all
-    // fields except abs_path) plus the deterministic repo_context.
+    assert_eq!(counts["lines"], 21, "src aggregate lines (12+1+4+4): {counts}");
+    // Each row also carries `abs_path` — the fixture's temp directory path,
+    // which varies per run — and the file's git facts; the rest of every row
+    // is fully determinable. Pin the exact deterministic projection.
     let files_proj: Vec<serde_json::Value> = v["results"]
         .as_array()
         .unwrap()
         .iter()
         .map(|e| {
-            let file = e["file"].as_str().unwrap();
+            assert_eq!(e["git"]["commits"], 1, "every row keeps its git facts: {e}");
             serde_json::json!({
                 "file": e["file"],
-                "loc": e["loc"],
-                "cyclomatic_complexity_total": e["cyclomatic_complexity_total"],
-                "function_count": e["function_count"],
-                "rank": e["rank"],
-                "passive_context": normalize_age(v["files"][file]["shoulder"].as_str().unwrap()),
+                "lines": e["lines"],
+                "cyclomatic_complexity": e["cyclomatic_complexity"],
+                "functions": e["functions"],
+                "complexity_rank": e["complexity_rank"],
             })
         })
         .collect();
     assert_eq!(
         serde_json::Value::Array(files_proj),
         serde_json::json!([
-            {"file": "app.py",   "loc": 8, "cyclomatic_complexity_total": 4, "function_count": 1, "rank": "low", "passive_context": "[git: new (1 commit) \u{00b7} age: <AGE> \u{00b7} churn: 1 commit, 1/30d \u{00b7} loc: 8 \u{00b7} ccn: 4 low]"},
-            {"file": "consts.ts","loc": 1, "cyclomatic_complexity_total": 0, "function_count": 0, "rank": "low", "passive_context": "[git: new (1 commit) \u{00b7} age: <AGE> \u{00b7} churn: 1 commit, 1/30d \u{00b7} loc: 1 \u{00b7} ccn: 0 low]"},
-            {"file": "front.tsx","loc": 3, "cyclomatic_complexity_total": 2, "function_count": 1, "rank": "low", "passive_context": "[git: new (1 commit) \u{00b7} age: <AGE> \u{00b7} churn: 1 commit, 1/30d \u{00b7} loc: 3 \u{00b7} ccn: 2 low]"},
-            {"file": "util.py",  "loc": 4, "cyclomatic_complexity_total": 2, "function_count": 1, "rank": "low", "passive_context": "[git: new (1 commit) \u{00b7} age: <AGE> \u{00b7} churn: 1 commit, 1/30d \u{00b7} loc: 4 \u{00b7} ccn: 2 low]"}
+            {"file": "app.py",    "lines": 12, "cyclomatic_complexity": 4, "functions": 1, "complexity_rank": "low"},
+            {"file": "consts.ts", "lines": 1, "cyclomatic_complexity": 0, "functions": 0, "complexity_rank": "low"},
+            {"file": "front.tsx", "lines": 4, "cyclomatic_complexity": 2, "functions": 1, "complexity_rank": "low"},
+            {"file": "util.py",   "lines": 4, "cyclomatic_complexity": 2, "functions": 1, "complexity_rank": "low"}
         ]),
         "info directory rows (minus the per-run abs_path) must be exact: {}",
         v["results"]
@@ -1633,6 +1648,11 @@ fn info_directory_aggregates_files() {
         "info directory repo context must be exact: {}",
         v["repo"]
     );
+    // The absolute temp path goes through macOS's `/var` symlink; the same
+    // four files must still be found.
+    let absolute = f.trace(&["info", f.path("src").as_str(), "--json"]);
+    absolute.ok();
+    assert_eq!(absolute.json()["counts"]["files"], 4, "{}", absolute.stdout);
 }
 
 #[test]
@@ -1659,7 +1679,7 @@ fn info_brief_truncates_function_table() {
         brief.stdout
     );
     assert!(
-        brief.stdout.contains("… 5 more (use --full to see all)"),
+        brief.stdout.contains("… 5 more (run without --brief to see all)"),
         "--brief footer must report exactly the 5 hidden functions:\n{}",
         brief.stdout
     );
@@ -1850,36 +1870,34 @@ fn tree_json_carries_repo_context_and_ranks() {
     let r = f.trace(&["tree", "src", "--json"]);
     r.ok();
     let v = r.view();
-    // standard_repo()'s src/ holds exactly four files; every field below is
-    // hand-verifiable from the fixture source. tree's files[] carries no
-    // absolute path (unlike `info` directory mode), so the whole array is
-    // deterministic and pinned exactly. passive_context is the compact
-    // single-commit hermetic shoulder "new (1 commit) · <age>"; the age
-    // token is normalized via normalize_age (the one exempt-(a) axis) and
-    // everything else is exact.
+    // standard_repo()'s src/ holds exactly four files; every fact below is
+    // hand-verifiable from the fixture source. Each row names its path and
+    // the file's facts sit in context under that path.
     let files_norm: Vec<serde_json::Value> = v["results"]
         .as_array()
         .unwrap()
         .iter()
         .map(|e| {
-            let path = e["path"].as_str().unwrap();
+            let facts = &v["files"][e["path"].as_str().unwrap()];
+            assert_eq!(facts["git"]["commits"], 1, "{facts}");
             serde_json::json!({
                 "path": e["path"],
-                "ccn_total": e["ccn_total"],
-                "ccn_max_function": e["ccn_max_function"],
-                "loc": e["loc"],
-                "rank": e["rank"],
-                "passive_context": normalize_age(v["files"][path]["shoulder"].as_str().unwrap()),
+                "cyclomatic_complexity": facts["cyclomatic_complexity"],
+                "max_function_complexity": facts["max_function_complexity"],
+                "lines": facts["lines"],
+                "complexity_rank": facts["complexity_rank"],
+                "imported_by": facts["imported_by"],
+                "imports": facts["imports"],
             })
         })
         .collect();
     assert_eq!(
         serde_json::Value::Array(files_norm),
         serde_json::json!([
-            {"path": "app.py",   "ccn_total": 4, "ccn_max_function": 4, "loc": 8, "rank": "low", "passive_context": "[git: new (1 commit) \u{00b7} age: <AGE> \u{00b7} churn: 1 commit, 1/30d \u{00b7} loc: 8 \u{00b7} ccn: 4 low]"},
-            {"path": "consts.ts","ccn_total": 0, "ccn_max_function": 0, "loc": 1, "rank": "low", "passive_context": "[git: new (1 commit) \u{00b7} age: <AGE> \u{00b7} churn: 1 commit, 1/30d \u{00b7} loc: 1 \u{00b7} ccn: 0 low]"},
-            {"path": "front.tsx","ccn_total": 2, "ccn_max_function": 2, "loc": 3, "rank": "low", "passive_context": "[git: new (1 commit) \u{00b7} age: <AGE> \u{00b7} churn: 1 commit, 1/30d \u{00b7} loc: 3 \u{00b7} ccn: 2 low]"},
-            {"path": "util.py",  "ccn_total": 2, "ccn_max_function": 2, "loc": 4, "rank": "low", "passive_context": "[git: new (1 commit) \u{00b7} age: <AGE> \u{00b7} churn: 1 commit, 1/30d \u{00b7} loc: 4 \u{00b7} ccn: 2 low]"}
+            {"path": "app.py",    "cyclomatic_complexity": 4, "max_function_complexity": 4, "lines": 12, "complexity_rank": "low", "imported_by": 0, "imports": 1},
+            {"path": "consts.ts", "cyclomatic_complexity": 0, "max_function_complexity": 0, "lines": 1, "complexity_rank": "low", "imported_by": 1, "imports": 0},
+            {"path": "front.tsx", "cyclomatic_complexity": 2, "max_function_complexity": 2, "lines": 4, "complexity_rank": "low", "imported_by": 0, "imports": 1},
+            {"path": "util.py",   "cyclomatic_complexity": 2, "max_function_complexity": 2, "lines": 4, "complexity_rank": "low", "imported_by": 1, "imports": 0}
         ]),
         "tree rows must be the exact four-file fixture set: {}",
         v["results"]
@@ -1961,31 +1979,31 @@ fn tree_keeps_every_fact_beyond_one_resolve_chunk() {
         513,
         "every selected file must remain in the tree"
     );
-    assert_eq!(files.len(), 513, "every tree row must retain its shoulder");
+    assert_eq!(files.len(), 513, "every tree row must retain its facts");
     assert_eq!(v["repo"]["total_files"], 513);
     assert_eq!(v["repo"]["median_file_ccn"], 0);
     assert_eq!(v["repo"]["complexity_p95"], 0);
 
     for (index, row) in rows.iter().enumerate() {
         let path = format!("file_{index:03}.py");
+        assert_eq!(row, &serde_json::json!({"path": path}), "row {index}");
+        let facts = &files[&path];
         assert_eq!(
-            row,
-            &serde_json::json!({
-                "path": path,
-                "ccn_total": 1,
-                "ccn_max_function": 1,
-                "loc": 2,
-                "rank": "low",
+            serde_json::json!({
+                "lines": facts["lines"],
+                "cyclomatic_complexity": facts["cyclomatic_complexity"],
+                "max_function_complexity": facts["max_function_complexity"],
+                "complexity_rank": facts["complexity_rank"],
+                "commits": facts["git"]["commits"],
             }),
-            "row {index} must retain its exact metrics"
-        );
-        let shoulder = files[&path]["shoulder"]
-            .as_str()
-            .unwrap_or_else(|| panic!("{path} must retain its complete shoulder"));
-        assert_eq!(
-            normalize_age(shoulder),
-            "[git: new (1 commit) · age: <AGE> · churn: 1 commit, 1/30d · loc: 2 · ccn: 1 low]",
-            "{path} must retain its canonical shoulder"
+            serde_json::json!({
+                "lines": 2,
+                "cyclomatic_complexity": 1,
+                "max_function_complexity": 1,
+                "complexity_rank": "low",
+                "commits": 1,
+            }),
+            "{path} must retain its exact facts: {facts}"
         );
     }
 }
@@ -1999,10 +2017,8 @@ fn list_directory_json_separates_dirs_and_files() {
     // standard_repo()'s root has exactly three sub-directories (docs, lib,
     // src) and one top-level file (pyproject.toml). Every field is
     // hand-verifiable: child_count is the disk's direct-children number,
-    // file_count the tracked subtree total, and the aggregate ccn (docs 0,
-    // lib widget.php 3, src 4+2+2+0=8). last_modified is the single
-    // hermetic commit's date — see the assertion below for why it is the
-    // one field asserted by shape, not value.
+    // tracked_files the tracked subtree total, and the aggregate complexity
+    // (docs 0, lib widget.php 3, src 4+2+2+0=8).
     let dirs = v["directories"].as_array().unwrap();
     let dir_proj: Vec<serde_json::Value> = dirs
         .iter()
@@ -2010,36 +2026,28 @@ fn list_directory_json_separates_dirs_and_files() {
             serde_json::json!({
                 "name": d["name"],
                 "child_count": d["child_count"],
-                "file_count": d["file_count"],
-                "ccn_total": d["ccn_total"],
-                "has_uncommitted": d["has_uncommitted"],
+                "tracked_files": d["tracked_files"],
+                "cyclomatic_complexity": d["cyclomatic_complexity"],
+                "uncommitted": d["uncommitted"],
             })
         })
         .collect();
     assert_eq!(
         serde_json::Value::Array(dir_proj),
         serde_json::json!([
-            {"name": "docs", "child_count": 1, "file_count": 1, "ccn_total": 0, "has_uncommitted": false},
-            {"name": "lib",  "child_count": 1, "file_count": 1, "ccn_total": 3, "has_uncommitted": false},
-            {"name": "src",  "child_count": 4, "file_count": 4, "ccn_total": 8, "has_uncommitted": false}
+            {"name": "docs", "child_count": 1, "tracked_files": 1, "cyclomatic_complexity": 0, "uncommitted": false},
+            {"name": "lib",  "child_count": 1, "tracked_files": 1, "cyclomatic_complexity": 3, "uncommitted": false},
+            {"name": "src",  "child_count": 4, "tracked_files": 4, "cyclomatic_complexity": 8, "uncommitted": false}
         ]),
         "list directories must be the exact three-dir fixture set: {}",
         v["directories"]
     );
-    // exempt-(a): last_modified is the calendar date of the fixture's
-    // commit, generated at test run time; it shifts day-to-day and at the
-    // UTC boundary, so the tightest stable invariant is the YYYY-MM-DD
-    // shape, asserted here for every directory entry.
+    // The fixture commits at test run time, so the newest commit reads as
+    // today (or yesterday across a UTC midnight) — the same age wording a
+    // file's `last_commit` uses.
     for d in dirs {
-        let lm = d["last_modified"].as_str().unwrap();
-        assert!(
-            lm.len() == 10
-                && lm.as_bytes()[4] == b'-'
-                && lm.as_bytes()[7] == b'-'
-                && lm.chars().filter(|c| *c == '-').count() == 2
-                && lm.chars().all(|c| c.is_ascii_digit() || c == '-'),
-            "last_modified must be a YYYY-MM-DD date: {lm}"
-        );
+        let last = d["last_commit"].as_str().unwrap();
+        assert!(last == "today" || last == "yesterday", "{d}");
     }
     // The one root file carries all three column groups: stat always, code
     // because scc indexes TOML (loc 3, ccn 0 low), git because the file is
@@ -2062,19 +2070,18 @@ fn list_directory_json_separates_dirs_and_files() {
     );
     assert_eq!(
         serde_json::json!({
-            "loc": file["code"]["loc"],
-            "ccn_total": file["code"]["ccn_total"],
-            "rank": file["code"]["rank"],
+            "lines": file["code"]["lines"],
+            "cyclomatic_complexity": file["code"]["cyclomatic_complexity"],
+            "complexity_rank": file["code"]["complexity_rank"],
         }),
-        serde_json::json!({"loc": 3, "ccn_total": 0, "rank": "low"}),
+        serde_json::json!({"lines": 3, "cyclomatic_complexity": 0, "complexity_rank": "low"}),
         "code group must carry scc's TOML metrics: {file}"
     );
     assert_eq!(
-        file["git"]["commit_count"].as_i64().unwrap(),
-        1,
+        file["git"]["commits"], 1,
         "git group must carry the one hermetic commit: {file}"
     );
-    assert_eq!(v["entries"].as_i64().unwrap(), 1, "{v}");
+    assert_eq!(v["entries"].as_i64().unwrap(), 4, "{v}");
     assert_eq!(v["limited"], false, "{v}");
 }
 
@@ -2104,17 +2111,17 @@ fn list_keeps_rows_aggregates_and_git_facts_beyond_one_resolve_chunk() {
             serde_json::json!({
                 "name": directory["name"],
                 "child_count": directory["child_count"],
-                "file_count": directory["file_count"],
-                "ccn_total": directory["ccn_total"],
-                "has_uncommitted": directory["has_uncommitted"],
+                "tracked_files": directory["tracked_files"],
+                "cyclomatic_complexity": directory["cyclomatic_complexity"],
+                "uncommitted": directory["uncommitted"],
             })
         })
         .collect();
     assert_eq!(
         serde_json::Value::Array(directories),
         serde_json::json!([
-            {"name": "alpha", "child_count": 257, "file_count": 257, "ccn_total": 514, "has_uncommitted": false},
-            {"name": "beta", "child_count": 256, "file_count": 256, "ccn_total": 512, "has_uncommitted": false},
+            {"name": "alpha", "child_count": 257, "tracked_files": 257, "cyclomatic_complexity": 514, "uncommitted": false},
+            {"name": "beta", "child_count": 256, "tracked_files": 256, "cyclomatic_complexity": 512, "uncommitted": false},
         ]),
         "directory aggregates must survive a facts set larger than one chunk: {}",
         v["directories"]
@@ -2131,24 +2138,24 @@ fn list_keeps_rows_aggregates_and_git_facts_beyond_one_resolve_chunk() {
         v["files"]
     );
     assert_eq!(
-        files[0]["code"]["ccn_total"], 1,
+        files[0]["code"]["cyclomatic_complexity"], 1,
         "source facts must survive: {}",
         files[0]
     );
     assert_eq!(
-        files[1]["code"]["loc"], 1,
+        files[1]["code"]["lines"], 1,
         "SCC-only facts must survive: {}",
         files[1]
     );
     for file in files {
         assert_eq!(
-            file["git"]["commit_count"], 1,
+            file["git"]["commits"], 1,
             "passive git context must survive: {file}"
         );
     }
     assert_eq!(
-        v["entries"], 2,
-        "direct-file count must remain unchanged: {v}"
+        v["entries"], 4,
+        "entry count must remain unchanged: {v}"
     );
     assert_eq!(
         v["limited"], false,
@@ -2201,7 +2208,8 @@ fn list_shows_gitignored_artifact_files_stat_only() {
 }
 
 /// `--recent` orders by filesystem mtime newest-first; `--limit` caps the
-/// file rows after ordering while `entries` keeps the pre-cap total.
+/// entries after ordering, directories and files alike, the way
+/// `ls -t | head` does, while `entries` keeps the pre-cap total.
 #[test]
 fn list_recent_orders_by_mtime_and_limit_keeps_total() {
     let f = standard_repo();
@@ -2238,6 +2246,76 @@ fn list_recent_orders_by_mtime_and_limit_keeps_total() {
         h.stdout.contains("entries=2 (showing 1)"),
         "human form must carry the pre-cap total: {}",
         h.stdout
+    );
+
+    std::fs::create_dir(f.path("runs/newest")).unwrap();
+    let v = f.trace(&["list", "runs", "--recent", "--limit", "1", "--json"]).view();
+    assert_eq!(v["directories"][0]["name"], "newest", "{v}");
+    assert_eq!(v["files"].as_array().unwrap().len(), 0, "{v}");
+    assert_eq!(v["entries"], 3, "{v}");
+}
+
+#[test]
+fn list_fits_the_budget() {
+    let f = standard_repo();
+    f.write(".gitignore", "runs/\n");
+    f.commit("ignore runs");
+    for index in 0..400 {
+        std::fs::create_dir_all(f.path(&format!("runs/session-{index:04}"))).unwrap();
+    }
+    let r = f.trace(&["list", "runs", "--budget", "2000"]);
+    r.ok();
+    assert!(r.stdout.chars().count() <= 2000, "{} characters:\n{}", r.stdout.chars().count(), r.stdout);
+    assert!(r.stdout.contains("./: 400 directories"), "{}", r.stdout);
+    assert!(r.stdout.contains("--budget 0]"), "{}", r.stdout);
+}
+
+#[test]
+fn status_and_stats_fit_the_budget() {
+    let f = standard_repo();
+    for index in 0..150 {
+        f.write(&format!("area_{}/module_{index:03}.py", index % 5), "value = 1\n");
+    }
+    for index in 0..120 {
+        f.write(&format!("package_{index:03}/module.py"), "value = 1\n");
+    }
+    f.commit("many files");
+    for index in 0..150 {
+        f.write(&format!("area_{}/module_{index:03}.py", index % 5), "value = 2\n");
+    }
+    for (command, budget) in [(vec!["status"], 3000), (vec!["stats", "."], 3000)] {
+        let mut args = command.clone();
+        let budget_arg = budget.to_string();
+        args.extend(["--budget", budget_arg.as_str()]);
+        let r = f.trace(&args);
+        r.ok();
+        assert!(r.stdout.chars().count() <= budget, "{command:?}: {} characters:\n{}", r.stdout.chars().count(), r.stdout);
+        assert!(r.stdout.contains("--budget 0]"), "{command:?}:\n{}", r.stdout);
+    }
+}
+
+#[test]
+fn tree_names_every_directory() {
+    let f = Fixture::new();
+    f.write("skills/plan/SKILL.md", "# plan\n");
+    f.write("skills/trace/SKILL.md", "# trace\n");
+    f.write("skills/trace/references/commands.md", "# commands\n");
+    f.commit("skills");
+    let r = f.trace(&["tree", "skills"]);
+    r.ok();
+    let body: Vec<&str> = r.stdout.lines().skip(1).take_while(|line| !line.is_empty()).collect();
+    assert_eq!(
+        body.iter().map(|line| line.split("  {").next().unwrap()).collect::<Vec<_>>(),
+        [
+            "  plan/",
+            "    · SKILL.md",
+            "  trace/",
+            "    · SKILL.md",
+            "    references/",
+            "      · commands.md",
+        ],
+        "{}",
+        r.stdout
     );
 }
 
@@ -2326,7 +2404,7 @@ fn list_is_strictly_one_level_deep() {
     let pkg = &v["directories"][0];
     assert_eq!(pkg["name"], "pkg");
     assert_eq!(
-        pkg["file_count"].as_i64().unwrap(),
+        pkg["tracked_files"].as_i64().unwrap(),
         2,
         "pkg must aggregate inner_file.py + sub/deep_file.py: {pkg}"
     );
@@ -2349,9 +2427,9 @@ fn stats_json_has_distribution_and_languages() {
     let lang = |name: &str, files: i64, loc: i64, cx: i64, v: &serde_json::Value| {
         let l = &v["languages"][name];
         assert_eq!(l["files"].as_i64().unwrap(), files, "{name} files: {}", v);
-        assert_eq!(l["loc"].as_i64().unwrap(), loc, "{name} loc: {}", v);
+        assert_eq!(l["lines_of_code"].as_i64().unwrap(), loc, "{name} lines_of_code: {}", v);
         assert_eq!(
-            l["complexity"].as_i64().unwrap(),
+            l["cyclomatic_complexity"].as_i64().unwrap(),
             cx,
             "{name} complexity: {}",
             v
@@ -2397,26 +2475,26 @@ fn stats_json_has_distribution_and_languages() {
             (
                 e["path"].as_str().unwrap().rsplit('/').next().unwrap(),
                 e["language"].as_str().unwrap(),
-                e["loc"].as_i64().unwrap(),
-                e["complexity"].as_i64().unwrap(),
+                e["lines"].as_i64().unwrap(),
+                e["cyclomatic_complexity"].as_i64().unwrap(),
             )
         })
         .collect();
     let mut got = rows.clone();
     got.sort();
     let mut want = vec![
-        ("app.py", "Python", 9, 3),
+        ("app.py", "Python", 12, 3),
         ("util.py", "Python", 4, 1),
         ("widget.php", "PHP", 8, 1),
         ("front.tsx", "TypeScript", 4, 0),
         ("consts.ts", "TypeScript", 1, 0),
-        ("readme.md", "Markdown", 2, 0),
+        ("readme.md", "Markdown", 3, 0),
         ("pyproject.toml", "TOML", 3, 0),
     ];
     want.sort();
     assert_eq!(
         got, want,
-        "survey top_complex must list exactly these files with exact loc+complexity: {}",
+        "stats top_complex must list exactly these files with exact lines and complexity: {}",
         v
     );
     // app.py is the unique most-complex file → always first.
@@ -2466,24 +2544,64 @@ fn fresh_session_id(tag: &str) -> String {
     format!("trace-test-{tag}-{nanos}")
 }
 
+/// Docs arrive as Markdown, one `## <path>` section each, nearest first.
 #[test]
-fn docs_command_returns_deduped_ancestor_set_human() {
+fn docs_command_sends_markdown_nearest_first() {
     let f = docs_repo();
     let r = f.trace(&["docs", "sub/util.py"]);
     r.ok();
+    let sub = r.stdout.find("## sub/Claude.md\n\n# Sub rules");
+    let root = r.stdout.find("## Claude.md\n\n# Root rules");
     assert!(
-        r.stdout.contains("# docs · sub/util.py"),
-        "missing header:\n{}",
+        sub.is_some() && root.is_some() && sub < root,
+        "the nearest doc comes first, each under its own heading:\n{}",
         r.stdout
     );
+}
+
+/// A doc that does not fit the budget is named, not sent, and not recorded,
+/// so the next call with room sends it whole.
+#[test]
+fn docs_that_do_not_fit_are_named_and_offered_again() {
+    let f = docs_repo();
+    f.write("sub/Claude.md", &format!("# Sub rules\n{}\n", "Long rule text. ".repeat(400)));
+    f.commit("long sub rules");
+    let sid = fresh_session_id("docs-budget");
+    let env = [("CLAUDE_CODE_SESSION_ID", sid.as_str())];
+
+    let tight = f.trace_env(&["docs", "sub/util.py", "--budget", "1000"], &env);
+    tight.ok();
+    assert!(tight.stdout.chars().count() <= 1000, "{}", tight.stdout);
     assert!(
-        r.stdout.contains("Root rules"),
-        "missing root doc:\n{}",
-        r.stdout
+        tight.stdout.contains("## Claude.md") && tight.stdout.contains("- sub/Claude.md ("),
+        "the short root doc is sent whole and the long one named:\n{}",
+        tight.stdout
     );
+    assert!(!tight.stdout.contains("Long rule text"), "{}", tight.stdout);
+
+    let roomy = f.trace_env(&["docs", "sub/util.py", "--budget", "0"], &env);
+    roomy.ok();
     assert!(
-        r.stdout.contains("Sub rules"),
-        "missing sub doc:\n{}",
+        roomy.stdout.contains("## sub/Claude.md") && !roomy.stdout.contains("## Claude.md"),
+        "the named doc is offered again and the sent one is not:\n{}",
+        roomy.stdout
+    );
+}
+
+/// `docs prime <file>` records exactly the files the harness loaded, so
+/// tracer does not send them again.
+#[test]
+fn prime_records_the_files_the_harness_loaded() {
+    let f = docs_repo();
+    let sid = fresh_session_id("prime-files");
+    let env = [("CLAUDE_CODE_SESSION_ID", sid.as_str())];
+    f.trace_env(&["docs", "prime", &f.path("Claude.md")], &env).ok();
+
+    let r = f.trace_env(&["docs", "sub/util.py"], &env);
+    r.ok();
+    assert!(
+        r.stdout.contains("## sub/Claude.md") && !r.stdout.contains("## Claude.md"),
+        "the primed root doc is not sent again:\n{}",
         r.stdout
     );
 }
@@ -2526,8 +2644,8 @@ fn docs_command_directory_scoped() {
         .collect();
     assert_eq!(
         paths,
-        vec!["Claude.md", "sub/Claude.md"],
-        "directory-scoped docs paths must be the exact ancestor set: {:?}",
+        vec!["sub/Claude.md", "Claude.md"],
+        "directory-scoped docs paths must be the exact ancestor set, nearest first: {:?}",
         paths
     );
 }
@@ -2619,55 +2737,41 @@ fn read_then_docs_share_session_dedupe() {
     first.ok();
     assert!(first.stdout.contains("Root rules"), "{}", first.stdout);
 
-    // Same session: docs already surfaced by `read --docs` must not have
-    // their content re-emitted; they appear in the `already in context`
-    // section instead.
+    // Same session: docs already surfaced by `read --docs` are not sent
+    // again, and with nothing new there is nothing to print.
     let second = f.trace_env(&["docs", "sub/util.py"], &env);
     second.ok();
     assert!(
-        !second.stdout.contains("Root rules") && !second.stdout.contains("Sub rules"),
-        "docs re-surfaced content for a doc already in the session manifest:\n{}",
-        second.stdout
-    );
-    assert!(
-        second.stdout.contains("already in context"),
-        "expected the already-in-context section listing the skipped docs:\n{}",
+        second.stdout.is_empty(),
+        "docs re-surfaced a doc already in the session manifest:\n{}",
         second.stdout
     );
 }
 
 #[test]
-fn context_file_mode_second_touch_collapses_to_the_shoulder() {
-    // File mode's headline is the passive-context shoulder. On a file's FIRST
+fn context_file_mode_surfaces_rows_on_every_touch() {
+    // File mode's headline is the summary. On a file's FIRST
     // surfacing in a session it also emits the once-per-session methods +
     // directory-listing lines; on the SECOND surfacing those are deduped away
-    // and the output collapses to exactly the shoulder. This pins both the
-    // shoulder-as-headline contract and the per-session first-touch dedup.
+    // and the output collapses to exactly the summary. This pins both the
+    // summary-as-headline contract and the per-session first-touch dedup.
     let f = standard_repo();
     // Warm the cache so graph counts are populated.
     f.trace(&["cache", "build", "."]).ok();
     let sid = fresh_session_id("ctx-file-dedup");
     let env = [("CLAUDE_CODE_SESSION_ID", sid.as_str())];
 
-    // First touch: shoulder + symbols + dir listing (more than one line).
     let first = f.trace_env(&["context", "src/app.py"], &env);
     first.ok();
     assert!(
-        first.stdout.contains("[symbols:") && first.stdout.contains("[dir src/:"),
-        "first surfacing must carry the methods and directory-listing lines:\n{}",
+        first.stdout.contains("def main") && first.stdout.contains("\ndirectory:\n  path: src/\n"),
+        "first surfacing must carry rows and the directory facts:\n{}",
         first.stdout
     );
 
-    // Second touch in the same session: collapses to the single shoulder line.
     let second = f.trace_env(&["context", "src/app.py"], &env);
     second.ok();
-    let line = second.stdout.trim();
-    assert!(line.starts_with("[git:"), "unexpected shoulder:\n{line}");
-    assert_eq!(
-        line.lines().count(),
-        1,
-        "second surfacing must collapse to one shoulder line:\n{line}"
-    );
+    assert_eq!(first.stdout, second.stdout);
 }
 
 /// A repo with a file nested two directories deep alongside a sibling, used
@@ -2686,10 +2790,7 @@ fn nested_repo() -> Fixture {
 }
 
 #[test]
-fn first_touch_of_a_file_surfaces_its_symbols() {
-    // The first time a file is surfaced in a session, its passive context
-    // includes a `[symbols: …]` line naming the file's declarations, so one
-    // touch gives the agent the file's shape without a second structure call.
+fn context_file_mode_renders_source_rows() {
     let f = nested_repo();
     let sid = fresh_session_id("first-symbols");
     let env = [("CLAUDE_CODE_SESSION_ID", sid.as_str())];
@@ -2697,9 +2798,8 @@ fn first_touch_of_a_file_surfaces_its_symbols() {
     let r = f.trace_env(&["context", "app/controllers/orders.py"], &env);
     r.ok();
     assert!(
-        r.stdout
-            .contains("[symbols: create(x) ccn=2; cancel() ccn=1]"),
-        "first surfacing must list the file's declarations, with signatures, in source order:\n{}",
+        r.stdout.contains("def create(x): …") && r.stdout.contains("def cancel(): …"),
+        "context must render the file's declarations in source order:\n{}",
         r.stdout
     );
 }
@@ -2716,7 +2816,9 @@ fn first_touch_of_a_file_surfaces_its_immediate_directory_listing() {
     let r = f.trace_env(&["context", "app/controllers/orders.py"], &env);
     r.ok();
     assert!(
-        r.stdout.contains("[dir controllers/: orders.py, users.py]"),
+        r.stdout.contains(
+            "\ndirectory:\n  path: app/controllers/\n  imported_by: 0\n  imports: 0\n  entries: [orders.py, users.py]\n---\n"
+        ),
         "first surfacing must list the immediate parent directory's files:\n{}",
         r.stdout
     );
@@ -2734,29 +2836,26 @@ fn directory_listing_is_immediate_parent_only_never_ancestors() {
     let r = f.trace_env(&["context", "app/controllers/orders.py"], &env);
     r.ok();
     assert!(
-        r.stdout.contains("[dir controllers/:"),
+        r.stdout.contains("\n  path: app/controllers/\n"),
         "the immediate parent directory must be listed:\n{}",
         r.stdout
     );
-    assert!(
-        !r.stdout.contains("[dir app/:"),
-        "ancestor directory app/ must NOT be listed (non-recursive rule):\n{}",
+    // Exactly one directory block — never the ancestor chain.
+    let directory_blocks = r.stdout.lines().filter(|l| *l == "directory:").count();
+    assert_eq!(
+        directory_blocks, 1,
+        "exactly one directory block (the immediate parent), never the chain:\n{}",
         r.stdout
     );
-    // Exactly one directory line — never the ancestor chain.
-    let dir_lines = r.stdout.lines().filter(|l| l.starts_with("[dir ")).count();
-    assert_eq!(
-        dir_lines, 1,
-        "exactly one directory line (the immediate parent), never the chain:\n{}",
+    assert!(
+        !r.stdout.contains("path: app/\n"),
+        "ancestor directory app/ must NOT be listed (non-recursive rule):\n{}",
         r.stdout
     );
 }
 
 #[test]
-fn directory_listing_surfaces_once_per_session_across_neighbours() {
-    // The directory listing is deduped per session: surfacing a second file in
-    // the SAME directory does not repeat that directory's listing, while the
-    // second file still gets its own first-touch symbols line.
+fn directory_listing_surfaces_on_every_touch() {
     let f = nested_repo();
     let sid = fresh_session_id("dir-dedup");
     let env = [("CLAUDE_CODE_SESSION_ID", sid.as_str())];
@@ -2764,7 +2863,7 @@ fn directory_listing_surfaces_once_per_session_across_neighbours() {
     let first = f.trace_env(&["context", "app/controllers/orders.py"], &env);
     first.ok();
     assert!(
-        first.stdout.contains("[dir controllers/:"),
+        first.stdout.contains("\n  path: app/controllers/\n"),
         "first file in the directory must surface the listing:\n{}",
         first.stdout
     );
@@ -2772,21 +2871,19 @@ fn directory_listing_surfaces_once_per_session_across_neighbours() {
     let second = f.trace_env(&["context", "app/controllers/users.py"], &env);
     second.ok();
     assert!(
-        !second.stdout.contains("[dir controllers/:"),
-        "a neighbour in the already-surfaced directory must NOT repeat the listing:\n{}",
+        second.stdout.contains("\n  path: app/controllers/\n"),
+        "a neighbour in the directory must repeat its listing:\n{}",
         second.stdout
     );
     assert!(
-        second.stdout.contains("[symbols: show() ccn=1]"),
-        "the neighbour's own first-touch symbols line must still surface:\n{}",
+        second.stdout.contains("def show(): …"),
+        "the neighbour's source row must surface:\n{}",
         second.stdout
     );
 }
 
 #[test]
 fn context_directory_argument_surfaces_its_one_level_listing() {
-    // Surfacing a directory directly (not via a file inside it) emits that one
-    // directory's one-level listing on first touch, deduped on the second.
     let f = nested_repo();
     let sid = fresh_session_id("dir-arg");
     let env = [("CLAUDE_CODE_SESSION_ID", sid.as_str())];
@@ -2795,18 +2892,145 @@ fn context_directory_argument_surfaces_its_one_level_listing() {
     first.ok();
     assert_eq!(
         first.stdout.trim(),
-        "[dir controllers/: orders.py, users.py]",
+        "---\ndirectory:\n  path: app/controllers/\n  imported_by: 0\n  imports: 0\n  entries: [orders.py, users.py]\n---",
         "a directly-touched directory must emit exactly its one-level listing:\n{}",
         first.stdout
     );
 
     let second = f.trace_env(&["context", "app/controllers"], &env);
     second.ok();
-    assert!(
-        second.stdout.trim().is_empty(),
-        "a second touch of the same directory must emit nothing:\n{}",
-        second.stdout
+    assert_eq!(second.stdout, first.stdout);
+}
+
+#[test]
+fn directory_facts_carry_graph_counts_and_annotations() {
+    let f = Fixture::new();
+    f.write(
+        "composer.json",
+        r#"{"autoload":{"psr-4":{"App\\":"src/"}}}"#,
     );
+    f.write(
+        "src/pain/Entity.php",
+        concat!(
+            "<?php\n",
+            "namespace App\\pain;\n",
+            "#[Entity]\n",
+            "final class Entity {\n",
+            "    #[Field] public string $first = '';\n",
+            "    #[Field] public string $second = '';\n",
+            "    #[Internal] public function hidden(): void {}\n",
+            "}\n",
+        ),
+    );
+    f.write("src/pain/notes.md", "# Notes\n");
+    f.write(
+        "src/outside/Use.php",
+        concat!(
+            "<?php\n",
+            "namespace App\\Outside;\n",
+            "use App\\pain\\Entity;\n",
+            "final class Use { public function make(): Entity { return new Entity(); } }\n",
+        ),
+    );
+    f.write(
+        "src/no-types/View.php",
+        concat!(
+            "<?php\n",
+            "namespace App\\NoTypes;\n",
+            "use App\\pain\\Entity;\n",
+            "function view(): Entity { return new Entity(); }\n",
+        ),
+    );
+    f.commit("directory summary fixture");
+
+    // src/pain/ is imported by the two other directories' files, imports
+    // nothing, and counts its PHP attributes. Every file command shows the
+    // same directory facts, in the YAML front matter and under the same keys
+    // in JSON.
+    let expected = "directory:\n  path: src/pain/\n  imported_by: 2\n  imports: 0\n  annotations: {Field: 2, Entity: 1, Internal: 1}\n";
+    let expected_json = serde_json::json!({
+        "path": "src/pain/",
+        "imported_by": 2,
+        "imports": 0,
+        "annotations": {"Field": 2, "Entity": 1, "Internal": 1},
+    });
+    let directory_of = |facts: &serde_json::Value| {
+        let mut directory = facts["directory"].clone();
+        for key in ["entries", "total_entries", "at_session_start"] {
+            directory.as_object_mut().map(|o| o.remove(key));
+        }
+        directory
+    };
+    let read = f.trace(&["read", "src/pain/Entity.php"]);
+    read.ok();
+    assert!(read.stdout.contains(expected), "{}", read.stdout);
+
+    let context = f.trace(&["context", "src/pain/Entity.php", "--no-record"]);
+    context.ok();
+    assert!(context.stdout.contains(expected), "{}", context.stdout);
+
+    // A search lists many files, so each carries its own facts and no
+    // directory block.
+    let grep = f.trace(&["grep", "Entity", "src/pain", "--json"]);
+    grep.ok();
+    let grep_view = grep.view();
+    let grep_facts = &grep_view["files"]["src/pain/Entity.php"];
+    assert_eq!(grep_facts["imported_by"], 2, "{grep_view}");
+    assert!(grep_facts["directory"].is_null(), "{grep_view}");
+
+    f.write(
+        "src/pain/Entity.php",
+        concat!(
+            "<?php\n",
+            "namespace App\\pain;\n",
+            "#[Entity]\n",
+            "final class Entity {\n",
+            "    #[Field] public string $first = '';\n",
+            "    #[Field] public string $second = '';\n",
+            "    #[Internal] public function hidden(): void {}\n",
+            "}\n",
+            "// changed\n",
+        ),
+    );
+    let diff = f.trace(&["diff", "--json"]);
+    diff.ok();
+    // `diff` lists its changed files' directories once, beside the files.
+    let diff_view = diff.view();
+    assert_eq!(
+        diff_view["directories"]["src/pain/"],
+        serde_json::json!({"files": 2, "imported_by": 2, "imports": 0}),
+        "{diff_view}"
+    );
+
+    let info = f.trace(&["info", "src/pain/Entity.php", "--json"]);
+    info.ok();
+    let info_view = info.view();
+    assert_eq!(
+        directory_of(&info_view["files"]["src/pain/Entity.php"]),
+        expected_json,
+        "{info_view}"
+    );
+
+    // A file with no import graph of its own still shows its directory's.
+    let markdown = f.trace(&["read", "src/pain/notes.md", "--json"]);
+    markdown.ok();
+    let markdown_view = markdown.view();
+    assert_eq!(
+        directory_of(&markdown_view["files"]["src/pain/notes.md"]),
+        expected_json,
+        "{markdown_view}"
+    );
+    assert!(markdown_view["files"]["src/pain/notes.md"]["imported_by"].is_null());
+
+    let no_types = f.trace(&["read", "src/no-types/View.php", "--json"]);
+    no_types.ok();
+    let no_types_view = no_types.view();
+    assert_eq!(
+        directory_of(&no_types_view["files"]["src/no-types/View.php"]),
+        serde_json::json!({"path": "src/no-types/", "imported_by": 0, "imports": 1}),
+        "{no_types_view}"
+    );
+    assert!(no_types_view["files"]["src/pain/Entity.php"]["annotations"].is_null());
 }
 
 // ---- signature fidelity (PHP 8 attributes / 8.4 hooks, TS modifiers, Python annotations) ----
@@ -2849,16 +3073,11 @@ fn structure_php_class_carries_attributes_extends_implements() {
     let v = r.view();
     let cls = find_symbol(&v, "Funnel");
     assert_eq!(cls["kind"].as_str().unwrap(), "class", "{}", cls);
-    assert_eq!(cls["extends"].as_str().unwrap(), "Model", "{}", cls);
     assert_eq!(
-        cls["implements"].as_array().unwrap(),
-        &vec![serde_json::json!("UrlRoutable")],
+        cls["header"], "#[Entity]\nclass Funnel extends Model implements UrlRoutable { … }",
         "{}",
         cls
     );
-    let attrs = cls["attributes"].as_array().expect("class attributes");
-    assert_eq!(attrs.len(), 1, "{}", cls);
-    assert_eq!(attrs[0]["name"].as_str().unwrap(), "Entity", "{}", cls);
 }
 
 #[test]
@@ -2879,34 +3098,7 @@ fn structure_php_method_carries_visibility_return_type_attributes_and_typed_para
     r.ok();
     let v = r.view();
     let m = find_symbol(&v, "validateSlug");
-    assert_eq!(m["visibility"].as_str().unwrap(), "public", "{}", m);
-    assert_eq!(m["return_type"].as_str().unwrap(), "?string", "{}", m);
-    let mods: Vec<&str> = m["modifiers"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|x| x.as_str().unwrap())
-        .collect();
-    assert!(
-        mods.contains(&"public") && mods.contains(&"static"),
-        "{}",
-        m
-    );
-    let params = m["parameters"].as_array().expect("parameters");
-    assert_eq!(params.len(), 2, "{}", m);
-    assert_eq!(params[0]["name"].as_str().unwrap(), "slug", "{}", m);
-    assert_eq!(params[0]["type"].as_str().unwrap(), "string", "{}", m);
-    assert_eq!(params[1]["name"].as_str().unwrap(), "excludeId", "{}", m);
-    assert_eq!(params[1]["type"].as_str().unwrap(), "?int", "{}", m);
-    assert_eq!(params[1]["default"].as_str().unwrap(), "null", "{}", m);
-    let attrs = m["attributes"].as_array().expect("method attributes");
-    assert_eq!(attrs.len(), 1, "{}", m);
-    assert_eq!(attrs[0]["name"].as_str().unwrap(), "Route", "{}", m);
-    assert!(
-        attrs[0]["source"].as_str().unwrap().contains("/x"),
-        "attribute source must preserve argument text: {}",
-        m
-    );
+    assert_eq!(m["header"], "#[Route('GET','/x')]\npublic static function validateSlug(string $slug, ?int $excludeId = null): ?string { … }", "{}", m);
 }
 
 #[test]
@@ -2930,19 +3122,14 @@ fn structure_php_84_hooked_property_surfaces_with_attribute_and_accessors() {
     let r = f.trace(&["structure", "src/H.php", "--json"]);
     r.ok();
     let v = r.view();
-    let prop = find_symbol(&v, "name");
+    let prop = find_symbol(&v, "$name");
     assert_eq!(prop["kind"].as_str().unwrap(), "property", "{}", prop);
-    assert_eq!(prop["visibility"].as_str().unwrap(), "public", "{}", prop);
-    assert_eq!(prop["type"].as_str().unwrap(), "string", "{}", prop);
-    let attrs = prop["attributes"].as_array().expect("property attributes");
-    assert_eq!(attrs.len(), 1, "{}", prop);
-    assert_eq!(attrs[0]["name"].as_str().unwrap(), "Schema", "{}", prop);
-    let hooks = prop["hooks"].as_array().expect("hooks");
-    let accessors: Vec<&str> = hooks
-        .iter()
-        .map(|h| h["accessor"].as_str().unwrap())
-        .collect();
-    assert_eq!(accessors, vec!["get", "set"], "{}", prop);
+    assert_eq!(
+        prop["header"],
+        "#[Schema(type: 'string', label: 'Name')]\npublic string $name { get => …; set { … } }",
+        "{}",
+        prop
+    );
 }
 
 /// A PHP class whose members carry the access markers an Agent must not
@@ -2971,6 +3158,7 @@ fn php_markers_repo() -> Fixture {
             "  )]\n",
             "  public function rename(string $name): void { $this->name = $name; }\n",
             "  public function exportSecret(): string { return $this->secret; }\n",
+            "  public function __construct(public readonly bool $requires) {}\n",
             "}\n",
         ),
     );
@@ -2986,20 +3174,37 @@ fn structure_php_json_carries_doc_tags() {
     let v = r.view();
     let cls = find_symbol(&v, "Account");
     assert_eq!(
-        cls["doc_tags"].as_array().unwrap(),
-        &vec![serde_json::json!("@internal only Billing constructs this")],
+        cls["annotations"],
+        serde_json::json!(["@internal", "Internal"]),
         "{}",
         cls
     );
-    let name = find_symbol(&v, "name");
+    let name = find_symbol(&v, "$name");
     assert_eq!(
-        name["doc_tags"].as_array().unwrap(),
-        &vec![serde_json::json!("@deprecated use rename()")],
+        name["annotations"],
+        serde_json::json!(["@deprecated"]),
         "{}",
         name
     );
     let plain = find_symbol(&v, "exportSecret");
-    assert!(plain.get("doc_tags").is_none(), "{}", plain);
+    assert_eq!(plain["annotations"], serde_json::json!([]), "{}", plain);
+}
+
+#[test]
+fn structure_json_carries_declaration_flags_and_annotations_at_the_row_top_level() {
+    let f = php_markers_repo();
+    let r = f.trace(&["structure", "src/Account.php", "--json"]);
+    r.ok();
+    let view = r.view();
+    let class = find_symbol(&view, "Account");
+    assert_eq!(
+        class["annotations"],
+        serde_json::json!(["@internal", "Internal"]),
+        "{class}"
+    );
+    let requires = find_symbol(&view, "$requires");
+    assert_eq!(requires["kind"], "property", "{requires}");
+    assert_eq!(requires["name"], "$requires", "{requires}");
 }
 
 #[test]
@@ -3012,11 +3217,11 @@ fn structure_php_text_shows_markers_types_and_return_types() {
     let r = f.trace(&["structure", "src/Account.php"]);
     r.ok();
     for expected in [
-        "@internal #[Internal(reason: 'billing only')] final Account",
-        "#[Encrypted] public string secret",
-        "@deprecated public string name",
-        "#[Internal( reason: 'admin console only', )] public rename(string $name) -> void ccn=1",
-        "public exportSecret() -> string ccn=1",
+        "#[Internal(reason: 'billing only')]",
+        "public string $secret = '';",
+        "public string $name = '';",
+        "public function rename(string $name): void { … }  // complexity 1",
+        "public function exportSecret(): string { … }  // complexity 1",
     ] {
         assert!(
             r.stdout.contains(expected),
@@ -3037,13 +3242,10 @@ fn first_touch_of_a_php_file_surfaces_its_access_markers() {
     let r = f.trace_env(&["context", "src/Account.php"], &env);
     r.ok();
     assert!(
-        r.stdout.contains(concat!(
-            "@internal #[Internal(reason: 'billing only')] final Account; ",
-            "#[Encrypted] public string secret; ",
-            "@deprecated public string name; ",
-            "#[Internal( reason: 'admin console only', )] public rename(string $name) -> void ccn=1; ",
-            "public exportSecret() -> string ccn=1",
-        )),
+        r.stdout.contains("#[Internal(reason: 'billing only')]")
+            && r.stdout.contains("public string $secret = '';")
+            && r.stdout
+                .contains("public function exportSecret(): string { … }  // complexity 1"),
         "the briefing line must carry every access marker in source order:\n{}",
         r.stdout
     );
@@ -3068,60 +3270,25 @@ fn structure_ts_class_carries_decorators_generics_and_implements() {
     let v = r.view();
     let cls = find_symbol(&v, "Svc");
     assert_eq!(
-        cls["type_parameters"].as_str().unwrap(),
-        "<T extends Foo>",
-        "{}",
-        cls
-    );
-    let imps: Vec<&str> = cls["implements"]
-        .as_array()
-        .expect("implements")
-        .iter()
-        .map(|s| s.as_str().unwrap())
-        .collect();
-    assert_eq!(imps, vec!["Base", "Other"], "{}", cls);
-    let decos = cls["decorators"].as_array().expect("class decorators");
-    assert_eq!(decos.len(), 1, "{}", cls);
-    assert!(
-        decos[0]["source"]
-            .as_str()
-            .unwrap()
-            .starts_with("@Injectable"),
+        cls["header"],
+        "@Injectable()\nexport class Svc<T extends Foo> implements Base, Other { … }",
         "{}",
         cls
     );
 
     let field = find_symbol(&v, "count");
     assert_eq!(
-        field["visibility"].as_str().unwrap(),
-        "private",
+        field["header"], "private readonly count: number = 0;",
         "{}",
         field
     );
-    assert_eq!(field["type"].as_str().unwrap(), "number", "{}", field);
-    assert_eq!(field["default"].as_str().unwrap(), "0", "{}", field);
 
     let m = find_symbol(&v, "run");
-    assert_eq!(m["visibility"].as_str().unwrap(), "public", "{}", m);
-    assert_eq!(m["return_type"].as_str().unwrap(), "Promise<T>", "{}", m);
-    assert_eq!(m["async"].as_bool().unwrap(), true, "{}", m);
-    let params = m["parameters"].as_array().expect("ts parameters");
-    assert_eq!(params.len(), 2, "{}", m);
-    assert_eq!(params[0]["name"].as_str().unwrap(), "id", "{}", m);
-    assert_eq!(params[0]["type"].as_str().unwrap(), "number", "{}", m);
-    let p0_decos = params[0]["decorators"]
-        .as_array()
-        .expect("parameter decorators");
-    assert_eq!(p0_decos.len(), 1, "{}", m);
-    assert!(
-        p0_decos[0]["source"]
-            .as_str()
-            .unwrap()
-            .starts_with("@Inject"),
+    assert_eq!(
+        m["header"], "public async run(@Inject('X') id: number, name?: string): Promise<T> { … }",
         "{}",
         m
     );
-    assert_eq!(params[1]["optional"].as_bool().unwrap(), true, "{}", m);
 }
 
 #[test]
@@ -3147,20 +3314,20 @@ fn structure_ts_member_decorators_stay_on_their_own_member() {
     let v = r.view();
     let name = find_symbol(&v, "name");
     assert_eq!(
-        name["decorators"][0]["source"].as_str().unwrap(),
-        "@Input()",
+        name["annotations"],
+        serde_json::json!(["Input"]),
         "{}",
         name
     );
     let run = find_symbol(&v, "run");
     assert_eq!(
-        run["decorators"][0]["source"].as_str().unwrap(),
-        "@HostListener('click')",
+        run["annotations"],
+        serde_json::json!(["HostListener"]),
         "{}",
         run
     );
     let make = find_symbol(&v, "make");
-    assert!(make.get("decorators").is_none(), "{}", make);
+    assert_eq!(make["annotations"], serde_json::json!([]), "{}", make);
 }
 
 #[test]
@@ -3182,30 +3349,15 @@ fn structure_ts_interface_carries_extends_generics_and_field_types() {
     let iface = find_symbol(&v, "User");
     assert_eq!(iface["kind"].as_str().unwrap(), "interface", "{}", iface);
     assert_eq!(
-        iface["type_parameters"].as_str().unwrap(),
-        "<T>",
+        iface["header"], "export interface User<T> extends Base<T> { … }",
         "{}",
         iface
     );
-    let ext: Vec<&str> = iface["extends"]
-        .as_array()
-        .expect("extends")
-        .iter()
-        .map(|s| s.as_str().unwrap())
-        .collect();
-    assert_eq!(ext, vec!["Base<T>"], "{}", iface);
 
     let id = find_symbol(&v, "id");
-    assert_eq!(id["type"].as_str().unwrap(), "number", "{}", id);
+    assert_eq!(id["header"], "id: number;", "{}", id);
     let name = find_symbol(&v, "name");
-    assert_eq!(name["type"].as_str().unwrap(), "string", "{}", name);
-    let mods: Vec<&str> = name["modifiers"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|x| x.as_str().unwrap())
-        .collect();
-    assert!(mods.contains(&"readonly"), "{}", name);
+    assert_eq!(name["header"], "readonly name: string;", "{}", name);
 }
 
 #[test]
@@ -3234,52 +3386,23 @@ fn structure_python_function_carries_decorators_annotations_and_defaults() {
     let v = r.view();
 
     let cls = find_symbol(&v, "User");
-    let bases: Vec<&str> = cls["bases"]
-        .as_array()
-        .expect("class bases")
-        .iter()
-        .map(|s| s.as_str().unwrap())
-        .collect();
-    assert_eq!(bases, vec!["Base"], "{}", cls);
-    let cls_decos = cls["decorators"].as_array().expect("class decorators");
-    assert_eq!(cls_decos.len(), 1, "{}", cls);
     assert_eq!(
-        cls_decos[0]["source"].as_str().unwrap(),
-        "@dataclass",
+        cls["header"], "@dataclass\nclass User(Base): …",
         "{}",
         cls
     );
 
     let create = find_symbol(&v, "create");
-    assert_eq!(create["async"].as_bool().unwrap(), true, "{}", create);
     assert_eq!(
-        create["return_type"].as_str().unwrap(),
-        "\"User\"",
+        create["header"],
+        "@classmethod\nasync def create(cls, seed: int, count: int = 0) -> \"User\": …",
         "{}",
         create
     );
-    let create_decos = create["decorators"].as_array().expect("method decorators");
-    assert_eq!(create_decos.len(), 1, "{}", create);
-    assert_eq!(
-        create_decos[0]["source"].as_str().unwrap(),
-        "@classmethod",
-        "{}",
-        create
-    );
-    let cparams = create["parameters"].as_array().expect("create parameters");
-    assert_eq!(cparams.len(), 3, "{}", create);
-    assert_eq!(cparams[1]["type"].as_str().unwrap(), "int", "{}", create);
-    assert_eq!(cparams[2]["default"].as_str().unwrap(), "0", "{}", create);
 
     let free = find_symbol(&v, "free");
-    assert_eq!(free["return_type"].as_str().unwrap(), "bool", "{}", free);
-    let fparams = free["parameters"].as_array().expect("free parameters");
-    assert_eq!(fparams.len(), 4, "{}", free);
-    assert_eq!(fparams[1]["default"].as_str().unwrap(), "\"z\"", "{}", free);
-    assert_eq!(fparams[2]["variadic"].as_bool().unwrap(), true, "{}", free);
     assert_eq!(
-        fparams[3]["keyword_variadic"].as_bool().unwrap(),
-        true,
+        free["header"], "def free(x: int, y: str = \"z\", *args, **kwargs) -> bool: …",
         "{}",
         free
     );
@@ -3287,10 +3410,8 @@ fn structure_python_function_carries_decorators_annotations_and_defaults() {
 
 #[test]
 fn structure_existing_fields_remain_with_their_existing_shapes() {
-    // Regression contract: every field structure already emitted (name,
-    // kind, line, scope, scope_kind, signature, cyclomatic_complexity)
-    // keeps its existing name and semantics after the signature-merge.
-    // Any rename or shape change breaks this test.
+    // Regression contract: every declaration record keeps the structure
+    // command's shared header-row shape.
     let f = standard_repo();
     let r = f.trace(&["structure", "src/app.py", "--json"]);
     r.ok();
@@ -3299,14 +3420,15 @@ fn structure_existing_fields_remain_with_their_existing_shapes() {
     assert!(main.get("name").is_some(), "name: {}", main);
     assert!(main.get("kind").is_some(), "kind: {}", main);
     assert!(main.get("line").is_some(), "line: {}", main);
-    assert!(main.get("scope").is_some(), "scope: {}", main);
-    assert!(main.get("scope_kind").is_some(), "scope_kind: {}", main);
-    assert!(main.get("signature").is_some(), "signature: {}", main);
-    // cyclomatic_complexity is conditional on a function-kind ctags match;
-    // app.py's main() qualifies, so the field must be present and integer.
+    assert!(main.get("header_line").is_some(), "header_line: {}", main);
+    assert!(main.get("end_line").is_some(), "end_line: {}", main);
+    assert!(main.get("container").is_some(), "container: {}", main);
+    assert!(main.get("parent").is_some(), "parent: {}", main);
+    assert!(main.get("header").is_some(), "header: {}", main);
+    assert!(main.get("annotations").is_some(), "annotations: {}", main);
     assert!(
         main["cyclomatic_complexity"].is_i64(),
-        "cyclomatic_complexity must remain an integer: {}",
+        "cyclomatic_complexity must be an integer: {}",
         main
     );
 }
@@ -3414,18 +3536,130 @@ fn co_change_ignores_a_commit_over_the_file_cap() {
 
     let r = f.trace(&["read", "pair_a.py", "--json"]);
     r.ok();
-    let shoulder = r.view()["files"]["pair_a.py"]["shoulder"]
-        .as_str()
-        .unwrap()
-        .to_string();
-    assert!(
-        shoulder.contains("\u{00b7} together: pair_b.py \u{00b7}"),
-        "the two-file coupling must survive the sweep: {shoulder:?}"
+    let git = r.view()["files"]["pair_a.py"]["git"].clone();
+    assert_eq!(
+        git["usually_changed_with"],
+        serde_json::json!(["pair_b.py"]),
+        "the two-file coupling must survive the sweep, and a commit over the cap must contribute no co-change: {git}"
     );
-    assert!(
-        !shoulder.contains("mod_"),
-        "a commit over the cap must contribute no co-change: {shoulder:?}"
+}
+
+#[test]
+fn warm_file_commands_time_only_the_tracked_git_batch() {
+    let f = Fixture::new();
+    f.write("entry.py", "class Entry:\n    pass\n");
+    f.commit("seed");
+    f.trace(&["context", "entry.py", "--no-record"]).ok();
+    std::thread::sleep(std::time::Duration::from_secs(2));
+    f.trace(&["context", "entry.py", "--no-record"]).ok();
+
+    for args in [
+        vec!["context", "entry.py", "--no-record"],
+        vec!["read", "entry.py"],
+        vec!["info", "entry.py"],
+    ] {
+        let run = f.trace_env(&args, &[("TRACE_TIMING", "1")]);
+        run.ok();
+        assert_eq!(
+            run.stderr.matches("timing git status").count(),
+            1,
+            "{}",
+            run.stderr
+        );
+        assert_eq!(
+            run.stderr.matches("timing git rev-parse HEAD").count(),
+            1,
+            "{}",
+            run.stderr
+        );
+        assert_eq!(
+            run.stderr.matches("timing git for-each-ref").count(),
+            1,
+            "{}",
+            run.stderr
+        );
+        assert!(!run.stderr.contains("ls-files"), "{}", run.stderr);
+        assert!(!run.stderr.contains("show-toplevel"), "{}", run.stderr);
+    }
+
+    let stats = f.trace_env(&["stats"], &[("TRACE_TIMING", "1")]);
+    stats.ok();
+    assert!(!stats.stderr.contains("timing git"), "{}", stats.stderr);
+
+    let status = f.trace_env(&["status"], &[("TRACE_TIMING", "1")]);
+    status.ok();
+    assert_eq!(
+        status.stderr.matches("timing git status").count(),
+        1,
+        "{}",
+        status.stderr
     );
+    assert!(!status.stderr.contains("ls-files"), "{}", status.stderr);
+}
+
+#[test]
+fn context_keeps_untracked_and_staged_rename_states() {
+    let f = Fixture::new();
+    f.write("tracked.py", "value = 1\n");
+    f.commit("seed");
+    f.write("untracked.py", "value = 2\n");
+    let untracked = f.trace(&["context", "untracked.py", "--no-record"]);
+    untracked.ok();
+    assert!(
+        untracked.stdout.contains("untracked"),
+        "{}",
+        untracked.stdout
+    );
+
+    f.git(&["mv", "tracked.py", "renamed.py"]);
+    let renamed = f.trace(&["context", "renamed.py", "--no-record"]);
+    renamed.ok();
+    assert!(renamed.stdout.contains("renamed"), "{}", renamed.stdout);
+    assert!(renamed.stdout.contains("renamed_from: tracked.py"), "{}", renamed.stdout);
+    assert!(renamed.stdout.contains("commits: 1"), "{}", renamed.stdout);
+}
+
+#[test]
+fn status_and_list_name_partly_staged_and_untracked_files() {
+    let f = Fixture::new();
+    f.write("tracked.py", "value = 1\n");
+    f.write("partly.py", "value = 1\n");
+    f.commit("seed");
+    f.write("tracked.py", "value = 2\n");
+    f.git(&["add", "tracked.py"]);
+    f.write("tracked.py", "value = 3\n");
+    f.write("partly.py", "value = 2\n");
+    f.git(&["add", "partly.py"]);
+    f.write("partly.py", "value = 3\n");
+    f.write("untracked.py", "value = 4\n");
+    f.trace(&["info", "tracked.py", "--json"]).ok();
+
+    let status = f.trace(&["status"]);
+    status.ok();
+    for expected in [
+        "3 files with uncommitted state:",
+        "## modified\n  partly.py · partly staged  {",
+        "\n  tracked.py · partly staged  {",
+        "## untracked\n  untracked.py  {",
+        "git: untracked}",
+    ] {
+        assert!(status.stdout.contains(expected), "{expected:?}:\n{}", status.stdout);
+    }
+
+    let list = f.trace(&["list", "."]);
+    list.ok();
+    for (name, state) in [
+        ("partly.py", "git: modified"),
+        ("tracked.py", "git: modified"),
+        ("untracked.py", "git: untracked"),
+    ] {
+        let line = list
+            .stdout
+            .lines()
+            .find(|line| line.trim_start().starts_with(name))
+            .unwrap_or_else(|| panic!("{name} missing:\n{}", list.stdout));
+        assert!(line.contains(state), "{line}");
+    }
 }
 
 #[test]
@@ -3456,22 +3690,14 @@ fn shallow_clone_graft_commit_leaves_no_history() {
 
     let r = tracer_cli_tests::trace(&clone, ["read", "core.py", "--json"]);
     r.ok();
-    let shoulder = r.view()["files"]["core.py"]["shoulder"]
-        .as_str()
-        .unwrap()
-        .to_string();
+    let git = r.view()["files"]["core.py"]["git"].clone();
+    assert_eq!(git["commits"], 0, "a graft commit must leave no history: {git}");
+    assert!(git["first_commit"].is_null(), "a graft commit dates nothing: {git}");
     assert!(
-        shoulder.contains("git: no-history"),
-        "a graft commit must leave no history: {shoulder:?}"
+        git["usually_changed_with"].is_null(),
+        "a graft commit must contribute no co-change: {git}"
     );
-    assert!(
-        !shoulder.contains("together:"),
-        "a graft commit must contribute no co-change: {shoulder:?}"
-    );
-    assert!(
-        !shoulder.contains("owner:"),
-        "a graft commit must attribute no owner: {shoulder:?}"
-    );
+    assert!(git["main_author"].is_null(), "a graft commit must attribute no owner: {git}");
 }
 
 #[test]
@@ -3484,8 +3710,8 @@ fn structure_reports_a_failing_ctags_instead_of_thinning_its_answer() {
     // ctags reaches it, because a missing binary does not surface as a spawn
     // error there the way it does on mac-arm64 and linux-arm64.
     let f = Fixture::new();
-    f.write("m.py", "def alpha():\n    return 1\n");
-    f.commit("python file");
+    f.write("m.lua", "function alpha()\n    return 1\nend\n");
+    f.commit("lua file");
 
     let shim_dir = f.root.join("shim");
     std::fs::create_dir_all(&shim_dir).unwrap();
@@ -3505,7 +3731,7 @@ fn structure_reports_a_failing_ctags_instead_of_thinning_its_answer() {
         shim_dir.display(),
         std::env::var("PATH").unwrap_or_default()
     );
-    let r = f.trace_env(&["structure", "m.py", "--json"], &[("PATH", &path)]);
+    let r = f.trace_env(&["structure", "m.lua", "--json"], &[("PATH", &path)]);
     assert_ne!(
         r.code,
         0,
@@ -3517,4 +3743,470 @@ fn structure_reports_a_failing_ctags_instead_of_thinning_its_answer() {
         "the failure must name ctags: {}",
         r.combined()
     );
+}
+
+#[test]
+fn surface_rows_repeat_on_context_read_info_and_blame() {
+    let f = Fixture::new();
+    f.write(
+        "entry.php",
+        "<?php\nclass Entry {\n    public static function create(array $values = []): static {\n        return new static();\n    }\n}\n",
+    );
+    f.commit("entry surface");
+    let session = fresh_session_id("surface-rows");
+    let env = [("CLAUDE_CODE_SESSION_ID", session.as_str())];
+
+    let first = f.trace_env(&["context", "entry.php"], &env);
+    let second = f.trace_env(&["context", "entry.php"], &env);
+    first.ok();
+    second.ok();
+    for output in [&first.stdout, &second.stdout] {
+        assert!(output.contains("class Entry"), "{output}");
+        assert!(
+            output.contains("function create(array $values = []): static"),
+            "{output}"
+        );
+        assert!(!output.contains("[symbols:"), "{output}");
+        assert!(!output.contains("annotated:"), "{output}");
+    }
+    assert_eq!(first.stdout, second.stdout);
+
+    let read = f.trace(&["read", "entry.php", "--method", "create", "--json"]);
+    read.ok();
+    assert!(read.stdout.contains("class Entry"), "{}", read.stdout);
+    assert!(
+        read.stdout
+            .contains("function create(array $values = []): static"),
+        "{}",
+        read.stdout
+    );
+    assert!(read.json()["context"]["files"]["entry.php"]["surface"].is_array());
+
+    let info = f.trace(&["info", "entry.php", "--json"]);
+    info.ok();
+    assert!(info.json()["context"]["files"]
+        .as_object()
+        .unwrap()
+        .values()
+        .next()
+        .unwrap()["surface"]
+        .is_array());
+
+    let blame = f.trace(&["blame", "entry.php", "create", "--json"]);
+    blame.ok();
+    assert_eq!(
+        blame.json()["context"]["files"]
+            .as_object()
+            .unwrap()
+            .values()
+            .next()
+            .unwrap()["surface"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+}
+
+#[test]
+fn surface_rows_follow_windows_history_budgets_and_batch_json() {
+    let f = Fixture::new();
+    f.write(
+        "entry.php",
+        "<?php\nclass Entry {\n    #[Field]\n    public static function create(): static {\n        return new static();\n    }\n\n    public function other(): void {}\n}\n",
+    );
+    f.write("a.php", "<?php\nclass A {}\n");
+    f.write("b.php", "<?php\nclass B {}\n");
+    f.commit("surface rows");
+
+    let window = f.trace(&["context", "entry.php", "--offset", "4", "--limit", "1"]);
+    window.ok();
+    assert!(window.stdout.contains("class Entry"), "{}", window.stdout);
+    assert!(
+        window.stdout.contains("function create(): static"),
+        "{}",
+        window.stdout
+    );
+    assert!(
+        !window.stdout.contains("function other(): void"),
+        "{}",
+        window.stdout
+    );
+
+    let read_window = f.trace(&["read", "entry.php", "--lines", "4:5"]);
+    read_window.ok();
+    assert!(
+        read_window.stdout.contains("class Entry"),
+        "{}",
+        read_window.stdout
+    );
+    assert!(
+        read_window.stdout.contains("function create(): static"),
+        "{}",
+        read_window.stdout
+    );
+    assert!(
+        !read_window.stdout.contains("function other(): void"),
+        "{}",
+        read_window.stdout
+    );
+
+    f.write(
+        "entry.php",
+        "<?php\nclass Entry {\n    public static function create(): static {\n        return new static();\n    }\n\n    public function added(): void {}\n}\n",
+    );
+    let historical = f.trace(&["read", "entry.php", "--at", "HEAD", "--json"]);
+    historical.ok();
+    let historical_json = historical.json();
+    let historical_surface = &historical_json["context"]["files"]
+        .as_object()
+        .expect("historical read files")
+        .values()
+        .next()
+        .expect("historical read file")["surface"];
+    assert!(
+        historical_surface.to_string().contains("create"),
+        "{historical_surface}"
+    );
+    assert!(
+        !historical_surface.to_string().contains("added"),
+        "historical rows must come from --at content: {historical_surface}"
+    );
+
+    let large = format!("class Big:\n{}", oversized_python(2000));
+    f.write("big.py", &large);
+    let budget = f.trace(&["read", "big.py", "--json"]);
+    budget.ok();
+    assert_eq!(budget.view()["results"][0]["truncated"], true);
+    assert!(budget.stdout.contains("class Big"), "{}", budget.stdout);
+    assert!(budget.json()["context"]["files"]
+        .as_object()
+        .unwrap()
+        .values()
+        .next()
+        .unwrap()["surface"]
+        .is_array());
+
+    let batch = f.trace(&["context", "a.php", "b.php", "--no-record", "--json"]);
+    batch.ok();
+    assert!(batch.view()["results"][0]["content"]
+        .as_str()
+        .unwrap()
+        .contains("class A"));
+    assert!(batch.view()["results"][1]["content"]
+        .as_str()
+        .unwrap()
+        .contains("class B"));
+    assert!(batch.json()["context"]["files"]["a.php"]["surface"].is_array());
+    assert!(batch.json()["context"]["files"]["b.php"]["surface"].is_array());
+}
+
+#[test]
+fn defines_uses_the_inline_surface_row() {
+    let f = Fixture::new();
+    f.write(
+        "constants.ts",
+        "export const labels = [\n    'save',\n    'cancel',\n];\n",
+    );
+    f.commit("inline declaration rows");
+
+    let structure = f.trace(&["structure", "constants.ts", "--json"]);
+    structure.ok();
+    let structure_view = structure.view();
+    let header = structure_view["symbols_by_kind"]["constant"][0]["header"]
+        .as_str()
+        .unwrap();
+    // `--json` keeps the header whole; the row elides the table like a body.
+    assert!(header.contains("'cancel'"), "{header}");
+    let inline = "export const labels = …";
+
+    let defines = f.trace(&["defines", "labels"]);
+    defines.ok();
+    assert!(
+        defines.stdout.contains(&format!("      L1    {inline}")),
+        "defines did not use the structure row's inline renderer:\n{}",
+        defines.stdout
+    );
+}
+
+#[test]
+fn warm_directory_listing_uses_one_read_dir_without_file_facts() {
+    let f = Fixture::new();
+    for index in 0..300 {
+        f.write(&format!("entries/file_{index:03}.php"), "<?php\n");
+    }
+    f.trace(&["context", "entries"]).ok();
+
+    let run = f.trace_env(&["context", "entries"], &[("TRACE_TIMING", "1")]);
+    run.ok();
+    assert!(
+        run.stdout.contains("  entries: [file_000.php, file_001.php,"),
+        "{}",
+        run.stdout
+    );
+    assert!(run.stdout.contains("\n  total_entries: 300\n"), "{}", run.stdout);
+    assert!(
+        !run.stderr.contains("timing facts"),
+        "directory listing must not resolve file facts: {}",
+        run.stderr
+    );
+}
+
+/// A file whose rows alone overflow a small budget, and whose content runs
+/// far past it: 60 functions, each with a long signature.
+fn crowded_python() -> String {
+    (0..60)
+        .map(|n| {
+            format!(
+                "def function_{n:02}(first_argument, second_argument, third_argument, fourth_argument):\n    if first_argument:\n        return second_argument\n    return third_argument + fourth_argument\n\n"
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn read_fits_the_budget_and_names_every_declaration() {
+    let f = Fixture::new();
+    f.write("crowded.py", &crowded_python());
+    f.commit("crowded file");
+
+    let r = f.trace(&["read", "crowded.py", "--budget", "4000"]);
+    r.ok();
+    let size = r.stdout.chars().count();
+    assert!(size <= 4000, "read spent {size} characters of a 4000 budget:\n{}", r.stdout);
+    // The content stops early, so the later functions are named by their
+    // rows alone.
+    for n in 0..60 {
+        assert!(r.stdout.contains(&format!("function_{n:02}")), "function_{n:02} is unnamed:\n{}", r.stdout);
+    }
+    assert!(r.stdout.contains("[trimmed at L"), "the cut must say where it landed:\n{}", r.stdout);
+
+    let whole = f.trace(&["read", "crowded.py", "--budget", "0"]);
+    whole.ok();
+    assert!(!whole.stdout.contains("[trimmed at L"), "--budget 0 is unbounded:\n{}", whole.stdout);
+    assert!(whole.stdout.contains("L299:     return third_argument"), "{}", whole.stdout);
+}
+
+#[test]
+fn context_names_every_declaration_within_the_budget() {
+    let f = Fixture::new();
+    f.write("crowded.py", &crowded_python());
+    f.commit("crowded file");
+
+    let r = f.trace(&["context", "crowded.py", "--no-record", "--budget", "2500"]);
+    r.ok();
+    let size = r.stdout.chars().count();
+    assert!(size <= 2500, "context spent {size} characters of a 2500 budget:\n{}", r.stdout);
+    for n in 0..60 {
+        assert!(r.stdout.contains(&format!("function_{n:02}")), "function_{n:02} is unnamed:\n{}", r.stdout);
+    }
+    assert!(r.stdout.contains("--budget 0]"), "shortened rows must name the whole command:\n{}", r.stdout);
+}
+
+/// A file with more declarations than even one name per row can fit still
+/// names where they are: one line per parent, then counts per kind.
+#[test]
+fn a_file_too_large_for_its_names_fits_the_budget_by_parent() {
+    let f = Fixture::new();
+    let many: String = (0..3000).map(|n| format!("def generated_{n}(x):\n    return x\n")).collect();
+    f.write("generated.py", &many);
+    f.commit("generated");
+
+    for (command, budget) in [(vec!["context", "generated.py", "--no-record"], 3000), (vec!["info", "generated.py"], 6000)] {
+        let mut args = command.clone();
+        args.extend(["--budget", if budget == 3000 { "3000" } else { "6000" }]);
+        let r = f.trace(&args);
+        r.ok();
+        let size = r.stdout.chars().count();
+        assert!(size <= budget, "{command:?} spent {size} characters of a {budget} budget");
+        assert!(r.stdout.contains("top level: 3000 functions"), "{command:?}:\n{}", r.stdout);
+        assert!(r.stdout.contains("--budget 0]"), "{command:?} must name the whole command:\n{}", r.stdout);
+    }
+
+    let properties: String = (0..3000).map(|n| format!("  field_{n} = {n};\n")).collect();
+    f.write("holder.ts", &format!("class Holder {{\n{properties}}}\n"));
+    f.commit("holder");
+    let r = f.trace(&["context", "holder.ts", "--no-record", "--budget", "3000"]);
+    r.ok();
+    assert!(r.stdout.contains("L1 Holder: 3000 properties"), "{}", r.stdout);
+}
+
+/// A missing path is named and the run exits 2, as every path argument does.
+#[test]
+fn context_names_a_missing_path() {
+    let f = Fixture::new();
+    f.write("present.py", "value = 1\n");
+    f.commit("one file");
+
+    let r = f.trace(&["context", "missing.py"]);
+    r.code_is(2);
+    assert!(r.stderr.contains("'missing.py' does not exist"), "{}", r.stderr);
+}
+
+/// A data table's rows are data: every row elides a multi-line initializer
+/// like a body, not only grep's group lines.
+#[test]
+fn rows_elide_a_multi_line_initializer() {
+    let out = structure_text(
+        "table.rs",
+        "pub const TABLE: &[(&str, u32)] = &[\n    (\"a\", 1),\n    (\"b\", 2),\n    (\"c\", 3),\n];\n",
+    );
+    assert!(out.contains("pub const TABLE: &[(&str, u32)] = …"), "{out}");
+    assert!(!out.contains("(\"b\", 2)"), "{out}");
+}
+
+#[test]
+fn rows_keep_a_field_under_an_attribute_with_an_equals_sign() {
+    let out = structure_text(
+        "row.rs",
+        "pub struct Row {\n    #[serde(rename = \"Code\")]\n    code: i64,\n}\n",
+    );
+    assert!(out.contains("code: i64"), "{out}");
+    assert!(!out.contains("rename = …"), "{out}");
+}
+
+fn structure_text(file: &str, source: &str) -> String {
+    let f = Fixture::new();
+    f.write(file, source);
+    f.commit("shapes");
+    let r = f.trace(&["structure", file]);
+    r.ok();
+    r.stdout.clone()
+}
+
+#[test]
+fn typescript_inline_object_types_print_their_members_once() {
+    let out = structure_text(
+        "shapes.ts",
+        "export function load(options: { id: number; name: string }): { ok: boolean } {\n  return { ok: true };\n}\n\nexport type Config = {\n  host: string;\n  port: number;\n};\n",
+    );
+    assert!(
+        out.contains("L1    export function load(options: { … }): { … } { … }")
+            && out.contains("\nL1      id: number;\n")
+            && out.contains("\nL5    export type Config = { … };\nL6      host: string;\nL7      port: number;\n"),
+        "an inline object type is `{{ … }}` in the header and its members are nested rows:\n{out}"
+    );
+    assert_eq!(out.matches("id: number").count(), 1, "{out}");
+}
+
+#[test]
+fn typescript_function_locals_are_not_rows() {
+    let out = structure_text(
+        "locals.ts",
+        "export function load(id: number): number {\n  const local = id + 1;\n  let other = local * 2;\n  return other;\n}\n",
+    );
+    assert!(!out.contains("const local") && !out.contains("let other"), "{out}");
+    assert!(out.contains("L1    export function load(id: number): number { … }"), "{out}");
+}
+
+#[test]
+fn rust_struct_like_variants_nest_their_fields_once() {
+    let out = structure_text(
+        "event.rs",
+        "pub enum Event {\n    Created { id: u64, name: String },\n    Deleted(u64),\n}\n",
+    );
+    assert!(
+        out.contains("L2      Created { … }\nL2        id: u64\nL2        name: String\nL3      Deleted(u64)\n"),
+        "{out}"
+    );
+}
+
+#[test]
+fn python_headers_stop_at_the_colon() {
+    let out = structure_text(
+        "compute.py",
+        "def compute(first, second):\n    # Adds the two values.\n    return first + second\n",
+    );
+    assert!(out.contains("L1    def compute(first, second): …"), "{out}");
+    assert!(!out.contains("# Adds"), "the body's comment is not the header:\n{out}");
+}
+
+#[test]
+fn php_nullsafe_calls_are_callers() {
+    let f = Fixture::new();
+    f.write(
+        "Store.php",
+        "<?php\nclass Store\n{\n    public function total(?Order $order): void\n    {\n        $order?->recalculateStats();\n    }\n}\n",
+    );
+    f.write("Order.php", "<?php\nclass Order\n{\n    public function recalculateStats(): void {}\n}\n");
+    f.commit("nullsafe call");
+    let r = f.trace(&["callers", "recalculateStats"]);
+    r.ok();
+    assert!(
+        r.stdout.contains("\n    Store.php  ") && r.stdout.contains("public function total(?Order $order): void { … }  // complexity 1 @ L6"),
+        "a `?->` call is a caller:\n{}",
+        r.stdout
+    );
+}
+
+#[test]
+fn callers_fit_the_budget_and_name_each_caller_once() {
+    let f = Fixture::new();
+    f.write("util.py", "def helper():\n    return 1\n");
+    for index in 0..60 {
+        f.write(
+            &format!("use_{index:02}.py"),
+            "from util import helper\n\ndef run():\n    helper()\n    helper()\n    return helper()\n",
+        );
+    }
+    f.commit("many callers");
+
+    let whole = f.trace(&["callers", "helper"]);
+    whole.ok();
+    assert_eq!(whole.stdout.matches("def run(): …").count(), 60, "{}", whole.stdout);
+    assert!(whole.stdout.contains("@ L4, L5, L6"), "{}", whole.stdout);
+
+    let r = f.trace(&["callers", "helper", "--budget", "2500"]);
+    r.ok();
+    assert!(r.stdout.chars().count() <= 2500, "{} characters:\n{}", r.stdout.chars().count(), r.stdout);
+    for index in 0..60 {
+        assert!(r.stdout.contains(&format!("use_{index:02}.py")), "use_{index:02}.py unnamed:\n{}", r.stdout);
+    }
+    assert!(r.stdout.contains("--budget 0]"), "{}", r.stdout);
+}
+
+#[test]
+fn list_and_diff_take_several_paths() {
+    let f = Fixture::new();
+    f.write("a/one.py", "x = 1\n");
+    f.write("b/two.py", "y = 2\n");
+    f.write("c/three.py", "z = 3\n");
+    f.commit("three directories");
+    f.write("a/one.py", "x = 4\n");
+    f.write("b/two.py", "y = 5\n");
+    f.write("c/three.py", "z = 6\n");
+
+    let r = f.trace(&["list", "a", "b"]);
+    r.ok();
+    assert!(r.stdout.contains("one.py") && r.stdout.contains("two.py"), "{}", r.stdout);
+
+    let r = f.trace(&["diff", "a", "b", "--json"]);
+    r.ok();
+    let mut changed: Vec<String> = r.json()["results"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| row["path"].as_str().unwrap().to_string())
+        .collect();
+    changed.sort();
+    assert_eq!(changed, vec!["a/one.py", "b/two.py"], "{}", r.stdout);
+
+    let r = f.trace(&["list", "a", "missing"]);
+    r.code_is(2);
+    assert!(r.stdout.contains("one.py") && r.combined().contains("missing"), "{}", r.combined());
+}
+
+#[test]
+fn read_names_the_docs_not_loaded_like_context() {
+    let f = Fixture::new();
+    f.write("sub/Claude.md", "# Sub\n\n- A rule for sub.\n");
+    f.write("sub/x.py", "def x():\n    return 1\n");
+    f.commit("nested doc");
+
+    let context = f.trace(&["context", "sub/x.py", "--no-record"]);
+    context.ok();
+    assert!(context.stdout.contains("docs_not_loaded") && context.stdout.contains("sub/Claude.md"), "{}", context.stdout);
+    let read = f.trace(&["read", "sub/x.py"]);
+    read.ok();
+    assert!(read.stdout.contains("docs_not_loaded") && read.stdout.contains("sub/Claude.md"), "{}", read.stdout);
 }
