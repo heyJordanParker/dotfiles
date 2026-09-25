@@ -22,7 +22,7 @@ Example: "Run the sync script. It restows every package."
 Never: "The installation of the package can be performed by the running of the synchronization script."
 
 ### Keep a paragraph to one idea
-Never: "What it lost, and why the per-use Context was better: nothing says what a use may sensibly read. Any document can bind any prefix that resolves; the console's context.ts had to hand-list what each editor offers because the backend could not say it; and a new value needed a new resolver class."
+Never: "What it lost, and why the per-use Context was better: nothing says what a use may sensibly read. Any document can bind any prefix that resolves; the SPA's context.ts had to hand-list what each editor offers because the backend could not say it; and a new value needed a new resolver class."
 
 ### Put every list item on its own line
 Items inside a sentence force the Architect to read the whole sentence to count them.
