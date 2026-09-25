@@ -195,10 +195,13 @@ Never: truncating a signature with an ellipsis.
 Each arrow carries the event that causes the move, so a transition that does not exist is visible by its absence.
 Example:
   ```
-  started ──run──> running ──answer written──> ok
-                      │
-                      ├──non-zero exit──> failed
-                      └──cancel────────> cancelled
+  started
+     │ run
+     ▼
+  running
+     ├── answer written ──> ok
+     ├── non-zero exit ───> failed
+     └── cancel ──────────> cancelled
   ```
 Never: a state diagram for a lifecycle with one path and no branch.
 

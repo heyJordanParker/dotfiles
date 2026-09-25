@@ -30,7 +30,7 @@ For each named system, show its shape: the public surface (`trace structure`), w
 One tree per system, drawn with /show-me: each file with a role note under nine words, contracts and boundaries named in the notes.
 
 ### Name the contracts between systems
-For each pair of systems that touch, state the contract in one sentence: who calls whom, with what, and who owns the data.
+For each pair of systems that touch, draw the contract with /show-me: an arrow labeled with the call, and the box that owns the data.
 
 ## 3. Read the history
 
@@ -85,10 +85,10 @@ Template:
   ---
 
   ## The premise, checked
-  What the task assumed, what the code shows, and what the change is actually against. One paragraph; when the premise held, one sentence.
+  What the task assumed, what the code shows, and what the change is actually against. When the premise held, one sentence.
 
   ## Why this system exists
-  What it does for the User and the business, in 2-4 sentences. No file names.
+  What it does for the User and the business. No file names.
 
   ## The architecture
   The annotated file trees, the contracts between systems, and the boundaries. What owns what.

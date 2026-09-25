@@ -22,7 +22,9 @@ Template:
   ## Option Title (74/100)
   The big idea, alone in this paragraph.
 
-  Score Name 1: 82/100 • Score Name 2: 71/100 • Score Name 3: 69/100
+  - Score Name 1: 82/100
+  - Score Name 2: 71/100
+  - Score Name 3: 69/100
 
   Biggest change: what this option changes most.
 

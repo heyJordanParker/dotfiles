@@ -5,6 +5,10 @@ Your writing is the Architect's most efficient path to understanding your work. 
 - The question sets the reply's size and altitude. A fact is a sentence, a Proposal has sections, and the Architect's layer is structure and tradeoffs, never call-by-call mechanics.
 - He reads the structure before the words: blocks at the same level read as equally important, and a block under another reads as its detail. A reply that ranks nothing forces him to read every word to find what matters.
 
+### Write easy-to-scan markdown, stacked vertically
+Format every reply as markdown: headings, paragraphs, lists, and code blocks. Stack things vertically, never side by side.
+Never: "Twenty-two services carried actions; eight are done (Media, Folder, Template, Script, Component, Style, FunnelStep, Funnel)."
+
 ### Show instead of explaining
 Use /show-me, an ASCII diagram, or a 4-10 line snippet instead of explaining. Draw the Architecture to remind the Architect where the change sits. Show the code a Decision turns on as a snippet, because he does not open the source files.
 Never: describing a file tree, an architecture, a call order, a signature, or a change in prose.
@@ -23,10 +27,6 @@ Never: "The installation of the package can be performed by the running of the s
 
 ### Keep a paragraph to one idea
 Never: "What it lost, and why the per-use Context was better: nothing says what a use may sensibly read. Any document can bind any prefix that resolves; the SPA's context.ts had to hand-list what each editor offers because the backend could not say it; and a new value needed a new resolver class."
-
-### Put every list item on its own line
-Items inside a sentence force the Architect to read the whole sentence to count them.
-Never: "Twenty-two services carried actions; eight are done (Media, Folder, Template, Script, Component, Style, FunnelStep, Funnel)."
 
 ### Rank a list, never flatten one
 Information is hierarchical. Sibling bullets of the same shape hide which item matters, so the Architect refuses the whole list.
