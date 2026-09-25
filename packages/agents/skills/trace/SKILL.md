@@ -65,7 +65,7 @@ Template:
   ```bash
   trace defines <symbol>
   trace callers <symbol>
-  trace callers Contact::recalculateStats
+  trace callers Loan::renew
   trace dependencies <symbol|--path P>
   trace usages <symbol|--path P>
   ```
@@ -86,7 +86,7 @@ Template:
 IF a search result names a `nested repository (its own search scope)`:
 ### Re-run the search with the base inside the nested repository
 A vendored checkout carries its own `.git`, and enumeration never crosses into it from above.
-Example: `trace find "*.min.js" public/content/themes` returns no matches and names `bricks`; `trace find "*.min.js" public/content/themes/bricks` returns 128.
+Example: `trace find "*.min.js" themes` returns no matches and names `themes/vendortheme`; `trace find "*.min.js" themes/vendortheme` returns `bundle.min.js`.
 
 ### Use state commands for change review
 Use `trace diff`, `trace status`, `trace history`, and `trace blame` to understand change scope, file history, and ownership.
@@ -154,17 +154,17 @@ Template:
 - A list of many files prints each file's facts on one line: `path  {imported_by: 63, cyclomatic_complexity: 66, lines: 318, git: modified}`.
 
 ### Read the front matter as the file's facts
-Keys use git and GitHub words; dates are ages. `docs_not_loaded` names the project docs this session has not read, and `directory` names the file's directory, its importers and imports, and its entries.
+Keys use git and GitHub words; dates are ages. `docs_not_loaded` names the project docs this session has not read, and `directory` names the file's directory, its importers and imports, and its entries the first time you see that directory or after they change. Entries leave out what git ignores.
 
 Template:
   ```yaml
   ---
-  file: app/Tenant/Entities/Contact.php
-  lines: 318
-  cyclomatic_complexity: 66
+  file: src/Entity/Loan.php
+  lines: 164
+  cyclomatic_complexity: 18
   complexity_rank: high
-  imported_by: 63
-  imports: 12
+  imported_by: 21
+  imports: 6
   git:
     status: modified
     commits: 41
@@ -172,15 +172,15 @@ Template:
     first_commit: 4 months ago
     last_commit: "3 days ago by Jordan Parker: fix: …"
     on_deploy_branches: [main, production]
-    usually_changed_with: [app/Tenant/Services/StoreService.php]
+    usually_changed_with: [src/Service/Notifier.php]
     main_author: Jordan Parker
-  docs_not_loaded: [app/Tenant/Claude.md]
+  docs_not_loaded: [src/Entity/Claude.md]
   directory:
-    path: app/Tenant/Entities/
-    imported_by: 140
-    imports: 35
-    annotations: {Entity: 27, Field: 310}
-    entries: [Address.php, Article.php, …]
+    path: src/Entity/
+    imported_by: 54
+    imports: 9
+    annotations: {Column: 61, Entity: 8, PrePersist: 3, PreUpdate: 3}
+    entries: [Author.php, Book.php, …]
   ---
   ```
 
@@ -189,11 +189,11 @@ A row is `L<line>` and the declaration's header as written — attributes, modif
 
 Template:
   ```text
-  L39   #[Entity]
-        class Contact extends User implements UrlRoutable { … }
-  L517    #[Action(Mode::Write)]
-          #[Access(System::class)]
-          public static function create(array $attributes = []): static { … }  // complexity 1
+  L10   #[ORM\Entity(repositoryClass: LoanRepository::class)]
+        class Loan implements \JsonSerializable { … }
+  L19     #[ORM\PrePersist]
+          #[ORM\PreUpdate]
+          public function stampDates(): void { … }  // complexity 1
   ```
 
 ### Read a search hit under the declarations that hold it
@@ -201,13 +201,17 @@ Template:
 
 Template:
   ```text
-  app/Tenant/Entities/Contact.php  {imported_by: 63, cyclomatic_complexity: 66, lines: 318, matches: 2}
-    L39   #[Entity] class Contact extends User implements UrlRoutable { … }
-    L578    public function recalculateStats(): void { … }  // complexity 3
-    L580:     app(Analytics::class)->recalculateStats($this);
+  src/Entity/Loan.php  {imported_by: 21, cyclomatic_complexity: 18, lines: 164, matches: 1}
+    L10   #[ORM\Entity(repositoryClass: LoanRepository::class)] class Loan implements \JsonSerializable { … }
+    L24     public function renew(int $days = 14): void { … }  // complexity 2
+    L27:      $this->notifier->renewed($this);
 
-  3 matches in 2 files
-  recalculateStats: 2 definitions (function) · mentioned in 5 files → trace callers recalculateStats
+  src/Service/Notifier.php  {imported_by: 9, cyclomatic_complexity: 4, lines: 48, matches: 1}
+    L7    class Notifier { … }
+    L9:     public function renewed(Loan $loan): void
+
+  2 matches in 2 files
+  renewed: 1 definition (function) · mentioned in 1 file → trace callers renewed
   ```
 
 ### Read the four declaration groups under a `diff` row
@@ -215,7 +219,7 @@ Template:
 
 Template:
   ```text
-  changed: L493 #[Field(label: 'Audiences', hidden: true, order: 44, config: ['attachable' => false])] public function audiences(): BelongsToMany { … } → L493 #[Field(label: 'Audiences', hidden: true, order: 44)] public function audiences(): BelongsToMany { … }
+  changed: L24 public function renew(int $days = 14): void { … } → L24 public function renew(int $days = 21): void { … }
   removed: L34 fn signature_lists(files: &[String], repo_root: &Path) -> HashMap<String, Vec<Signature>> { … }
   added: L28 fn record_for(file: &str, line: i64, name: &str) -> Option<surface::Row> { … }
   touches: L99 pub fn run(symbol: &str, limit: usize, as_json: bool) -> Result<Value> { … }

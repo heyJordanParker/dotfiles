@@ -840,7 +840,9 @@ fn render_one(
             if !not_loaded.is_empty() {
                 map.insert("docs_not_loaded".into(), not_loaded.into());
             }
-            if let Some(directory) = file_path.parent().and_then(context::directory_facts) {
+            if let Some(directory) =
+                file_path.parent().and_then(|directory| context::directory_facts(directory, true))
+            {
                 map.insert("directory".into(), Value::Object(directory));
             }
             map

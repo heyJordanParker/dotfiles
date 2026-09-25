@@ -3,6 +3,7 @@
 //! `<repo>/.tracer-cache/sessions/<session_id>/<agent_id>/` holds:
 //!   - `events.jsonl` — append-only event log, one JSON object per line
 //!   - `view.json`    — materialized projection: emitted (canonical path → content hash)
+//!   - `listings.json` — directory listings shown (canonical directory → listing hash)
 //!   - `.lock`        — flock'd across read + append + materialize
 //!
 //! The single source of session-context state for the tracer. Replaces the
@@ -39,6 +40,7 @@ use super::nested_memory::{self, LoadedMemory};
 use crate::{cache, relations::DirectoryMetrics};
 
 const AGENT_ID_DEFAULT: &str = "root";
+const LISTINGS: &str = "listings.json";
 
 static DIRECTORY_BASELINES: OnceLock<Mutex<BTreeMap<String, DirectoryMetrics>>> = OnceLock::new();
 
@@ -284,6 +286,63 @@ pub fn directory_baseline(dir: &str, current: &DirectoryMetrics) -> DirectoryMet
     *memo.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = stored;
     let _ = rustix::fs::flock(&lock_fh, rustix::fs::FlockOperation::Unlock);
     baseline
+}
+
+/// Whether this Agent has not been shown `entries` as `directory`'s listing
+/// since its context last reset, recording them as shown when it has not. A
+/// listing that changed on disk is unseen again. Always `true` without a
+/// session, so standalone use lists every time. A repeat reads one small file
+/// and takes no lock.
+pub fn listing_unseen(directory: &str, entries: &[String]) -> bool {
+    let Some(dir) = log_dir() else {
+        return true;
+    };
+    let hash = content_hash(&entries.join("\n"));
+    if shown_listings().get(directory) == Some(&hash) {
+        return false;
+    }
+    if fs::create_dir_all(&dir).is_err() {
+        return true;
+    }
+    let Ok(lock_fh) = fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(dir.join(".lock"))
+    else {
+        return true;
+    };
+    let _ = crate::timing::phase("lock session listings", || {
+        rustix::fs::flock(&lock_fh, rustix::fs::FlockOperation::LockExclusive)
+    });
+    // A concurrent call may have shown it between the read and the lock.
+    let mut shown = shown_listings();
+    let unseen = shown.get(directory) != Some(&hash);
+    if unseen {
+        shown.insert(directory.to_string(), hash);
+        if let Ok(value) = serde_json::to_value(&shown) {
+            if let Ok(mut temp) = tempfile::Builder::new().prefix(".listings.").tempfile_in(&dir) {
+                if temp.write_all(crate::jsonfmt::to_compact(&value).as_bytes()).is_ok() {
+                    let _ = crate::timing::phase("session listings", || temp.persist(dir.join(LISTINGS)));
+                }
+            }
+        }
+    }
+    let _ = rustix::fs::flock(&lock_fh, rustix::fs::FlockOperation::Unlock);
+    unseen
+}
+
+/// The listings this Agent has been shown: the active log's, else the
+/// archived one's, so a resumed Subagent keeps what its context still holds.
+fn shown_listings() -> BTreeMap<String, String> {
+    [log_dir(), archived_log_dir()]
+        .into_iter()
+        .flatten()
+        .map(|dir| dir.join(LISTINGS))
+        .find(|path| path.is_file())
+        .and_then(|path| fs::read_to_string(path).ok())
+        .and_then(|text| serde_json::from_str(&text).ok())
+        .unwrap_or_default()
 }
 
 /// Archived log directory for the current (session, agent).
@@ -574,6 +633,11 @@ pub fn record_context_reset(source: &str) -> usize {
     let Some(dir) = log_dir() else {
         return 0;
     };
+    // The reset drops the directory listings the Agent was shown too. It
+    // leaves an empty record, so an archived one never stands in for it.
+    if !shown_listings().is_empty() && fs::create_dir_all(&dir).is_ok() {
+        let _ = fs::write(dir.join(LISTINGS), "{}");
+    }
     let view_path = dir.join("view.json");
     // Nothing surfaced yet (no view on disk) → clean no-op, no event, no dir.
     if !view_path.is_file() {

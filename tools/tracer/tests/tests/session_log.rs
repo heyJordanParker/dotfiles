@@ -779,6 +779,37 @@ fn read_path_follows_archived_log_when_active_is_absent() {
 }
 
 #[test]
+fn a_resumed_subagent_sees_its_directory_listing_again_after_a_context_reset() {
+    let f = docs_repo();
+    let sid = fresh_session_id("archive-listing-reset");
+    let aid = "subagent-delta";
+    let env = [
+        ("CLAUDE_CODE_SESSION_ID", sid.as_str()),
+        ("TRACER_AGENT_ID", aid),
+    ];
+
+    let first = f.trace_env(&["context", "sub/util.py"], &env);
+    first.ok();
+    assert!(first.stdout.contains("  entries: "), "{}", first.stdout);
+    run_archive_hook(&f.root, &sid, aid);
+
+    // Resumed, the Subagent's context still holds the listing.
+    let resumed = f.trace_env(&["context", "sub/util.py"], &env);
+    resumed.ok();
+    assert!(!resumed.stdout.contains("  entries: "), "{}", resumed.stdout);
+
+    // Its compaction drops the listing, so the listing comes back.
+    f.trace_env(&["docs", "reset"], &env).ok();
+    let after_reset = f.trace_env(&["context", "sub/util.py"], &env);
+    after_reset.ok();
+    assert!(
+        after_reset.stdout.contains("  entries: "),
+        "the archived record must not stand in after a reset:\n{}",
+        after_reset.stdout
+    );
+}
+
+#[test]
 fn archive_hook_is_a_no_op_for_a_subagent_that_never_wrote_a_log() {
     // A subagent that returned without surfacing any docs or reads never
     // creates `sessions/<sid>/<aid>/`. The hook must exit cleanly and not

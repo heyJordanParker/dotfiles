@@ -76,7 +76,9 @@ fn file_info(path: &Path) -> Value {
     if let Some(doc) = crate::digest::nearest_doc(path, &repo_root) {
         front_matter.insert("nearest_doc".into(), doc.into());
     }
-    if let Some(directory) = path.parent().and_then(super::context::directory_facts) {
+    if let Some(directory) =
+        path.parent().and_then(|directory| super::context::directory_facts(directory, true))
+    {
         front_matter.insert("directory".into(), Value::Object(directory));
     }
 

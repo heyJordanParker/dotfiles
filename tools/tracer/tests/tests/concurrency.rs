@@ -131,6 +131,41 @@ fn concurrent_agents_share_one_parseable_directory_baseline() {
     assert!(directories.get("src/").is_some(), "{directories}");
 }
 
+/// Calls surfacing one directory at the same moment show its listing to the
+/// Agent exactly once: the record is re-read under the session lock, so no two
+/// calls both claim the first showing.
+#[test]
+fn concurrent_calls_show_a_directory_listing_once() {
+    let f = standard_repo();
+    f.trace(&["cache", "build", "."]).ok();
+    let session_id = format!(
+        "listing-once-{}",
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    );
+    let handles: Vec<_> = (0..8)
+        .map(|_| {
+            let root = f.root.clone();
+            let session_id = session_id.clone();
+            thread::spawn(move || {
+                trace_env(
+                    &root,
+                    ["context", "src/app.py"],
+                    &[("AGENT_SESSION_ID", session_id.as_str())],
+                )
+            })
+        })
+        .collect();
+    let runs: Vec<_> = handles.into_iter().map(|h| h.join().unwrap()).collect();
+    for run in &runs {
+        run.ok();
+    }
+    let listed = runs.iter().filter(|run| run.stdout.contains("  entries: ")).count();
+    assert_eq!(listed, 1, "the listing must show exactly once across concurrent calls");
+}
+
 /// A primer must finish when its warm cache learns a newly tracked directory.
 #[test]
 fn warm_context_avoids_deadlock() {

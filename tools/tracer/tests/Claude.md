@@ -26,7 +26,7 @@ Black-box behavior contract for the `trace` binary, pinning the observable surfa
 - `tests/declarations_and_references.rs` pins PSR-4 and `paths` resolution and the external rule.
 - `tests/declarations_and_references.rs` and `tests/enrichment.rs` pin declaration classification and annotations.
 - `tests/architecture_commands.rs` and `tests/primer.rs` pin the `stats` directory table and the primer's sections.
-- `tests/enrichment.rs` pins the YAML front matter, its `directory` block on every call, and `--budget` fitting on `read`, `context`, and `docs`.
+- `tests/enrichment.rs` pins the YAML front matter, its `directory` block on every call with its entries once per Agent and without what git ignores, and `--budget` fitting on `read`, `context`, and `docs`.
 - `tests/declarations_and_references.rs` holds the per-language inventory fixture: one source per language whose declarations cover that language's row set, asserting `header`, `header_line`, `line`, `end_line`, `container`, and `parent` for each.
 - `tests/declarations_and_references.rs` pins the ctags fallback on a shell fixture, the data-format deny list, retained Markdown headings, and that a warm `context` or `read` spawns no ctags.
 - `tests/enrichment.rs` pins the surface on the first and second `context` of one session, on `read`, `info`, a window, `--offset`/`--limit`, the batch `--json` `results[].content`, `read --at`, and a budget-trimmed read.
@@ -37,7 +37,7 @@ Black-box behavior contract for the `trace` binary, pinning the observable surfa
 - `tests/session_log.rs` and `tests/concurrency.rs` pin the session directory baseline and the `status` and `diff` directory block.
 - `tests/session_log.rs` pins the session-log event set and read coverage.
 - `tests/concurrency.rs` holds the deadlock tripwire: a 600-source fixture whose primer runs twenty times under a ten-second deadline.
-- `tests/speed.rs` contains loose regression tripwires for command latency; the speed gate is the `cargo xtask bench` run `tools/tracer/Claude.md` describes.
+- `tests/speed.rs` contains loose regression tripwires for command latency.
 - Binary-file `read` exits 0 and names the file's size instead of its bytes.
 - `survey` outside a git repository exits 0 with structurally valid empty JavaScript Object Notation.
 - `status` outside a git repository exits 0 with structurally valid empty JavaScript Object Notation.

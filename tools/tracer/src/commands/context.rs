@@ -192,15 +192,11 @@ fn file_mode_inner(
     // Record that the agent just Read this file, and which line range it read.
     // Enables cross-tool dedup (a later doc-injection or read against the same
     // content returns "already loaded" without re-emitting) and accumulates
-    // per-file read coverage. No-op without a session id. The return is whether
-    // this is the file's first surfacing this session — drives the
-    // once-per-session methods + directory-listing lines below.
+    // per-file read coverage. No-op without a session id.
     //
     // `record` is false for an Edit/Write: the agent gets the full summary but
     // the touch is not a read, so nothing is recorded and read coverage stays a
-    // function of genuine reads alone. With no record there is no view to dedup
-    // against, so the file surfaces fully (first_touch = true) — the same shape
-    // the no-session standalone path takes.
+    // function of genuine reads alone.
     let read_failed = match std::fs::read(p) {
         Ok(content) if record => {
             let content = String::from_utf8_lossy(&content).into_owned();
@@ -254,7 +250,7 @@ fn file_mode_inner(
     if !not_loaded.is_empty() {
         map.insert("docs_not_loaded".into(), not_loaded.into());
     }
-    if let Some(directory) = p.parent().and_then(directory_facts) {
+    if let Some(directory) = p.parent().and_then(|directory| directory_facts(directory, true)) {
         map.insert("directory".into(), Value::Object(directory));
     }
     // The rows fit in what the front matter leaves, each still named.
@@ -269,9 +265,12 @@ const DIRECTORY_ENTRY_LIMIT: usize = 40;
 
 /// A directory's facts: its path, how many files outside it import its files
 /// and how many it imports, the annotations its files carry, and its entries
-/// one level deep — sub-directories first, each suffixed `/`. `None` when the
-/// directory cannot be read or is empty.
-pub(crate) fn directory_facts(directory: &Path) -> Option<Map<String, Value>> {
+/// one level deep — sub-directories first, each suffixed `/`, the ones git
+/// ignores left out. `once` lists the entries only when this Agent has not
+/// been shown this listing, the way a file's front matter carries its
+/// directory; a directory asked for by name always lists them. `None` when
+/// the directory cannot be read or is empty.
+pub(crate) fn directory_facts(directory: &Path, once: bool) -> Option<Map<String, Value>> {
     let mut directories = Vec::new();
     let mut files = Vec::new();
     let entries = std::fs::read_dir(directory).ok()?;
@@ -310,7 +309,7 @@ pub(crate) fn directory_facts(directory: &Path) -> Option<Map<String, Value>> {
     let since = metrics
         .as_ref()
         .and_then(|metrics| session_log::at_session_start(&key, metrics));
-    map.insert("path".into(), key.into());
+    map.insert("path".into(), key.clone().into());
     if let Some(metrics) = metrics {
         map.insert("imported_by".into(), metrics.imported_by.into());
         map.insert("imports".into(), metrics.imports.into());
@@ -325,6 +324,21 @@ pub(crate) fn directory_facts(directory: &Path) -> Option<Map<String, Value>> {
             map.insert("annotations".into(), Value::Object(annotations));
         }
     }
+    // Whether the listing changed is judged by what is on disk, so the
+    // repository listing is consulted only when the entries print.
+    let seen_at = directory.canonicalize().unwrap_or_else(|_| directory.to_path_buf());
+    if once && !session_log::listing_unseen(&seen_at.to_string_lossy(), &entries) {
+        return Some(map);
+    }
+    // A directory git ignores whole keeps every entry: the Agent is working
+    // inside it.
+    if let Some(unignored) = repo_root
+        .as_ref()
+        .and_then(|root| repo_files::unignored(root, key_prefix(&key), &entries))
+        .filter(|unignored| !unignored.is_empty())
+    {
+        entries = unignored;
+    }
     let total = entries.len();
     entries.truncate(DIRECTORY_ENTRY_LIMIT);
     map.insert("entries".into(), entries.into());
@@ -332,6 +346,16 @@ pub(crate) fn directory_facts(directory: &Path) -> Option<Map<String, Value>> {
         map.insert("total_entries".into(), total.into());
     }
     Some(map)
+}
+
+/// A directory key as the prefix its repository-relative paths share: empty
+/// for the root.
+fn key_prefix(key: &str) -> &str {
+    if key == "./" {
+        ""
+    } else {
+        key
+    }
 }
 
 /// The docs governing this file — its `Claude.md` chain and matching rules —
@@ -389,7 +413,7 @@ pub fn run(
                 // same mapping a file's front matter nests.
                 let directory_context = |directory: &Path| {
                     let mut map = Map::new();
-                    if let Some(facts) = directory_facts(directory) {
+                    if let Some(facts) = directory_facts(directory, false) {
                         map.insert("directory".into(), Value::Object(facts));
                     }
                     let content =
@@ -1491,7 +1515,7 @@ mod tests {
         fx.write("other.rs", "fn t() {}\n");
         fx.stage();
 
-        let facts = directory_facts(&fx.root).expect("directory facts");
+        let facts = directory_facts(&fx.root, false).expect("directory facts");
 
         assert_eq!(facts["path"], "./");
         assert_eq!(

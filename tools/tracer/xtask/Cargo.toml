@@ -11,5 +11,3 @@ path = "src/main.rs"
 
 [dependencies]
 sha2 = "0.10"
-serde_json = "1"
-tracer-cli-tests = { path = "../tests" }

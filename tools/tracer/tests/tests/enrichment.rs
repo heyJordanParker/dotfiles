@@ -2750,11 +2750,8 @@ fn read_then_docs_share_session_dedupe() {
 
 #[test]
 fn context_file_mode_surfaces_rows_on_every_touch() {
-    // File mode's headline is the summary. On a file's FIRST
-    // surfacing in a session it also emits the once-per-session methods +
-    // directory-listing lines; on the SECOND surfacing those are deduped away
-    // and the output collapses to exactly the summary. This pins both the
-    // summary-as-headline contract and the per-session first-touch dedup.
+    // Every surfacing carries the rows and the directory facts; only the
+    // directory's entries, already shown, drop from the second.
     let f = standard_repo();
     // Warm the cache so graph counts are populated.
     f.trace(&["cache", "build", "."]).ok();
@@ -2771,7 +2768,13 @@ fn context_file_mode_surfaces_rows_on_every_touch() {
 
     let second = f.trace_env(&["context", "src/app.py"], &env);
     second.ok();
-    assert_eq!(first.stdout, second.stdout);
+    let without_entries: String = first
+        .stdout
+        .lines()
+        .filter(|line| !line.starts_with("  entries: ") && !line.starts_with("  total_entries: "))
+        .map(|line| format!("{line}\n"))
+        .collect();
+    assert_eq!(second.stdout, without_entries);
 }
 
 /// A repo with a file nested two directories deep alongside a sibling, used
@@ -2855,31 +2858,84 @@ fn directory_listing_is_immediate_parent_only_never_ancestors() {
 }
 
 #[test]
-fn directory_listing_surfaces_on_every_touch() {
+fn directory_listing_surfaces_once_per_agent_until_it_changes() {
     let f = nested_repo();
-    let sid = fresh_session_id("dir-dedup");
+    let sid = fresh_session_id("dir-once");
     let env = [("CLAUDE_CODE_SESSION_ID", sid.as_str())];
+    let listed = "\n  path: app/controllers/\n  imported_by: 0\n  imports: 0\n  entries: [orders.py, users.py]\n";
 
     let first = f.trace_env(&["context", "app/controllers/orders.py"], &env);
     first.ok();
+    assert!(first.stdout.contains(listed), "the first file lists its directory:\n{}", first.stdout);
+
+    // A neighbour keeps the directory facts and its rows, never the entries
+    // again, whichever command surfaces it.
+    for args in [
+        vec!["context", "app/controllers/users.py"],
+        vec!["read", "app/controllers/users.py"],
+        vec!["info", "app/controllers/users.py"],
+    ] {
+        let repeat = f.trace_env(&args, &env);
+        repeat.ok();
+        assert!(repeat.stdout.contains("\n  path: app/controllers/\n"), "{args:?}:\n{}", repeat.stdout);
+        assert!(!repeat.stdout.contains("  entries: "), "{args:?} repeated the listing:\n{}", repeat.stdout);
+        assert!(repeat.stdout.contains("def show()"), "{args:?} lost the rows:\n{}", repeat.stdout);
+    }
+
+    // Another Agent in the same session has not seen it.
+    let mut other = env.to_vec();
+    other.push(("TRACER_AGENT_ID", "other-agent"));
+    let fresh_agent = f.trace_env(&["context", "app/controllers/users.py"], &other);
+    fresh_agent.ok();
+    assert!(fresh_agent.stdout.contains(listed), "{}", fresh_agent.stdout);
+
+    // A changed listing is shown again, once.
+    f.write("app/controllers/admin.py", "def index():\n    return 1\n");
+    let changed = f.trace_env(&["context", "app/controllers/orders.py"], &env);
+    changed.ok();
     assert!(
-        first.stdout.contains("\n  path: app/controllers/\n"),
-        "first file in the directory must surface the listing:\n{}",
-        first.stdout
+        changed.stdout.contains("  entries: [admin.py, orders.py, users.py]\n"),
+        "{}",
+        changed.stdout
+    );
+    let after_change = f.trace_env(&["context", "app/controllers/orders.py"], &env);
+    after_change.ok();
+    assert!(!after_change.stdout.contains("  entries: "), "{}", after_change.stdout);
+
+    // A context reset — compaction or clear — shows it again.
+    f.trace_env(&["docs", "reset"], &env).ok();
+    let after_reset = f.trace_env(&["context", "app/controllers/orders.py"], &env);
+    after_reset.ok();
+    assert!(
+        after_reset.stdout.contains("  entries: [admin.py, orders.py, users.py]\n"),
+        "{}",
+        after_reset.stdout
+    );
+}
+
+#[test]
+fn directory_listing_leaves_out_what_git_ignores() {
+    let f = Fixture::new();
+    f.write(".gitignore", "*.pyc\ncache/\n");
+    f.write("app/tracked.py", "x = 1\n");
+    f.commit("ignore fixture");
+    f.write("app/compiled.pyc", "\0");
+    f.write("app/cache/entry.txt", "cached\n");
+    f.write("app/untracked.py", "y = 2\n");
+
+    let app = f.trace(&["context", "app/tracked.py"]);
+    app.ok();
+    assert!(
+        app.stdout.contains("  entries: [tracked.py, untracked.py]\n"),
+        "an ignored file and directory must drop, an untracked one stay:\n{}",
+        app.stdout
     );
 
-    let second = f.trace_env(&["context", "app/controllers/users.py"], &env);
-    second.ok();
-    assert!(
-        second.stdout.contains("\n  path: app/controllers/\n"),
-        "a neighbour in the directory must repeat its listing:\n{}",
-        second.stdout
-    );
-    assert!(
-        second.stdout.contains("def show(): …"),
-        "the neighbour's source row must surface:\n{}",
-        second.stdout
-    );
+    // Inside a directory git ignores whole, the Agent is working there: every
+    // entry stays.
+    let cache = f.trace(&["context", "app/cache/entry.txt"]);
+    cache.ok();
+    assert!(cache.stdout.contains("  entries: [entry.txt]\n"), "{}", cache.stdout);
 }
 
 #[test]
@@ -3057,24 +3113,24 @@ fn find_symbol<'a>(v: &'a serde_json::Value, name: &str) -> &'a serde_json::Valu
 fn structure_php_class_carries_attributes_extends_implements() {
     let f = Fixture::new();
     f.write(
-        "src/Funnel.php",
+        "src/Book.php",
         concat!(
             "<?php\n",
             "namespace App;\n",
             "#[Entity]\n",
-            "class Funnel extends Model implements UrlRoutable {\n",
+            "class Book extends Model implements JsonSerializable {\n",
             "  public function show(): string { return ''; }\n",
             "}\n",
         ),
     );
     f.commit("php class");
-    let r = f.trace(&["structure", "src/Funnel.php", "--json"]);
+    let r = f.trace(&["structure", "src/Book.php", "--json"]);
     r.ok();
     let v = r.view();
-    let cls = find_symbol(&v, "Funnel");
+    let cls = find_symbol(&v, "Book");
     assert_eq!(cls["kind"].as_str().unwrap(), "class", "{}", cls);
     assert_eq!(
-        cls["header"], "#[Entity]\nclass Funnel extends Model implements UrlRoutable { … }",
+        cls["header"], "#[Entity]\nclass Book extends Model implements JsonSerializable { … }",
         "{}",
         cls
     );
@@ -3769,7 +3825,7 @@ fn surface_rows_repeat_on_context_read_info_and_blame() {
         assert!(!output.contains("[symbols:"), "{output}");
         assert!(!output.contains("annotated:"), "{output}");
     }
-    assert_eq!(first.stdout, second.stdout);
+    assert_eq!(second.stdout, first.stdout.replace("  entries: [entry.php]\n", ""));
 
     let read = f.trace(&["read", "entry.php", "--method", "create", "--json"]);
     read.ok();
@@ -4125,15 +4181,15 @@ fn python_headers_stop_at_the_colon() {
 fn php_nullsafe_calls_are_callers() {
     let f = Fixture::new();
     f.write(
-        "Store.php",
-        "<?php\nclass Store\n{\n    public function total(?Order $order): void\n    {\n        $order?->recalculateStats();\n    }\n}\n",
+        "Desk.php",
+        "<?php\nclass Desk\n{\n    public function checkout(?Loan $loan): void\n    {\n        $loan?->renew();\n    }\n}\n",
     );
-    f.write("Order.php", "<?php\nclass Order\n{\n    public function recalculateStats(): void {}\n}\n");
+    f.write("Loan.php", "<?php\nclass Loan\n{\n    public function renew(): void {}\n}\n");
     f.commit("nullsafe call");
-    let r = f.trace(&["callers", "recalculateStats"]);
+    let r = f.trace(&["callers", "renew"]);
     r.ok();
     assert!(
-        r.stdout.contains("\n    Store.php  ") && r.stdout.contains("public function total(?Order $order): void { … }  // complexity 1 @ L6"),
+        r.stdout.contains("\n    Desk.php  ") && r.stdout.contains("public function checkout(?Loan $loan): void { … }  // complexity 1 @ L6"),
         "a `?->` call is a caller:\n{}",
         r.stdout
     );

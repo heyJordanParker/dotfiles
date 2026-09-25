@@ -869,15 +869,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tracer-cli-tests"
-version = "0.1.0"
-dependencies = [
- "hex",
- "serde_json",
- "sha2",
-]
-
-[[package]]
 name = "tree-sitter"
 version = "0.25.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1223,9 +1214,7 @@ dependencies = [
 name = "xtask"
 version = "0.1.0"
 dependencies = [
- "serde_json",
  "sha2",
- "tracer-cli-tests",
 ]
 
 [[package]]

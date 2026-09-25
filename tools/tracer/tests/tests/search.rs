@@ -2367,28 +2367,28 @@ fn grep_empty_result_names_nested_repos() {
 fn search_rows_name_the_enclosing_declarations() {
     let f = Fixture::new();
     f.write(
-        "Contact.php",
-        "<?php\nuse App\\Support\\Bulk;\n\nclass Contact\n{\n    public string $email;\n\n    public function recalculateStats(): void\n    {\n        $callback = function () {\n            throw new \\RuntimeException('needle');\n        };\n    }\n}\n",
+        "Member.php",
+        "<?php\nuse App\\Support\\Clock;\n\nclass Member\n{\n    public string $email;\n\n    public function recountLoans(): void\n    {\n        $callback = function () {\n            throw new \\RuntimeException('needle');\n        };\n    }\n}\n",
     );
-    f.commit("contact method");
+    f.commit("member method");
 
     let grep = f.trace(&["grep", "needle", ".", "--json"]);
     grep.ok();
     let hit = &grep.view()["results"][0];
     assert_eq!(
-        hit["declaration"]["name"], "recalculateStats",
+        hit["declaration"]["name"], "recountLoans",
         "{}",
         grep.stdout
     );
-    assert_eq!(hit["type"]["name"], "Contact", "{}", grep.stdout);
+    assert_eq!(hit["type"]["name"], "Member", "{}", grep.stdout);
 
     let grep_human = f.trace(&["grep", "needle", "."]);
     grep_human.ok();
     assert!(
-        grep_human.stdout.contains("\n  L4    class Contact { … }\n")
+        grep_human.stdout.contains("\n  L4    class Member { … }\n")
             && grep_human
                 .stdout
-                .contains("\n  L8      public function recalculateStats(): void")
+                .contains("\n  L8      public function recountLoans(): void")
             && grep_human.stdout.contains("RuntimeException('needle');"),
         "{}",
         grep_human.stdout
@@ -2398,16 +2398,16 @@ fn search_rows_name_the_enclosing_declarations() {
     let property = f.trace(&["grep", "email", ".", "--json"]);
     property.ok();
     assert_eq!(property.view()["results"][0]["declaration"]["name"], "$email", "{}", property.stdout);
-    assert_eq!(property.view()["results"][0]["type"]["name"], "Contact");
+    assert_eq!(property.view()["results"][0]["type"]["name"], "Member");
     let property_human = f.trace(&["grep", "email", "."]);
     property_human.ok();
     assert!(
-        property_human.stdout.contains("\n  L4    class Contact { … }\n  L6:     public string $email;\n"),
+        property_human.stdout.contains("\n  L4    class Member { … }\n  L6:     public string $email;\n"),
         "{}",
         property_human.stdout
     );
 
-    let top_level = f.trace(&["grep", "Bulk", ".", "--json"]);
+    let top_level = f.trace(&["grep", "Clock", ".", "--json"]);
     top_level.ok();
     assert!(
         top_level.view()["results"][0]["declaration"].is_null(),
@@ -2419,11 +2419,11 @@ fn search_rows_name_the_enclosing_declarations() {
         "{}",
         top_level.stdout
     );
-    let top_level_human = f.trace(&["grep", "Bulk", "."]);
+    let top_level_human = f.trace(&["grep", "Clock", "."]);
     top_level_human.ok();
     assert!(
-        top_level_human.stdout.contains("\n  L2:   use App\\Support\\Bulk;\n")
-            && !top_level_human.stdout.contains("class Contact"),
+        top_level_human.stdout.contains("\n  L2:   use App\\Support\\Clock;\n")
+            && !top_level_human.stdout.contains("class Member"),
         "{}",
         top_level_human.stdout
     );
@@ -2439,9 +2439,9 @@ fn search_rows_name_the_enclosing_declarations() {
     pattern.ok();
     assert_eq!(
         pattern.view()["results"][0]["declaration"]["name"],
-        "recalculateStats"
+        "recountLoans"
     );
-    assert_eq!(pattern.view()["results"][0]["type"]["name"], "Contact");
+    assert_eq!(pattern.view()["results"][0]["type"]["name"], "Member");
     let pattern_human = f.trace(&[
         "pattern",
         "throw new $EXCEPTION($MESSAGE);",
@@ -2451,23 +2451,23 @@ fn search_rows_name_the_enclosing_declarations() {
     ]);
     pattern_human.ok();
     assert!(
-        pattern_human.stdout.contains("\n  L4    class Contact { … }\n")
+        pattern_human.stdout.contains("\n  L4    class Member { … }\n")
             && pattern_human
                 .stdout
-                .contains("\n  L8      public function recalculateStats(): void"),
+                .contains("\n  L8      public function recountLoans(): void"),
         "{}",
         pattern_human.stdout
     );
 
     f.write(
-        "Contact.php",
-        "<?php\nuse App\\Support\\Bulk;\n\nclass Contact\n{\n    public string $email;\n\n    public function recomputeStats(): void\n    {\n        $callback = function () {\n            throw new \\RuntimeException('needle');\n        };\n    }\n}\n",
+        "Member.php",
+        "<?php\nuse App\\Support\\Clock;\n\nclass Member\n{\n    public string $email;\n\n    public function recomputeLoans(): void\n    {\n        $callback = function () {\n            throw new \\RuntimeException('needle');\n        };\n    }\n}\n",
     );
     let historical = f.trace(&["grep", "needle", ".", "--at", "HEAD", "--json"]);
     historical.ok();
     assert_eq!(
         historical.view()["results"][0]["declaration"]["name"],
-        "recalculateStats"
+        "recountLoans"
     );
 }
 

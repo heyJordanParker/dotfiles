@@ -61,6 +61,8 @@ Local code-intelligence command-line interface for Agents working in a repositor
 - `DirectoryMetrics` counts a directory's direct files only: `imported_by` is the distinct outside files importing them and `imports` the distinct outside files they import; an `AMBIGUOUS` row and a same-parent edge count for neither.
 - `context`, `read`, `status`, `diff`, file `info`, and `grep` pass `module_counts` to their facts because they already load the relations index; `pattern` and `blame` do not.
 - The front matter's `directory` block prints on every file call, built from one `read_dir` and the directory-metrics memo, never from a per-file facts resolve; `record_read` records coverage.
+- A file call lists its directory's `entries` only when `session_log::listing_unseen` finds that Agent has not been shown that listing since its last context reset; `listings.json` in the Agent's session directory holds each listing's hash, and a repeat reads it without the lock.
+- `entries` leave out what git ignores, judged by `repo_files::unignored` against the memoized repository listing, and only when they print; a directory git ignores whole keeps every entry. A directory named on the command line always lists its entries.
 - `session_log::directory_baseline` stores the session's first-touch metrics in `sessions/<session_id>/directories.json`, written under the session `.lock` on a miss only and read once per process into a memo.
 - `summary.rs` owns `Facts`, the one structure every command shows about a file: YAML front matter through `summary::front_matter`, the same keys under `context.files[<path>]` in `--json`, and `Facts::headline` as the one-line flow mapping a list of many files shows.
 - `yamlfmt` owns the YAML byte format.
@@ -73,9 +75,6 @@ Local code-intelligence command-line interface for Agents working in a repositor
 - A `callers` row is one calling declaration with every line it calls from.
 - `diff` pairs declarations across its two sides by `(container, name)` into `changed`, `removed`, and `added`, and maps each `--unified=0` hunk to the current-side rows it intersects as `touches`.
 - The `trace stats` directory table costs the relations index load.
-- `cargo xtask bench` is the speed gate: two detached worktrees carrying the same fixture edits, interleaved samples, a bootstrap 95% interval on the median ratio per workload, passing at an upper bound of 1.03 or under, with samples doubling to 480 while the interval straddles it.
-- The bench also runs a sustained workload of ten interleaved one-second rounds at thirty `context` requests per second per side, one session id and thirty Agent ids; it passes when each side completes 300 requests, neither side's backlog exceeds 30, and the ratio interval's upper bound is at or under 1.03.
-- A bench child that exceeds its 60-second deadline is killed and the sample retried up to three times; the table prints the per-side retry counts.
 - The index writes every path once into a table and references it by position.
 - In memory a path is one shared handle, and every list that names a file holds a clone of it.
 - The index is mutable and rewritten in place, so its key carries no fingerprint.

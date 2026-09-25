@@ -95,8 +95,8 @@ class Sample {
     public function __construct(private readonly Level $level) {}
     /** @internal since 2.0 */
     public function old(): void {}
-    #[Access(System::class)]
-    #[Action(Mode::Write)]
+    #[Route('/samples', methods: ['POST'])]
+    #[IsGranted('ROLE_ADMIN')]
     public static function create(array $attributes = []): static { return new static; }
 }
 function blockOnNextLine(): void
@@ -144,7 +144,7 @@ const [a, setA] = useState(0);
         ("sample.php", "VERSION", 12, 12, 12, "constant", Some("Sample"), Some(2), "private const VERSION = 3;"),
         ("sample.php", "$level", 13, 13, 13, "property", Some("Sample"), Some(2), "private readonly Level $level"),
         ("sample.php", "old", 15, 14, 15, "function", Some("Sample"), Some(2), "/** @internal since 2.0 */\npublic function old(): void { … }"),
-        ("sample.php", "create", 18, 16, 18, "function", Some("Sample"), Some(2), "#[Access(System::class)]\n#[Action(Mode::Write)]\npublic static function create(array $attributes = []): static { … }"),
+        ("sample.php", "create", 18, 16, 18, "function", Some("Sample"), Some(2), "#[Route('/samples', methods: ['POST'])]\n#[IsGranted('ROLE_ADMIN')]\npublic static function create(array $attributes = []): static { … }"),
         ("sample.php", "blockOnNextLine", 20, 20, 22, "function", None, None, "function blockOnNextLine(): void { … }"),
         ("sample.ts", "App", 2, 1, 5, "class", None, None, "@Injectable()\nexport default class App extends React.Component<Props> { … }"),
         ("sample.ts", "count", 3, 3, 3, "property", None, Some(0), "private count = 0;"),

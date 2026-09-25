@@ -164,6 +164,28 @@ pub(crate) fn tracked_set_state(repo_root: &Path) -> Option<Arc<TrackedSet>> {
     .map(Arc::clone)
 }
 
+/// The names among one directory's `entries`, a sub-directory suffixed `/`,
+/// that git does not ignore: a file the repository lists, or a directory
+/// holding one. `directory` is the prefix its repository-relative paths
+/// share, empty for the root. None when the repository cannot be listed.
+pub(crate) fn unignored(repo_root: &Path, directory: &str, entries: &[String]) -> Option<Vec<String>> {
+    let listing = tracked_set_state(repo_root)?;
+    let held: HashSet<&str> = listing
+        .tracked
+        .iter()
+        .chain(listing.untracked.iter())
+        .filter_map(|path| path.strip_prefix(directory))
+        .filter_map(|below| below.split('/').next())
+        .collect();
+    Some(
+        entries
+            .iter()
+            .filter(|entry| held.contains(entry.trim_end_matches('/')))
+            .cloned()
+            .collect(),
+    )
+}
+
 fn split_tracked(
     paths: &[String],
     statuses: &[bool],

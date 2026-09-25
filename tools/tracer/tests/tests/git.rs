@@ -814,13 +814,13 @@ fn diff_json_file_context_omits_annotations() {
 fn diff_surfaces_changed_added_removed_and_touched_rows() {
     let f = Fixture::new();
     f.write(
-        "Contact.php",
-        "<?php\nclass Contact {\n    #[Bulk]\n    public function delete(string $id): void {}\n\n    public function save(string $first): void {}\n\n    public function removed(): void {}\n\n    public function touched(): void {\n        $value = 'remove me';\n    }\n}\n",
+        "Shelf.php",
+        "<?php\nclass Shelf {\n    #[Deprecated]\n    public function delete(string $id): void {}\n\n    public function save(string $first): void {}\n\n    public function removed(): void {}\n\n    public function touched(): void {\n        $value = 'remove me';\n    }\n}\n",
     );
-    f.commit("contact methods");
+    f.commit("shelf methods");
     f.write(
-        "Contact.php",
-        "<?php\nclass Contact {\n    #[Bulk(label: 'Delete')]\n    public function delete(string $id): void {}\n\n    public function save(string $last): void {}\n\n    public function added(): void {}\n\n    public function touched(): void {\n    }\n}\n",
+        "Shelf.php",
+        "<?php\nclass Shelf {\n    #[Deprecated(since: '2.0')]\n    public function delete(string $id): void {}\n\n    public function save(string $last): void {}\n\n    public function added(): void {}\n\n    public function touched(): void {\n    }\n}\n",
     );
 
     let json = f.trace(&["diff", "--json"]);
@@ -830,8 +830,8 @@ fn diff_surfaces_changed_added_removed_and_touched_rows() {
         .as_array()
         .unwrap()
         .iter()
-        .find(|row| row["path"] == "Contact.php")
-        .expect("Contact.php diff row missing");
+        .find(|row| row["path"] == "Shelf.php")
+        .expect("Shelf.php diff row missing");
     assert!(
         row["changed"]
             .as_array()
