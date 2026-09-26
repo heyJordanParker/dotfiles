@@ -1,7 +1,7 @@
 ---
 name: commit
 description: |
-  Mandatory contract for every commit. The classifier names it when it authorizes a commit — it injects "Skills to execute: /commit" whenever the Architect asks to commit ("/commit", "commit this", "create a commit"). Holds the whole commit job: stage, write the message, commit, verify, then suggest which session notes should become permanent — plus the commit-message format (type prefix, what+why body, file tree). TRIGGER on every commit-authorized turn, or when the Architect asks to write or revise a commit message. DO NOT TRIGGER when the Architect has not asked to commit — applying changes, deploying, shipping, or replacing files are not commit requests.
+  Mandatory contract for every commit. The classifier names it when it authorizes a commit — it injects "Skills to execute: /commit" whenever the Architect asks to commit ("/commit", "commit this", "create a commit"). Holds the whole commit job: commit your own changes, write the message, commit, verify, then suggest which session notes should become permanent — plus the commit-message format (type prefix, Capability subject, Problem and Solution body, file tree). TRIGGER on every commit-authorized turn, or when the Architect asks to write or revise a commit message. DO NOT TRIGGER when the Architect has not asked to commit — applying changes, deploying, shipping, or replacing files are not commit requests.
 ---
 
 # Commit
@@ -22,89 +22,90 @@ Full diff:
 Recent commits:
 !`git log --oneline -10`
 
-## 2. Stage the requested changes
+## 2. Commit only your own changes
 
-Stage all changes unless the Architect named a subset.
+- Other Agents work the same tree in parallel.
 
-IF no changes are available to commit:
+IF you changed nothing:
 ### Stop with the exact nothing-to-commit message
 Say `Nothing to commit.` and stop.
 
-IF current changes include secrets, credentials, or unrelated files:
-### Warn and confirm before staging
-Name the files that do not belong, then wait for the Architect before staging or committing.
+IF your changes hold a secret or a credential:
+### Stop and warn the Architect
+Commit nothing. Show the Architect the secret's file and line, then wait for his answer.
 
 ## 3. Write and commit the message
 
-Write the message in the shape below to a file, match recent commit style, then `git commit -F` it.
+Make one commit. Write the message to a file, then commit your files with `git commit -F <message-file> -- <your files>`.
 
-### Describe the staged changeset, not your own work
-Other Agents work the same branch, so the staged diff is larger than your Context. Write the message from the step-1 diff, covering every staged change equally. Run `trace diff` and read any staged change you do not recognize before writing a word about it.
-Never: a subject or body scoped to the changes you made this session while the diff carries more.
+### Describe everything the commit records, with equal weight
+Your files can hold another Agent's edits, and the commit takes each file whole. The changes you worked on last fill most of your Context, so weigh each change by its effect on the User, never by how much of it you remember.
 
-### Use the repository commit-message shape
-The type prefix is one of `feat`, `fix`, `chore`, `refactor`, `docs`, or `test`. The subject is lowercase after the colon, under 72 characters, and summarizes every committed change. The body weaves WHAT changed and WHY together instead of splitting them into separate sections. The file tree comes last, drawn with /show-me.
+### Write WHAT changed and WHY as Capabilities, Problems, and Solutions
+The type prefix is one of `feat`, `fix`, `chore`, `refactor`, `docs`, or `test`. The subject is lowercase after the colon, under 72 characters, and says what the User can do now, covering every committed change. The body says WHAT changed and WHY: the Problem each change solves and the Solution it takes. The body uses the product's words, and the file tree holds the code's names. The file tree comes last, drawn with /show-me, and each annotation says WHAT that file now does.
 
 Template:
   ```
-  <type>: <subject - WHAT changed, all changes summarized>
+  <type>: <what the User can do now, largest User impact first>
 
-  <WHAT changed + WHY, combined naturally>
+  <the Problem the commit solves and the Solution it takes>
 
-  <additional detail if multi-file or complex>:
-  - <change 1>
-  - <change 2>
+  <what the User can do now>:
+  - <WHAT changed and WHY>
 
   <annotated file tree from /show-me>
   ```
 
-### Order the changes in the prose by overall User impact
-When the body carries more than one change, the change with the largest effect on the User comes first, and the rest follow in decreasing impact.
+### Order Capabilities by User impact
+The Capability with the largest effect on the User comes first, in the subject and in the body.
+
+### Head each group with the Capability it gives
+Use one bullet group per Capability when the commit gives more than one. The heading says what the User can do now, as in `Track visitors with Matomo:`.
 
 ### Write the commit message without self-reference or Claude attribution
 The message names the change, not the Agent that made it, and ends at the file tree.
 Never: `I added the feature`, `we fixed it`, `Claude updated the files`, a `Claude-Session:` trailer, or a `Co-Authored-By: Claude` line.
 
-### Group multi-concern commits by area
-Use bullets only when a commit has more than one concern.
-
-Example: single-concern fix.
+Example: one Capability.
   ```
-  fix: prevent cron ping pileup when requests take longer than interval
+  fix: keep cron running when a request outlasts the ping interval
 
-  WordPress wp-cron.php uses ignore_user_abort(true), so PHP keeps
-  processing after client timeout. With 10s interval and 5s timeout,
-  requests piled up. Now skips ping if previous request is in flight.
+  WordPress wp-cron.php keeps running after the client times out, so with a
+  10s interval and a 5s timeout the requests piled up and the site stalled.
+  The ping now skips while the previous request is still in flight.
 
   app/
-  ├── Services/CronPing.php*    <- added in-flight check
-  └── config/schedule.php       <- interval config lives here
+  ├── Services/CronPing.php*    <- skips a ping while one is in flight
+  └── config/schedule.php       <- the interval the ping runs on
   ```
 
-Example: multi-concern feature.
+Example: several Capabilities.
   ```
-  feat: add Matomo configurator, 1Password secrets, and security hardening
+  feat: track visitors with Matomo and load secrets from 1Password
 
-  Matomo:
-  - MatomoConfigurator with MaxMind GeoIP download
-  - Patches to remove newsletter and update nags
+  Sites had no analytics, and every secret lived in plain files on the
+  server. Matomo now installs configured, and secrets load from 1Password.
 
-  Secrets:
-  - 1Password integration via .vault_pass
-  - `bun secrets` command for local env vars
+  Track visitors with Matomo:
+  - Matomo installs with GeoIP, so visits resolve to a country
+  - The newsletter and update nags are gone from its dashboard
+
+  Load secrets from 1Password:
+  - Deploys read secrets from the 1Password vault
+  - `bun secrets` loads the same secrets for local development
 
   app/
   ├── Configurators/
-  │   └── MatomoConfigurator.php*   <- new configurator
+  │   └── MatomoConfigurator.php*   <- installs Matomo with GeoIP
   ├── Commands/SecretsCommand.php*  <- bun secrets
-  ├── .vault_pass*                  <- 1Password integration
+  ├── .vault_pass*                  <- connects deploys to 1Password
   └── trellis/
-      └── group_vars/all/vault.yml* <- encrypted secrets
+      └── group_vars/all/vault.yml* <- the encrypted secrets
   ```
 
 Example: trivial change.
   ```
-  chore: update aws-sdk-php to fix security advisory
+  chore: close the aws-sdk-php security advisory
 
   composer.lock*
   ```
@@ -113,7 +114,8 @@ Never: `Completely turned off cors`, `Fixed stuff`, or a multi-file commit witho
 
 ## 4. Verify the commit
 
-The commit command must exit 0, then `trace status` must show a clean tree. Report `Committed: <sha> <subject>`.
+### Report the commit once the command exits 0
+Report `Committed: <sha> <subject>`.
 
 ## 5. Suggest permanent session notes
 
