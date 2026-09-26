@@ -50,7 +50,7 @@ def test_codex_only_agent_is_refused_here(config_root, monkeypatch, capsys):
     config_root("bulk-rewriter", CODEX_ONLY)
     assert _run(monkeypatch, "bulk-rewriter") == 2
     out = _feedback(capsys)
-    assert "declares `harness: codex`" in out
+    assert "bulk-rewriter runs on codex only" in out
     assert "codex-run @bulk-rewriter" in out
 
 

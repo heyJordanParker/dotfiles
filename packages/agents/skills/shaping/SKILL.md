@@ -5,7 +5,7 @@ description: Collaborative Shaping with the Architect: capture requirements, bou
 
 # Shaping
 
-- Shaping defines the problem and compares shapes before Execution.
+- Shaping defines the Problem and compares shapes before Execution.
 - Shaping is the first part of `Shaping → Modeling → Slicing`.
 - Requirements, boundaries, and shapes can change each other in any order; every checkpoint shows the current state of all three.
 - `CURRENT` is the reserved shape name for the existing system.
@@ -22,7 +22,7 @@ Broad refactor energy earns broader Architecture options. Careful adjustment ene
 ## 2. Maintain requirements as R
 
 ### R states what is needed
-Use `R0, R1...` for the problem space. R is negotiated with the Architect, never auto-filled by you. R says what must be true, not which shape satisfies it.
+Use `R0, R1...` for the Problem space. R is negotiated with the Architect, never auto-filled by you. R says what must be true, not which shape satisfies it.
 
 ### Keep top-level R readable
 Use no more than nine top-level Rs. Group overflow as `R3.1`, `R3.2`.
@@ -104,8 +104,8 @@ The discomfort means the table is missing a requirement.
 ## 7. Research unknown mechanics
 
 IF mechanics or feasibility are uncertain:
-### Dispatch one researcher Subagent per unknown
-Research learns how the existing system works and what it would take to build a part before proposing it. Dispatch multiple researcher Subagents in parallel when multiple unknowns exist.
+### Research each unknown before proposing the part
+Run `codex-run @explorer` for existing code and `codex-run @researcher` for libraries and vendors, one per unknown.
 
 ### Research acceptance names understanding, not a Decision
 Acceptance says what you will be able to describe after research. The Decision clears the flag afterward; the research does not.

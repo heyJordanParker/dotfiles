@@ -12,30 +12,20 @@ BINDING = {
     "harness": "claude",
 }
 
-EXPLORE_MSG = """BLOCKED: Built-in Explore is replaced by the explorer agent.
+EXPLORE_MSG = """BLOCKED: use the explorer agent instead of Explore.
 
-Explore runs on Haiku 4.5 and returns excerpts that miss content past its read window — unreliable for review, audits, or any open-ended analysis.
-explorer runs with the trace skill (a code-intelligence CLI that surfaces complexity, callers, dependencies, git lifecycle, deploy-branch presence, and nested Claude.md context per file). It reads whole files, categorizes findings by impact (load-bearing / moderate / minor), and returns a structured five-section trace report with verified file:line citations.
+Run it through Bash with `run_in_background: true`:
 
-Use it for "where is X used", "how does Y work end-to-end", "what depends on Z", or any question that needs the agent to map connections between files, modules, or layers. For external research (library docs, API references), use the researcher agent instead.
+  codex-run @explorer "<the task>"
 
-Set subagent_type: explorer. Brief it with WHY and WHAT — the question or goal — not HOW (which files to read or commands to run)."""
+Run library and API research as `codex-run @researcher`."""
 
-GENERAL_MSG = """BLOCKED: Built-in general-purpose is replaced by specialized Opus agents.
+GENERAL_MSG = """BLOCKED: use a roster Agent instead of general-purpose.
 
-A specialist gives better domain framing, the right tool set, and Opus-level reasoning. Match by task:
+Dispatch these with subagent_type: architect, designer, code-reviewer, debugger, ux-tester, context-engineer.
+Run these through Bash with `run_in_background: true`, as codex-run @<name>: backend-engineer, frontend-engineer, researcher, tester.
 
-  architect          — system design, encapsulation, dependency review (read-only)
-  backend-engineer   — backend implementation, API correctness, regression checks
-  frontend-engineer  — frontend implementation + user flow verification
-  designer           — UI components, CSS, visual implementation
-  code-reviewer      — diff slop scanning (over-defense, dead code, silent failures)
-  debugger           — bug investigation, root cause tracing (read-only)
-  researcher         — external research and in-codebase lookups (read-only)
-  tester             — feature verification: API curls, UI walks, flow tracing (read-only)
-  ux-tester          — pure user-perspective UX walkthroughs (no code reading)
-  context-engineer   — Claude.md maintenance, hooks, skills, plugin work
-Set subagent_type to one of the above. Use /delegate and brief with its Story / Business / Goal / Verification / Architecture / Process Template."""
+Write the brief with /delegate."""
 
 PLAN_MSG = """BLOCKED: Built-in Plan is replaced by the architect agent.
 

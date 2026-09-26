@@ -34,18 +34,13 @@ BINDING = {
 
 _HERE = ("all", "claude")
 
-CODEX_MSG = """BLOCKED: the %s agent declares `harness: codex`.
+CODEX_MSG = """BLOCKED: %s runs on codex only.
 
-It runs on codex only. Its model is a `codex-model`, which names nothing to
-Claude, so this dispatch would run it on whatever model this root defaults to —
-a different agent than its definition describes.
+Run it through Bash with `run_in_background: true`:
 
-Run it through the Bash tool instead, with the same task prompt:
+  codex-run @%s "<the task>"
 
-  codex-run @%s "<the same task prompt>"
-
-The whole result comes back on stdout: the answer, then a trailer carrying the
-status and the session id you resume it with."""
+The completion notification holds the result and the id to resume it."""
 
 UNKNOWN_MSG = """BLOCKED: the %s agent declares `harness: %s`, which is not a harness.
 
