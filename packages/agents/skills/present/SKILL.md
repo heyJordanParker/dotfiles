@@ -46,7 +46,7 @@ Two items sit at the same level only when they are equally important.
 Repeat what an earlier reply said whenever the Architect needs it now.
 Never: "as in the tree above", "step 3 covers this", "see the Solution below".
 
-### Say the problem in the heading
+### Say the Problem in the heading
 A Problem heading says what the User cannot do. A Solution heading says what changes.
 Never: "Decision 1: what a step's rule is".
 Never: "Problem: the Goal 2 bar says every server-side option assembly deletes, and one survives it".
@@ -54,7 +54,7 @@ Never: "What the report got wrong".
 Example: "Problem 2: the cart has two ways to add an offer"; "Solution: the step states how it sells".
 
 ### Introduce every name before you use it
-A column, method, or key arrives with its owner in the same sentence — "the `designer_styles` table's `css` column", never bare "`css`" — and an internal name earns its place only with what it means for the tenant or the product in that sentence. A thing the reply has not introduced, such as "the seam" or "the shaker", is renamed to what it is.
+A column, method, or key arrives with its owner in the same sentence — "the `designer_styles` table's `css` column", never bare "`css`" — and an internal name earns its place only with what it means for the User or the product in that sentence. A thing the reply has not introduced, such as "the seam" or "the shaker", is renamed to what it is.
 Never: a sentence that is a chain of internal names with no product meaning attached.
 
 ### Say what a name is the first time you use it
