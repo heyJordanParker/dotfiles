@@ -265,7 +265,7 @@ fn grafts(repo_root: &Path) -> HashSet<String> {
     }
 }
 
-fn historical(repo_root: &Path) -> HashMap<String, GitActivity> {
+fn historical(repo_root: &Path) -> (HashMap<String, GitActivity>, bool) {
     let history = walk_history(repo_root);
     let mut out: HashMap<String, GitActivity> = HashMap::new();
     for (path, info) in &history.entries {
@@ -291,7 +291,7 @@ fn historical(repo_root: &Path) -> HashMap<String, GitActivity> {
             },
         );
     }
-    out
+    (out, history.finished)
 }
 
 fn activity_for(
@@ -410,7 +410,7 @@ fn cached_history(repo_root: &Path) -> Arc<HashMap<String, GitActivity>> {
 fn cached_history_uncached(repo_root: &Path) -> HashMap<String, GitActivity> {
     let head = match head_sha(repo_root) {
         Some(h) => h,
-        None => return historical(repo_root),
+        None => return historical(repo_root).0,
     };
     let key = format!("git_activity_v2__{head}__{}", cutoff_30d());
     if let Some(history) = cache::load_bytes(cache::NAMESPACE_FILE, &key, repo_root)
@@ -418,7 +418,10 @@ fn cached_history_uncached(repo_root: &Path) -> HashMap<String, GitActivity> {
     {
         return history;
     }
-    let history = historical(repo_root);
+    let (history, finished) = historical(repo_root);
+    if !finished {
+        return history;
+    }
     // `working_state` is `skip_serializing`, so the entry holds only the
     // HEAD-keyed facts the key actually determines.
     if let Some(true) = serde_json::to_value(&history)
@@ -443,24 +446,25 @@ struct HistoryEntry {
     co_changed: Vec<(String, i64)>,
 }
 
-/// Result of the bounded history walk: the per-file entries plus whether
-/// the walk stopped at `HISTORY_CAP` before reaching the first commit (in
-/// which case every entry's `commit_count` / `first_seen` is a floor).
+/// Result of the bounded history walk: the per-file entries, whether the walk
+/// stopped before reaching the first commit (in which case every entry's
+/// `commit_count` / `first_seen` is a floor), and whether git finished it.
 #[derive(Default)]
 struct History {
     entries: BTreeMap<String, HistoryEntry>,
     truncated: bool,
+    finished: bool,
 }
 
 /// Single git log pass with rename detection, producing
 /// last/first/count/commits_30d/rename/top_author/co_changed per file. The
 /// 30-day counts are derived here from each commit's date — no second log
-/// invocation. Bounded to `HISTORY_CAP` commits; `truncated` reports
-/// whether the cap was hit.
+/// invocation. Bounded to `HISTORY_CAP` commits and to the objects already
+/// on disk; `truncated` reports whether either bound ended the walk.
 fn walk_history(repo_root: &Path) -> History {
     let cap_arg = format!("-n{HISTORY_CAP}");
     // `%H` leads the record so a graft commit can be recognized and dropped.
-    let stdout = match git_output(
+    let output = match git_command(
         repo_root,
         [
             "log",
@@ -472,10 +476,13 @@ fn walk_history(repo_root: &Path) -> History {
             "--pretty=format:COMMIT|%H|%ad|%an|%s%x00",
             "--date=short",
         ],
+        |command| command.env("GIT_NO_LAZY_FETCH", "1").output(),
     ) {
-        Ok(output) if output.status.success() => output.stdout,
-        _ => return History::default(),
+        Ok(output) => output,
+        Err(_) => return History::default(),
     };
+    let finished = output.status.success();
+    let stdout = output.stdout;
     let graft_shas = grafts(repo_root);
     let cutoff_30d = cutoff_30d();
 
@@ -660,7 +667,8 @@ fn walk_history(repo_root: &Path) -> History {
     }
     History {
         entries: out,
-        truncated: commit_seen >= HISTORY_CAP,
+        truncated: commit_seen >= HISTORY_CAP || !finished,
+        finished,
     }
 }
 
@@ -965,7 +973,10 @@ fn presence_by_path(repo_root: &Path) -> HashMap<String, Vec<&'static str>> {
             .collect();
     }
 
-    let computed = compute_presence(repo_root, &present);
+    let (computed, complete) = compute_presence(repo_root, &present);
+    if !complete {
+        return computed;
+    }
     let payload = json!(computed);
     if let Ok(true) = cache::save(cache::NAMESPACE_FILE, &key, &payload, repo_root) {
         cache::evict_prefixed(cache::NAMESPACE_FILE, "git_presence", &key, repo_root);
@@ -973,16 +984,23 @@ fn presence_by_path(repo_root: &Path) -> HashMap<String, Vec<&'static str>> {
     computed
 }
 
-/// Run the `ls-tree` walks over the resolved present deploy branches.
+/// Run the `ls-tree` walks over the resolved present deploy branches, and
+/// whether every walk finished from the objects already on disk.
 fn compute_presence(
     repo_root: &Path,
     present: &[(&str, &str, String)],
-) -> HashMap<String, Vec<&'static str>> {
+) -> (HashMap<String, Vec<&'static str>>, bool) {
     let mut labels_for: HashMap<String, Vec<&'static str>> = HashMap::new();
+    let mut complete = true;
     for (label, _, tip) in present {
-        let output = match git_output(repo_root, ["ls-tree", "-rz", "--name-only", tip]) {
+        let output = match git_command(repo_root, ["ls-tree", "-rz", "--name-only", tip], |command| {
+            command.env("GIT_NO_LAZY_FETCH", "1").output()
+        }) {
             Ok(output) if output.status.success() => output.stdout,
-            _ => continue,
+            _ => {
+                complete = false;
+                continue;
+            }
         };
         for path in output.split(|byte| *byte == 0) {
             if path.is_empty() {
@@ -996,14 +1014,15 @@ fn compute_presence(
             }
         }
     }
-    labels_for
+    let labels = labels_for
         .into_iter()
         .map(|(p, mut labels)| {
             labels.sort();
             labels.dedup();
             (p, labels)
         })
-        .collect()
+        .collect();
+    (labels, complete)
 }
 
 #[cfg(test)]

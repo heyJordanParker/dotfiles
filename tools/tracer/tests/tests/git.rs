@@ -7,8 +7,9 @@
 //! command whose ranking inverted must fail the suite, not pass it.
 
 use std::io::Write;
+use std::path::Path;
 use std::process::{Command, Stdio};
-use tracer_cli_tests::{standard_repo, Fixture};
+use tracer_cli_tests::{standard_repo, trace, Fixture};
 
 /// The git facts `info` shows for one repo-relative path.
 fn info_git(f: &Fixture, path: &str) -> serde_json::Value {
@@ -1638,4 +1639,78 @@ fn grep_at_ref_searches_a_commit_not_the_worktree() {
         "{}",
         past.stdout
     );
+}
+
+#[test]
+fn diff_reports_the_repository_that_holds_the_path() {
+    let target = standard_repo();
+    target.write("src/util.py", "def helper(v):\n    return 0\n");
+    let elsewhere = Fixture::new();
+    elsewhere.write("other.py", "X = 1\n");
+    elsewhere.commit("other");
+
+    let r = elsewhere.trace(&["diff", &target.path("src"), "--json"]);
+    r.ok();
+    let v = r.view();
+    let paths: Vec<&str> = v["results"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| row["path"].as_str().unwrap())
+        .collect();
+    assert_eq!(paths, vec!["src/util.py"], "{}", r.stdout);
+
+    elsewhere
+        .trace(&["diff", &target.path("src"), "other.py"])
+        .code_is(2);
+}
+
+fn git_in(dir: &Path, args: &[&str]) -> String {
+    let out = Command::new("git")
+        .args(args)
+        .current_dir(dir)
+        .env_clear()
+        .env("PATH", "/opt/homebrew/bin:/usr/bin:/bin:/usr/local/bin")
+        .env("HOME", dir)
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+    String::from_utf8_lossy(&out.stdout).into_owned()
+}
+
+#[test]
+fn partial_clone_answers_without_fetching_and_still_reads_old_versions() {
+    let origin = Fixture::new();
+    origin.write("app.py", "VALUE = 'first'\n");
+    origin.commit("first");
+    origin.write("app.py", "VALUE = 'second'\n");
+    origin.write("lib/util.py", "def helper():\n    return 1\n");
+    origin.commit("second");
+    origin.git(&["config", "uploadpack.allowFilter", "true"]);
+    origin.git(&["config", "uploadpack.allowAnySHA1InWant", "true"]);
+    let clone = origin.root.join("partial");
+    origin.git(&[
+        "clone",
+        "--quiet",
+        "--filter=tree:0",
+        &format!("file://{}", origin.root.display()),
+        clone.to_str().unwrap(),
+    ]);
+
+    let objects = git_in(&clone, &["count-objects", "-v"]);
+    let r = trace(&clone, &["grep", "helper", "."]);
+    r.ok();
+    assert!(r.stdout.contains("lib/util.py"), "{}", r.stdout);
+    assert_eq!(git_in(&clone, &["count-objects", "-v"]), objects, "a background scan fetched");
+    let stored_history = std::fs::read_dir(clone.join(".tracer-cache/file"))
+        .unwrap()
+        .filter_map(Result::ok)
+        .filter(|entry| entry.file_name().to_string_lossy().starts_with("git_activity_v2__"))
+        .count();
+    assert_eq!(stored_history, 0, "an unfinished history walk was stored");
+
+    let old = trace(&clone, &["read", "app.py", "--at", "HEAD~1", "--raw"]);
+    old.ok();
+    assert!(old.stdout.contains("VALUE = 'first'"), "{}", old.stdout);
 }

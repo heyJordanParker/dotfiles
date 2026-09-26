@@ -2945,3 +2945,24 @@ fn symbols_take_a_class_qualifier() {
         .collect();
     assert_eq!(lines, vec![4], "only A::save's call site: {}", callers.stdout);
 }
+
+#[test]
+fn grep_at_ref_searches_the_repository_that_holds_the_path() {
+    let target = Fixture::new();
+    target.write("src/old.py", "def recount():\n    before = 1\n    return 'needle'\n");
+    target.commit("old");
+    target.write("src/old.py", "def recount():\n    return None\n");
+    target.commit("new");
+    let elsewhere = Fixture::new();
+    elsewhere.write("other.py", "X = 1\n");
+    elsewhere.commit("other");
+
+    let src = target.path("src");
+    let r = elsewhere.trace(&["grep", "needle", &src, "--at", "HEAD~1", "-C", "1", "--json"]);
+    r.ok();
+    let hit = &r.view()["results"][0];
+    assert_eq!(hit["file"], format!("{src}/old.py"), "{}", r.stdout);
+    assert_eq!(hit["line"], 3, "{}", r.stdout);
+    assert_eq!(hit["declaration"]["name"], "recount", "{}", r.stdout);
+    assert_eq!(hit["before"], serde_json::json!(["    before = 1"]), "{}", r.stdout);
+}

@@ -33,6 +33,7 @@ Black-box behavior contract for the `trace` binary, pinning the observable surfa
 - `tests/enrichment.rs` pins that a warm file call times one `git status`, one `rev-parse HEAD`, and one `for-each-ref` and no `ls-files` or `show-toplevel`, and that a 300-entry directory line costs no per-file facts.
 - `tests/search.rs` pins matches grouped under their declarations and the `declaration` and `type` JavaScript Object Notation fields on `grep`, `grep --at`, and `pattern`, ripgrep's flags on `grep`, several path arguments, and the one-line-per-directory listing when bare paths overrun the budget.
 - `tests/git.rs` pins the `changed:`, `removed:`, `added:`, and `touches:` rows on a `diff` row and their four JavaScript Object Notation arrays.
+- `tests/git.rs` pins that a partial clone answers `grep` without fetching and still fetches for `read --at`.
 - `tests/architecture_commands.rs` pins the surface row on a `defines`, `usages`, and `dependencies` result and the unfabricated module row.
 - `tests/session_log.rs` and `tests/concurrency.rs` pin the session directory baseline and the `status` and `diff` directory block.
 - `tests/session_log.rs` pins the session-log event set and read coverage.

@@ -874,8 +874,21 @@ pub fn run(
     symbol_mode: bool,
     as_json: bool,
 ) -> Result<Value> {
-    let here = Path::new(".");
-    let repo_root = cache::worktree_root_for(here).unwrap_or_else(|| cache::display_root(here));
+    let root_of = |path: &Path| cache::worktree_root_for(path).unwrap_or_else(|| cache::display_root(path));
+    let anchors: Vec<PathBuf> = paths.iter().map(|path| cache::absolutize(Path::new(path))).collect();
+    let repo_root = root_of(anchors.first().map_or(Path::new("."), PathBuf::as_path));
+    if anchors.iter().any(|anchor| root_of(anchor) != repo_root) {
+        eprintln!("Error: the paths belong to more than one repository. Run one diff per repository.");
+        std::process::exit(2);
+    }
+    let paths: Vec<String> = anchors
+        .iter()
+        .map(|anchor| match cache::relative_to_root(anchor, &repo_root) {
+            within if within.is_empty() => ".".to_string(),
+            within => within,
+        })
+        .collect();
+    let paths = paths.as_slice();
 
     // No `--base` means the working tree: everything that differs from HEAD
     // right now, new files included.

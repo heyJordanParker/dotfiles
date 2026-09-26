@@ -31,6 +31,8 @@ Local code-intelligence command-line interface for Agents working in a repositor
 - `git_activity::git_command` is the one git spawn in the crate; under `TRACE_TIMING` it emits `timing git <first two args>`, so a test can assert which subprocesses a call ran.
 - `git_activity::blob` is the one reader of a file at a revision, and `surface::rows_at` builds that file's rows from it.
 - `git_activity::activity_for` composes one path's git facts for both `for_paths` and the bulk map, so a staged rename carries the old path's history everywhere.
+- The history walk and the deploy-branch `ls-tree` run with `GIT_NO_LAZY_FETCH=1`, so a partial clone never fetches from its remote for them; `blob` and every revision a command names still fetch.
+- A history walk git ends early is a floor, and it and a presence map with a failed listing are never stored.
 - `git_activity::for_paths` answers a batch's working-tree state from one tracked-only `git status --porcelain=v1 -z --untracked-files=no`; `bulk_cached` keeps the full scan for `status` and the primer.
 - A warm file call spawns three git processes side by side: `status`, `rev-parse HEAD`, and `for-each-ref`. A warm `stats` spawns none.
 - `cache::worktree_root_for` walks up to the nearest ancestor holding a `.git` directory or a `gitdir:` file and spawns nothing; a path inside a `.git` directory resolves to `None`.
@@ -131,9 +133,10 @@ Local code-intelligence command-line interface for Agents working in a repositor
 - `grep -C`, `-A`, and `-B` take their context lines from ripgrep's own context events; `--at` takes them from the commit's file.
 - A truncated `find` says so: `counts.total`, `counts.truncated`, and a footer naming the `--limit` that returns everything.
 - `callers` truncates by the same contract, ordered by confidence, then file, then line.
-- `grep --at <ref>` searches a commit through `git grep` and filters its files through the same type and glob matchers ripgrep uses.
+- `grep --at <ref>` searches a commit through `git grep` in each path's own repository, reports each file under the path argument that reached it, and filters its files through the same type and glob matchers ripgrep uses.
 - `pattern` prefilters candidate files through ripgrep and reports a multi-line match at its anchor line.
 - `diff` reports the worktree by default and takes `--base <ref>`, which diffs against the merge base.
+- `diff` runs in the repository that holds its paths; paths from more than one repository exit 2.
 - `diff` rows carry their changed lines, fitted to `--budget`.
 - `history --commit <ref>` returns one commit's full body.
 - `history --contains` and `history --regex` find the commits that changed a string through `git log -G`.

@@ -16,7 +16,7 @@ use anyhow::{anyhow, bail, Context, Result};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashMap};
 use std::io::{BufRead, Read};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::thread;
 
@@ -249,10 +249,11 @@ fn ripgrep(pattern: &str, paths: &[String], options: &Options, types: &[String])
 fn git_grep(
     pattern: &str,
     at: &str,
-    paths: &[String],
+    repo_root: &Path,
+    scope: &[(&str, String)],
     options: &Options,
     types: &ignore::types::Types,
-) -> Result<Vec<Match>> {
+) -> Result<Vec<(String, Match)>> {
     if options.multiline {
         bail!("-U needs ripgrep, and --at searches with git grep, which has no multiline mode");
     }
@@ -276,8 +277,8 @@ fn git_grep(
         args.push("--ignore-case");
     }
     args.extend(["-e", pattern, at, "--"]);
-    args.extend(paths.iter().map(String::as_str));
-    let mut matches = crate::git_activity::git_command(Path::new("."), args, |command| {
+    args.extend(scope.iter().map(|(_, within)| within.as_str()));
+    let mut matches = crate::git_activity::git_command(repo_root, args, |command| {
         let mut child = command
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -333,30 +334,111 @@ fn git_grep(
             let text = String::from_utf8_lossy(&remaining[..text_end]);
             remaining = &remaining[text_end + 1..];
             let file = String::from_utf8_lossy(file).into_owned();
-            matches.push(Match {
-                file,
-                line,
-                snippet: window_snippet(&text, text.find(pattern).unwrap_or(0)),
-                ..Match::default()
-            });
+            matches.push((
+                file.clone(),
+                Match {
+                    file: shown(&file, scope),
+                    line,
+                    snippet: window_snippet(&text, text.find(pattern).unwrap_or(0)),
+                    ..Match::default()
+                },
+            ));
         }
         Ok::<_, anyhow::Error>(matches)
     })?;
-    matches.retain(|found| selected(&found.file));
+    matches.retain(|(within, _)| selected(within));
     Ok(matches)
 }
 
-fn lines_at(matches: &[Match], revision: &str) -> Result<Lines> {
+fn shown(file: &str, scope: &[(&str, String)]) -> String {
+    scope
+        .iter()
+        .filter_map(|(written, within)| {
+            let rest = match within.as_str() {
+                "." => file,
+                _ if file == within => "",
+                _ => file.strip_prefix(within.as_str())?.strip_prefix('/')?,
+            };
+            Some((within.len(), Path::new(written).join(rest)))
+        })
+        .max_by_key(|(depth, _)| *depth)
+        .map(|(_, path)| {
+            path.to_string_lossy()
+                .trim_start_matches("./")
+                .trim_end_matches('/')
+                .to_string()
+        })
+        .unwrap_or_else(|| file.to_string())
+}
+
+fn lines_at(repo_root: &Path, revision: &str, matches: &[(String, Match)]) -> Result<Lines> {
     let mut lines = Lines::new();
-    for found in matches {
+    for (within, found) in matches {
         if lines.contains_key(&found.file) {
             continue;
         }
-        let bytes = crate::git_activity::blob(Path::new("."), revision, &format!("./{}", found.file.trim_start_matches("./")))
+        let bytes = crate::git_activity::blob(repo_root, revision, within)
             .with_context(|| format!("failed to read {} at {revision}", found.file))?;
         keep_lines(&mut lines, &found.file, 1, String::from_utf8_lossy(&bytes).trim_end_matches('\n'));
     }
     Ok(lines)
+}
+
+fn root_of(path: &str) -> PathBuf {
+    let abs = cache::absolutize(Path::new(path));
+    cache::worktree_root_for(&abs).unwrap_or_else(|| cache::display_root(&abs))
+}
+
+fn at_revision(
+    pattern: &str,
+    revision: &str,
+    paths: &[String],
+    options: &Options,
+    types: &ignore::types::Types,
+) -> Result<(Vec<(PathBuf, Vec<Match>)>, Lines)> {
+    let mut scopes: Vec<(PathBuf, Vec<(&str, String)>)> = Vec::new();
+    for path in paths {
+        let root = root_of(path);
+        let within = match cache::relative_to_root(&cache::absolutize(Path::new(path)), &root) {
+            within if within.is_empty() => ".".to_string(),
+            within => within,
+        };
+        match scopes.iter_mut().find(|(known, _)| *known == root) {
+            Some((_, scope)) => scope.push((path.as_str(), within)),
+            None => scopes.push((root, vec![(path.as_str(), within)])),
+        }
+    }
+    let mut groups = Vec::new();
+    let mut lines = Lines::new();
+    for (root, scope) in scopes {
+        let found = git_grep(pattern, revision, &root, &scope, options, types)?;
+        if found.is_empty() {
+            continue;
+        }
+        if options.before + options.after > 0 {
+            lines.extend(lines_at(&root, revision, &found)?);
+        }
+        groups.push((root, found.into_iter().map(|(_, found)| found).collect()));
+    }
+    Ok((groups, lines))
+}
+
+fn by_root(matches: Vec<Match>, paths: &[String]) -> Vec<(PathBuf, Vec<Match>)> {
+    let roots: Vec<PathBuf> = paths.iter().map(|path| root_of(path)).collect();
+    let mut groups: Vec<(PathBuf, Vec<Match>)> = Vec::new();
+    for found in matches {
+        let root = paths
+            .iter()
+            .zip(&roots)
+            .filter(|(path, _)| found.file.starts_with(path.as_str()))
+            .max_by_key(|(path, _)| path.len())
+            .map_or(&roots[0], |(_, root)| root);
+        match groups.iter_mut().find(|(known, _)| known == root) {
+            Some((_, group)) => group.push(found),
+            None => groups.push((root.clone(), vec![found])),
+        }
+    }
+    groups
 }
 
 fn attach_context(matches: &mut [Match], lines: &Lines, before: usize, after: usize) {
@@ -389,37 +471,21 @@ pub fn run(
             std::process::exit(2);
         }
     };
-    let (mut matches, lines) = match at {
-        Some(revision) => {
-            let matches = git_grep(pattern, revision, paths, options, &matcher)?;
-            let lines = if options.before + options.after > 0 { lines_at(&matches, revision)? } else { Lines::new() };
-            (matches, lines)
+    let (mut groups, lines) = match at {
+        Some(revision) => at_revision(pattern, revision, paths, options, &matcher)?,
+        None => {
+            let (matches, lines) = ripgrep(pattern, paths, options, &types)?;
+            (by_root(matches, paths), lines)
         }
-        None => ripgrep(pattern, paths, options, &types)?,
     };
-    attach_context(&mut matches, &lines, options.before, options.after);
-    let abs = cache::absolutize(Path::new(&paths[0]));
-    let root_of = |path: &str| {
-        let abs = cache::absolutize(Path::new(path));
-        cache::worktree_root_for(&abs).unwrap_or_else(|| cache::display_root(&abs))
-    };
-    let roots: Vec<std::path::PathBuf> = paths.iter().map(|path| root_of(path)).collect();
-    let mut groups: Vec<(std::path::PathBuf, Vec<Match>)> = Vec::new();
-    for found in matches {
-        let root = paths
-            .iter()
-            .zip(&roots)
-            .filter(|(path, _)| found.file.starts_with(path.as_str()))
-            .max_by_key(|(path, _)| path.len())
-            .map_or(&roots[0], |(_, root)| root);
-        match groups.iter_mut().find(|(known, _)| known == root) {
-            Some((_, group)) => group.push(found),
-            None => groups.push((root.clone(), vec![found])),
-        }
+    for (_, group) in &mut groups {
+        attach_context(group, &lines, options.before, options.after);
     }
+    let abs = cache::absolutize(Path::new(&paths[0]));
+    let first_root = root_of(&paths[0]);
     let ((enriched, files, surfaces, signpost), repo_ctx) = rayon::join(
         || {
-            let signpost = enrich::signpost(enrich::searched_name(pattern), &roots[0]);
+            let signpost = enrich::signpost(enrich::searched_name(pattern), &first_root);
             let mut enriched = Vec::new();
             let mut files = BTreeMap::new();
             let mut surfaces = BTreeMap::new();

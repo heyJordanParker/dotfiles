@@ -226,7 +226,7 @@ pub fn enrich<'a>(
                 None => facts
                     .map(|facts| surface::rows(facts, None))
                     .unwrap_or_default(),
-                Some(revision) => surface::rows_at(repo_root, revision, name.trim_start_matches("./")),
+                Some(revision) => surface::rows_at(repo_root, revision, &cache::relative_to_root(path, repo_root)),
             };
             surfaces.insert(name.to_string(), surface);
             let graph = relations.and_then(|relations| {
