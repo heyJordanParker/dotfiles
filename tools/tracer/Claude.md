@@ -133,7 +133,7 @@ Local code-intelligence command-line interface for Agents working in a repositor
 - `grep -C`, `-A`, and `-B` take their context lines from ripgrep's own context events; `--at` takes them from the commit's file.
 - A truncated `find` says so: `counts.total`, `counts.truncated`, and a footer naming the `--limit` that returns everything.
 - `callers` truncates by the same contract, ordered by confidence, then file, then line.
-- `grep --at <ref>` searches a commit through `git grep` in each path's own repository, reports each file under the path argument that reached it, and filters its files through the same type and glob matchers ripgrep uses.
+- `grep --at <ref>` searches a commit through `git grep --perl-regexp` in each path's own repository, so its pattern reads as ripgrep reads it, reports each file under the path argument that reached it, and filters its files through the same type and glob matchers ripgrep uses.
 - `pattern` prefilters candidate files through ripgrep and reports a multi-line match at its anchor line.
 - `diff` reports the worktree by default and takes `--base <ref>`, which diffs against the merge base.
 - `diff` runs in the repository that holds its paths; paths from more than one repository exit 2.

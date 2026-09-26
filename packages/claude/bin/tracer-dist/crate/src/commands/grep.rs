@@ -105,6 +105,7 @@ fn window_snippet(line: &str, match_byte_start: usize) -> String {
 }
 
 type Lines = HashMap<String, BTreeMap<i64, String>>;
+type Groups = Vec<(PathBuf, Vec<Match>)>;
 
 struct Event {
     file: String,
@@ -272,7 +273,7 @@ fn git_grep(
                 .take_while(|parent| !parent.as_os_str().is_empty())
                 .any(|parent| globs.matched(parent, true).is_ignore())
     };
-    let mut args = vec!["grep", "-z", "--text", "-n", "--no-color"];
+    let mut args = vec!["grep", "-z", "--text", "-n", "--no-color", "--perl-regexp"];
     if options.ignore_case {
         args.push("--ignore-case");
     }
@@ -346,7 +347,14 @@ fn git_grep(
         }
         Ok::<_, anyhow::Error>(matches)
     })?;
-    matches.retain(|(within, _)| selected(within));
+    let cwd = std::env::current_dir().ok();
+    matches.retain(|(within, _)| {
+        let found = repo_root.join(within);
+        match cwd.as_deref().and_then(|cwd| found.strip_prefix(cwd).ok()) {
+            Some(here) => selected(&here.to_string_lossy()),
+            None => selected(within),
+        }
+    });
     Ok(matches)
 }
 
@@ -395,7 +403,7 @@ fn at_revision(
     paths: &[String],
     options: &Options,
     types: &ignore::types::Types,
-) -> Result<(Vec<(PathBuf, Vec<Match>)>, Lines)> {
+) -> Result<(Groups, Lines)> {
     let mut scopes: Vec<(PathBuf, Vec<(&str, String)>)> = Vec::new();
     for path in paths {
         let root = root_of(path);
@@ -423,9 +431,9 @@ fn at_revision(
     Ok((groups, lines))
 }
 
-fn by_root(matches: Vec<Match>, paths: &[String]) -> Vec<(PathBuf, Vec<Match>)> {
+fn by_root(matches: Vec<Match>, paths: &[String]) -> Groups {
     let roots: Vec<PathBuf> = paths.iter().map(|path| root_of(path)).collect();
-    let mut groups: Vec<(PathBuf, Vec<Match>)> = Vec::new();
+    let mut groups = Groups::new();
     for found in matches {
         let root = paths
             .iter()

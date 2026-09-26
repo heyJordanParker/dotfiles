@@ -2966,3 +2966,51 @@ fn grep_at_ref_searches_the_repository_that_holds_the_path() {
     assert_eq!(hit["declaration"]["name"], "recount", "{}", r.stdout);
     assert_eq!(hit["before"], serde_json::json!(["    before = 1"]), "{}", r.stdout);
 }
+
+#[test]
+fn grep_at_ref_matches_globs_from_the_directory_it_runs_in() {
+    let f = Fixture::new();
+    f.write("pkg/src/a.py", "needle = 1\n");
+    f.write("pkg/test/b.py", "needle = 2\n");
+    f.commit("globs");
+
+    let files = |extra: &[&str]| -> Vec<String> {
+        let mut args = vec!["grep", "needle", ".", "-g", "src/*.py", "--json"];
+        args.extend_from_slice(extra);
+        let r = trace(&f.root.join("pkg"), &args);
+        r.ok();
+        r.json()["results"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|row| row["file"].as_str().unwrap().trim_start_matches("./").to_string())
+            .collect()
+    };
+    assert_eq!(files(&[]), vec!["src/a.py"]);
+    assert_eq!(files(&["--at", "HEAD"]), vec!["src/a.py"]);
+}
+
+#[test]
+fn grep_at_ref_reads_the_pattern_as_ripgrep_does() {
+    let f = Fixture::new();
+    f.write("app.py", "alpha = call(1)\nbeta = 2\nalphabet = 3\n");
+    f.commit("regex syntax");
+
+    for pattern in [r"alpha\b|beta", r"call\(\d+\)", r"^(alpha|beta) = \w+$"] {
+        let lines = |extra: &[&str]| -> Vec<i64> {
+            let mut args = vec!["grep", pattern, ".", "--json"];
+            args.extend_from_slice(extra);
+            let r = f.trace(&args);
+            r.ok();
+            r.json()["results"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|row| row["line"].as_i64().unwrap())
+                .collect()
+        };
+        let worktree = lines(&[]);
+        assert!(!worktree.is_empty(), "{pattern}");
+        assert_eq!(lines(&["--at", "HEAD"]), worktree, "{pattern}");
+    }
+}
