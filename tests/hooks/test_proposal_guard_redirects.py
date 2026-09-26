@@ -136,6 +136,10 @@ def test_repo_file_mutation_is_blocked(proposing_state, monkeypatch):
     assert _run_file(monkeypatch, "README.md") == 2
 
 
+def test_unstaging_is_allowed(proposing_state, monkeypatch):
+    assert _run(monkeypatch, "git rm --cached note.txt") == 0
+
+
 
 
 

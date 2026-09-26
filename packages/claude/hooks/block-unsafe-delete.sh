@@ -22,6 +22,7 @@ ALLOWED_PREFIXES=(
   "$HOME/conductor"
   "$HOME/.claude"
   "/tmp"
+  "$(cd -P /tmp && pwd)"
 )
 
 read -r input

@@ -207,6 +207,13 @@ def is_ours(path):
     return any(fragment in path + "/" for fragment in OUR_TREE)
 
 
+_TMP = os.path.realpath("/tmp") + "/"
+
+
+def in_tmp(path):
+    return (os.path.realpath(path) + "/").startswith(_TMP)
+
+
 def _resolved(path, base):
     path = path.strip().strip("\"'")
     if path.startswith("~"):

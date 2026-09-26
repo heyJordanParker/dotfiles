@@ -22,7 +22,30 @@ EOF
   exit 2
 fi
 
-# Pattern 2: git checkout of files (not branch switches)
+# Pattern 2: git clean deletes untracked files with no way back
+if [[ "$normalized" =~ git[[:space:]]+clean([[:space:]]|$) ]]; then
+  cat << 'EOF' >&2
+BLOCKED: agents never run git clean.
+
+It deletes every untracked file in the tree, other agents' new files included,
+and nothing brings them back. Remove a file you created with `rm <path>`.
+EOF
+  exit 2
+fi
+
+# Pattern 3: a forced checkout or switch throws away uncommitted edits
+if echo "$normalized" | grep -qE 'git[[:space:]]+(checkout|switch)[[:space:]]([^;&|]*[[:space:]])?(-f|--force|--discard-changes)([[:space:]]|$)'; then
+  cat << 'EOF' >&2
+BLOCKED: a forced checkout throws away every uncommitted edit in the tree.
+
+Other agents' uncommitted work lives in this worktree. Run the checkout without
+--force. Git then refuses it when it would overwrite an edit, and the main
+session decides what happens to that edit.
+EOF
+  exit 2
+fi
+
+# Pattern 4: git checkout of files (not branch switches)
 # Allow: --ours/--theirs (legitimate during merge/rebase conflicts)
 if echo "$normalized" | grep -qE 'git[[:space:]]+checkout[[:space:]]+.*(--ours|--theirs)'; then
   exit 0
@@ -40,8 +63,11 @@ If a human truly needs this, the human runs it manually.
 EOF
   exit 2
 fi
-# Block: checkout -- <file>, checkout <file.ext>, checkout <path/file>
-if echo "$normalized" | grep -qE 'git[[:space:]]+checkout[[:space:]]+(--[[:space:]]+|[^-][^[:space:]]*\.[^[:space:]]+|[^-][^[:space:]]*/[^[:space:]]+)'; then
+# Block: checkout -- <file>, checkout <file.ext>, checkout <path/file>, checkout .,
+# checkout <ref> <path> without --, and checkout --pathspec-from-file.
+# Shell redirects are dropped first, so `2>&1` is not read as a path.
+checkout_line=$(echo "$normalized" | sed -E 's/[0-9]*[<>]+&?[[:space:]]*[^[:space:]]*//g')
+if echo "$checkout_line" | grep -qE 'git[[:space:]]+checkout[[:space:]]+(--[[:space:]]+|[^-][^[:space:]]*\.[^[:space:]]+|[^-][^[:space:]]*/[^[:space:]]+|\.([[:space:]]|$)|[^-[:space:];&|][^[:space:];&|]*[[:space:]]+[^-[:space:];&|])|git[[:space:]]+checkout[[:space:]]([^;&|]*[[:space:]])?--pathspec-from-file'; then
   cat << 'EOF' >&2
 BLOCKED: git checkout of files is a destructive operation.
 
@@ -54,7 +80,7 @@ EOF
   exit 2
 fi
 
-# Pattern 3: git restore (file restoration)
+# Pattern 5: git restore (file restoration)
 if [[ "$normalized" =~ git[[:space:]]+restore ]]; then
   cat << 'EOF' >&2
 BLOCKED: git restore is a destructive operation.
@@ -68,7 +94,7 @@ EOF
   exit 2
 fi
 
-# Pattern 4: git stash is BANNED. Only pure read-only inspection is allowed
+# Pattern 6: git stash is BANNED. Only pure read-only inspection is allowed
 # (stash list / stash show). Subtract those occurrences, then block if ANY
 # stash verb survives — so a mutating stash cannot be smuggled past by
 # appending `&& git stash list`.

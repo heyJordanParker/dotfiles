@@ -35,6 +35,7 @@ ALLOW, BLOCK = 0, 2
 CASES = [
     ('/bin/rm "$HOME/newfile.txt"', REPO, BLOCK),
     ("rm /tmp/foo", REPO, ALLOW),
+    ("rm %s/foo" % os.path.realpath("/tmp"), REPO, ALLOW),
 ]
 
 

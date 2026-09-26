@@ -14,11 +14,10 @@ straight past it and wrote through `python3 -c`.
 """
 
 import os
-import re
 import sys
 
 from lib import feedback
-from lib.command import all_segments, git_normalize, is_ours, mutation_targets
+from lib.command import all_segments, git_subcommand, in_tmp, is_ours, mutation_targets
 from lib.event import canonical_tool, field, patch_target, read_event
 from lib.session_mode import permits, state
 
@@ -44,8 +43,14 @@ report the edit the work needs."""
 _DEVICES = {"/dev/null", "/dev/stdout", "/dev/stderr", "/dev/tty"}
 
 # git subcommands that mutate the working tree and are not already blocked
-# unconditionally by block_git_revert (reset/checkout/restore/stash).
-_GIT_TREE_MUTATORS = re.compile(r"git\s+(rm|clean|mv)\b")
+# unconditionally by block_git_revert (reset/checkout/restore/stash/clean).
+# `git rm --cached` changes staging alone, like `git add`, and stays allowed.
+_GIT_TREE_MUTATORS = ("rm", "mv")
+
+
+def _git_tree_mutation(words):
+    subcommand = git_subcommand(words)
+    return subcommand in _GIT_TREE_MUTATORS and "--cached" not in words
 
 
 def _allowed_target(t, cwd):
@@ -65,9 +70,7 @@ def _allowed_target(t, cwd):
               "/.claude/shaping/", "/.claude/plans/"):
         if d in probe:
             return True
-    if t == "/tmp" or t.startswith("/tmp/"):
-        return True
-    if t == "/private/tmp" or t.startswith("/private/tmp/"):
+    if in_tmp(t):
         return True
     if t == cwd or t.startswith(cwd + "/") or is_ours(t):
         return False
@@ -142,7 +145,7 @@ def main():
     segs = all_segments(command)
     if segs is None:
         return block(UNREADABLE_MSG)
-    if _GIT_TREE_MUTATORS.search(git_normalize(command)):
+    if any(_git_tree_mutation(seg) for seg in segs):
         return block(refusal)
     for seg in segs:
         for target in mutation_targets(seg):

@@ -19,6 +19,7 @@ import re
 import sys
 
 from lib import feedback
+from lib.command import in_tmp
 from lib.event import command_str, field, read_event
 
 BINDING = {
@@ -38,7 +39,6 @@ ALLOWED_PREFIXES = [
     HOME + "/Desktop",
     HOME + "/conductor",
     HOME + "/.claude",
-    "/tmp",
 ]
 
 # rm as a command word: an optional `\` alias-bypass and optional `path/` prefix
@@ -51,11 +51,11 @@ _GLOB = re.compile(r"[*?\[]")
 
 
 def is_allowed(path):
-    return any(path.startswith(prefix) for prefix in ALLOWED_PREFIXES)
+    return in_tmp(path) or any(path.startswith(prefix) for prefix in ALLOWED_PREFIXES)
 
 
 def allowed_list():
-    return ", ".join(p.replace(HOME, "~") for p in ALLOWED_PREFIXES)
+    return ", ".join([p.replace(HOME, "~") for p in ALLOWED_PREFIXES] + ["/tmp"])
 
 
 def block(msg):
