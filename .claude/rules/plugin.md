@@ -16,7 +16,7 @@ The source of truth is `packages/agents/skills/<name>/SKILL.md` with the upperca
 
 IF adding or changing a Hook:
 ### Generate Hook wiring from `BINDING`
-The Python module in `packages/agents/hooks/` declares `BINDING` with events and `harness: all|claude|codex`. Run `python3 scripts/sync.py` to generate the wiring. Never hand-edit the managed entries in `settings.json` or the `[[hooks.*]]` + `[hooks.state]` regions of `config.toml`.
+The Python module in `packages/agents/hooks/` declares `BINDING` with events and `harness: all|claude|codex`. Run `python3 scripts/sync.py` to generate the wiring. Never hand-edit the managed entries in `settings.json` or the `[[hooks.*]]` region of `packages/codex-system/config.toml`.
 
 IF adding or changing a plugin-distributed Hook:
 ### Update the shell Hook copy with the Python Hook

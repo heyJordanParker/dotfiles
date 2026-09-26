@@ -133,6 +133,8 @@ if ! command -v python3 >/dev/null 2>&1; then
   echo "ERROR: python3 is required for repo maintenance (scripts/sync.py)." >&2
   exit 1
 fi
+# codex reads its system config from /etc/codex, the one stow target outside $HOME
+sudo install -d -o "$USER" -g staff /etc/codex
 python3 "$DOTFILES_DIR/scripts/sync.py"
 git -C "$DOTFILES_DIR" config core.hooksPath scripts/git-hooks
 cd "$DOTFILES_DIR"

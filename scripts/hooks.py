@@ -30,19 +30,16 @@ declares `"hooks": {}` means it, and is left with only the hooks that opt in.
 
 This reads every hook's BINDING statically (ast.literal_eval — never imports or
 runs the hook, the way frontmatter.py reads agent files), then rewrites the
-managed entries of packages/claude/settings.json and packages/codex/config.toml.
+managed entries of packages/claude/settings.json and packages/codex-system/config.toml.
 
 Managed = a `type: command` hook whose command invokes ~/.agents/hooks/<module>.py.
 Every other entry — inline `type: prompt` gates, third-party shell glue (tmux,
 herdr, superset) — is unmanaged and preserved byte-for-byte; non-hook sections
-(permissions, env, model, MCP servers, project trust, desktop) are never touched.
-For codex it also regenerates the [hooks.state] trust hashes for the exact
-commands it emits.
+(permissions, env, model, MCP servers, plugins) are never touched.
 """
 
 import ast
 import glob
-import hashlib
 import json
 import os
 import re
@@ -271,23 +268,25 @@ def _claude_hook(command, timeout, async_rewake):
 # --- codex config.toml -------------------------------------------------------
 
 def render_codex(config_text, bindings):
-    """Return config.toml text with the [[hooks.<Event>]] blocks and the
-    [hooks.state] trust table regenerated from BINDING; every other section
-    (mcp_servers, features, plugins, marketplaces, projects, desktop, ...) stays
-    byte-identical.
+    """Return config.toml text with the [[hooks.<Event>]] blocks regenerated
+    from BINDING; every other section (mcp_servers, features, plugins,
+    marketplaces, ...) stays byte-identical.
     """
     groups = _commands_by_group(bindings, CODEX_HOOK_DIR, {"all", "codex"})
-    groups_by_event = _codex_groups(groups)
-    blocks = _codex_hook_blocks(groups_by_event)
-    state = _codex_state_table(groups_by_event)
-    return _replace_codex_hook_region(config_text, blocks + "\n\n" + state)
+    blocks = _codex_hook_blocks(_codex_groups(groups))
+    return _replace_codex_hook_region(config_text, blocks)
 
 
 # The events codex applies a group's matcher to (hooks/src/events/common.rs
-# matcher_pattern_for_event). On the others it ignores the matcher and leaves it
-# out of the trust identity, so it is not written there either.
+# matcher_pattern_for_event). On the others it ignores the matcher, so it is not
+# written there either.
 _CODEX_MATCHER_EVENTS = {"PreToolUse", "PermissionRequest", "PostToolUse", "SessionStart",
                          "SubagentStart", "SubagentStop", "PreCompact", "PostCompact"}
+
+# The events codex reads additionalContextLimit on (hooks/src/engine/discovery.rs).
+# On the others it warns at every start and ignores it, so it is not written there.
+_CODEX_CONTEXT_EVENTS = {"PreToolUse", "PostToolUse", "SessionStart", "UserPromptSubmit",
+                         "SubagentStart"}
 
 # The names one codex tool call is matched under: its own name first, then its
 # aliases (core/src/tools/hook_names.rs). A hook reached through two of them in
@@ -306,7 +305,7 @@ def _codex_groups(groups):
                 "codex has no %s event; a BINDING declaring it with harness "
                 "all/codex would be dropped silently. Bind it to claude." % event)
         matcher = matcher_key if event in _CODEX_MATCHER_EVENTS else None
-        entries = [(command, modules, timeout, limit)
+        entries = [(command, modules, timeout, limit if event in _CODEX_CONTEXT_EVENTS else None)
                    for command, modules, timeout, _, limit in commands]
         groups_by_event.setdefault(event, []).append((matcher, entries))
     for event, event_groups in groups_by_event.items():
@@ -353,104 +352,22 @@ def _codex_hook_blocks(groups_by_event):
     return "\n\n".join(blocks)
 
 
-# A handler codex resolves but we never write: an omitted timeout resolves to
-# codex's own default, and the hash covers the resolved value, not the file's.
-_CODEX_DEFAULT_TIMEOUT = 600
-
-
-# codex's default spill limit (hooks/src/output_spill.rs). A handler set to it
-# normalizes to unset, so the trust identity leaves it out.
-_CODEX_DEFAULT_CONTEXT_LIMIT = 2500
-
-
-def _codex_trust_hash(event, matcher, command, timeout, limit):
-    """The trust hash codex computes for one handler.
-
-    Not a hash of the command. Codex builds a normalized identity — the event's
-    snake_case label plus the matcher group reduced to this one handler, with the
-    timeout resolved (hooks/src/engine/discovery.rs hook_hash) — serializes it,
-    sorts every key, and hashes the compact JSON bytes. Absent fields (matcher,
-    statusMessage, commandWindows, a default additionalContextLimit) drop out
-    rather than serializing as null.
-    """
-    handler = {
-        "type": "command",
-        "command": command,
-        "async": False,
-        "timeout": _CODEX_DEFAULT_TIMEOUT if timeout is None else timeout,
-    }
-    if limit is not None and limit != _CODEX_DEFAULT_CONTEXT_LIMIT:
-        handler["additionalContextLimit"] = limit
-    identity = {"event_name": CODEX_EVENT[event], "hooks": [handler]}
-    if matcher is not None:
-        identity["matcher"] = matcher
-    canonical = json.dumps(identity, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
-
-
-def _codex_state_table(groups_by_event):
-    """The [hooks.state] trust table: one entry per emitted command, keyed
-    config.toml:<snake_event>:<group_index>:<hook_index>. The key keeps the
-    snake_case label even though the table above it is PascalCase.
-
-    A hash codex disagrees with reads as Modified, a missing one as Untrusted,
-    and either suppresses the handler as silently as a misnamed table does.
-    """
-    entries = []
-    for event in sorted(groups_by_event):
-        for group_index, (matcher, group) in enumerate(groups_by_event[event]):
-            for hook_index, (command, _, timeout, limit) in enumerate(group):
-                key = (f"/Users/jordan/.codex/config.toml:{CODEX_EVENT[event]}:"
-                       f"{group_index}:{hook_index}")
-                digest = _codex_trust_hash(event, matcher, command, timeout, limit)
-                entries.append(f'[hooks.state."{key}"]\ntrusted_hash = "sha256:{digest}"')
-    return "[hooks.state]\n\n" + "\n\n".join(entries)
-
-
-# The managed codex region runs from the first [[hooks. block through the end of
-# the [hooks.state] table — everything between is generator-owned. Markers below
-# bound it precisely so the surrounding hand-authored TOML stays byte-identical.
+# The managed codex region runs from the first [[hooks. block to the next
+# top-level table outside hooks — everything between is generator-owned, so the
+# surrounding hand-authored TOML stays byte-identical. Codex reads this file as
+# its system layer, where every Hook is managed and needs no trust hash.
 _CODEX_BEGIN = re.compile(r"^\[\[hooks\.", re.M)
-_CODEX_STATE = re.compile(r"^\[hooks\.state\]", re.M)
+_CODEX_END = re.compile(r"^\[(?!\[?hooks\.)", re.M)
 
 
 def _replace_codex_hook_region(text, generated):
-    """Splice the generated hook region in place of the existing one.
-
-    The region is [first [[hooks. block .. end of [hooks.state] table]. The
-    [hooks.state] table ends at the next top-level [section] that is not a
-    hooks.state subtable, or end of file. Trust entries another tool wrote
-    into that table (hcom keys its hooks.json handlers there) ride along
-    verbatim after ours; only entries keyed on config.toml are regenerated.
-    """
+    """Splice the generated [[hooks.*]] blocks in place of the existing ones."""
     begin = _CODEX_BEGIN.search(text)
-    state = _CODEX_STATE.search(text)
-    if begin is None or state is None:
-        raise ValueError("config.toml has no [[hooks.*]] / [hooks.state] region to regenerate")
-    end = _state_region_end(text, state.end())
-    foreign = _foreign_state_entries(text[state.end():end])
-    return text[: begin.start()] + "\n\n".join([generated, *foreign]) + "\n\n" + text[end:]
-
-
-_STATE_ENTRY = re.compile(r'^\[hooks\.state\."([^"]+)"\]\n(?:(?!\[).*\n?)*', re.M)
-
-
-def _foreign_state_entries(state_text):
-    """Every [hooks.state."<key>"] entry not keyed on config.toml, text intact."""
-    return [
-        match.group(0).rstrip("\n")
-        for match in _STATE_ENTRY.finditer(state_text)
-        if not match.group(1).startswith("/Users/jordan/.codex/config.toml:")
-    ]
-
-
-def _state_region_end(text, search_from):
-    """Offset just past the [hooks.state] table — the start of the next top-level
-    section that is not a [hooks.state."..."] subtable, or len(text).
-    """
-    for match in re.finditer(r"^\[(?!hooks\.state)[^\]]+\]", text[search_from:], re.M):
-        return search_from + match.start()
-    return len(text)
+    if begin is None:
+        raise ValueError("config.toml has no [[hooks.*]] region to regenerate")
+    end = _CODEX_END.search(text, begin.end())
+    end = len(text) if end is None else end.start()
+    return text[: begin.start()] + generated + "\n\n" + text[end:]
 
 
 # --- entry point -------------------------------------------------------------

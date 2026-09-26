@@ -9,13 +9,13 @@ import pytest
 REPO = Path(__file__).parents[2]
 HOOKS_DIR = REPO / "packages" / "agents" / "hooks"
 CLAUDE_SETTINGS = REPO / "packages" / "claude" / "settings.json"
-CODEX_CONFIG = REPO / "packages" / "codex" / "config.toml"
+CODEX_CONFIG = REPO / "packages" / "codex-system" / "config.toml"
 
 
 def test_codex_event_tables_are_pascal_case():
     """Pins the inert-wiring failure caused by snake_case codex event tables."""
     rendered = hooks.render_codex(
-        "[[hooks.old]]\n\n[hooks.state]\n",
+        "[[hooks.old]]\n",
         {"guard": {"events": {"PreToolUse": ["*"]}, "harness": "codex"}},
     )
 
@@ -60,30 +60,12 @@ def test_unmanaged_claude_hook_survives_generation(tmp_path):
     config = tmp_path / "config.toml"
     profiles = tmp_path / "profiles"
     settings.write_text(json.dumps({"hooks": {"Stop": [{"hooks": [unmanaged]}]}}))
-    config.write_text("[[hooks.old]]\n\n[hooks.state]\n")
+    config.write_text("[[hooks.old]]\n")
     profiles.mkdir()
 
     hooks.generate(tmp_path / "missing-hooks", settings, config, profiles)
 
     assert json.loads(settings.read_text())["hooks"]["Stop"] == [{"hooks": [unmanaged]}]
-
-
-def test_foreign_codex_trust_entry_survives_generation():
-    """Pins the loss of another tool's hooks.state trust entry on regeneration."""
-    foreign = (
-        '[hooks.state."/Users/jordan/.codex/hooks.json:session_start:0:0"]\n'
-        'trusted_hash = "sha256:abc"\n'
-        "enabled = true\n"
-    )
-    stale = '[hooks.state."/Users/jordan/.codex/config.toml:stop:0:0"]\ntrusted_hash = "sha256:old"\n'
-    rendered = hooks.render_codex(
-        "[[hooks.old]]\n\n[hooks.state]\n\n" + stale + "\n" + foreign + "\n[desktop]\n",
-        {"guard": {"events": {"PreToolUse": ["*"]}, "harness": "codex"}},
-    )
-
-    assert foreign in rendered
-    assert stale not in rendered
-    assert rendered.endswith("\n[desktop]\n")
 
 
 def test_unsupported_codex_event_fails_without_writing_dead_wiring(tmp_path):
@@ -97,7 +79,7 @@ def test_unsupported_codex_event_fails_without_writing_dead_wiring(tmp_path):
     config = tmp_path / "config.toml"
     profiles = tmp_path / "profiles"
     settings.write_text("{}\n")
-    config.write_text("[[hooks.old]]\n\n[hooks.state]\n")
+    config.write_text("[[hooks.old]]\n")
     profiles.mkdir()
     before = config.read_bytes()
 
@@ -107,22 +89,10 @@ def test_unsupported_codex_event_fails_without_writing_dead_wiring(tmp_path):
     assert config.read_bytes() == before
 
 
-def test_codex_trust_hash_equals_codex_own_for_matcher_groups():
-    """Pins silently untrusted codex hooks once groups carry a matcher.
-
-    The expected hashes are the ones codex 0.153.4 itself wrote for hcom's
-    hooks.json handlers, which carry `Bash` and `startup|resume|clear` matchers."""
-    assert hooks._codex_trust_hash("PreToolUse", "Bash", "hcom codex-pretooluse", None, None) == (
-        "804232e05467ffbbff62fb52017d8c737cb8c9b83fdab2b67d1a8ece730f01ec")
-    assert hooks._codex_trust_hash(
-        "SessionStart", "startup|resume|clear", "hcom codex-sessionstart", None, None) == (
-        "6db80d9e846b72464980b4ce5d0e9c5e29116d58a4f171739e19ad1360285883")
-
-
 def test_codex_groups_carry_tool_matchers():
     """Pins every codex hook starting on every tool call because no group had a matcher."""
     rendered = hooks.render_codex(
-        "[[hooks.old]]\n\n[hooks.state]\n",
+        "[[hooks.old]]\n",
         {"shell": {"events": {"PreToolUse": ["Bash"]}, "harness": "codex"},
          "patch": {"events": {"PreToolUse": ["Write"]}, "harness": "codex"}},
     )

@@ -33,7 +33,7 @@ def main():
     hooks.generate(
         os.path.join(PACKAGES, "agents", "hooks"),
         os.path.join(PACKAGES, "claude", "settings.json"),
-        os.path.join(PACKAGES, "codex", "config.toml"),
+        os.path.join(PACKAGES, "codex-system", "config.toml"),
         os.path.join(PACKAGES, "claude", "profiles"),
     )
     tracer.sync(ROOT)
