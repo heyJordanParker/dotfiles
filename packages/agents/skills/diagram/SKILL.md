@@ -83,6 +83,6 @@ Template:
 Confirm drawing order, font sizes, label widths, labeled-shape heights, arrow bindings, palette colors, and either live canvas push or rendered file output.
 Never: report done before the diagram has been pushed to the live viewer or rendered to a file.
 
-## References (each solves one problem)
+## References (each solves one Problem)
 
 - Element JSON, palette, and complete push and append Example → element-format.md

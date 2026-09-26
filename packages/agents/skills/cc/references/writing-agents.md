@@ -217,7 +217,7 @@ Never: relying on `tools:` alone, which Claude honours and codex drops, and whic
 
 IF the Agent must run the suite, a build, or any package manager:
 ### Leave `readonly` off
-A read-only Agent runs no runtime and no package manager, because each one runs whatever it is handed. An Agent that must execute code is not read-only, and forcing the key on it costs the capability instead of protecting anything.
+A read-only Agent runs no runtime and no package manager, because each one runs whatever it is handed. An Agent that must execute code is not read-only, and forcing the key on it costs the Capability instead of protecting anything.
 
 IF a read-only Agent needs a command the guard refuses:
 ### Add the command to `_READERS`, never a second declaration

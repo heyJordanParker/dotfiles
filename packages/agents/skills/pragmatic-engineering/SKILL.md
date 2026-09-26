@@ -5,7 +5,7 @@ description: Keep engineering boring and complete. TRIGGER when the Architect sa
 
 # Pragmatic Engineering
 
-- One Process: ship the smallest complete change that preserves the User's capability and the Architecture.
+- One Process: ship the smallest complete change that preserves the User's Capability and the Architecture.
 - Most time savings come from deletion, not acceleration.
 
 ## 1. Question the requested work
@@ -23,7 +23,7 @@ Do not continue from a guess.
 
 ## 2. Delete
 
-Remove dead paths, duplicated choices, unused indirection, and code that does not serve the Goal. If deletion breaks a capability, restore only the capability.
+Remove dead paths, duplicated choices, unused indirection, and code that does not serve the Goal. If deletion breaks a Capability, restore only the Capability.
 
 ### Delete more than you create
 
@@ -40,7 +40,7 @@ Abstract after three concrete uses, never before.
 IF you see abstractions "for later" or two-way dependencies:
 ### Stop and simplify before proceeding
 
-The simplest complete path is the one with the fewest moving parts that still preserves the User capability.
+The simplest complete path is the one with the fewest moving parts that still preserves the User Capability.
 
 ### Measure before you set a limit
 Do not pick a cap or timeout by feel. Measure the real case, set the limit well past it, and write the measurement next to the number. Then only something broken hits the limit.

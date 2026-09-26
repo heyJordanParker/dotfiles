@@ -21,7 +21,7 @@ Never: his words in a message to a Subagent.
 Never: a flag, a branch, or a second surface added so his words and the working system can both be true.
 
 ### Use /architecture to attack a returned diff
-The consumer missed, the case narrowed, the capability dropped, the boundary that does not hold. A return that proves a line of architecture.md wrong corrects the line before any fix dispatch; a return that confirms it touches nothing. Finish attacking it before you dispatch anything else on that surface. Findings go out by surface as fresh single-Task dispatches, one message; the end gate is the only step that runs alone.
+The consumer missed, the case narrowed, the Capability dropped, the boundary that does not hold. A return that proves a line of architecture.md wrong corrects the line before any fix dispatch; a return that confirms it touches nothing. Finish attacking it before you dispatch anything else on that surface. Findings go out by surface as fresh single-Task dispatches, one message; the end gate is the only step that runs alone.
 
 ### Send back a fix that works by narrowing the problem
 Narrowing is debt. Name the root cause in the resume message.
@@ -99,7 +99,7 @@ Implementation and research go to codex. User Interface, User experience, Cascad
 
 ## 4. Escalate the Decision only the product vision can make
 
-Two solutions that both hold Architecturally, where only the product vision picks, go to the Architect, each shown as the change it makes. Every other Decision is yours.
+Two Solutions that both hold Architecturally, where only the product vision picks, go to the Architect, each shown as the change it makes. Every other Decision is yours.
 
 ## 5. Review through /review
 

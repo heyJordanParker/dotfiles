@@ -235,6 +235,21 @@ def test_reload_records_the_session_start_docs_after_compaction():
     assert "## Claude.md\n" not in ctx and "collaboration.md" not in ctx, ctx[:500]
 
 
+def test_reload_resends_the_user_rules_loaded_before_compaction(tmp_path, write_transcript):
+    rule = tmp_path / "code.md"
+    rule.write_text('---\npaths:\n  - "**/*.py"\n---\n\n### Write no comments\nGood Architecture documents itself.\n')
+    path = write_transcript([{"type": "attachment", "attachment": {
+        "type": "nested_memory", "path": str(rule),
+        "content": {"path": str(rule), "type": "User", "content": "an older copy"}}}])
+    rc, out, _ = _run(RELOAD, {"hook_event_name": "SessionStart", "source": "compact",
+                               "transcript_path": path, "cwd": REPO,
+                               "session_id": _sid("reload-user-rule")})
+    assert rc == 0
+    ctx = _context(out)
+    assert "Contents of %s" % rule in ctx and "### Write no comments" in ctx
+    assert "paths:" not in ctx and "an older copy" not in ctx
+
+
 def test_rules_ignores_bash_trace_command():
     """inject_rules does NOT handle the Bash trace-command path — that's inject_docs'
     job. A `trace read` Bash event is a clean no-op."""

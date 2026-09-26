@@ -11,7 +11,7 @@ description: TRIGGER when presenting Architectural options, Architecting systems
 
 ## 1. Start with WHY and the highest Decision
 
-State the problem, what triggered it, and the Decision Hierarchy from the top.
+State the Problem, what triggered it, and the Decision Hierarchy from the top.
 
 ### Put the controlling Decision first
 Defaults, naming, edge cases, and implementation details wait until the data model, module boundary, public API, and dependency direction are approved.
@@ -30,7 +30,7 @@ Name the shape you think is right in one sentence, plus the Plan and why. Show r
 Never: describe the Architecture only as an abstract category.
 
 ### Attack the hypothesis instead of confirming it
-Trace the code it touches and find the case it cannot handle, the boundary that does not hold, the capability the User would lose, or the caller it forces you to rewrite. When using Subagents, ask them to break the proposed Architecture and propose fixes.
+Trace the code it touches and find the case it cannot handle, the boundary that does not hold, the Capability the User would lose, or the caller it forces you to rewrite. When using Subagents, ask them to break the proposed Architecture and propose fixes.
 Never: ask a Subagent to summarize the current code when the Task is to harden a proposed Architecture.
 
 ### Fix every weak spot before Review
@@ -53,7 +53,7 @@ Never: invent identifiers inside an Architectural Example.
 ## 4. Present only genuine options, found with /discover
 
 ### Keep options in different tradeoff spaces
-Each option must solve at least one problem the others do not. State what each option is best for; if two options are best for the same thing, merge them.
+Each option must solve at least one Problem the others do not. State what each option is best for; if two options are best for the same thing, merge them.
 Never: two options that are the same idea.
 
 ### State the Convention each option creates

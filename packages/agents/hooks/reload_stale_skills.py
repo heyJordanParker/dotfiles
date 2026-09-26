@@ -60,6 +60,8 @@ COMPACT_PREAMBLE = ("### Use the Skills the compaction cut\n"
 
 _LEADING_COUNT = re.compile(r"\d+")
 
+GOVERNED = {"propose", "execute", "orchestrate", "build", "interview"}
+
 
 def reload_every(name):
     """The Skill's distance in turns, or 0 when it is never named again.
@@ -74,22 +76,6 @@ def reload_every(name):
         return 0
     count = _LEADING_COUNT.match(declared or "")
     return int(count.group(0)) if count else 0
-
-
-def live_records(recs):
-    """The records still in the conversation: everything after the last compaction.
-
-    A compaction leaves the old records in the transcript file while dropping them
-    from the conversation, so measuring across that boundary would find an arrival
-    for a Skill the agent can no longer see. At `SessionStart: compact` the new
-    boundary is not in the file yet, so the whole window that just closed is what
-    this returns — which is exactly the set of Skills in use.
-    """
-    cut = 0
-    for i, record in enumerate(recs):
-        if transcript.text_of(record).startswith(transcript.COMPACT_MARKER):
-            cut = i + 1
-    return recs[cut:]
 
 
 def chars_after(recs):
@@ -128,11 +114,11 @@ def named_this_turn(prompt):
     return named
 
 
-def overdue(recs, skip):
+def overdue(recs, skip, governing):
     after = chars_after(recs)
     out = []
     for name, index in transcript.skill_arrivals(recs).items():
-        if name in skip:
+        if name in skip or (name in GOVERNED and name not in governing):
             continue
         turns = reload_every(name)
         if turns and after[index] >= turns * TURN_CHARS:
@@ -162,7 +148,7 @@ def compact_order(event, session_id, recs):
     mode = resolve(event, session_id)
     governing_state = state(event)
     body = directive(governing_state, mode, mode)
-    rest = [name for name in in_use(live_records(recs))
+    rest = [name for name in in_use(transcript.live_records(recs))
             if name not in (governing_state, mode)]
     parts = [part for part in (body, skills_directive(["/" + n for n in rest]) if rest else "")
              if part]
@@ -192,7 +178,8 @@ def main():
     # No readable transcript is no measurement, and unmeasured is not overdue.
     if not recs:
         return 0
-    due = overdue(live_records(recs), named_this_turn(field(event, "prompt", "")))
+    due = overdue(transcript.live_records(recs), named_this_turn(field(event, "prompt", "")),
+                  {resolve(event, session_id), state(event)})
     if due:
         feedback.context("reload_stale_skills", hook, skills_directive(due))
     return 0

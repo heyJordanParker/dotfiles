@@ -33,7 +33,6 @@ Prompt and Agent Hooks can fail open, so the same Rule still needs a prose home 
 - `Stop` checks completeness before the Agent stops.
 - `SubagentStart` fires when a Subagent is dispatched and accepts command-type Hooks only.
 - `SubagentStop` validates Subagent completion.
-- `TaskCompleted` reacts to completed Subagent Tasks.
 - `UserPromptSubmit` adds Context or validates the user's Prompt.
 - `MessageDisplay` transforms or hides displayed text (v2.1.152+).
 - `SessionStart` loads Context or sets environment variables; its matcher is `startup`, `resume`, `clear`, or `compact`.
@@ -41,7 +40,6 @@ Prompt and Agent Hooks can fail open, so the same Rule still needs a prose home 
 - `ConfigChange` fires when settings hot-reload.
 - `Setup` runs repository setup or maintenance for `--init`, `--init-only`, or `--maintenance`.
 - `StopFailure` fires when a turn ends because of an API error and is not the same as `Stop`.
-- `TaskCreated` fires when a Task is created through TaskCreate.
 - `CwdChanged` fires when the working directory changes.
 - `FileChanged` fires when a watched file changes.
 - `PreCompact` fires before compaction; matcher values are `manual` and `auto`, and exit 2 or `{"decision":"block"}` can block compaction (v2.1.105+).
@@ -262,7 +260,7 @@ Template:
 A Hook cannot make the Harness invoke a `disable-model-invocation` Skill through the Skill tool. Injecting `Load /<skill> now via the Skill tool` as `additionalContext` routes the model to the same gate and fails with `Skill <name> cannot be used with Skill tool due to disable-model-invocation`.
 
 ### Name the Skill, and expect no text back on a second use
-The Skill tool answers a second use with `Skill /<name> is already loaded above; instructions unchanged`. That is the Harness saying the Process is still in the conversation, not a failure: an order to use it again buys the Agent going back to the steps, never the text arriving twice. Verified at 2.1.195 on `/5-whys` and `/cc`.
+The Skill tool answers a second use with `Skill /<name> is already loaded above; instructions unchanged`. That is the Harness saying the Process is still in the conversation, not a failure: an order to use it again buys the Agent going back to the steps, never the text arriving twice. Verified at 2.1.195 on `/cc`.
 
 ### Inline content only when the Hook accepts the loss of Skill machinery
 A Hook can inline that Skill's body as plain `additionalContext`, but that carries no `allowed-tools`, `references/`, `!` autorun, or Skill registration. See `building-skills.md` for the `disable-model-invocation` flag.
@@ -278,7 +276,7 @@ Example: `{ "permissions": { "additionalDirectories": ["../docs/"] } }`
 - `$CLAUDE_EFFORT` is the active effort level for command Hooks and Bash tool commands (v2.1.133+).
 - `$CLAUDE_CODE_SESSION_ID` matches the `session_id` passed to Hooks and is also set in Bash tool subprocesses and stdio Model Context Protocol servers (v2.1.132+).
 - `$CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1` strips Anthropic and cloud credentials from subprocess environments.
-- Supported prompt, Agent, and HTTP Hook events are `PreToolUse`, `PostToolUse`, `Stop`, `StopFailure`, `SubagentStop`, `UserPromptSubmit`, `PermissionRequest`, `TaskCompleted`, `TaskCreated`, `CwdChanged`, `FileChanged`, `Elicitation`, and `ElicitationResult`.
+- Supported prompt, Agent, and HTTP Hook events are `PreToolUse`, `PostToolUse`, `Stop`, `StopFailure`, `SubagentStop`, `UserPromptSubmit`, `PermissionRequest`, `CwdChanged`, `FileChanged`, `Elicitation`, and `ElicitationResult`.
 - An Agent Hook requires `type: "agent"` and `prompt: string`; `model`, `timeout`, `statusMessage`, and `once` are optional.
 - Agent Hooks default to 60 seconds, while prompt Hooks default to 30 seconds.
 - HTTP Hooks post Hook input JSON to the URL and expect the same decision JSON back.

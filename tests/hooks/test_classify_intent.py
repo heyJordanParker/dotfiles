@@ -1,12 +1,4 @@
-"""Behavioral tests for classify_intent.py — intent → contract injection + notes.
-
-The LLM call is stubbed, so these pin the deterministic shell around it: the
-per-intent contract emitted as additionalContext, the question-with-action
-variant, the sequential directive, session-notes maintenance (capped at 10), the
-proposing-turn re-injection of standing notes, and composition with a typed
-mode-command. The structural skips and the LLM-down typed-command fallback are
-covered in test_local_llm_fallbacks.
-"""
+"""Behavioral tests for classify_intent.py's deterministic command handling."""
 
 import classify_intent
 import pytest
@@ -26,8 +18,7 @@ def state_root(tmp_path, monkeypatch):
     return root
 
 
-def _run(monkeypatch, payload, model_result):
-    monkeypatch.setattr(classify_intent, "run_model", lambda *a, **k: model_result)
+def _run(monkeypatch, payload):
     monkeypatch.setattr(classify_intent, "read_event", lambda: payload)
     captured = {}
     monkeypatch.setattr(classify_intent, "emit_context",
@@ -36,38 +27,12 @@ def _run(monkeypatch, payload, model_result):
     return rc, captured.get("text")
 
 
-def test_question_emits_answer_contract(monkeypatch, state_root):
-    rc, text = _run(monkeypatch,
-                    {"session_id": "ci1", "prompt": "why does X work this way?"},
-                    {"intent": "question"})
+def test_a_harness_authored_prompt_is_skipped(monkeypatch, state_root):
+    rc, text = _run(monkeypatch, {"session_id": "ci1",
+                                  "prompt": "<task-notification>x</task-notification>"})
     assert rc == 0
-    assert "This is a question. Answer it" in text
-    assert "Answer with specific facts, not gestures at them" in text
-    assert "execute the action items" not in text
-
-
-
-
-
-
-def test_plain_action_emits_only_standing_reminders(monkeypatch, state_root):
-    rc, text = _run(monkeypatch,
-                    {"session_id": "ci1", "prompt": "add a guard to the parser"},
-                    {"intent": "action"})
-    assert rc == 0
-    assert "The architect's call governs" in text
-    assert "Ground every claim" in text
-    assert "This is a question" not in text
-
-
-
-
-
-
-
-
-
-
+    assert text is None
+    assert load_state("ci1") == {}
 
 
 @pytest.mark.parametrize("command,mode", [("/orchestrate", "orchestrate"),
@@ -76,54 +41,15 @@ def test_plain_action_emits_only_standing_reminders(monkeypatch, state_root):
 def test_a_typed_mode_command_writes_the_mode_axis(monkeypatch, state_root, command, mode):
     """Mode is the axis the architect types. Interview used to be a state written when
     the interview SKILL was invoked; it is a mode set by typing the command now."""
-    _run(monkeypatch, {"session_id": "ci1", "prompt": "%s the parser" % command},
-         {"intent": "action"})
+    _run(monkeypatch, {"session_id": "ci1", "prompt": "%s the parser" % command})
     state = load_state("ci1")
     assert state["mode"] == mode
     assert state["mode_typed"] is True
 
 
-
-
-
-
-def test_typed_interview_skips_the_model_call(monkeypatch, state_root):
-    """Interview turns the LLM hooks off for speed — only the deterministic directive
-    rides, and the standing reminders that ride every other turn do not."""
-    _, text = _run(monkeypatch, {"session_id": "ci1", "prompt": "/interview the parser"},
-                   {"intent": "action"})
+def test_typed_interview_loads_the_interview_skill(monkeypatch, state_root):
+    _, text = _run(monkeypatch, {"session_id": "ci1", "prompt": "/interview the parser"})
     assert "Use /interview now" in text
-    assert "The architect's call governs" not in text
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 def test_untyped_turn_loads_the_default_proposing_state_skill(monkeypatch, state_root):
@@ -131,8 +57,7 @@ def test_untyped_turn_loads_the_default_proposing_state_skill(monkeypatch, state
     The stored state defaults to propose, so the proposing contract arrives from the
     session's first turn instead of only when the architect types /propose."""
     _, text = _run(monkeypatch,
-                   {"session_id": "ci1", "prompt": "the save path drops the draft"},
-                   {"intent": "action"})
+                   {"session_id": "ci1", "prompt": "the save path drops the draft"})
     assert "This is a proposing-state turn. Use /propose now" in text
 
 
@@ -140,8 +65,7 @@ def test_untyped_turn_loads_the_stored_executing_state_skill(monkeypatch, state_
     from lib.session_state import merge_state
     merge_state("ci1", {"state": "execute"})
     _, text = _run(monkeypatch,
-                   {"session_id": "ci1", "prompt": "keep going"},
-                   {"intent": "action"})
+                   {"session_id": "ci1", "prompt": "keep going"})
     assert "This is an executing-state turn. Use /execute now" in text
     assert "proposing-state" not in text
 
@@ -152,38 +76,21 @@ def test_stored_interview_mode_loads_no_state_skill(monkeypatch, state_root):
     from lib.session_state import merge_state
     merge_state("ci1", {"mode": "interview", "mode_typed": True})
     _, text = _run(monkeypatch,
-                   {"session_id": "ci1", "prompt": "next question"},
-                   {"intent": "action"})
+                   {"session_id": "ci1", "prompt": "next question"})
     assert not text or "state turn" not in text
 
 
-def _stub_skills(monkeypatch, names):
-    monkeypatch.setattr(classify_intent, "_available_skills", lambda: set(names))
-
-
-def test_typed_skill_emits_reload_directive(monkeypatch, state_root):
-    _stub_skills(monkeypatch, ["naming", "pcc"])
+def test_a_mentioned_skill_is_not_ordered(monkeypatch, state_root):
+    monkeypatch.setattr(classify_intent, "_available_skills", lambda: {"ask", "plan"})
     _, text = _run(monkeypatch,
-                   {"session_id": "ci1", "prompt": "give me names /naming"},
-                   {"intent": "action"})
-    # The Skill named the way anyone names one, and never a report of who asked.
-    # reload_stale_skills emits this same sentence.
-    assert "Use /naming now, before anything else" in text
-    assert "The architect typed" not in text
+                   {"session_id": "ci1", "prompt": "/ask and /plan still name the tool"})
+    assert "Use /ask" not in text
 
 
-
-
-
-
-
-
-
-
-
-
-
-
+def test_an_unchanged_state_is_announced_once(monkeypatch, state_root):
+    _run(monkeypatch, {"session_id": "ci1", "prompt": "first"})
+    _, text = _run(monkeypatch, {"session_id": "ci1", "prompt": "second"})
+    assert text is None
 
 
 # The two real messages that exposed the positional recognition, taken verbatim
@@ -198,8 +105,7 @@ def test_incident_batch_approval_enters_executing(monkeypatch, state_root):
     # "okay /execute those" sits mid-message after a numbered list whose item 6
     # mentions /propose; /execute is typed later, so last-wins holds executing.
     _, text = _run(monkeypatch,
-                   {"session_id": "ci1", "prompt": INCIDENT_BATCH_APPROVAL},
-                   {"intent": "action"})
+                   {"session_id": "ci1", "prompt": INCIDENT_BATCH_APPROVAL})
     assert load_state("ci1")["state"] == "execute"
     assert "This is an executing-state turn" in text
 
@@ -210,6 +116,5 @@ def test_incident_enter_execute_is_overridden_by_a_stray_propose(monkeypatch, st
     # last wins" that stray token is indistinguishable from a typed command, so
     # the message resolves to proposing against the architect's intent. No rule
     # in the current contract can separate the two.
-    _run(monkeypatch, {"session_id": "ci1", "prompt": INCIDENT_ENTER_EXECUTE},
-         {"intent": "action"})
+    _run(monkeypatch, {"session_id": "ci1", "prompt": INCIDENT_ENTER_EXECUTE})
     assert load_state("ci1")["state"] == "propose"

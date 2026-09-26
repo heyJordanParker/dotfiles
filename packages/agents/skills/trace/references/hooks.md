@@ -22,6 +22,7 @@ The Hooks live under `packages/agents/hooks/` and are wired in `settings.json` b
 - `InstructionsLoaded` runs `trace docs prime <file>`, so every doc Claude Code loads while the session runs is recorded as loaded.
 - `PreCompact` and SessionStart `clear` reset the record.
 - Every SessionStart records the session-start docs, which Claude Code puts back after a compaction without reporting them: `trace docs prime` for the `Claude.md` chain, and `trace docs <cwd> --json` for the working directory's docs.
+- SessionStart `compact` sends back, from disk, the user Rules the closed window loaded, and records them. Claude Code reloads project docs after a compaction but never a user Rule the session already loaded.
 
 ### `enrich_on_read.py` attaches facts to file operations
 PreToolUse matcher `Read|Glob|Grep|Edit|Write` runs one `trace` call per tool, fitted to one 10,000-character hook message.

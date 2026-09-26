@@ -51,7 +51,20 @@ The application functionality that's critical to the User. It's the reason WHY t
 _Avoid_: flows, critical functionality, user journeys
 
 **Goal**:
-The verifiable outcome the Agent must reach to solve a problem for the User as set by the Architect. The Agent remembers it, works toward it, and never changes it.
+The outcome the User wants. The Architect sets it. The Agent reaches it, verifies it, and never changes it.
+
+**Problem**:
+Something that stops the User from reaching a Goal. The User can reach a Goal only once every one of the Problems on the way is solved.
+
+**Solution**:
+One of several ways to solve a Problem. Its tradeoffs and our context decide if it is the best one. It requires one or more Capabilities.
+
+**Capability**:
+Something our product can do.
+
+**Process**:
+The exact steps to follow, in order, to predictably produce a result. A Capability requires one or more Processes.
+_Avoid_: SOP, workflow
 
 **Task**:
 The work the Agent does to reach a verifiable result, one step toward the Goal.
@@ -104,7 +117,7 @@ Work from an Agent that looks complete but is impractical or flat-out incorrect.
 _Avoid_: slop, low-quality output, boilerplate
 
 **Elegant**:
-A system that achieves all its goals with the fewest parts. It reuses parts instead of adding new ones, achieves every result through only one path, and cannot remove a part without losing a capability.
+A system that achieves all its goals with the fewest parts. It reuses parts instead of adding new ones, achieves every result through only one path, and cannot remove a part without losing a Capability.
 _Avoid_: clever, sophisticated, clean
 
 **Context**:
@@ -135,7 +148,7 @@ Architectural decision driven by the needs of the domain, recorded because it is
 _Avoid_: ADR, architectural decision record, decision log
 
 **Precedent**:
-Pattern the repository already used to solve a similar problem. Agents start work by finding a Precedent, then following it and avoiding creativity. New patterns need the Architect's approval.
+Pattern the repository already used to solve a similar Problem. Agents start work by finding a Precedent, then following it and avoiding creativity. New patterns need the Architect's approval.
 
 ## Prompting
 
@@ -158,12 +171,8 @@ Concrete case attached to a Rule or a Skill. Examples always show the correct be
 Fill-the-blanks Example.
 _Avoid_: boilerplate, form, blueprint, stencil
 
-**Process**:
-The exact steps to follow, in order, to solve a recurring problem.
-_Avoid_: SOP, workflow
-
 **Skill**:
-Process the Agent invokes to solve a specific, recurring problem.
+Process the Agent invokes to solve a specific, recurring Problem.
 _Avoid_: SOP, workflow
 
 **Command**:

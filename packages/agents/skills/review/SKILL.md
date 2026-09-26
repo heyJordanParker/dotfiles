@@ -22,7 +22,7 @@ Use /delegate to send one Claude Subagent and /codex to send one codex Subagent,
 Same diff, same surrounding code, same Prompt. A difference in scope makes the two returns incomparable.
 
 ### Require a cause, never a symptom
-The dispatch tells each reviewer to run /5-whys on every finding before reporting it, and to report the cause its chain reached. A reviewer that reports what it saw sends you one round per symptom of the same cause.
+The dispatch tells each reviewer to trace every finding to its cause before reporting it, and to report that cause. A reviewer that reports what it saw sends you one round per symptom of the same cause.
 
 ## 3. Triage the returns with /triage
 

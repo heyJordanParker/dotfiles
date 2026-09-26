@@ -24,9 +24,9 @@ the Evidence, never the other way around.
    hits, or a reason per hit. A consumer surfacing here is read, not exercised, until
    reading shows it broke.
 
-   ### Give every deleted capability a new home
+   ### Give every deleted Capability a new home
    For each file you deleted or replaced, name what it did and where that lives now.
-   A capability with no new home is a defect you fix before reporting, never a line
+   A Capability with no new home is a defect you fix before reporting, never a line
    in the report.
 
    ### Delete the second mechanism you just added

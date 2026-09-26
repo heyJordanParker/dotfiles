@@ -9,7 +9,7 @@
       "name": "talents",
       "source": "./packages/claude",
       "description": "Overpowered Claude Code talents to power level your software architecture.",
-      "version": "1.5.2",
+      "version": "1.5.3",
       "strict": false,
       "keywords": [
         "architecture",

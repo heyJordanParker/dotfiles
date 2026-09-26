@@ -131,7 +131,7 @@ Example: destructive actions require confirmation with the safe action as primar
 Use `checklist.md` after all design work and answer every item yes or no across CSS Architecture, sizing and layout, visual design, interactions, responsive behavior, accessibility, user experience patterns, and anti-patterns.
 Never: report done before the checklist catches what build and lint miss.
 
-## References (each solves one problem)
+## References (each solves one Problem)
 
 - Bold mode needs a memorable visual direction → bold.md
 - Design work needs a yes/no Verification pass → checklist.md

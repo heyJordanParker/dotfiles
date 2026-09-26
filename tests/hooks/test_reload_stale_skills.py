@@ -147,6 +147,12 @@ def test_an_ignored_order_is_repeated_after_another_distance(monkeypatch, write_
     assert text.startswith("Use /5-whys now")
 
 
+def test_a_mode_the_session_left_is_not_ordered(monkeypatch, write_transcript):
+    path = write_transcript([_used("orchestrate"), _assistant("x" * (20 * TURN))])
+    _, text, _ = _run(monkeypatch, _batch(path), {"orchestrate": 20}, mode="build")
+    assert text is None
+
+
 def test_each_skill_is_measured_against_its_own_number(monkeypatch, write_transcript):
     """One conversation, two Skills used together: only the tighter one is due."""
     path = write_transcript([_typed("5-whys"), _typed("delegate"),
@@ -292,7 +298,6 @@ def test_an_unreadable_transcript_orders_nothing(monkeypatch):
 
 def test_reload_every_reads_the_frontmatter(tmp_path, monkeypatch):
     """The real reader, against the real corpus: the numbers the architect set."""
-    assert hook.reload_every("5-whys") == 5
     assert hook.reload_every("delegate") == 20
     assert hook.reload_every("orchestrate") == 20
     assert hook.reload_every("execute") == 30

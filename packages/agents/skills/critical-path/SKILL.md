@@ -6,7 +6,7 @@ description: Process for changes with a large blast radius — files with many c
 # Critical Path
 
 - Mistakes here lose Users and revenue directly.
-- One Process: measure blast radius, get Architect approval for dangerous actions, then verify the dependent capability still holds.
+- One Process: measure blast radius, get Architect approval for dangerous actions, then verify the dependent Capability still holds.
 
 ## 1. Measure the blast radius
 
@@ -38,10 +38,10 @@ IF state is unexpected:
 
 Unexpected state includes unfamiliar files, branches, and locks.
 
-## 3. Verify the capability held
+## 3. Verify the Capability held
 
 Exercise what depends on the change and show the observed output.
 
 ### Verification is observed behavior
 
-The Skill is not complete until the dependent capability ran and the output is captured.
+The Skill is not complete until the dependent Capability ran and the output is captured.

@@ -5,21 +5,15 @@ feedback.py is the single owner of what a hook says back. The agent reads hook
 text in the same stream as the architect's words, so every message is wrapped in
 <{name}_agent>…</{name}_agent> — the agent can always tell an automated hook from
 the architect. The tag itself carries no instructions; how to treat tagged text
-lives once in the global rules. The one exception is the Stop channel, which
-carries STOP_CONTRACT — what the agent does with a concern about the reply it was
-about to send is a property of that channel, not of the gate that raised it.
+lives once in the global rules.
 
 classify_intent.is_system_prompt already recognizes this <tag>…</tag> shape and
 keeps it out of user-intent classification, so the same tag that marks hook-voice
 to the agent also keeps a hook's words from being read as the user's.
 
-Four channels:
+Three channels:
 - block(name, body): a gate's stderr message; returns 2, which HALTS the stop or
   tool and re-fires — the agent is forced to act. For genuine hard stops only.
-- raise_concern(name, event_name, body): surfaces a concern WITHOUT halting —
-  `systemMessage` shows it to the architect, `additionalContext` gives it to the
-  agent, and the return is 0 so the stop/tool proceeds. A validator FLAGS; the
-  agent holds the context and decides. This is the validators' channel.
 - context(name, event_name, body): injected context as additionalContext.
 - updated_input(event_name, tool_input): replaces the tool call's own input, for
   a fact the hook holds and the tool cannot reach. It carries no
@@ -71,34 +65,6 @@ def _carries_context(name, event_name):
     sys.stderr.write("%s: %s carries no additionalContext; nothing injected\n"
                      % (name, event_name))
     return False
-
-
-# What a Stop concern is for. The gate names a defect in the message the architect
-# is about to read; the agent then writes another message, and that one is what he
-# reads. Without this, the agent answers the concern and the deliverable is gone.
-STOP_CONTRACT = (
-    "Revise the reply you were about to send and send that instead — the whole "
-    "proposal, answer, or report, rewritten, never the old one with a fix appended. "
-    "Never reply to this concern: the conversation is between you and the architect. "
-    "This is a defect in the message, not new work — no research, no edits, no commands."
-)
-
-
-def raise_concern(name, event_name, body):
-    if event_name == "Stop":
-        body = "%s\n\n%s" % (body, STOP_CONTRACT)
-    wrapped = wrap(name, body)
-    if not _carries_context(name, event_name):
-        return 0
-    sys.stdout.write(json.dumps(
-        {"systemMessage": wrapped,
-         "hookSpecificOutput": {
-             "hookEventName": event_name,
-             "additionalContext": wrapped,
-         }},
-        separators=(",", ":"), ensure_ascii=False,
-    ) + "\n")
-    return 0
 
 
 def context(name, event_name, body):

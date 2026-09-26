@@ -61,7 +61,7 @@ Name the end-to-end behavior, expected output, and edge, empty, and error cases.
 Name the existing behavior, file, and how to verify it still works. Use an existing suite when it exists; otherwise name the manual Verification.
 
 ### Dependency audit criteria prevent duplicates
-State the module and method verified before use, and the locations checked for an existing capability before introducing a new one.
+State the module and method verified before use, and the locations checked for an existing Capability before introducing a new one.
 Example: verified `SearchService` exposes `run()` before using it; checked `admin/search` and `app/search` for existing pagination.
 
 ### Boundary criteria protect scope

@@ -12,9 +12,9 @@ reload-every: 20 turns
 - After a compaction the Harness restores each used Skill up to 5,000 tokens (20,000 characters) and drops the rest of its text for the session.
 - It restores the used Skills newest first and stops at 25,000 tokens (100,000 characters) across all of them, so an Agent whose `skills:` total more than that loses its oldest for the session.
 
-## 1. Understand the problem the Prompt solves
+## 1. Understand the Problem the Prompt solves
 
-A Prompt exists to solve one problem. Understand that problem before you touch the Prompt. Find out what the Agent does by default and what the Architect wants instead.
+A Prompt exists to solve one Problem. Understand that Problem before you touch the Prompt. Find out what the Agent does by default and what the Architect wants instead.
 
 IF fixing an existing Prompt:
 ### Understand what the Prompt already solves before you change it
@@ -47,7 +47,7 @@ The body never carries a trigger section.
 A blank filled for symmetry is Fluff. A Skill never carries a Frame, never Principles beyond its one Process.
 
 ### Only a Process becomes a Reference
-A roster, catalog, worked-example set, or data table stays in SKILL.md even when that makes it long. Never split out content needed 80% of the time: the Agent writes a working Prompt from SKILL.md alone. A Reference that reads as optional background is never opened; cut it or fold it back. The link line names the problem the Reference solves.
+A roster, catalog, worked-example set, or data table stays in SKILL.md even when that makes it long. Never split out content needed 80% of the time: the Agent writes a working Prompt from SKILL.md alone. A Reference that reads as optional background is never opened; cut it or fold it back. The link line names the Problem the Reference solves.
 
 ### A Process another Skill owns is named, never restated
 Use `/skill-name` in the step that needs it. Both Harnesses take the named Skill whole.
@@ -63,7 +63,7 @@ The Agent proposes Decisions; only the Architect makes them, typically through /
 
 Three axes pick the delivery: load guarantee (always-loaded, Condition-loaded, Skill the Agent uses), recency (session start, per turn, at the moment of the action), strength (prose, Example, checked, blocked).
 
-- A behavior that must hold every turn is a Hook; always-loaded prose is forgotten after a few turns.
+- A Hook enforces what prose cannot: a destructive or irreversible action, an Architect boundary, or a fact only the Harness holds.
 - A step that interprets no human language is code, not Prompt.
 
 The failure picks the form:
@@ -119,7 +119,7 @@ A Template is a label with the block indented on new lines beneath it.
 
 Control run first: if the failure doesn't show without the line, there is no gap and the line is not written. Then pressure-test (testing-skills.md). Done when the correction held under pressure and the control showed the gap.
 
-## References (each solves one problem)
+## References (each solves one Problem)
 
 - Building or restructuring a skill → building-skills.md
 - Your Example isn't changing behavior → building-examples.md

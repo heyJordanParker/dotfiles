@@ -15,7 +15,6 @@ Requires [Claude Code](https://docs.anthropic.com/en/docs/claude-code).
 
 Invoked as `/talents:<name>`:
 
-- **5-whys** — Find the architectural root cause and render the chain
 - **agent-browser** — Automate browser interactions, web testing, screenshots, data extraction (requires [agent-browser](https://www.npmjs.com/package/agent-browser))
 - **architecture** — Present architectural options with tradeoffs
 - **cc** — Work with Claude Code skills, hooks, settings
@@ -55,12 +54,10 @@ Invoked as `/talents:<name>`:
 
 Also invoked as `/talents:<name>`:
 
-- **ask** — Break complex scenarios into decision questions with 4+ options
 - **commit** — Validated commit with tests and comprehensive review
 - **copy-plan-path** — Copy the current plan path to the clipboard
 - **copy-shaping-dir** — Copy the current shaping directory path to the clipboard
 - **copy-transcript-path** — Copy the current conversation transcript path to the clipboard
-- **plan** — Plan a feature using structured format
 - **retro** — Analyze conversation history for patterns and improvements
 - **wtf** — Hard reset, redo the last task correctly
 
@@ -70,8 +67,6 @@ The plugin includes hooks that run automatically to keep Claude disciplined:
 
 - **block-git-revert** — Blocks `git reset`, `git restore`, `git checkout -- <file>`. Forces manual execution.
 - **block-unsafe-delete** — Whitelists `rm` to specific directories only. Everything else blocked.
-- **validate-planning-docs** — Checks planning documents on write/edit for deferral, optionality, and other quality issues.
-- **validate-plan-quality** — Gates `ExitPlanMode` on plan quality before a plan is accepted.
 - **sync-shaping** — Ripple-check reminders when editing shaping documents
 
 

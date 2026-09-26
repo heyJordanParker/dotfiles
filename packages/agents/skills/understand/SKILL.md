@@ -54,7 +54,7 @@ Template:
   ```
 
 ### 3.3 Build the decision timeline
-Order the design-changing commits into a timeline: date, commit id, the design decision it made, and the problem that forced it. Record every rejected design by name — a design the history rejected must not return through the next change.
+Order the design-changing commits into a timeline: date, commit id, the design decision it made, and the Problem that forced it. Record every rejected design by name — a design the history rejected must not return through the next change.
 
 ### 3.4 State each system's maturity
 From the timeline: how old the design is, how many times it was reshaped, and whether it has held since the last reshaping. A design that survived many reshapings constrains future changes more than a new design does; a design one commit old is open to a contract-change proposal. The implementing agent calibrates how freely it may propose changes from this.
@@ -72,7 +72,7 @@ Close missing understanding with another read, or list it as an open question. N
 State the invariants the system protects — the conditions that must stay true — and verify each against the code. Make three predictions about behavior the task will touch and confirm each in the source. A prediction that fails means the understanding is wrong: go back to the step that produced it.
 
 ### 5.2 Challenge the design against industry precedent
-With the history in hand, ask /5-whys of the architecture: why does each major part exist at all? Then compare the design with the proven industry solution for the same problem and name every divergence. A divergence the history explains is a recorded Decision; a divergence with no recorded reason is a finding for the report.
+With the history in hand, ask why each major part of the architecture exists at all. Then compare the design with the proven industry Solution for the same Problem and name every divergence. A divergence the history explains is a recorded Decision; a divergence with no recorded reason is a finding for the report.
 
 ## 6. Report
 
@@ -94,7 +94,7 @@ Template:
   The annotated file trees, the contracts between systems, and the boundaries. What owns what.
 
   ## How it came to be
-  The decision timeline: date, commit, decision, forcing problem. The rejected designs. Each system's maturity: age, reshapings survived, and what that licenses the implementing agent to touch.
+  The decision timeline: date, commit, decision, forcing Problem. The rejected designs. Each system's maturity: age, reshapings survived, and what that licenses the implementing agent to touch.
 
   ## The mechanics behind this task
   The specific call chain, state machine, or data flow the task will change. Exact names and paths. End with the code paths and triggers the smallest implied change activates, verified in the selection and trigger code.

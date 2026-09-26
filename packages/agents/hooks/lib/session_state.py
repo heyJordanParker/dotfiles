@@ -162,9 +162,6 @@ def _default_main_state(session_id):
         "mode_typed": False,
         "state": "propose",
         "commit_requested": False,
-        "goal": None,
-        "notes": [],
-        "gate_blocks": {},
         "current_turn_start": None,
         "schema_version": 1,
     }
@@ -597,41 +594,6 @@ def load_state(session_id):
     return state if isinstance(state, dict) else {}
 
 
-def read_draft(cwd, not_before):
-    """This turn's think.md from the run's Evidence directory, else "".
-
-    The agent names its own Evidence directory, so the file is found by its fixed
-    name and its write time rather than by a path this side rebuilds. Newest in
-    the window wins when a session has written more than one.
-
-    `not_before` is the turn's start. The window closes at both ends against one
-    clock, `_now()`: a lower bound alone lets a file stamped ahead of the clock
-    read as fresh on every turn for good, and mixing `_now()` with `time.time()`
-    made the two ends disagree wherever the harness drives `date`.
-    """
-    if not cwd or not isinstance(not_before, int):
-        return ""
-    try:
-        ceiling = _now() + 1
-    except Exception:
-        return ""
-    newest, stamp = "", 0
-    for path in glob(os.path.join(cwd, "docs", "agents", "*", "think.md")):
-        try:
-            mtime = os.stat(path).st_mtime
-        except OSError:
-            continue
-        if not_before <= mtime <= ceiling and mtime >= stamp:
-            newest, stamp = path, mtime
-    if not newest:
-        return ""
-    try:
-        with open(newest, encoding="utf-8", errors="replace") as fh:
-            return fh.read()
-    except OSError:
-        return ""
-
-
 def merge_state(session_id, fragment):
     """Lock-guarded atomic merge of a dict fragment into the session's state.json; validates the id itself since in-process callers bypass cmd_merge. True on success."""
     if not _is_valid_session_id(session_id) or not isinstance(fragment, dict):
@@ -648,46 +610,6 @@ def merge_state(session_id, fragment):
             return False
         state.update(fragment)
         return _atomic_write(state_file, _dump(state))
-
-
-def gate_block_count(session_id, gate):
-    """How many times a stop gate has blocked the stop in the current turn.
-
-    Kept per turn, keyed to current_turn_start: a fresh human turn (which advances
-    current_turn_start) reads as 0 again, so a gate flags an issue once per turn,
-    then yields. Pure read."""
-    state = load_state(session_id)
-    rec = (state.get("gate_blocks") or {}).get(gate) or {}
-    if rec.get("turn") != state.get("current_turn_start"):
-        return 0
-    return rec.get("count") or 0
-
-
-def bump_gate_block(session_id, gate):
-    """Record one stop-gate block for the current turn and return the new count.
-
-    Lock-guarded read-modify-write so the two stop gates blocking on the same Stop
-    don't clobber each other's counts in the shared gate_blocks map."""
-    if not _is_valid_session_id(session_id):
-        return 0
-    session_dir = _ensure_session(session_id)
-    if session_dir is None:
-        return 0
-    state_file = os.path.join(session_dir, "state.json")
-    with _locked(state_file) as held:
-        if not held:
-            return 0
-        state = _read_json(state_file)
-        if not isinstance(state, dict):
-            return 0
-        turn = state.get("current_turn_start")
-        blocks = state.get("gate_blocks") or {}
-        rec = blocks.get(gate) or {}
-        count = ((rec.get("count") or 0) if rec.get("turn") == turn else 0) + 1
-        blocks[gate] = {"turn": turn, "count": count}
-        state["gate_blocks"] = blocks
-        _atomic_write(state_file, _dump(state))
-        return count
 
 
 def cmd_merge(args):

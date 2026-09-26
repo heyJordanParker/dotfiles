@@ -8,7 +8,7 @@ reload-every: 30 turns
 # Execute
 
 - The Architect already approved the work.
-- The `cto` Prompt governs reading before editing, fixing at the root, preserving every capability, holding scope, and proving it ran.
+- The `cto` Prompt governs reading before editing, fixing at the root, preserving every Capability, holding scope, and proving it ran.
 - This Skill corrects where Execution stops.
 
 ## 1. Check the approved work against Architecture before editing

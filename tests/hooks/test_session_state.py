@@ -2,8 +2,7 @@
 hook reads and writes through.
 
 This guards the store's load-bearing properties in-process: concurrent writes,
-corrupt/empty/missing-state healing, subagent nesting and resolution, and the
-per-turn stop-gate counters.
+corrupt/empty/missing-state healing, and subagent nesting and resolution.
 
 Every test runs against a per-test data root (CLAUDE_DATA_ROOT / CLAUDE_PROJECTS_ROOT
 under tmp_path) — nothing touches the real ~/.claude. Time is driven by monkeypatching
@@ -87,9 +86,6 @@ def test_start_creates_main_state_with_defaults(root, clock):
     assert st["mode"] == "build"
     assert st["state"] == "propose"
     assert st["commit_requested"] is False
-    assert st["goal"] is None
-    assert st["notes"] == []
-    assert st["gate_blocks"] == {}
     assert st["current_turn_start"] is None
     assert st["schema_version"] == 1
 
@@ -122,9 +118,8 @@ def test_subagent_nests_under_parent(root, clock):
     assert st["role"] == "subagent"
     assert st["session_id"] == "agent-xyz"
     assert st["parent_session_id"] == "parent"
-    # subagent state omits the main-only control + goal fields
-    for omitted in ("mode", "state", "goal", "notes", "gate_blocks",
-                    "commit_requested"):
+    # subagent state omits the main-only control fields
+    for omitted in ("mode", "state", "commit_requested"):
         assert omitted not in st
 
 
@@ -347,7 +342,7 @@ def test_get_missing_session_is_soft(root, clock):
 
 def test_get_null_field_emits_nothing(root, clock, capsys):
     _run(["start", "g", "--transcript-path", "/foo/g.jsonl"])
-    session_state.cmd_get(["g", "goal"])
+    session_state.cmd_get(["g", "current_turn_start"])
     assert capsys.readouterr().out == ""
 
 
@@ -518,32 +513,3 @@ def test_merge_state_non_dict_fragment_returns_false(root, clock):
     _run(["start", "ms3", "--transcript-path", "/foo/ms3.jsonl"])
     assert session_state.merge_state("ms3", "not a dict") is False
     assert session_state.merge_state("ms3", None) is False
-
-
-# ---------------------------------------------------------------------------
-# Stop-gate block counter — per-turn, per-gate; resets when the turn advances
-# ---------------------------------------------------------------------------
-
-def test_bump_gate_block_counts_within_a_turn(root, clock):
-    _run(["start", "g", "--transcript-path", "/foo/g.jsonl"])
-    session_state.merge_state("g", {"current_turn_start": 100})
-    assert session_state.bump_gate_block("g", "babysitter") == 1
-    assert session_state.bump_gate_block("g", "babysitter") == 2
-    assert session_state.gate_block_count("g", "babysitter") == 2
-
-
-def test_gate_block_count_resets_when_turn_advances(root, clock):
-    _run(["start", "g", "--transcript-path", "/foo/g.jsonl"])
-    session_state.merge_state("g", {"current_turn_start": 100})
-    session_state.bump_gate_block("g", "babysitter")
-    assert session_state.gate_block_count("g", "babysitter") == 1
-    session_state.merge_state("g", {"current_turn_start": 200})  # next human turn
-    assert session_state.gate_block_count("g", "babysitter") == 0
-
-
-def test_gate_blocks_are_isolated_per_gate(root, clock):
-    _run(["start", "g", "--transcript-path", "/foo/g.jsonl"])
-    session_state.merge_state("g", {"current_turn_start": 100})
-    session_state.bump_gate_block("g", "babysitter")
-    assert session_state.gate_block_count("g", "validate_plan_quality") == 0
-    assert session_state.gate_block_count("g", "babysitter") == 1

@@ -15,8 +15,8 @@ spawned process proves, so the proposal guard runs in-process here. The commit
 guard keeps its spawn, because it is the only case in the suite that pins the exit
 code the harness reads off block_unauthorized_commits.
 
-The plain-Claude case (governing == own) is covered by test_proposal_guard_redirects
-and test_local_llm_fallbacks; here the point is the divergence a codex run introduces.
+The plain-Claude case (governing == own) is covered by test_proposal_guard_redirects;
+here the point is the divergence a codex run introduces.
 """
 
 import io

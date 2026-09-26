@@ -1,13 +1,13 @@
 ---
 name: tdd
-description: Implement an approved change one capability at a time, each test written and watched failing before the code that makes it pass. TRIGGER when the Architect says "tdd" or hands over an approved change to implement with tests. DO NOT TRIGGER to write or fix a test with no implementation to follow; use /write-test.
+description: Implement an approved change one Capability at a time, each test written and watched failing before the code that makes it pass. TRIGGER when the Architect says "tdd" or hands over an approved change to implement with tests. DO NOT TRIGGER to write or fix a test with no implementation to follow; use /write-test.
 ---
 
 # TDD
 
-## 1. Use /plan-tests to list the capabilities and the tests to write
+## 1. Use /plan-tests to list the Capabilities and the tests to write
 
-## 2. Take one capability and write its test with /write-test
+## 2. Take one Capability and write its test with /write-test
 
 ## 3. Run that one test and watch it fail
 
@@ -15,7 +15,7 @@ description: Implement an approved change one capability at a time, each test wr
 It fails there, because the app does not do what the sentence says.
 
 IF it passes:
-### Remove the code that provides the capability, run the test again, then put the code back
+### Remove the code that provides the Capability, run the test again, then put the code back
 The app already does it, so this is the only way to see that the test can fail.
 
 IF it fails anywhere else:
@@ -30,4 +30,4 @@ The expected value does not move.
 
 ## 6. Repeat from step 2
 
-## 7. Run the whole file once every capability's test passes
+## 7. Run the whole file once every Capability's test passes

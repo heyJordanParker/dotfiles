@@ -1,17 +1,17 @@
 ---
 name: gh-issue
-description: Create or update GitHub issues. Writes the durable context an Agent cannot rediscover — the problem, the WHY, the systems it crosses, the impact — and leaves the tactical HOW to the Agent that picks it up. Use when the Architect says "create an issue", "file an issue", "gh issue", "update the issue", or wants to turn a Plan into a trackable issue.
+description: Create or update GitHub issues. Writes the durable context an Agent cannot rediscover — the Problem, the WHY, the systems it crosses, the impact — and leaves the tactical HOW to the Agent that picks it up. Use when the Architect says "create an issue", "file an issue", "gh issue", "update the issue", or wants to turn a Plan into a trackable issue.
 ---
 
 # GitHub Issue
 
 - An issue is picked up days or weeks after it is written, and the tree changes many times in between.
-- The Agent that picks it up reads the tree in seconds. It cannot recover the problem, the intent, or the impact from any tree.
+- The Agent that picks it up reads the tree in seconds. It cannot recover the Problem, the intent, or the impact from any tree.
 - So the issue carries the WHO, the WHY, and the WHAT. The Agent that executes it owns the HOW.
 
-## 1. Understand the problem, then stop researching
+## 1. Understand the Problem, then stop researching
 
-Take the problem from the Architect's own words. Read only far enough to confirm the problem is real and to name the systems it crosses.
+Take the Problem from the Architect's own words. Read only far enough to confirm the Problem is real and to name the systems it crosses.
 
 ### Stop reading code once you can name the systems involved
 The systems and their interaction are what the issue carries. Reading further produces detail that goes stale before the issue is picked up.
@@ -23,8 +23,8 @@ Describe only code already read in this Task.
 
 Every slot is filled with what stays true as the tree changes.
 
-### State the problem as a behavior, never as the change to make
-The problem is what the system does today and why that is wrong. A body that opens with the change hides the problem, so the executing Agent cannot find a better path.
+### State the Problem as a behavior, never as the change to make
+The Problem is what the system does today and why that is wrong. A body that opens with the change hides the Problem, so the executing Agent cannot find a better path.
 Example: "Two Agents editing the same session file overwrite each other, so the later write loses the earlier Agent's Task."
 Never: "Add a lock to session_state.py".
 
@@ -59,7 +59,7 @@ Template:
   <the systems by durable name, and how they interact today>
 
   ## Constraints
-  <boundaries that hold, options already rejected and why, capabilities that must not regress>
+  <boundaries that hold, options already rejected and why, Capabilities that must not regress>
 
   ## Done when
   <outcome criteria>

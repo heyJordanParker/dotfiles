@@ -4,7 +4,7 @@ The Process for documenting a folder: its WHY and the Facts its whole folder con
 
 ## 1. Write the WHY
 
-One item: the business problem and the Architect's thinking behind the folder's shape.
+One item: the business Problem and the Architect's thinking behind the folder's shape.
 
 ### Use domain language, never library names
 "Domain models never import plugin code" outlives "Models never import FunnelKit."

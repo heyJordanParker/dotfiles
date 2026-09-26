@@ -1,28 +1,13 @@
 """Shared Claude transcript layer.
 
 Locates, reads, and parses Claude Code's JSONL transcript and exposes the views
-hooks compose from — records, message blocks, the current turn, the conversation
-stream, plan content, recent user messages, tool outcomes — so each hook stops
-hand-rolling its own line-by-line parse and scattering `[:N]` truncations.
-
-Bounding lives here as `clamp`, but it is the caller's choice: a Stop-event hook
-can afford a generous ceiling, the every-prompt classifier keeps its lines tight.
-Parsing is shared; the bound is not.
+hooks compose from — records, message blocks, the current turn, who spoke, and
+Skill arrivals — so each hook stops hand-rolling its own line-by-line parse.
 """
 
 import json
 import os
 import re
-
-# Generous default bound — a pathological multi-MB-turn guard, not a content cap.
-CEILING = 200000
-EDIT_TOOLS = ("Edit", "Write", "MultiEdit", "NotebookEdit")
-
-
-def clamp(text, limit=CEILING):
-    if not limit or len(text) <= limit:
-        return text
-    return text[:limit]
 
 
 def records(path):
@@ -71,17 +56,6 @@ def is_real_user(record):
     if isinstance(c, list):
         return not any(isinstance(b, dict) and b.get("type") == "tool_result" for b in c)
     return True
-
-
-def latest_user_record(recs):
-    """The most recent genuine user record, or None.
-
-    On a UserPromptSubmit the harness has already written the prompt, so this is
-    the record for the prompt the hook is firing on."""
-    for r in reversed(recs):
-        if is_real_user(r):
-            return r
-    return None
 
 
 def text_of(record):
@@ -216,10 +190,6 @@ def speaker(record, meta=None):
     return author
 
 
-def is_architect(record, meta=None):
-    return speaker(record, meta) == Architect
-
-
 def architect_message(recs):
     """The architect's most recent message in this transcript, or ""."""
     meta = session_meta(recs)
@@ -232,22 +202,6 @@ def architect_message(recs):
             # Claude labels every record, so the newest user record is the prompt
             # this fired on; an older one is a different turn, not this one.
             return ""
-    return ""
-
-
-def architect_request(recs):
-    """The architect's most recent message, however many records came after it.
-
-    `architect_message` answers a different question — "is the prompt this hook
-    fired on his?" — and stops at the newest user record, because at
-    UserPromptSubmit that record is the prompt. At Stop it is a tool result, a
-    loaded skill, or an injected block, and stopping there returns "" on nearly
-    every turn that used a tool. A gate judging a reply needs the ask the reply
-    answers, so this one keeps walking."""
-    meta = session_meta(recs)
-    for r in reversed(recs):
-        if _role(r) == "user" and speaker(r, meta) == Architect:
-            return text_of(r)
     return ""
 
 
@@ -269,48 +223,6 @@ def current_turn(recs):
         if is_real_user(r):
             cut = i + 1
     return recs[cut:]
-
-
-def current_turn_lines(path):
-    """Raw JSONL lines of the current turn, chronological.
-
-    The stop gate scans the turn's raw line text for substrings (`"name":"Edit"`),
-    deliberately looser than parsed semantics, so it needs the original bytes, not
-    re-serialized records. Boundary matches current_turn: walk from the end, stop
-    (exclusive) at the first genuine user line (`"type":"user"` without
-    `tool_use_id`)."""
-    if not path or not os.path.isfile(path):
-        return []
-    try:
-        with open(path, encoding="utf-8", errors="replace") as fh:
-            lines = fh.read().split("\n")
-    except Exception:
-        return []
-    collected = []
-    for line in reversed(lines):
-        if '"type":"user"' in line and "tool_use_id" not in line:
-            break
-        collected.append(line)
-    collected.reverse()
-    return collected
-
-
-def awaits_async_work(lines):
-    """Whether the turn's raw lines dispatched work that finishes after the stop.
-
-    Two Stop gates yield on this: stopping to await a dispatch is an async pause,
-    not skipped work, because the dispatch wakes the agent when it lands.
-
-    Two substrates, two signals. A `codex-run` is a Bash call carrying
-    `run_in_background: true`. An Agent dispatch has no such flag — the tool takes
-    no parameter for it and is async in every case — so the tool call itself is
-    the signal. Keying only on the flag gated every turn that awaited a Subagent.
-    """
-    for line in lines:
-        packed = line.replace(" ", "")
-        if '"run_in_background":true' in packed or '"name":"Agent"' in packed:
-            return True
-    return False
 
 
 # The tag reload_stale_skills wraps its orders in, and the one sentence shape an
@@ -374,216 +286,32 @@ def skill_arrivals(recs, orders=True):
     return out
 
 
-def tool_outcomes(recs):
-    """tool_use_id -> failed(bool), read from tool_result blocks (is_error true)."""
-    out = {}
-    for r in recs:
-        for b in blocks(r, "tool_result"):
-            tid = b.get("tool_use_id")
-            if tid:
-                out[tid] = bool(b.get("is_error"))
+def live_records(recs):
+    """The records still in the conversation: everything after the last compaction.
+
+    A compaction leaves the old records in the transcript file while dropping them
+    from the conversation. At `SessionStart: compact` the new boundary is not in
+    the file yet, so this returns the whole window that just closed.
+    """
+    cut = 0
+    for i, record in enumerate(recs):
+        if text_of(record).startswith(COMPACT_MARKER):
+            cut = i + 1
+    return recs[cut:]
+
+
+def user_rules_loaded(recs):
+    """The paths of the user Rules Claude Code loaded in these records, in load order.
+
+    Claude Code does not load a user Rule again after a compaction once the session
+    has loaded it, while it does reload project docs.
+    """
+    out = []
+    for record in recs:
+        attachment = record.get("attachment") or {}
+        loaded = attachment.get("content") or {}
+        path = attachment.get("path")
+        if (attachment.get("type") == "nested_memory" and loaded.get("type") == "User"
+                and path and path not in out):
+            out.append(path)
     return out
-
-
-def _tool_target(block):
-    name = block.get("name", "")
-    inp = block.get("input") or {}
-    if name in EDIT_TOOLS:
-        return inp.get("file_path") or inp.get("notebook_path") or ""
-    if name == "Bash":
-        cmd = inp.get("command", "")
-        return (cmd[:120] + "…") if len(cmd) > 120 else cmd
-    return ""
-
-
-def turn_evidence(turn_recs):
-    """Dense, accurate evidence for a completion check, chronological, unbounded.
-
-    Every assistant response's text in full (the burial surface — a deliverable
-    stranded in an earlier response), thinking as a size marker (no consumer needs
-    its content), and each tool call as one line carrying its real outcome — paired
-    to its tool_result by id, `ok` or `FAILED` — plus an edit tally, so a caller is
-    never told work finished when an edit failed. Raw tool content is dropped."""
-    outcomes = tool_outcomes(turn_recs)
-    stream = []
-    ok = failed = 0
-    for r in turn_recs:
-        if r.get("type") != "assistant":
-            continue
-        for b in blocks(r):
-            t = b.get("type")
-            if t == "text":
-                stream.append("[response] %s" % b.get("text", ""))
-            elif t == "thinking":
-                stream.append("[thinking: %d chars]" % len(b.get("thinking", "")))
-            elif t == "tool_use":
-                name = b.get("name", "")
-                bad = outcomes.get(b.get("id"))
-                res = "FAILED" if bad else "ok"
-                tgt = _tool_target(b)
-                stream.append(("[%s %s -> %s]" % (name, tgt, res)) if tgt
-                              else ("[%s -> %s]" % (name, res)))
-                if name in EDIT_TOOLS:
-                    if bad:
-                        failed += 1
-                    else:
-                        ok += 1
-    if ok or failed:
-        stream.append("Edits this turn: %d finished, %d failed." % (ok, failed))
-    return "\n".join(stream)
-
-
-def edited_paths(turn_recs):
-    """Distinct file paths the turn edited via the edit tools, in first-seen order.
-
-    The blind-edit completion check reads this to learn which files the turn
-    changed; read-coverage and callers are then looked up per path. Mirrors
-    `turn_evidence`'s edit-tool iteration — same EDIT_TOOLS set, same
-    file_path/notebook_path target extraction."""
-    out, seen = [], set()
-    for r in turn_recs:
-        if r.get("type") != "assistant":
-            continue
-        for b in blocks(r, "tool_use"):
-            if b.get("name") not in EDIT_TOOLS:
-                continue
-            inp = b.get("input") or {}
-            path = inp.get("file_path") or inp.get("notebook_path") or ""
-            if path and path not in seen:
-                seen.add(path)
-                out.append(path)
-    return out
-
-
-def assistant_text_len(recs):
-    """Total assistant text length, +1 per block (a jq -r per-value newline), for
-    the deliverable-shaped-turn threshold."""
-    total = 0
-    for r in recs:
-        if r.get("type") != "assistant":
-            continue
-        for b in blocks(r, "text"):
-            total += len(b.get("text", "")) + 1
-    return total
-
-
-def plan_content(recs):
-    """The last ExitPlanMode plan in the transcript, else the slug's plan file on
-    disk. Unbounded — the caller clamps."""
-    plans = []
-    slug = ""
-    for r in recs:
-        if not slug and isinstance(r.get("slug"), str):
-            slug = r["slug"]
-        if r.get("type") != "assistant":
-            continue
-        for b in blocks(r, "tool_use"):
-            if b.get("name") == "ExitPlanMode":
-                plan = (b.get("input") or {}).get("plan")
-                if isinstance(plan, str):
-                    plans.append(plan)
-    if plans:
-        return plans[-1]
-    if slug:
-        path = os.path.join(os.path.expanduser("~"), ".claude", "plans", "%s.md" % slug)
-        if os.path.isfile(path):
-            try:
-                with open(path, encoding="utf-8", errors="replace") as fh:
-                    return fh.read()
-            except Exception:
-                return ""
-    return ""
-
-
-def recent_user_texts(recs, n=4):
-    """Text of the last n user messages, joined. Unbounded — the caller clamps.
-
-    A user record contributes its scalar string content, or the joined text of its
-    text blocks; a record that is only tool-results contributes nothing."""
-    msgs = []
-    for r in recs:
-        if r.get("type") != "user":
-            continue
-        c = _content(r)
-        if isinstance(c, list):
-            texts = [b.get("text", "") for b in c
-                     if isinstance(b, dict) and b.get("type") == "text" and b.get("text", "") != ""]
-            if not texts:
-                continue
-            msgs.append(" ".join(texts))
-        elif isinstance(c, str):
-            msgs.append(c)
-        else:
-            msgs.append("")
-    return "\n".join(msgs[-n:])
-
-
-def conversation_stream(recs, user_cap=200, assistant_cap=300):
-    """Background `U|`/`A|` stream for intent classification: what the architect
-    said and what the agent answered, each bounded by the caller's per-line cap.
-    Returns a list of lines.
-
-    User lines are selected by provenance, not by shape. Reading `promptSource`
-    keeps a pasted `<config>` block or an `[Image #1]` message — both the
-    architect's — in the stream, where a prefix test dropped them as noise.
-
-    The classifier runs on every prompt, so it passes tight caps on purpose — raise
-    them only if the per-turn latency is acceptable."""
-    meta = session_meta(recs)
-    lines = []
-    for r in recs:
-        etype = r.get("type")
-        c = _content(r)
-        if etype == "user" and is_architect(r, meta):
-            text = text_of(r)
-            if text:
-                lines.append("U|" + clamp(text.replace("\n", " "), user_cap))
-        elif etype == "assistant" and isinstance(c, list):
-            texts = [b.get("text", "") for b in blocks(r, "text")]
-            if texts:
-                lines.append("A|" + clamp(" ".join(texts).replace("\n", " "), assistant_cap))
-    return lines
-
-
-def conversation_context(path):
-    """Formatted background block for the every-prompt classifiers: the recent
-    conversation, then the agent's last response (what the latest user message is
-    replying to). Empty string when the transcript yields nothing. Both
-    UserPromptSubmit model calls — intent and goal — build their context from this."""
-    stream_lines = conversation_stream(records(path))
-    if not stream_lines:
-        return ""
-
-    turn_line = 0
-    for idx, line in enumerate(stream_lines, start=1):
-        if line.startswith("U|"):
-            turn_line = idx
-
-    recent_turns = ""
-    agent_response = ""
-    if turn_line > 0:
-        after = stream_lines[turn_line:]
-        agent_blocks = [ln[2:] for ln in after if ln.startswith("A|")]
-        agent_response = "\n".join(agent_blocks[-5:])
-        if turn_line > 1:
-            before = stream_lines[:turn_line - 1]
-            recent = before[-8:]
-            recent_turns = "\n".join(
-                ("[User] " + ln[2:]) if ln.startswith("U|")
-                else ("[Agent] " + ln[2:]) if ln.startswith("A|")
-                else ln
-                for ln in recent
-            )
-    else:
-        agent_blocks = [ln[2:] for ln in stream_lines if ln.startswith("A|")]
-        agent_response = "\n".join(agent_blocks[-5:])
-
-    if not recent_turns and not agent_response:
-        return ""
-    parts = ""
-    if recent_turns:
-        parts = "Recent conversation (background):\n%s\n\n---\n" % recent_turns
-    if agent_response:
-        parts = ("%sAgent's last response (what the user is responding to):\n%s\n\n---\n"
-                 % (parts, agent_response))
-    return parts

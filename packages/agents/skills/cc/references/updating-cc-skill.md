@@ -31,7 +31,7 @@ Never: infer a gap from a keyword match without reading the owning Reference.
 
 - SKILL.md owns the /cc trigger, the one Process, ordered steps, and the References list.
 - A Reference owns one Process split out for Progressive Disclosure.
-- Existing References own their named problems: Skills, Examples, Skill testing, Claude.md, Hooks, Agents, plugin distribution, Commands, and /cc syncing.
+- Existing References own their named Problems: Skills, Examples, Skill testing, Claude.md, Hooks, Agents, plugin distribution, Commands, and /cc syncing.
 
 ### Update the existing Reference before creating a new Reference
 A new Reference is only for a genuinely new recurring Process that no existing Reference owns.
@@ -49,7 +49,7 @@ Never: duplicate the same plugin change in SKILL.md and `references/plugins-mark
 
 IF no existing Reference owns the Claude Code change:
 ### Propose the new Reference before creating it
-A new Reference adds a new Prompt file, so the Architect needs the problem it solves before it exists.
+A new Reference adds a new Prompt file, so the Architect needs the Problem it solves before it exists.
 Example: propose `references/<problem>.md` with the one Process it would own.
 Never: create a Reference because the current file is getting long.
 

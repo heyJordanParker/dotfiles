@@ -15,26 +15,6 @@
             "timeout": 5
           }
         ]
-      },
-      {
-        "matcher": "Write|Edit|MultiEdit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/validate-planning-docs.sh",
-            "timeout": 60
-          }
-        ]
-      },
-      {
-        "matcher": "ExitPlanMode",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/validate-plan-quality.sh",
-            "timeout": 180
-          }
-        ]
       }
     ],
     "PostToolUse": [

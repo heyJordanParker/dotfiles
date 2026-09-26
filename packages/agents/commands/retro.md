@@ -10,44 +10,25 @@ Analyze Claude Code conversation history and return actionable patterns.
    - If inside `~/Developer/*` or any dotfiles clone, analyze that project.
    - Otherwise, analyze all Claude Code projects.
 2. Build a 20-conversation set: 10 most recent conversations plus 10 older conversations spread across the remaining dates.
-3. Store the selected conversation paths for signal scanning.
+3. List the conversations with `trace list ~/.claude/projects/<project-dir>`, where `<project-dir>` is the working directory with every `/` replaced by `-`. Use `~/.claude/projects` when that folder is missing. The listing prints each file's modified time.
 
-```bash
-project_path=$(echo "$PWD" | sed 's|/|-|g' | sed 's|^-||')
-conversations_dir="$HOME/.claude/projects/$project_path"
-
-if [ ! -d "$conversations_dir" ]; then
-  conversations_dir="$HOME/.claude/projects"
-fi
-
-find "$conversations_dir" -name "*.jsonl" -type f -print0 2>/dev/null | \
-  xargs -0 ls -t 2>/dev/null
-```
-
-4. Scan each selected conversation for signals. Do not read whole conversations yet; collect `(path, line_number, signal_type)`.
+4. Scan each selected conversation for signals, one `trace grep` call per pattern. Do not read whole conversations yet; collect `(path, line_number, signal_type)`.
 
 Frustration signals:
 ```bash
-grep -n '[A-Z]\{3,\}.*[A-Z]\{3,\}' "$file"
-grep -ni '"type":"user"' "$file" | grep -iE 'I (told|said|already)'
-grep -ni '"type":"user"' "$file" | grep -iE 'fuck|retard|moron|idiot'
-grep -ni '"type":"user"' "$file" | grep -E '"(content|prompt)"[^"]*"(stop|no,|NO)'
+trace grep '[A-Z]{3,}.*[A-Z]{3,}' "$file"
+trace grep '"type":"user".*I (told|said|already)' "$file" -i
+trace grep '"type":"user".*(fuck|retard|moron|idiot)' "$file" -i
+trace grep '"type":"user".*"(content|prompt)"[^"]*"(stop|no,|NO)' "$file"
 ```
 
-Repetition signals:
-```bash
-grep '"type":"user"' *.jsonl | \
-  jq -r '.message.content // .content // empty' 2>/dev/null | \
-  awk '{print $1,$2,$3,$4,$5}' | \
-  sort | uniq -c | sort -rn | \
-  awk '$1 > 1 {print}'
-```
+Repetition signals: Subagent 2 counts the user messages that open with the same five words.
 
 Manual-work signals:
 ```bash
-grep -ni '"type":"user"' "$file" | grep -E '\.(ts|js|py|md|json|tsx|jsx)['\''":\s]'
-grep -ni '"type":"user"' "$file" | grep -iE 'line [0-9]+'
-grep -ni '"type":"user"' "$file" | grep '```'
+trace grep '"type":"user".*\.(ts|js|py|md|json|tsx|jsx)['\''":\s]' "$file"
+trace grep '"type":"user".*line [0-9]+' "$file" -i
+trace grep '"type":"user".*```' "$file"
 ```
 
 5. Merge signals within 10 lines into one incident.
@@ -55,10 +36,10 @@ grep -ni '"type":"user"' "$file" | grep '```'
 7. Expand to 50 exchanges when the original Architect intent is unclear, multiple signals merged, or the resolution is not visible.
 
 ```bash
-sed -n '92,105p' "$file"
+trace read "$file" --lines 92:105
 ```
 
-8. Launch exactly 3 Subagents in parallel with Task, grouped by incident type.
+8. Launch exactly 3 Subagents in one message with the Agent tool, grouped by incident type.
 
 Subagent 1 Prompt:
 ```markdown
@@ -117,9 +98,9 @@ Return the top 3-5 underused tools with:
 - Why it was missed
 ```
 
-9. After the Subagents return, present findings one at a time with AskUserQuestion.
+9. After the Subagents return, present one finding per reply.
 
-AskUserQuestion Template:
+Finding Template:
   Finding: [pattern name]
 
   Evidence:

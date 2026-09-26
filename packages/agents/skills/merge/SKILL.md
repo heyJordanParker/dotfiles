@@ -44,7 +44,7 @@ Template for the dispatch's Process block:
      reader who knows why each hunk exists. It is your reading, not a deliverable.
   2. Write one claim per behaviour from the commit bodies and the diffs. A claim is a
      behaviour, never a file change: a rename-only hunk is one claim, and a hunk that
-     removes a capability is a claim. Map every hunk to a claim, and report an unmapped
+     removes a Capability is a claim. Map every hunk to a claim, and report an unmapped
      hunk as a finding. Return one block per claim, verdict lines empty:
 
      ### <side>-<n> <the behaviour in one sentence, in the commit's own words>

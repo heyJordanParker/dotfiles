@@ -45,7 +45,7 @@ Never: grading by reviewer confidence, finding count, or how alarming the wordin
 
 Only findings confirmed in step 2 pass the gate. Blocking fails the run: use /delegate to route each Blocking finding to the Subagent that owns the fix, before anything is presented as done. Important is reported to the Architect. Polish is noted and does not block.
 
-### Route the cause /5-whys reaches, never the finding as it arrived
+### Route the finding's cause, never the finding as it arrived
 A fix dispatched at a symptom returns the same cause as a new finding next round.
 
 IF the fix needs an Architectural change:

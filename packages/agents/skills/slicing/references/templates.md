@@ -72,7 +72,7 @@ Template:
 
   > For Claude: Use the /delegate Skill to dispatch implementation.
 
-  WHY: [What User problem this Slice solves]
+  WHY: [What User Problem this Slice solves]
 
   ## Requirements
 

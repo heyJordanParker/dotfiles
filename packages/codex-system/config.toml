@@ -169,10 +169,6 @@ additionalContextLimit = 0
 matcher = "Write|Edit|MultiEdit"
 [[hooks.PreToolUse.hooks]]
 type = "command"
-command = "python3 /Users/jordan/.agents/hooks/review_doc_edit.py"
-timeout = 120
-[[hooks.PreToolUse.hooks]]
-type = "command"
 command = "python3 /Users/jordan/.agents/hooks/combine_hooks.py block_denied_access block_writes protect_session_state"
 timeout = 15
 

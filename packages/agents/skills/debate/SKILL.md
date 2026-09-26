@@ -1,24 +1,24 @@
 ---
 name: debate
-description: Run N independent architect Agents debating Architectural options through rounds. TRIGGER when the Architect wants multiple competing solutions evaluated, when 3+ distinct approaches need comparison, or when the Prompt says "debate", "competing solutions", "run architects", "architecture debate", or `/debate [count] "problem"`.
+description: Run N independent architect Agents debating Architectural options through rounds. TRIGGER when the Architect wants multiple competing Solutions evaluated, when 3+ distinct approaches need comparison, or when the Prompt says "debate", "competing solutions", "run architects", "architecture debate", or `/debate [count] "problem"`.
 disable-model-invocation: true
 ---
 
 # Debate
 
-N independent Architect Subagents propose solutions, then debate through rounds until convergence.
+N independent Architect Subagents propose Solutions, then debate through rounds until convergence.
 Use /delegate to dispatch and resume. `SendMessage({to: agentId})` carries the rounds.
 
 ## 1. Parse input
 
-The first numeric argument is the Agent count. Default to 3 Agents and 5 rounds. Everything else is the problem.
+The first numeric argument is the Agent count. Default to 3 Agents and 5 rounds. Everything else is the Problem.
 
 Example: `/debate "how should we organize media by content type?"` means 3 Agents.
 Example: `/debate 5 "how should we organize media by content type?"` means 5 Agents.
 
 ## 2. Build the Frame
 
-The Frame is the User's problem from the User's perspective, not a technical mechanism.
+The Frame is the User's Problem from the User's perspective, not a technical mechanism.
 
 Template:
     User story: what the User experiences and needs, in the User's words.
@@ -36,17 +36,17 @@ Solutions that do not serve the User are wrong regardless of elegance.
 Each Architect gets a one-sentence instinct that produces diverse initial Proposals. Cycle through the roster when N is greater than 5.
 
 - User Experience Architect — Frame: User experience engineer who evaluates every technical Decision through what the User sees and feels. Principles: the right Architecture produces the best User experience; if the User cannot tell the difference, the engineering difference does not matter; every technical choice shows up as friction or ease; start from the interaction and work backward to the schema. Instincts: minimize User-facing complexity; think in clicks, load times, and mental models; distrust Architectures that leak implementation details into the user interface.
-- Shipper — Frame: velocity-obsessed Architect who measures success in working software per week and treats unshipped code as inventory that depreciates. Principles: ship fastest with least risk; proven patterns over novel ones; the best Architecture is the one the team can maintain at 2 a.m.; build the smallest complete solution, validate with real Users, iterate. Instincts: reach for patterns already in the codebase; copy what works; distrust novel abstractions and untested elegant solutions.
+- Shipper — Frame: velocity-obsessed Architect who measures success in working software per week and treats unshipped code as inventory that depreciates. Principles: ship fastest with least risk; proven patterns over novel ones; the best Architecture is the one the team can maintain at 2 a.m.; build the smallest complete Solution, validate with real Users, iterate. Instincts: reach for patterns already in the codebase; copy what works; distrust novel abstractions and untested elegant Solutions.
 - Maintainer — Frame: Architecture purist who optimizes for the developer who inherits the code in two years. Principles: code fails in maintenance, not creation; strict encapsulation; one-directional dependencies; small files; every abstraction must earn its existence by reducing future complexity; if it is not trivial to maintain or rewrite, it is wrong. Instincts: reach for clear module boundaries, documented contracts, and explicit dependency direction; distrust changes that increase coupling between modules.
-- Reducer — Frame: efficiency-obsessed engineer who believes the best code is code not written. Principles: fewer lines, fewer files, fewer abstractions; if the existing data already supports what is needed, stop adding things; convention over columns; "you are not going to need it" is law; every new column, table, or file is maintenance debt that must justify itself. Instincts: reach for zero-schema-change solutions, naming conventions, and existing flags; distrust new columns, new tables, and new abstractions.
-- Polished Pragmatist — Frame: senior Architect with the taste of a designer and the instincts of a principal engineer. Principles: elegance is the intersection of simplicity and completeness; the right solution handles every edge case without looking like it handles any; complexity is a smell; the database should tell the truth, the code should be boring, and the User experience should be invisible. Instincts: reach for the solution with the fewest moving parts that still covers all cases; synthesize ideas from other approaches; distrust both over-engineering and under-engineering.
+- Reducer — Frame: efficiency-obsessed engineer who believes the best code is code not written. Principles: fewer lines, fewer files, fewer abstractions; if the existing data already supports what is needed, stop adding things; convention over columns; "you are not going to need it" is law; every new column, table, or file is maintenance debt that must justify itself. Instincts: reach for zero-schema-change Solutions, naming conventions, and existing flags; distrust new columns, new tables, and new abstractions.
+- Polished Pragmatist — Frame: senior Architect with the taste of a designer and the instincts of a principal engineer. Principles: elegance is the intersection of simplicity and completeness; the right Solution handles every edge case without looking like it handles any; complexity is a smell; the database should tell the truth, the code should be boring, and the User experience should be invisible. Instincts: reach for the Solution with the fewest moving parts that still covers all cases; synthesize ideas from other approaches; distrust both over-engineering and under-engineering.
 
 ## 4. Build the Architect Prompt
 
 Write one Prompt per Architect, identical except the Frame.
 
 Template:
-    You are one of N independent Architects debating a problem. You will propose solutions, then participate in debate rounds.
+    You are one of N independent Architects debating a Problem. You will propose Solutions, then participate in debate rounds.
 
     Your Frame: {one sentence}. This is a starting point, not a conclusion. Follow the code.
 
@@ -57,8 +57,8 @@ Template:
     ## Your Task
 
     1. Read the codebase files listed in the Prompt.
-    2. Write 3-5 concrete User stories or User behaviors that any solution must support. These are your stories; do not coordinate with other Architects. Think about edge cases, not just happy paths.
-    3. Propose exactly 5 Architecturally distinct solutions. For each: name; 2-3 sentence description; how it handles each of your User stories; pros and cons; confidence percentage.
+    2. Write 3-5 concrete User stories or User behaviors that any Solution must support. These are your stories; do not coordinate with other Architects. Think about edge cases, not just happy paths.
+    3. Propose exactly 5 Architecturally distinct Solutions. For each: name; 2-3 sentence description; how it handles each of your User stories; pros and cons; confidence percentage.
     4. Then wait. The facilitator will send you other Architects' Proposals for debate rounds.
 
 ### Agents are independent

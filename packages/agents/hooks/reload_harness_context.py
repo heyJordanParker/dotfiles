@@ -13,13 +13,17 @@ reporting them, so every SessionStart records them itself: the Claude.md chain
 --json`, which records every doc it returns) — the same set inject_rules
 sends codex, recorded here instead of sent.
 
+After a compaction Claude Code reloads project docs as files are read, but never
+a user Rule the session loaded before it. So the compaction's SessionStart sends
+those user Rules back from disk, whole, and records them.
+
 codex reports no per-file load; inject_rules keeps its record.
 """
 
 import os
 import sys
 
-from lib import tracer
+from lib import feedback, frontmatter, tracer, transcript
 from lib.event import field, read_event
 
 BINDING = {
@@ -34,6 +38,30 @@ BINDING = {
 }
 
 SOURCE = "reload_harness_context"
+
+UNSENT = "### Read these Rules whole\nThey did not fit in this message: %s"
+
+
+def resend_user_rules(event):
+    recs = transcript.live_records(transcript.records(field(event, "transcript_path", "")))
+    room = tracer.room(SOURCE)
+    sections, unsent = [], []
+    for path in transcript.user_rules_loaded(recs):
+        try:
+            with open(path, encoding="utf-8") as fh:
+                _, body = frontmatter.parse(fh.read())
+        except OSError:
+            continue
+        section = "Contents of %s:\n\n%s" % (path, body)
+        if len("\n\n".join(sections + [section])) > room:
+            unsent.append(path)
+            continue
+        sections.append(section)
+        tracer.run(event, "docs", "prime", path)
+    if unsent:
+        sections.append(UNSENT % ", ".join(unsent))
+    if sections:
+        feedback.context(SOURCE, "SessionStart", "\n\n".join(sections))
 
 
 def main():
@@ -53,6 +81,8 @@ def main():
         event, SOURCE,
         lambda: tracer.run(event, "docs", field(event, "cwd", "") or os.getcwd(), "--json", "--source", SOURCE),
     )
+    if field(event, "source", "") == "compact":
+        resend_user_rules(event)
     return 0
 
 

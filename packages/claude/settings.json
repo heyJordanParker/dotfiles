@@ -267,11 +267,6 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 ~/.agents/hooks/review_doc_edit.py",
-            "timeout": 120
-          },
-          {
-            "type": "command",
             "command": "python3 ~/.agents/hooks/combine_hooks.py block_denied_access block_writes protect_session_state",
             "timeout": 15
           }

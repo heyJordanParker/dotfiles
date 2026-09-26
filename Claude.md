@@ -13,7 +13,7 @@ Reproducible macOS environment setup and Claude Code plugin distribution from a 
 - `packages/claude`'s `agents`, `commands`, and `skills` are symlinks into `packages/agents`.
 - `scripts/sync.py` restows packages, generates Codex Agent artifacts, and generates Hook wiring.
 - Plugin packaging dereferences `packages/claude` symlinks into real files in the plugin cache.
-- Plugin consumers get Skills, Commands, and the five shell Hooks, not Rules, settings, or Agents.
+- Plugin consumers get Skills, Commands, and the three shell Hooks, not Rules, settings, or Agents.
 - Our codex settings and Hook wiring live in `packages/codex-system/config.toml`, stowed to `/etc/codex`, codex's read-only system layer. `~/.codex/config.toml` is codex's own local file, never committed, where it writes project trust and app state.
 - `packages/codex/Agents.md` points at `.claude/Claude.md`, so Codex loads the same user-global Claude.md as Claude Code after stow.
 - `setup.sh` builds `hcom` from the `heyJordanParker/hcom` fork at the tag it names; `packages/hcom` stows hcom's config to `~/.hcom`, and hcom's Claude, Codex, and OpenCode hook entries are committed in their packages.

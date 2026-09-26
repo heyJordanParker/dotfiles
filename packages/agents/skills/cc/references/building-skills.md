@@ -49,7 +49,7 @@ Template:
   ```markdown
   ---
   name: skill-directory-name
-  description: The problem this Skill solves and what it delivers. TRIGGER when Users say the real phrases. DO NOT TRIGGER when the adjacent case applies; use other-skill.
+  description: The Problem this Skill solves and what it delivers. TRIGGER when Users say the real phrases. DO NOT TRIGGER when the adjacent case applies; use other-skill.
   ---
 
   # Skill Name
@@ -68,7 +68,7 @@ Template:
   Template:
     fill-the-blanks Example for the output shape
 
-  ## References (each solves one problem)
+  ## References (each solves one Problem)
 
   - Problem this Reference solves → reference-file.md
   ```
@@ -88,7 +88,7 @@ Example:
   ### Move a misplaced block to its home first
   A block in the wrong file type invalidates every later step.
 
-  ## References (each solves one problem)
+  ## References (each solves one Problem)
 
   - Building or restructuring a Skill → building-skills.md
   ```
@@ -100,9 +100,9 @@ blank Rule slot filled for symmetry.
 The description is what an Agent reads to decide whether to call this Skill.
 
 Template:
-  description: <the problem this Skill solves>. TRIGGER <the phrases and the moment>. DO NOT TRIGGER <the adjacent case>; use /other-skill.
+  description: <the Problem this Skill solves>. TRIGGER <the phrases and the moment>. DO NOT TRIGGER <the adjacent case>; use /other-skill.
 
-### Write the problem the Skill solves, plus why to call it when the problem alone does not show that
+### Write the Problem the Skill solves, plus why to call it when the Problem alone does not show that
 Those two are everything the description carries. The Process stays in the body, which the Agent
 reads after it calls the Skill.
 Example: `description: Write and fix Claude Code Prompts. TRIGGER when the task says "cc" or asks to build a Skill. DO NOT TRIGGER to name code identifiers; use /naming.`
@@ -159,7 +159,7 @@ A Reference is a Process split out for Progressive Disclosure. Split only a hard
 Agent needs under 80 percent of the time. Never split a roster, catalog, worked-example set, or
 background reading.
 
-### Name the Reference by the problem it solves
+### Name the Reference by the Problem it solves
 The link line names the doing, not the component.
 Example: `Your Example is not changing behavior → building-examples.md`.
 Never: `hooks.md — hook system`.

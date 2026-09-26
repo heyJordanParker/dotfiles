@@ -111,7 +111,7 @@ Template:
 
   ## Context
 
-  Why we need this investigation. What problem we are solving.
+  Why we need this investigation. What Problem we are solving.
 
   ## Goal
 

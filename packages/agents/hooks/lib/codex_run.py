@@ -484,9 +484,8 @@ def _alive(pid):
 def _output_paths():
     """The (answer, events, record) triple for one run, sharing a stem.
 
-    Resolves the session through session state exactly as model_call._record does;
-    falls back to /tmp when there is no valid session (the same no-session
-    fallback spirit — the runner must still surface its files). The pid +
+    Resolves the session through session state and falls back to /tmp when there
+    is no valid session, because the runner must still surface its files. The pid +
     high-resolution timestamp stem is unique per parallel invocation, which is
     what lets it serve as the job id."""
     stem = "codex-run-%d-%d" % (os.getpid(), time.time_ns())

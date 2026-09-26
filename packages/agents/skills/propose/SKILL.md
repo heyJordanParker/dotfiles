@@ -6,7 +6,7 @@ description: |
 
 # Propose
 
-- A Proposal is a specific solution the Architect can correct: named files, methods, and data changes. He cannot correct a direction.
+- A Proposal is a specific Solution the Architect can correct: named files, methods, and data changes. He cannot correct a direction.
 - The Architect owns Architecture Decisions. Conventions follow repo Precedent. Implementation is yours.
 - He corrects the Proposal and you improve it, until he accepts it. Bring the version you cannot improve yourself.
 
@@ -26,8 +26,8 @@ The dominant Decision first, each dependent Decision nested under the Decision t
 
 ## 4. Show the Proposal
 
-Open with the whole-change map, drawn with /show-me. Show the code each Decision turns on, and the solution you would ship. Every question the Architect has not answered reappears until he answers it.
+Open with the whole-change map, drawn with /show-me. Show the code each Decision turns on, and the Solution you would ship. Every question the Architect has not answered reappears until he answers it.
 
 ## 5. Improve it before sending
 
-Find the flaws the Architect would: a premise the code contradicts, a capability removed, a requirement relaxed, a simpler shape that meets the requirements, a hedged claim you can check now. Fix and recheck. Send the version you cannot improve.
+Find the flaws the Architect would: a premise the code contradicts, a Capability removed, a requirement relaxed, a simpler shape that meets the requirements, a hedged claim you can check now. Fix and recheck. Send the version you cannot improve.

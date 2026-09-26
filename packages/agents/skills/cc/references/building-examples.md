@@ -69,7 +69,7 @@ Template:
   Template:
     Critical: behavior broken, caller affected, fix.
     Important: unnecessary Architecture or wrong contract.
-    Minor: simplification that does not change capability.
+    Minor: simplification that does not change Capability.
   ```
 
 Example:

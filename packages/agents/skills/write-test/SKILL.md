@@ -1,11 +1,11 @@
 ---
 name: write-test
-description: Write one test that states a capability the app has and goes red when the app stops doing it: real types in the starting state, the call the app makes, an expected value written by hand. TRIGGER before writing or editing a test. DO NOT TRIGGER to decide which tests a change needs; use /plan-tests.
+description: Write one test that states a Capability the app has and goes red when the app stops doing it: real types in the starting state, the call the app makes, an expected value written by hand. TRIGGER before writing or editing a test. DO NOT TRIGGER to decide which tests a change needs; use /plan-tests.
 ---
 
 # Write Test
 
-- A test states one capability the app has, and fails when the app stops doing it.
+- A test states one Capability the app has, and fails when the app stops doing it.
 
 ## 1. Read what the test will call
 Run `trace callers` on the code under test and `trace read` on one caller, to see the call the app makes. Read the test file beside it for the setup it already uses.
