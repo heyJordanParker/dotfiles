@@ -19,10 +19,10 @@ PATTERN = (
     r".*/sessions/[^ ]*state\.json|[>].*/sessions/[^ ]*state\.json"
 )
 
-MSG = """BLOCKED: Session state files are managed by session hooks.
+MSG = """BLOCKED: session hooks own the session state files.
 
-To change modes, tell the user — e.g. "enter solo mode" or "switch to subagents".
-Do not modify session state files directly."""
+The Architect changes the mode by typing /orchestrate, /build, or /interview,
+and the state by typing /propose or /execute."""
 
 
 def main():

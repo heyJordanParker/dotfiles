@@ -180,7 +180,7 @@ def test_a_compaction_names_every_skill_in_use(monkeypatch, write_transcript):
     path = write_transcript([_typed("naming"), _used("delegate"), _assistant("x" * TURN)])
     _, text, event = _run(monkeypatch, _compact(path), {}, mode="orchestrate", state="execute")
     assert event == "SessionStart"
-    assert text.startswith("### Use the Skills the compaction dropped")
+    assert text.startswith("### Use the Skills the compaction cut")
     assert "Use /execute now" in text
     assert "Use /orchestrate now." in text
     assert "Use /naming, /delegate now" in text

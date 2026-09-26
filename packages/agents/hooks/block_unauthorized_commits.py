@@ -14,10 +14,9 @@ BINDING = {
     "timeout": 5,
 }
 
-MSG = """BLOCKED: Commits require user authorization.
+MSG = """BLOCKED: the Architect has not authorized a commit this turn.
 
-The user must explicitly ask for a commit. Use /commit when the user is ready to commit.
-Do not commit without being asked."""
+He authorizes one by typing /commit, for that turn only."""
 
 
 def main():

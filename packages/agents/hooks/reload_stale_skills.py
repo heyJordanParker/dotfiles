@@ -54,9 +54,9 @@ BINDING = {
 # characters at the standard four per token, because the transcript carries text.
 TURN_CHARS = 40000
 
-COMPACT_PREAMBLE = ("### Use the Skills the compaction dropped\n"
-                    "The conversation was compacted and the Skills in it left with it. These "
-                    "Skills still govern this session.")
+COMPACT_PREAMBLE = ("### Use the Skills the compaction cut\n"
+                    "The compaction kept these Skills only as background text, cut short. "
+                    "They still govern this session.")
 
 _LEADING_COUNT = re.compile(r"\d+")
 

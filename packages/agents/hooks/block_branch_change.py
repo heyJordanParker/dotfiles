@@ -18,18 +18,10 @@ BINDING = {
     "harness": "all",
 }
 
-MSG = """BLOCKED: branch changes are BANNED for subagents.
+MSG = """BLOCKED: subagents do not change branches.
 
-You are a subagent. The worktree is shared with the parent and sibling
-subagents. Switching the branch moves HEAD under everyone — silently
-corrupting their work. The main session handles branch changes; you do not.
-
-Do NOT run: git switch, git checkout <branch>, git checkout -b/-B,
-or git branch -m/-M/-d/-D — and do not route around this via an alias,
-sh -c, or git -c alias.*=switch.
-
-If a branch change is genuinely required, return to the user and state
-plainly that a branch change is needed. The user runs it."""
+The worktree is shared, so a branch change moves HEAD under the main session and every sibling.
+If the work needs a branch change, say so in your report. The main session makes it."""
 
 
 def main():

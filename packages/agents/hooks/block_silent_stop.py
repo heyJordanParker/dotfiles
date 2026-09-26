@@ -7,8 +7,8 @@ demand on 2026-08-21. The prose rule ("end every turn on a plain-text reply")
 sat in memory and in the rules when it happened, so the fence is deterministic:
 any assistant text in the current turn allows; tool calls with none blocks.
 
-Codex is excluded the way babysitter.py is: the check is built on Claude's
-turn boundary, which a codex rollout does not carry.
+Codex is excluded because the check is built on Claude's turn boundary, which a
+codex rollout does not carry.
 """
 
 import time
@@ -53,8 +53,7 @@ def main():
     # A prior Stop block this turn already forced a rewrite; never loop.
     if field(event, "stop_hook_active", False):
         return 0
-    # The harness hands the reply text directly (the field babysitter.py reads);
-    # a non-empty reply is the whole answer, with no transcript flush to race.
+    # The harness hands the reply text directly; a non-empty reply is the whole answer, with no transcript flush to race.
     if field(event, "last_assistant_message", "").strip():
         return 0
     path = field(event, "transcript_path", "")
@@ -65,8 +64,8 @@ def main():
             time.sleep(REREAD_DELAY)
     return feedback.block(
         "block_silent_stop",
-        "This turn ran tools and wrote no reply text, so the architect sees "
-        "nothing. Write the reply now — result first — then end the turn.",
+        "This turn ran tools and wrote no reply, so the Architect sees "
+        "nothing. Write the reply, then end the turn.",
     )
 
 

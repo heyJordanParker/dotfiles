@@ -30,19 +30,16 @@ BINDING = {
     "timeout": 5,
 }
 
-BLOCK_MSG = """BLOCKED: A proposal is expected — do not edit code.
+BLOCK_MSG = """BLOCKED: this session is proposing, so code edits wait.
 
-Update your proposal based on the user's feedback and present it again.
-Only edit code after the user approves.
+The Architect moves it to executing by typing /execute, /orchestrate, or /build.
+Plans, shaping docs, and Evidence stay writable in docs/plans/, docs/shaping/,
+docs/agents/, and /tmp/. Never write code in those directories to avoid this block."""
 
-To write a plan, shaping doc, or Evidence, use docs/plans/, docs/shaping/,
-docs/agents/, or /tmp/ — this gate does not apply there. Never relocate a
-file elsewhere to dodge the gate."""
+MODE_MSG = """BLOCKED: this Agent's mode does not write files.
 
-MODE_MSG = """BLOCKED: this mode does not write files.
-
-Reading, searching, and read-only commands all still run. To change a file, dispatch
-a subagent to make the edit, or switch the session's mode."""
+In orchestrate mode, dispatch a subagent to make the edit. In interview mode,
+report the edit the work needs."""
 
 _DEVICES = {"/dev/null", "/dev/stdout", "/dev/stderr", "/dev/tty"}
 

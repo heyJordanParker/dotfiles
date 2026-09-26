@@ -75,22 +75,13 @@ fi
 residual=$(echo "$normalized" | sed -E 's/git[[:space:]]+stash[[:space:]]+(list|show)[^&|;]*//g')
 if [[ "$residual" =~ git[[:space:]]+stash ]]; then
   cat << 'EOF' >&2
-BLOCKED: git stash is BANNED for agents. This is not a soft limit. Never run it.
+BLOCKED: agents never run git stash.
 
-git stash hides or discards uncommitted work in a worktree shared by other
-agents. It is the single most common way agent work is silently lost. It has
-already destroyed real work in this repo.
+Other agents' uncommitted work lives in this worktree, and a stash hides it.
+Only `git stash list` and `git stash show` run.
 
-Do NOT stash. Do NOT pop, drop, clear, push, apply, or save a stash. Do NOT
-hide a mutating stash behind a trailing `&& git stash list`, an alias, sh -c,
-or git -c alias.*=stash. Adding a read-only stash command does not make this
-allowed.
-
-To run something against a clean tree: commit your work first, then run it.
-If you are here to prove a failure is pre-existing: stop. That is the
-orchestrator's call, not yours. Report the exact command and its red output and
-let it attribute the failure. Do not look for another route to a before state.
-If a human truly needs this, the human runs it manually.
+If you are proving a failure is pre-existing: stop, and report the exact
+command and its red output.
 EOF
   exit 2
 fi

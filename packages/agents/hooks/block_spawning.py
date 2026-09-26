@@ -14,7 +14,7 @@ BINDING = {
 # `codex` and `claude` start a session with anything but a lone version or help flag.
 _INFO_FLAGS = frozenset(("--version", "-V", "-v", "--help", "-h"))
 
-MSG = "BLOCKED: this is %s mode, which does not spawn.\n\nDo the work yourself."
+MSG = "BLOCKED: %s mode does not spawn subagents.\n\nIn build mode, do the work yourself. In interview mode, report what the work needs."
 
 
 def _spawns(head, args):
