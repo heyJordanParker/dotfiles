@@ -1,5 +1,6 @@
 {
   "autoMemoryEnabled": false,
+  "cleanupPeriodDays": 100000000,
   "env": {
     "EDITOR": "prompt-editor",
     "HCOM": "hcom",
