@@ -17,3 +17,4 @@ Swappable Claude Code configuration directories for jobs that need different set
 - Claude Code reads profile-local Commands from `commands/`.
 - The filesystem is the profile selection mechanism for Skills, Agents, and Commands.
 - Profile aliases live in `packages/zsh/.zshrc` and set `CLAUDE_CONFIG_DIR`.
+- Every profile's `settings.json` sets `cleanupPeriodDays: 100000000`, because each profile keeps its own `projects/` folder and Claude Code deletes its transcripts after 30 days without it.
