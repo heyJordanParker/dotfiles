@@ -43,6 +43,11 @@ brew trust --formula rjyo/moshi/moshi-hook zippoxer/tap/recall tobi/try/try \
 echo "==> Installing brew packages..."
 brew bundle --file="$DOTFILES_DIR/Brewfile"
 
+if [ ! -x "$HOME/.local/bin/claude" ]; then
+  echo "==> Installing Claude Code..."
+  curl -fsSL https://claude.ai/install.sh | bash
+fi
+
 echo "==> Installing bun global packages..."
 while read -r pkg; do
   [ -n "$pkg" ] && bun add -g "$pkg"
