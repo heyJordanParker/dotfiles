@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """SessionStart: inject the `trace context` repo primer as additionalContext."""
 
-import shutil
 import subprocess
 import sys
 
-from lib import feedback
+from lib import feedback, tracer
+from lib.event import field, read_event
 
 BINDING = {
     "events": {"SessionStart": ["startup|resume|clear|compact"]},
@@ -17,26 +17,15 @@ BINDING = {
 
 
 def main():
-    try:
-        sys.stdin.read()
-    except Exception:
-        pass
-    if not shutil.which("trace"):
+    if not tracer.available():
         return 0
-    try:
-        g = subprocess.run(["git", "rev-parse", "--is-inside-work-tree"], capture_output=True)
-        if g.returncode != 0:
-            return 0
-    except Exception:
+    event = read_event()
+    cwd = field(event, "cwd", "") or None
+    if subprocess.run(["git", "rev-parse", "--is-inside-work-tree"], capture_output=True, cwd=cwd).returncode != 0:
         return 0
-    try:
-        out = subprocess.run(["trace", "context"], capture_output=True, text=True, timeout=12)
-    except Exception:
-        return 0
-    if out.returncode != 0:
-        return 0
-    output = out.stdout.rstrip("\n")
-    if not output:
+    code, output, _ = tracer.run(event, "context", timeout=12)
+    output = output.rstrip("\n")
+    if code != 0 or not output:
         return 0
     feedback.context("load_trace_context", "SessionStart", output)
     return 0
