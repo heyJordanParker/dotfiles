@@ -140,7 +140,10 @@ if ! command -v python3 >/dev/null 2>&1; then
 fi
 # codex reads its system config from /etc/codex, the one stow target outside $HOME
 sudo install -d -o "$USER" -g staff /etc/codex
+# brew bundle lays down cliproxyapi's example config, which would block the stow link
+[ -L /opt/homebrew/etc/cliproxyapi.conf ] || rm -f /opt/homebrew/etc/cliproxyapi.conf
 python3 "$DOTFILES_DIR/scripts/sync.py"
+brew services start cliproxyapi
 git -C "$DOTFILES_DIR" config core.hooksPath scripts/git-hooks
 cd "$DOTFILES_DIR"
 

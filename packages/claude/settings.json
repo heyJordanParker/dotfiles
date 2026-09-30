@@ -64,6 +64,18 @@
     ],
     "defaultMode": "bypassPermissions"
   },
+  "modelPicker": {
+    "options": [
+      {
+        "model": "gpt-6-astra",
+        "label": "GPT-6 Astra (Codex)"
+      },
+      {
+        "model": "gpt-6.1-sol",
+        "label": "GPT-6.1 Sol (Codex)"
+      }
+    ]
+  },
   "model": "opus",
   "hooks": {
     "Notification": [

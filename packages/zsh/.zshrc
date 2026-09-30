@@ -63,6 +63,7 @@ alias nvim-chad='NVIM_APPNAME=nvim-chad nvim'
 alias cld="claude"
 alias cldcopy="CLAUDE_CONFIG_DIR=$HOME/.claude/profiles/copywriter claude --mcp-config $HOME/.claude/profiles/copywriter/.mcp.json --strict-mcp-config"
 alias cldexp="CLAUDE_CONFIG_DIR=$HOME/.claude/profiles/experimental claude"
+command -v cliproxyapi >/dev/null && export ANTHROPIC_BASE_URL="http://127.0.0.1:8317"
 alias python='python3'
 alias pip='pip3'
 f() { find . -iname "*$1*" }

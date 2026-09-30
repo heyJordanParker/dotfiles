@@ -18,6 +18,7 @@ TARGETS = {
     "claude": f"{HOME}/.claude",
     "codex": f"{HOME}/.codex",
     "codex-system": "/etc/codex",
+    "cliproxyapi": "/opt/homebrew/etc",
     "agents": f"{HOME}/.agents",
     "ssh": f"{HOME}/.ssh",
     "bin": f"{HOME}/.local/bin",

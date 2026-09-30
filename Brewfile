@@ -49,6 +49,7 @@ brew "composer"
 brew "wp-cli"
 brew "roots/tap/trellis-cli"
 brew "rjyo/moshi/moshi-hook"
+brew "cliproxyapi"
 
 # Window Management
 cask "BarutSRB/tap/hyprspace"
