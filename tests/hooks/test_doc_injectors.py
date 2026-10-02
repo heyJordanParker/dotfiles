@@ -178,10 +178,32 @@ def test_docs_takes_the_searched_path_for_grep():
         "cwd": REPO, "session_id": _sid("docs-grep"), "agent_id": "a",
     })
     assert rc == 0
-    # packages/agents/Claude.md is longer than one hook message, so it is named
-    # for a whole read rather than sent cut short — either way it is the
-    # searched path's doc, which a working-directory lookup never reaches.
+    # The searched path's doc, which a working-directory lookup never reaches.
     assert "packages/agents/Claude.md" in _context(out), _context(out)[:500]
+
+
+def test_docs_leaves_the_doc_a_read_prints_to_the_read():
+    """`trace read <doc>` prints the doc itself, so the hook does not send it too."""
+    doc = os.path.join(REPO, "packages", "agents", "Claude.md")
+    rc, out, _ = _run(DOCS, {
+        "tool_name": "Bash", "tool_input": {"command": f"trace read {doc}"},
+        "cwd": REPO, "session_id": _sid("docs-read-doc"), "agent_id": "",
+    })
+    assert rc == 0
+    assert "packages/agents/Claude.md" not in _context(out), _context(out)[:500]
+
+
+def test_docs_writes_the_subagent_into_its_trace_calls():
+    """A Subagent's shell names no agent, so its `trace` calls carry `--agent`
+    and record into its own log, not the root agent's."""
+    rc, out, _ = _run(DOCS, {
+        "tool_name": "Bash",
+        "tool_input": {"command": f"trace read {TARGET_FILE}", "run_in_background": False},
+        "cwd": REPO, "session_id": _sid("docs-subagent"), "agent_id": "a1b2",
+    })
+    assert rc == 0
+    rewritten = json.loads(out)["hookSpecificOutput"]["updatedInput"]
+    assert rewritten == {"command": f"trace --agent a1b2 read {TARGET_FILE}", "run_in_background": False}
 
 
 def test_reload_records_what_claude_loaded_so_it_is_not_sent_again():
@@ -248,6 +270,25 @@ def test_reload_resends_the_user_rules_loaded_before_compaction(tmp_path, write_
     ctx = _context(out)
     assert "Contents of %s" % rule in ctx and "### Write no comments" in ctx
     assert "paths:" not in ctx and "an older copy" not in ctx
+
+
+def test_reload_cuts_the_rule_that_does_not_fit_instead_of_naming_it(tmp_path, write_transcript):
+    rules = []
+    for name in ("first", "second"):
+        rule = tmp_path / ("%s.md" % name)
+        rule.write_text("### %s\n" % name + "".join("- %s rule %d\n" % (name, n) for n in range(300)))
+        rules.append(rule)
+    path = write_transcript([{"type": "attachment", "attachment": {
+        "type": "nested_memory", "path": str(rule),
+        "content": {"path": str(rule), "type": "User", "content": ""}}} for rule in rules])
+    rc, out, _ = _run(RELOAD, {"hook_event_name": "SessionStart", "source": "compact",
+                               "transcript_path": path, "cwd": REPO,
+                               "session_id": _sid("reload-cut-rule")})
+    assert rc == 0
+    ctx = _context(out)
+    assert len(json.loads(out)["hookSpecificOutput"]["additionalContext"]) <= 10_000
+    assert "- first rule 299" in ctx and "- second rule 0" in ctx, ctx[-800:]
+    assert "continue: trace read %s --lines " % rules[1] in ctx, ctx[-800:]
 
 
 def test_rules_ignores_bash_trace_command():

@@ -1,14 +1,15 @@
 //! `trace docs` — project-docs surface: a `--graph` flag off the noun plus
 //! the `status`, `reset` and `prime` sub-verbs.
 //!
-//! - default (no flag, no sub-verb): the project docs for a path that are not
-//!   in the agent's context yet. Walks the full ancestor chain, nearest doc
-//!   first, and partitions it against the per-session log. As text, each doc
-//!   is a Markdown section (`## <path>` then its text), whole; docs that do
-//!   not fit `--budget` are named instead, and only the docs that printed are
-//!   recorded as loaded. Nothing prints when every doc is already loaded. As
-//!   JSON the new docs arrive whole, with the skipped slice in
-//!   `context.already_loaded`.
+//! - default (no flag, no sub-verb): the project docs for the paths that the
+//!   agent does not hold whole yet. Walks each path's ancestor chain, nearest
+//!   doc first, and partitions it against the per-session log. As text, each
+//!   doc is a Markdown section (`## <path>` then its text), sent from its first
+//!   unread line; the first doc that does not fit `--budget` is cut at a whole
+//!   line and ends in `read`'s trim marker, and the docs after it are queued
+//!   by name. A doc counts as loaded only once every line arrived. Nothing
+//!   prints when every doc is already loaded. As JSON the new docs arrive
+//!   whole, with the skipped slice in `context.already_loaded`.
 //!
 //!   `--source` / `--triggering-tool` / `--triggering-command` flags let
 //!   hook callers stamp the log event with the calling
@@ -36,14 +37,14 @@ use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-/// Path-mode, the default `trace docs <path>`. The
-/// chain is walked with no dedupe, then partitioned against the live
-/// log: new entries land in `docs[]` (with content);
-/// already-loaded entries land in `already_loaded[]` (without content, with
-/// per-entry source). Only the new slice gets recorded to the
-/// log.
+/// Path-mode, the default `trace docs <paths>`. Each path's chain is walked
+/// with no dedupe, then partitioned against the live log: new entries land in
+/// `docs[]` (with content); already-loaded entries land in `already_loaded[]`
+/// (without content, with per-entry source). `skip` names the docs the
+/// triggering command delivers itself. Only what was sent gets recorded.
 pub fn run(
-    target_raw: &Path,
+    targets_raw: &[PathBuf],
+    skip: &[PathBuf],
     directory_mode: bool,
     source: &str,
     triggering_tool: Option<&str>,
@@ -54,36 +55,49 @@ pub fn run(
     // them at append time. Setting them here keeps the log
     // API unchanged and lets the same flag shape work for every caller.
     let _guard = TriggeringEnv::set(triggering_tool, triggering_command);
+    let _delivering = session_log::delivery_lock();
 
-    let (target, repo_root, scope_dir) = resolve_target(target_raw, directory_mode);
-
-    // Pre-load snapshot of log state: canonical paths the
-    // log has already surfaced, and a per-path source map
-    // drawn from the events log so already_loaded entries can name who
-    // originally loaded them.
     let pre_loaded: BTreeSet<String> = session_log::loaded_paths();
     let prior_sources: BTreeMap<String, String> = prior_source_map();
+    let skip: BTreeSet<String> = skip
+        .iter()
+        .filter_map(|path| path.canonicalize().ok())
+        .map(|path| path.to_string_lossy().to_string())
+        .collect();
 
-    // Walk the ancestor chain with NO dedupe — yields every doc reachable
-    // for this path. Partition by the pre-load set: anything already in
-    // the log is `already_loaded`, anything else is newly
-    // surfaced.
-    let mut empty_dedupe: BTreeSet<String> = BTreeSet::new();
-    let full = nested_memory::load_for_file(&target, &repo_root, &mut empty_dedupe, scope_dir);
+    let mut displays: Vec<String> = Vec::new();
+    let mut scoped = false;
+    let mut walked: BTreeSet<String> = BTreeSet::new();
+    let mut new_docs: Vec<nested_memory::LoadedMemory> = Vec::new();
+    let mut skipped: Vec<nested_memory::LoadedMemory> = Vec::new();
+    for target_raw in targets_raw {
+        let (target, repo_root, scope_dir) = resolve_target(target_raw, directory_mode);
+        displays.push(cache::relative_to_root(&target, &repo_root));
+        scoped |= scope_dir;
+        let mut empty_dedupe: BTreeSet<String> = BTreeSet::new();
+        for memory in nested_memory::load_for_file(&target, &repo_root, &mut empty_dedupe, scope_dir) {
+            if skip.contains(&memory.path) || !walked.insert(memory.path.clone()) {
+                continue;
+            }
+            if pre_loaded.contains(&memory.path) {
+                skipped.push(memory);
+            } else {
+                new_docs.push(memory);
+            }
+        }
+    }
 
-    let (new_docs, skipped): (Vec<_>, Vec<_>) = full
-        .into_iter()
-        .partition(|m| !pre_loaded.contains(&m.path));
-
-    // JSON is whole, so every new doc arrives. Text sends whole docs, nearest
-    // first, while they fit the budget; a doc that does not fit is named and
-    // left unrecorded, so it is offered again rather than marked as read.
-    let (new_docs, not_sent) = if as_json {
-        (new_docs, Vec::new())
-    } else {
-        fit_whole(new_docs)
-    };
-    session_log::record_emission(&new_docs, source);
+    // JSON is whole, so every new doc arrives and is recorded. Text sends each
+    // doc from its first unread line, nearest first, and records exactly the
+    // lines that printed.
+    let fitted = (!as_json).then(|| {
+        let again = shell_command("trace docs", targets_raw);
+        fit(unread(new_docs.clone()), crate::output::budget(), &again)
+    });
+    match &fitted {
+        Some(fitted) => fitted.record(source),
+        None => session_log::record_emission(&new_docs, source),
+    }
 
     let already_loaded: Vec<Value> = skipped
         .iter()
@@ -101,12 +115,11 @@ pub fn run(
         })
         .collect();
 
-    let display = cache::relative_to_root(&target, &repo_root);
-
     let out = crate::output::document(
         json!({
-            "path": display,
-            "directory_scoped": scope_dir,
+            "path": displays.first(),
+            "paths": displays,
+            "directory_scoped": scoped,
             "source": source,
             "triggering_tool": triggering_tool,
             "triggering_command": triggering_command,
@@ -125,60 +138,315 @@ pub fn run(
         json!({"docs": new_docs.len(), "skipped": already_loaded.len()}),
     );
 
-    if !as_json {
-        print!("{}", nested_memory::render(&new_docs));
-        if !not_sent.is_empty() {
-            println!("\n{NOT_SENT}");
-            for doc in &not_sent {
-                println!("{}", not_sent_line(doc));
-            }
-        }
+    if let Some(fitted) = &fitted {
+        print!("{}", fitted.text);
     }
     Ok(out)
 }
 
-const NOT_SENT: &str =
-    "Not sent, each longer than the room left here; read each whole with `trace read <path> --all`:";
-
-fn not_sent_line(doc: &nested_memory::LoadedMemory) -> String {
-    format!("- {} ({} chars)", doc.relative_path, doc.size)
+/// A doc the agent does not hold whole, from its first unread line. `start`
+/// is its first line below its frontmatter, where the agent's view begins.
+#[derive(Clone)]
+pub struct Unread {
+    pub memory: nested_memory::LoadedMemory,
+    name: String,
+    pub start: usize,
+    pub from: usize,
+    pub total: usize,
 }
 
-/// Whole docs, nearest first, in the budget; the ones that do not fit come
-/// back separately to be named. Room for naming a doc is kept while it is
-/// unsent, so the names always fit, and a doc that fits once the others'
-/// names are settled is still sent.
-fn fit_whole(
-    docs: Vec<nested_memory::LoadedMemory>,
-) -> (Vec<nested_memory::LoadedMemory>, Vec<nested_memory::LoadedMemory>) {
-    let Some(budget) = crate::output::budget() else {
-        return (docs, Vec::new());
+impl Unread {
+    fn from_start(&self) -> bool {
+        self.from == self.start
+    }
+}
+
+/// Each doc from the line the agent stopped at, when it read part of the
+/// same content before; from the top of its text otherwise.
+pub fn unread(memories: Vec<nested_memory::LoadedMemory>) -> Vec<Unread> {
+    let partial = session_log::partial_reads();
+    memories
+        .into_iter()
+        .map(|memory| {
+            let total = memory.content.lines().count();
+            let start = body_start(&memory.content, total);
+            let from = partial
+                .get(&memory.path)
+                .filter(|(hash, read)| {
+                    *hash == session_log::content_hash(&memory.content) && read.total_lines == total
+                })
+                .map_or(start, |(_, read)| read.first_unread().clamp(start, total));
+            let name = shown(&memory);
+            Unread { memory, name, start, from, total }
+        })
+        .collect()
+}
+
+/// A doc's path as the agent reads it: relative to the repository it works
+/// in, else under `~`, else absolute, so a doc from another checkout never
+/// reads as one of its own.
+fn shown(memory: &nested_memory::LoadedMemory) -> String {
+    let path = Path::new(&memory.path);
+    let here = std::env::current_dir()
+        .ok()
+        .and_then(|cwd| cache::worktree_root_for(&cwd))
+        .and_then(|root| root.canonicalize().ok());
+    if let Some(relative) = here.as_deref().and_then(|root| path.strip_prefix(root).ok()) {
+        return relative.to_string_lossy().to_string();
+    }
+    match nested_memory::home_dir().and_then(|home| path.strip_prefix(home).ok().map(Path::to_path_buf)) {
+        Some(relative) => format!("~/{}", relative.to_string_lossy()),
+        None => memory.path.clone(),
+    }
+}
+
+/// The first line below a doc's YAML frontmatter and the blank lines after
+/// it. Claude Code shows the agent a doc without its frontmatter.
+fn body_start(content: &str, total: usize) -> usize {
+    let lines: Vec<&str> = content.lines().collect();
+    if lines.first().map(|line| line.trim_end()) != Some("---") {
+        return 1;
+    }
+    let Some(close) = lines.iter().skip(1).position(|line| line.trim_end() == "---") else {
+        return 1;
     };
-    let size = |doc: &nested_memory::LoadedMemory| nested_memory::markdown(doc).len() + 1;
-    let name = |doc: &nested_memory::LoadedMemory| not_sent_line(doc).len() + 1;
-    let mut sent = vec![false; docs.len()];
-    loop {
-        let used: usize = docs.iter().zip(&sent).filter(|(_, &s)| s).map(|(d, _)| size(d)).sum();
-        let named: usize = docs.iter().zip(&sent).filter(|(_, &s)| !s).map(|(d, _)| name(d)).sum();
-        let mut room = budget.saturating_sub(used + named + NOT_SENT.len() + 2);
-        let mut grew = false;
-        for (index, doc) in docs.iter().enumerate() {
-            // Sending a doc frees the room its name held.
-            if !sent[index] && size(doc) <= room + name(doc) {
-                room = room + name(doc) - size(doc);
-                sent[index] = true;
-                grew = true;
-            }
+    let body = (close + 2..lines.len())
+        .find(|&index| !lines[index].trim().is_empty())
+        .map(|index| index + 1);
+    body.filter(|&line| line <= total).unwrap_or(1)
+}
+
+/// What one budget carries: each sent doc with the last whole line it
+/// reached, and the printed text, the queued docs' names included.
+pub struct Fitted {
+    sent: Vec<(Unread, usize)>,
+    pub text: String,
+}
+
+/// Nearest first. A doc's unread lines go whole while they fit; the first doc
+/// that does not fit is cut at a whole line to fill the room and ends in
+/// `read`'s trim marker; every doc after it is queued by name with `again`,
+/// the command that sends them. Sizes are measured as Claude Code measures.
+pub fn fit(docs: Vec<Unread>, budget: Option<usize>, again: &str) -> Fitted {
+    let mut pending: std::collections::VecDeque<Unread> = docs.into();
+    let mut sent: Vec<(Unread, usize)> = Vec::new();
+    let mut sections: Vec<String> = Vec::new();
+    let mut used = 0usize;
+    while let Some(doc) = pending.pop_front() {
+        let whole = section(&doc, doc.total);
+        let separator = usize::from(!sections.is_empty());
+        let Some(budget) = budget else {
+            sections.push(whole);
+            sent.push((doc.clone(), doc.total));
+            continue;
+        };
+        let room = budget.saturating_sub(used + separator + queue_width(pending.iter(), again));
+        if crate::output::width(&whole) <= room {
+            used += separator + crate::output::width(&whole);
+            sections.push(whole);
+            sent.push((doc.clone(), doc.total));
+            continue;
         }
-        if !grew {
-            break;
+        match cut(&doc, room) {
+            Some((through, text)) => {
+                used += separator + crate::output::width(&text);
+                sections.push(text);
+                sent.push((doc, through));
+            }
+            None => pending.push_front(doc),
+        }
+        break;
+    }
+    let queued: Vec<Unread> = pending.into();
+    let mut text = sections.join("\n");
+    let room = budget.map(|budget| budget.saturating_sub(used));
+    text.push_str(&queue_block(&queued, again, room));
+    Fitted { sent, text }
+}
+
+impl Fitted {
+    /// Record what printed: a doc sent from its first line to its last as
+    /// loaded, any other span as the lines read, so a doc cut short is
+    /// offered again from where it stopped.
+    pub fn record(&self, source: &str) {
+        let whole: Vec<nested_memory::LoadedMemory> = self
+            .sent
+            .iter()
+            .filter(|(doc, through)| doc.from_start() && *through == doc.total)
+            .map(|(doc, _)| doc.memory.clone())
+            .collect();
+        session_log::record_emission(&whole, source);
+        for (doc, through) in &self.sent {
+            if (doc.from_start() && *through == doc.total) || *through < doc.from {
+                continue;
+            }
+            let first = if doc.from_start() { 1 } else { doc.from };
+            session_log::record_read(
+                Path::new(&doc.memory.path),
+                source,
+                &session_log::content_hash(&doc.memory.content),
+                doc.memory.content.len(),
+                doc.total,
+                &[Some((first, *through))],
+            );
         }
     }
-    let (sent, not_sent): (Vec<_>, Vec<_>) = docs.into_iter().zip(sent).partition(|(_, s)| *s);
-    (
-        sent.into_iter().map(|(doc, _)| doc).collect(),
-        not_sent.into_iter().map(|(doc, _)| doc).collect(),
+}
+
+/// Lines `from..=through` of a doc as a Markdown section: the doc whole as
+/// `## <path>` when that is all of it, else `## <path> (L<from>-L<through> of
+/// <total>)`, ending in the trim marker while lines remain.
+fn section(doc: &Unread, through: usize) -> String {
+    let lines: Vec<&str> = doc.memory.content.lines().collect();
+    if doc.from_start() && through == doc.total {
+        let text = lines[doc.start - 1..].join("\n");
+        return format!("## {}\n\n{}\n", doc.name, text.trim());
+    }
+    let mut out = format!(
+        "## {} (L{}-L{through} of {})\n\n{}\n",
+        doc.name,
+        doc.from,
+        doc.total,
+        lines[doc.from - 1..through].join("\n")
+    );
+    if through < doc.total {
+        out.push_str(&super::read::trim_marker(
+            &runnable(&doc.memory.path),
+            "",
+            through,
+            doc.total,
+            doc.total,
+        ));
+    }
+    out
+}
+
+/// The doc's unread lines cut to `room`: the whole lines that fit, or, when
+/// not even its first unread line fits, as much of that line as does.
+/// `None` when the room cannot hold the section's own heading and marker.
+fn cut(doc: &Unread, room: usize) -> Option<(usize, String)> {
+    let frame = crate::output::width(&section_frame(doc));
+    let mut left = room.checked_sub(frame)?;
+    let mut through = doc.from - 1;
+    for line in doc.memory.content.lines().skip(doc.from - 1) {
+        let size = crate::output::width(line) + 1;
+        if size > left {
+            break;
+        }
+        left -= size;
+        through += 1;
+    }
+    if through >= doc.from {
+        return Some((through, section(doc, through)));
+    }
+    // A line longer than the whole room is clipped and counted as read, as
+    // Claude Code's Read tool clips an over-long line, so the doc moves on.
+    let line = doc.memory.content.lines().nth(doc.from - 1)?;
+    let shown = crate::output::clip(line, left.checked_sub(2)?);
+    if shown.is_empty() {
+        return None;
+    }
+    let mut text = format!(
+        "## {} (L{}-L{} of {})\n\n{shown}\u{2026}\n",
+        doc.name, doc.from, doc.from, doc.total
+    );
+    if doc.from < doc.total {
+        text.push_str(&super::read::trim_marker(
+            &runnable(&doc.memory.path),
+            "",
+            doc.from,
+            doc.total,
+            doc.total,
+        ));
+    }
+    Some((doc.from, text))
+}
+
+/// The widest heading and marker a cut of this doc prints, with no lines.
+fn section_frame(doc: &Unread) -> String {
+    format!(
+        "## {} (part of L{} of {})\n\n\n{}",
+        doc.name,
+        doc.total,
+        doc.total,
+        super::read::trim_marker(&runnable(&doc.memory.path), "", doc.total, doc.total + 1, doc.total)
     )
+}
+
+const QUEUED: &str = "Queued, nearest first; this sends them:";
+
+/// The queued docs by name under the command that sends them, as many names
+/// as `room` holds and a count for the rest.
+fn queue_block(queued: &[Unread], again: &str, room: Option<usize>) -> String {
+    if queued.is_empty() {
+        return String::new();
+    }
+    let mut out = format!("\n{QUEUED} {again}\n");
+    let mut named = 0;
+    for doc in queued {
+        let line = queue_line(doc);
+        let rest = format!("- {} more\n", queued.len() - named);
+        let fits = room.is_none_or(|room| {
+            crate::output::width(&out) + crate::output::width(&line) + crate::output::width(&rest) <= room
+        });
+        if !fits && named + 1 < queued.len() {
+            out.push_str(&rest);
+            return out;
+        }
+        out.push_str(&line);
+        named += 1;
+    }
+    out
+}
+
+fn queue_line(doc: &Unread) -> String {
+    if !doc.from_start() {
+        return format!(
+            "- {} (L{}-L{} of {} unread)\n",
+            doc.name, doc.from, doc.total, doc.total
+        );
+    }
+    format!("- {} ({} chars)\n", doc.name, doc.memory.size)
+}
+
+/// The room the queue of these docs takes when every one is named.
+fn queue_width<'a>(queued: impl Iterator<Item = &'a Unread>, again: &str) -> usize {
+    let lines: usize = queued.map(|doc| crate::output::width(&queue_line(doc))).sum();
+    if lines == 0 {
+        return 0;
+    }
+    crate::output::width(&format!("\n{QUEUED} {again}\n")) + lines
+}
+
+/// `path` as a shell word that runs from here: relative to the working
+/// directory when under it, else absolute, quoted when it holds whitespace.
+fn runnable(path: &str) -> String {
+    let path = Path::new(path);
+    let shown = std::env::current_dir()
+        .ok()
+        .and_then(|here| here.canonicalize().ok())
+        .and_then(|here| path.strip_prefix(here).ok().map(Path::to_path_buf))
+        .filter(|relative| !relative.as_os_str().is_empty())
+        .unwrap_or_else(|| path.to_path_buf());
+    shell_word(&shown.to_string_lossy())
+}
+
+fn shell_word(word: &str) -> String {
+    if word.contains(char::is_whitespace) || word.contains('\'') {
+        format!("'{}'", word.replace('\'', r"'\''"))
+    } else {
+        word.to_string()
+    }
+}
+
+/// `command` followed by each path, as it runs from here.
+pub fn shell_command(command: &str, paths: &[PathBuf]) -> String {
+    let mut words = vec![command.to_string()];
+    for path in paths {
+        let canonical = path.canonicalize().unwrap_or_else(|_| path.clone());
+        words.push(runnable(&canonical.to_string_lossy()));
+    }
+    words.join(" ")
 }
 
 /// Status-mode: the agent-facing "what do I have right now?" query.
@@ -257,7 +525,9 @@ fn run_status_path(
     // Source map for partition attribution. Same shape as path-mode uses for
     // already_loaded so consumers see consistent attribution.
     let source_map = source_map(loaded_entries);
-    let loaded_set: BTreeSet<String> = loaded_entries.iter().map(|e| e.path.clone()).collect();
+    // The same rule the docs path sends by: a doc seen only in part is not
+    // loaded, so status never calls a doc loaded that the hook would resend.
+    let loaded_set: BTreeSet<String> = session_log::loaded_paths();
 
     let (loaded_chain, not_loaded_chain): (Vec<_>, Vec<_>) =
         chain.iter().partition(|m| loaded_set.contains(&m.path));

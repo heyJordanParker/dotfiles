@@ -1,14 +1,21 @@
 #!/usr/bin/env python3
-"""Ensure a `trace` command's target has its project docs in context.
+"""Ensure a `trace` command's paths have their project docs in context.
 
-When the agent runs a path-taking `trace <subcmd> <path>` shell command, this
-sends that path's project docs not yet in context, as Markdown, in a
-hookSpecificOutput.additionalContext envelope. Blocks the command (exit 2) if
-`trace docs` fails, so the agent never traces without project-docs context.
-Both harnesses run trace, so both run this. Never crashes.
+When the agent runs a path-taking `trace <subcmd> <paths>` shell command, this
+sends those paths' project docs not yet in context, as Markdown, in a
+hookSpecificOutput.additionalContext envelope: each doc from its first unread
+line, nearest first, as much as one hook message holds. A doc `trace read`
+prints itself is left to the read. Blocks the command (exit 2) if `trace docs`
+fails, so the agent never traces without project-docs context.
+
+Inside a Claude Subagent the shell carries the session id but no agent id, so
+the Subagent's own `trace` calls would record into the root agent's log. Each
+one gets `--agent <id>` written in through `updatedInput`. Never crashes.
 """
 
 import os
+import re
+import shlex
 import sys
 
 from lib import command, feedback, tracer
@@ -28,20 +35,38 @@ PATH_TAKING = {
     "pattern", "find", "blame", "history", "diff",
 }
 
+# `trace` in command position: at the start, or after a separator that ends the
+# previous command.
+_TRACE = re.compile(r"(?:(?<=^)|(?<=[;&|(\n]))(\s*(?:\S*/)?trace)(?=\s|$)(?!\s+--agent\b)")
 
-def _target(line, cwd):
-    """The path a `trace <subcmd> ...` command reads: its first argument that
-    exists on disk — `grep` and `pattern` take the pattern before their paths —
-    or the working directory. "" when the line runs no path-taking trace."""
+
+def _targets(line, cwd):
+    """(subcommand, paths) of the path-taking `trace` call on the line: every
+    argument that exists on disk — `grep` and `pattern` take the pattern before
+    their paths — or the working directory. ("", []) when there is none."""
     for head, args in command.invocations(line) or []:
         if head != "trace" or not args or args[0] not in PATH_TAKING:
             continue
-        for arg in args[1:]:
-            path = tracer.resolve(arg, cwd) if not arg.startswith("-") else ""
-            if path and os.path.exists(path):
-                return path
-        return cwd
-    return ""
+        resolved = (tracer.resolve(arg, cwd) for arg in args[1:] if not arg.startswith("-"))
+        paths = [path for path in resolved if path and os.path.exists(path)]
+        return args[0], list(dict.fromkeys(paths)) or [cwd]
+    return "", []
+
+
+def _with_agent(event, line):
+    """The tool input with `--agent <id>` written into each `trace` call, or
+    None outside a Subagent or when the line calls no `trace`."""
+    agent = field(event, "agent_id", "")
+    if not agent:
+        return None
+    replaced, count = _TRACE.subn(r"\1 --agent " + shlex.quote(agent).replace("\\", r"\\"), line)
+    if not count:
+        return None
+    # `updatedInput` replaces the whole input, so the sibling fields go back as
+    # they came: `run_in_background` among them.
+    tool_input = dict(field(event, "tool_input", {}) or {})
+    tool_input["command"] = replaced
+    return tool_input
 
 
 def main():
@@ -49,21 +74,27 @@ def main():
         return 0
     event = read_event()
     cwd = field(event, "cwd", "") or os.getcwd()
-    command = field(event, "tool_input.command", "")
-    target = _target(command, cwd) if command else ""
-    if not target:
+    line = field(event, "tool_input.command", "")
+    if not line:
         return 0
-    rc, text, err = tracer.docs(event, target, SOURCE, "Bash", command)
-    if rc != 0:
-        return feedback.block(
-            SOURCE,
-            "BLOCKED: project-docs load failed for: %s\n\n"
-            "`trace docs \"%s\" ...` exited %d. The trace command is\n"
-            "blocked so the agent does not run it without project-docs context.\n\n"
-            "Underlying error:\n%s" % (target, target, rc, err)
-        )
+    subcommand, targets = _targets(line, cwd)
+    rewrite = _with_agent(event, line)
+    text = ""
+    if targets:
+        skip = [path for path in targets if os.path.isfile(path)] if subcommand == "read" else []
+        rc, text, err = tracer.docs(event, targets, SOURCE, "Bash", line, skip)
+        if rc != 0:
+            return feedback.block(
+                SOURCE,
+                "BLOCKED: project-docs load failed for: %s\n\n"
+                "`trace docs` exited %d. The trace command is\n"
+                "blocked so the agent does not run it without project-docs context.\n\n"
+                "Underlying error:\n%s" % (" ".join(targets), rc, err)
+            )
     if text.strip():
-        feedback.context(SOURCE, "PreToolUse", text.strip())
+        return feedback.context(SOURCE, "PreToolUse", text.strip(), rewrite)
+    if rewrite:
+        return feedback.updated_input("PreToolUse", rewrite)
     return 0
 
 

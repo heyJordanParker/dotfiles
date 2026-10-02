@@ -43,5 +43,5 @@ Prompt building-block workspace where each file type owns exactly one kind of Pr
 - A `BINDING` declaring `roots: "all"` is generated into every profile's `settings.json` as well as the default root's.
 - The Hooks bound to one event and tool run in one `hooks/combine_hooks.py` process, which feeds each the event and merges their refusals, context, and one input rewrite into one answer.
 - A `BINDING` declaring `standalone: True` keeps its own process: the Hooks that inject large context or call the network or a model.
-- A Hook's injected context stays under `lib/feedback.py`'s `CONTEXT_LIMIT`, 10,000 characters, because Claude Code replaces a longer hook message with a 2,000-character preview.
+- A Hook's injected context stays under `lib/feedback.py`'s `CONTEXT_LIMIT`, 10,000 characters, because Claude Code saves a longer hook message to a file and shows the agent its path and a 2,000-character preview.
 - The `/cc` Skill is the Process for writing Prompts.

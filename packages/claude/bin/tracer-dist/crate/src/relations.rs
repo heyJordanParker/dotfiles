@@ -2194,9 +2194,15 @@ fn shape_matches(
             }
             None => is_type || is_method,
         },
-        // A member call names a value receiver, not a type, so it resolves to
-        // methods of that name.
-        RefShape::Member => is_method,
+        RefShape::Member => match receiver.filter(|_| types_member_receiver(referrer_language)) {
+            Some(named) => is_method
+                && declaration
+                    .container
+                    .as_deref()
+                    .map(|c| c.eq_ignore_ascii_case(named))
+                    .unwrap_or(false),
+            None => is_method,
+        },
     }
 }
 
@@ -2204,4 +2210,8 @@ fn shape_matches(
 /// a valid reference to the class.
 fn constructs_by_call(language: Option<&str>) -> bool {
     matches!(language, Some("python") | Some("ruby"))
+}
+
+fn types_member_receiver(language: Option<&str>) -> bool {
+    matches!(language, Some("php"))
 }

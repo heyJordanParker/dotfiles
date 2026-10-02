@@ -71,6 +71,11 @@ Local code-intelligence command-line interface for Agents working in a repositor
 - `surface.rs` renders the cached declarations as rows: `surface::rows` selects them, whole-file or the window's rows plus their parents, and `surface::render_within` prints `L<line>` and the header, indented two spaces per parent depth.
 - The surface prints on every `context <file>`, `read`, file `info`, `structure`, and `blame <file> <symbol>`, fitted to `--budget`: every row keeps at least `L<line> name`, and past that the names go one line per parent, then one count per kind per parent.
 - `context.files[<path>].surface[]` carries `header_line`, `line`, `end_line`, `kind`, `name`, `container`, `parent`, `header`, `annotations`, and `cyclomatic_complexity`.
+- A windowed `read` (`--method`, `--lines`, `--between`) and `context --offset/--limit` print a `calls:` block after the rows, built by `summary::calls` from the window's references through `relations::use_sites`.
+- Each `calls:` entry is one function a window line resolves to without ambiguity: its source when the session has not read it and it spans at most 12 lines, else its header, and every other call site with its calling declaration and line.
+- A function called on several window lines shows its source and other call sites under its first line only.
+- `summary::render_calls` fits the block the way `surface::render_within` fits rows: every call keeps its head line, then calls get their source back in line order, then their other call sites, while the budget holds.
+- `context.files[<path>].calls[]` carries `line`, `method`, `file`, `declared_at`, `callers`, `source`, and `also_called_from[]` with `file`, `line`, `caller`, and `text`.
 - A `grep` or `pattern` row carries `declaration` and `type`; the text groups each file's matches under the declarations that enclose them, the shape of `git grep --show-function`.
 - A `grep -C` line keeps its indentation relative to the other lines under the same declaration.
 - `callers`, `defines`, `usages`, and `dependencies` render each result's row from the cached record under its file, each file once with its facts, through `enrich::render_sections`; a module result prints the file's facts and no declaration.
@@ -85,6 +90,8 @@ Local code-intelligence command-line interface for Agents working in a repositor
 - Reference edges are resolved per query from the files the index names, never stored.
 - `relations::use_sites` is the resolver, and it runs the mentioning files in parallel, a `RESOLVE_CHUNK` at a time.
 - Resolution is same-language only; ambiguity now also arises when a free or static call's import legitimately names several candidates, not only from a member call whose receiver type is unknown.
+- A PHP member call carries its receiver's class when the file states it: `app(X::class)`, `new X`, a local assigned only `new X`, `$this->property` with a declared or promoted type, or a parameter with a declared type. It resolves to that class's methods, the way a static call does.
+- A TypeScript or Python member call carries the receiver's value text, which names a binding and never narrows the candidates.
 - An ambiguous reference fans out to one row per remaining candidate, and `callers --limit` bounds what is returned.
 - `cache build` takes the repository to build, never a subdirectory of one.
 - `commands::reach` owns `usages` and `dependencies`, which are one walk read in either direction.
@@ -102,9 +109,15 @@ Local code-intelligence command-line interface for Agents working in a repositor
 - User-global `$HOME/.claude/rules/*.md` files are included in the `trace docs` walk.
 - Directory-scoped `trace docs` calls surface unconditional user-global Rules.
 - File-scoped `trace docs` calls surface conditional user-global Rules matched against that file.
+- `trace docs <paths>` sends each doc the agent does not hold whole from its first unread line, below its frontmatter, nearest first; the first doc that does not fit `--budget` is cut at a whole line with `read`'s trim marker, and the docs after it are named under the `trace docs` command that sends them.
+- A doc is loaded once it was sent whole or read to its last line; `session_log::loaded_paths` applies that rule for `docs`, `docs status`, `read --docs`, and the front matter's `docs_not_loaded`.
+- `session_log::delivery_lock` holds one (session, agent)'s doc delivery to one call at a time, so calls running side by side never send the same lines.
+- `trace docs --skip <path>` leaves out a doc the triggering command prints itself.
+- The global `--agent <id>` names the agent whose session record a call uses, in place of `TRACER_AGENT_ID`.
 - `commands::logs` reads log files directly, so a gitignored or untracked log is searchable.
 - `commands::logs` frames one entry per line and attaches an untimestamped line to the entry above it.
 - `read` fits each file's rendered content to its share of `--budget`, after the front matter and the rows.
+- `read` cleans code only; Markdown prints verbatim with its `L<n>: ` prefixes.
 - The content is cut at a whole line; only a first line longer than the whole budget is cut inside itself, and the `L<n>: ` format holds either way.
 - A cut read ends with an inline `[trimmed at L<n> of <total> …]` marker naming the command for the next window.
 - The marker survives `--raw`.
@@ -112,7 +125,8 @@ Local code-intelligence command-line interface for Agents working in a repositor
 - The `read` payload carries `truncated`, `shown_lines`, and `total_lines` on every read.
 - Every `--json` result is the one document `{query, context, results, counts}`, built by `output::document`.
 - Per-file enrichment lives at `context.files[<path>]`, never inside a result row.
-- `--budget <chars>` sizes every text output, 24,000 by default and 0 unbounded; `--json` is never cut except `read`'s content.
+- `--budget <chars>` sizes every text output, 0 unbounded; `--json` is never cut except `read`'s content.
+- The default budget is 30,000, the longest Bash result Claude Code shows whole, and sizes are counted in UTF-16 units as Claude Code counts them.
 - `output::fit` gives every file its levels from whole to its path and cuts the least-imported file's detail first, so the budget cuts detail and never a file.
 - `output::fit_listing` is `fit` for a listing of paths, where a path ending in `/` is a directory: when bare paths still overrun, it names the entries one line per directory, then each directory with its directory and file counts.
 - `grep`, `pattern`, `find`, `list`, `tree`, `status`, `diff`, `stats`, and the relations commands fit their text through `fit_listing`; `history` and `logs` through `fit`.

@@ -545,13 +545,3 @@ pub fn session_id() -> Option<String> {
         .or_else(|| std::env::var("CODEX_THREAD_ID").ok())
         .or_else(|| std::env::var("CLAUDE_CODE_SESSION_ID").ok())
 }
-
-/// One doc as Markdown: its path as a heading, then its text whole.
-pub fn markdown(memory: &LoadedMemory) -> String {
-    format!("## {}\n\n{}\n", memory.relative_path, memory.content.trim())
-}
-
-/// Docs as Markdown, one `## <path>` section each.
-pub fn render(memories: &[LoadedMemory]) -> String {
-    memories.iter().map(markdown).collect::<Vec<_>>().join("\n")
-}

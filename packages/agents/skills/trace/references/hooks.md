@@ -7,7 +7,7 @@ Use this Reference when diagnosing trace Hook behavior, docs injection, identity
 ### Hooks are local Python files
 The Hooks live under `packages/agents/hooks/` and are wired in `settings.json` by absolute `~/.agents/hooks/<module>.py` paths. Plugin Users get the binary, not the Hooks.
 
-- Tracer's injecting Hooks keep their text under `lib/feedback.py`'s `CONTEXT_LIMIT`, 10,000 characters, because Claude Code replaces a longer hook message with a 2,000-character preview.
+- Tracer's injecting Hooks keep their text under `lib/feedback.py`'s `CONTEXT_LIMIT`, 10,000 characters, because Claude Code saves a longer hook message to a file and shows the agent its path and a 2,000-character preview.
 - `lib/tracer.py` passes each `trace` call the room its message has left as `--budget`.
 - `load_trace_context.py`, `inject_docs.py`, `inject_rules.py`, and `enrich_on_read.py` declare `standalone`, so each runs in its own process.
 - The quick checks bound to the same event and tool, `guard_trace.py` among them, run together in one `combine_hooks.py` process.
@@ -22,7 +22,7 @@ The Hooks live under `packages/agents/hooks/` and are wired in `settings.json` b
 - `InstructionsLoaded` runs `trace docs prime <file>`, so every doc Claude Code loads while the session runs is recorded as loaded.
 - `PreCompact` and SessionStart `clear` reset the record.
 - Every SessionStart records the session-start docs, which Claude Code puts back after a compaction without reporting them: `trace docs prime` for the `Claude.md` chain, and `trace docs <cwd> --json` for the working directory's docs.
-- SessionStart `compact` sends back, from disk, the user Rules the closed window loaded, and records them. Claude Code reloads project docs after a compaction but never a user Rule the session already loaded.
+- SessionStart `compact` sends back, from disk, the user Rules the closed window loaded, and records the ones sent whole; the first that does not fit is cut at a whole line with `trace read`'s marker, and the rest are named. Claude Code reloads project docs after a compaction but never a user Rule the session already loaded.
 
 ### `enrich_on_read.py` attaches facts to file operations
 PreToolUse matcher `Read|Glob|Grep|Edit|Write` runs one `trace` call per tool, fitted to one 10,000-character hook message.
@@ -36,9 +36,10 @@ PreToolUse matcher `Read|Glob|Grep|Edit|Write` runs one `trace` call per tool, f
 PreToolUse matcher `Bash` blocks trace output piped to shell filters or redirected into a repository file, and raw file-search commands against in-repo paths. It whitelists `/tmp`, `/dev/null`, `docs/shaping/`, `docs/plans/`, `docs/agents/`, `.claude/shaping/`, `.claude/plans/`, and `.tracer-cache/`.
 
 ### `inject_docs.py` blocks trace without docs Context
-- PreToolUse matcher `Bash` runs `trace docs <path> --source inject_docs --triggering-tool Bash --triggering-command <cmd>` before a trace subcommand.
-- The path is the command's first argument that exists as a path, else the working directory.
-- It injects the docs not yet loaded as Markdown.
+- PreToolUse matcher `Bash` runs `trace docs <paths> --source inject_docs --triggering-tool Bash --triggering-command <cmd>` before a trace subcommand.
+- The paths are every argument of the command that exists as a path, else the working directory; a `trace read` passes its files as `--skip`, because the read prints them.
+- It injects the docs not yet loaded as Markdown, a doc too long for the message cut at a whole line and continued on the next trace command.
+- Inside a Subagent it writes `--agent <agent_id>` into each `trace` call through `updatedInput`, because the Subagent's shell carries no agent id.
 - It blocks the trace command with exit code 2 if docs loading fails.
 
 ### `inject_rules.py` gives Codex nearest Rules

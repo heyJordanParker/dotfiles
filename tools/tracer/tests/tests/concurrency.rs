@@ -22,6 +22,56 @@ fn mtime_index(fixture: &Fixture) -> String {
     fs::read_to_string(path).unwrap()
 }
 
+/// An agent runs several `trace` calls side by side, each with its own docs
+/// hook, so one session's doc deliveries take turns: no two calls send the
+/// same lines of a long doc.
+#[test]
+fn concurrent_doc_deliveries_never_send_the_same_lines_twice() {
+    let fixture = Fixture::new();
+    let rules: String = (1..=600)
+        .map(|n| format!("- Rule {n}: one line of a doc too long for one message.\n"))
+        .collect();
+    fixture.write("Claude.md", &format!("# Rules\n{rules}"));
+    fixture.write("x.py", "x = 1\n");
+    fixture.commit("long doc");
+    let session = format!(
+        "concurrent-docs-{}",
+        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+    );
+
+    let mut sent: Vec<usize> = Vec::new();
+    for _ in 0..4 {
+        let calls: Vec<_> = (0..6)
+            .map(|_| {
+                let root = fixture.root.clone();
+                let session = session.clone();
+                thread::spawn(move || {
+                    trace_env(
+                        &root,
+                        ["docs", "x.py", "--budget", "2000"],
+                        &[("CLAUDE_CODE_SESSION_ID", session.as_str())],
+                    )
+                })
+            })
+            .collect();
+        for call in calls {
+            let run = call.join().unwrap();
+            run.ok();
+            sent.extend(
+                run.stdout
+                    .lines()
+                    .filter_map(|line| line.strip_prefix("- Rule "))
+                    .filter_map(|rest| rest.split(':').next()?.parse::<usize>().ok()),
+            );
+        }
+    }
+    let mut unique = sent.clone();
+    unique.sort();
+    unique.dedup();
+    assert_eq!(sent.len(), unique.len(), "a rule was sent to two calls");
+    assert_eq!(unique, (1..=unique.len()).collect::<Vec<_>>(), "the doc arrives in order, with no gap");
+}
+
 /// Two processes that each learn a file at the same moment both land in the
 /// mtime index: the update merges onto what is on disk under the maintenance
 /// lock, so neither write erases the other's.

@@ -38,7 +38,7 @@ SOURCE = "inject_rules"
 
 
 def _send(event, target, event_name, tool):
-    rc, text, _ = tracer.docs(event, target, SOURCE, tool)
+    rc, text, _ = tracer.docs(event, [target], SOURCE, tool)
     if rc == 0 and text.strip():
         feedback.context(SOURCE, event_name, text.strip())
 

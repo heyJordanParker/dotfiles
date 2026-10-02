@@ -525,9 +525,6 @@ fn walk_references(root: Node, source: &[u8]) -> Vec<Reference> {
                     }
                 }
             }
-            // `$x->foo()` and `$x?->foo()` — a method call on an object value.
-            // The receiver is a variable/expression, never a class name, so
-            // it carries no class to disambiguate against.
             "member_call_expression" | "nullsafe_member_call_expression" => {
                 if let Some(method) = n.child_by_field_name("name") {
                     if let Ok(name) = method.utf8_text(source) {
@@ -535,7 +532,7 @@ fn walk_references(root: Node, source: &[u8]) -> Vec<Reference> {
                             name: name.to_string(),
                             line: method.start_position().row as i64 + 1,
                             shape: RefShape::Member,
-                            receiver: None,
+                            receiver: member_receiver(n, source),
                             enclosing: enclosing.clone(),
                         });
                     }
@@ -735,6 +732,158 @@ fn type_name(node: Node, source: &[u8]) -> Option<String> {
         }
     }
     None
+}
+
+fn member_receiver(call: Node, source: &[u8]) -> Option<String> {
+    let mut object = call.child_by_field_name("object")?;
+    while object.kind() == "parenthesized_expression" {
+        object = object.named_child(0)?;
+    }
+    match object.kind() {
+        "object_creation_expression" | "function_call_expression" => constructed_class(object, source),
+        "member_access_expression" => {
+            let base = object.child_by_field_name("object")?;
+            let property = object.child_by_field_name("name")?.utf8_text(source).ok()?;
+            if base.utf8_text(source).ok()? != "$this" {
+                return None;
+            }
+            property_type(call, &format!("${property}"), source)
+        }
+        "variable_name" => {
+            let variable = object.utf8_text(source).ok()?;
+            parameter_type(call, variable, source).or_else(|| local_type(call, variable, source))
+        }
+        _ => None,
+    }
+}
+
+fn constructed_class(value: Node, source: &[u8]) -> Option<String> {
+    let mut value = value;
+    while value.kind() == "parenthesized_expression" {
+        value = value.named_child(0)?;
+    }
+    match value.kind() {
+        "object_creation_expression" => {
+            let mut c = value.walk();
+            let class = value
+                .named_children(&mut c)
+                .find(|child| matches!(child.kind(), "name" | "qualified_name"))?;
+            last_name_segment(class, source)
+        }
+        "function_call_expression" => resolved_class(value, source),
+        _ => None,
+    }
+}
+
+fn local_type(node: Node, variable: &str, source: &[u8]) -> Option<String> {
+    let mut scope = node.parent()?;
+    while !matches!(
+        scope.kind(),
+        "function_definition" | "method_declaration" | "anonymous_function" | "arrow_function"
+    ) {
+        scope = scope.parent()?;
+    }
+    let mut assigned: Vec<Option<String>> = Vec::new();
+    let mut stack = vec![scope.child_by_field_name("body")?];
+    while let Some(n) = stack.pop() {
+        if n.kind() == "assignment_expression"
+            && n.child_by_field_name("left").and_then(|l| l.utf8_text(source).ok()) == Some(variable)
+        {
+            assigned.push(n.child_by_field_name("right").and_then(|r| constructed_class(r, source)));
+        }
+        let mut c = n.walk();
+        stack.extend(n.children(&mut c));
+    }
+    let first = assigned.first()?.clone()?;
+    assigned.iter().all(|class| class.as_deref() == Some(first.as_str())).then_some(first)
+}
+
+fn resolved_class(call: Node, source: &[u8]) -> Option<String> {
+    let function = call.child_by_field_name("function")?.utf8_text(source).ok()?;
+    if function.trim_start_matches('\\') != "app" {
+        return None;
+    }
+    let arguments = call.child_by_field_name("arguments")?;
+    let mut c = arguments.walk();
+    let passed: Vec<Node> = arguments.named_children(&mut c).collect();
+    let [argument] = passed.as_slice() else {
+        return None;
+    };
+    let access = argument.named_child(0)?;
+    let named = access.named_child(0)?;
+    let selector = access.named_child(access.named_child_count().checked_sub(1)?)?;
+    (access.kind() == "class_constant_access_expression" && selector.utf8_text(source).ok()? == "class")
+        .then(|| last_name_segment(named, source))
+        .flatten()
+}
+
+fn parameter_type(node: Node, variable: &str, source: &[u8]) -> Option<String> {
+    let mut scope = node.parent()?;
+    while !matches!(
+        scope.kind(),
+        "function_definition" | "method_declaration" | "anonymous_function" | "arrow_function"
+    ) {
+        scope = scope.parent()?;
+    }
+    let parameters = scope.child_by_field_name("parameters")?;
+    let mut c = parameters.walk();
+    let parameter = parameters
+        .named_children(&mut c)
+        .find(|p| p.child_by_field_name("name").and_then(|n| n.utf8_text(source).ok()) == Some(variable))?;
+    single_type(parameter.child_by_field_name("type")?, source)
+}
+
+fn property_type(node: Node, property: &str, source: &[u8]) -> Option<String> {
+    let mut class = node.parent()?;
+    while !matches!(class.kind(), "class_declaration" | "trait_declaration" | "enum_declaration") {
+        class = class.parent()?;
+    }
+    let body = class.child_by_field_name("body")?;
+    let mut c = body.walk();
+    for member in body.named_children(&mut c) {
+        match member.kind() {
+            "property_declaration" => {
+                let mut m = member.walk();
+                let children: Vec<Node> = member.named_children(&mut m).collect();
+                let declares = children.iter().any(|child| {
+                    child.kind() == "property_element"
+                        && child.child_by_field_name("name").and_then(|n| n.utf8_text(source).ok()) == Some(property)
+                });
+                if declares {
+                    return children
+                        .iter()
+                        .find(|child| child.kind().ends_with("_type"))
+                        .and_then(|declared| single_type(*declared, source));
+                }
+            }
+            "method_declaration" => {
+                if member.child_by_field_name("name").and_then(|n| n.utf8_text(source).ok()) != Some("__construct") {
+                    continue;
+                }
+                let Some(parameters) = member.child_by_field_name("parameters") else {
+                    continue;
+                };
+                let mut p = parameters.walk();
+                let promoted = parameters.named_children(&mut p).find(|parameter| {
+                    parameter.kind() == "property_promotion_parameter"
+                        && parameter.child_by_field_name("name").and_then(|n| n.utf8_text(source).ok()) == Some(property)
+                });
+                if let Some(promoted) = promoted {
+                    return single_type(promoted.child_by_field_name("type")?, source);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+fn single_type(node: Node, source: &[u8]) -> Option<String> {
+    match node.kind() {
+        "named_type" => last_name_segment(node.named_child(0)?, source),
+        "nullable_type" | "optional_type" => single_type(node.named_child(0)?, source),
+        _ => None,
+    }
 }
 
 fn last_name_segment(node: Node, source: &[u8]) -> Option<String> {

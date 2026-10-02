@@ -2559,32 +2559,169 @@ fn docs_command_sends_markdown_nearest_first() {
     );
 }
 
-/// A doc that does not fit the budget is named, not sent, and not recorded,
-/// so the next call with room sends it whole.
+/// 300 numbered rules under a heading: line `n + 1` holds rule `n`, and the
+/// multi-byte `é` makes bytes outrun the UTF-16 length Claude Code measures.
+fn long_rules() -> String {
+    let rules: String = (1..=300)
+        .map(|n| format!("- Rule {n}: keep the café open past midnight.\n"))
+        .collect();
+    format!("# Sub rules\n{rules}")
+}
+
+fn rule_numbers(text: &str) -> Vec<usize> {
+    text.lines()
+        .filter_map(|line| line.strip_prefix("- Rule "))
+        .filter_map(|rest| rest.split(':').next()?.parse().ok())
+        .collect()
+}
+
+/// A doc longer than the budget arrives cut at a whole line with `read`'s
+/// trim marker and the docs after it queued by name. Each later call
+/// continues from the first line not yet sent, so every line arrives exactly
+/// once, and once the last one has the doc is loaded and nothing prints.
 #[test]
-fn docs_that_do_not_fit_are_named_and_offered_again() {
+fn a_doc_longer_than_the_budget_arrives_in_parts() {
     let f = docs_repo();
-    f.write("sub/Claude.md", &format!("# Sub rules\n{}\n", "Long rule text. ".repeat(400)));
+    f.write("sub/Claude.md", &long_rules());
     f.commit("long sub rules");
-    let sid = fresh_session_id("docs-budget");
+    let sid = fresh_session_id("docs-parts");
     let env = [("CLAUDE_CODE_SESSION_ID", sid.as_str())];
 
-    let tight = f.trace_env(&["docs", "sub/util.py", "--budget", "1000"], &env);
-    tight.ok();
-    assert!(tight.stdout.chars().count() <= 1000, "{}", tight.stdout);
+    let first = f.trace_env(&["docs", "sub/util.py", "--budget", "2000"], &env);
+    first.ok();
     assert!(
-        tight.stdout.contains("## Claude.md") && tight.stdout.contains("- sub/Claude.md ("),
-        "the short root doc is sent whole and the long one named:\n{}",
-        tight.stdout
+        first.stdout.starts_with("## sub/Claude.md (L1-L")
+            && first.stdout.contains(" of 301)\n")
+            && first.stdout.contains("— continue: trace read ")
+            && first.stdout.contains("- Claude.md ("),
+        "the nearest doc fills the room, cut with its marker, the root doc queued:\n{}",
+        first.stdout
     );
-    assert!(!tight.stdout.contains("Long rule text"), "{}", tight.stdout);
 
-    let roomy = f.trace_env(&["docs", "sub/util.py", "--budget", "0"], &env);
-    roomy.ok();
+    let mut seen = rule_numbers(&first.stdout);
+    let mut calls = 1;
+    loop {
+        let r = f.trace_env(&["docs", "sub/util.py", "--budget", "2000"], &env);
+        r.ok();
+        assert!(r.stdout.encode_utf16().count() <= 2000, "{}", r.stdout);
+        if r.stdout.is_empty() {
+            break;
+        }
+        seen.extend(rule_numbers(&r.stdout));
+        calls += 1;
+        assert!(calls < 30, "the doc never finished arriving:\n{}", r.stdout);
+    }
+    assert_eq!(seen, (1..=300).collect::<Vec<_>>(), "every rule exactly once, in order");
+
+    let status = f.trace_env(&["docs", "status", "sub/util.py", "--json"], &env);
+    status.ok();
+    assert_eq!(status.json()["counts"]["not_loaded"], 0, "{}", status.stdout);
+}
+
+/// A doc the agent read only part of is not loaded: the next docs call sends
+/// it from the line after the read stopped.
+#[test]
+fn a_doc_read_in_part_continues_where_the_read_stopped() {
+    let f = docs_repo();
+    f.write("sub/Claude.md", &long_rules());
+    f.commit("long sub rules");
+    let sid = fresh_session_id("docs-read-part");
+    let env = [("CLAUDE_CODE_SESSION_ID", sid.as_str())];
+
+    f.trace_env(&["read", "sub/Claude.md", "--lines", "1:100"], &env).ok();
+    let next = f.trace_env(&["docs", "sub/util.py", "--budget", "0"], &env);
+    next.ok();
     assert!(
-        roomy.stdout.contains("## sub/Claude.md") && !roomy.stdout.contains("## Claude.md"),
-        "the named doc is offered again and the sent one is not:\n{}",
-        roomy.stdout
+        next.stdout.contains("## sub/Claude.md (L101-L301 of 301)")
+            && next.stdout.contains("- Rule 100:")
+            && !next.stdout.contains("- Rule 99:"),
+        "the doc continues after the lines already read:\n{}",
+        next.stdout
+    );
+}
+
+/// `read` drops blank-line runs and separator rules as noise, so a doc read to
+/// its last line is loaded though those lines never printed, and `docs status`
+/// says so too.
+#[test]
+fn a_doc_read_whole_is_loaded_though_cleaning_dropped_lines() {
+    let f = docs_repo();
+    f.write("sub/Claude.md", "# Sub rules\n\n\n\n\nfirst\n==========\n\n\n\nsecond\n");
+    f.commit("blank runs");
+    let sid = fresh_session_id("docs-cleaned");
+    let env = [("CLAUDE_CODE_SESSION_ID", sid.as_str())];
+
+    f.trace_env(&["read", "sub/Claude.md"], &env).ok();
+    let docs = f.trace_env(&["docs", "sub/util.py", "--budget", "0"], &env);
+    docs.ok();
+    assert!(!docs.stdout.contains("## sub/Claude.md"), "{}", docs.stdout);
+    let status = f.trace_env(&["docs", "status", "sub/util.py", "--json"], &env);
+    status.ok();
+    let not_loaded = status.json()["results"]["not_loaded"].clone();
+    assert!(
+        !not_loaded.as_array().unwrap().iter().any(|doc| doc["path"] == "sub/Claude.md"),
+        "{}",
+        status.stdout
+    );
+}
+
+/// A doc already sent whole stays loaded when the agent later reads part of
+/// it, so it is never sent again from the middle.
+#[test]
+fn a_doc_sent_whole_stays_loaded_after_a_partial_read() {
+    let f = docs_repo();
+    let sid = fresh_session_id("docs-whole-then-part");
+    let env = [("CLAUDE_CODE_SESSION_ID", sid.as_str())];
+
+    f.trace_env(&["docs", "sub/util.py"], &env).ok();
+    f.trace_env(&["read", "sub/Claude.md", "--lines", "1:1"], &env).ok();
+    let again = f.trace_env(&["docs", "sub/util.py"], &env);
+    again.ok();
+    assert!(again.stdout.is_empty(), "{}", again.stdout);
+}
+
+/// `--agent` names the agent whose record a call writes, as `TRACER_AGENT_ID`
+/// does, so a Subagent's own reads never count as the root agent's.
+#[test]
+fn agent_flag_keeps_a_subagents_reads_in_its_own_record() {
+    let f = docs_repo();
+    let sid = fresh_session_id("agent-flag");
+    let env = [("CLAUDE_CODE_SESSION_ID", sid.as_str())];
+    f.trace_env(&["read", "sub/Claude.md", "--agent", "sub-1"], &env).ok();
+
+    let loaded = |agent: &[&str]| {
+        let mut args = vec!["docs", "status", "sub/util.py", "--json"];
+        args.extend_from_slice(agent);
+        let r = f.trace_env(&args, &env);
+        r.ok();
+        r.json()["counts"]["loaded"].clone()
+    };
+    assert_eq!(loaded(&["--agent", "sub-1"]), 1);
+    assert_eq!(loaded(&[]), 0);
+}
+
+/// `trace docs` takes several paths, sends each doc on their chains once, and
+/// leaves out the docs `--skip` names, which the triggering command delivers.
+#[test]
+fn docs_takes_several_paths_and_skips_what_the_command_delivers() {
+    let f = docs_repo();
+    f.write("other/Claude.md", "# Other rules\n");
+    f.write("other/x.py", "x = 1\n");
+    f.commit("other dir");
+    let sid = fresh_session_id("docs-several");
+    let env = [("CLAUDE_CODE_SESSION_ID", sid.as_str())];
+
+    let r = f.trace_env(
+        &["docs", "sub/util.py", "other/x.py", "--skip", "sub/Claude.md"],
+        &env,
+    );
+    r.ok();
+    assert!(
+        r.stdout.contains("## other/Claude.md")
+            && r.stdout.matches("## Claude.md\n").count() == 1
+            && !r.stdout.contains("## sub/Claude.md"),
+        "{}",
+        r.stdout
     );
 }
 
@@ -3862,6 +3999,98 @@ fn surface_rows_repeat_on_context_read_info_and_blame() {
             .len(),
         2
     );
+}
+
+#[test]
+fn a_windowed_read_lists_what_its_lines_call_and_who_else_calls_it() {
+    let f = Fixture::new();
+    f.write(
+        "ledger.php",
+        "<?php\nclass Ledger {\n    public function record(int $cents): int\n    {\n        return $cents;\n    }\n}\n",
+    );
+    f.write(
+        "checkout.php",
+        "<?php\nclass Checkout {\n    public function __construct(private Ledger $ledger) {}\n    public function pay(int $cents): int\n    {\n        return $this->ledger->record($cents);\n    }\n}\n",
+    );
+    f.write(
+        "refund.php",
+        "<?php\nclass Refund {\n    public function back(Ledger $ledger, int $cents): int\n    {\n        return $ledger->record(-$cents);\n    }\n}\n",
+    );
+    f.commit("calls");
+    let session = [("AGENT_SESSION_ID", "calls-block")];
+
+    let context = f.trace_env(&["context", "checkout.php", "--offset", "6", "--limit", "1", "--no-record"], &session);
+    context.ok();
+    for expected in [
+        "calls:",
+        "L6 Ledger::record  ledger.php:3  {callers: 2}",
+        "return $cents;",
+        "also called from:",
+        "refund.php:5  back  return $ledger->record(-$cents);",
+    ] {
+        assert!(context.stdout.contains(expected), "missing {expected:?} in {}", context.stdout);
+    }
+
+    let read = f.trace_env(&["read", "checkout.php", "--lines", "6:6"], &session);
+    read.ok();
+    assert!(read.stdout.contains("L6 Ledger::record  ledger.php:3"), "{}", read.stdout);
+
+    let json = f.trace_env(&["read", "checkout.php", "--lines", "6:6", "--json"], &session);
+    json.ok();
+    let calls = &json.json()["context"]["files"]["checkout.php"]["calls"];
+    assert_eq!(calls[0]["method"].as_str(), Some("Ledger::record"), "{calls}");
+    assert_eq!(calls[0]["also_called_from"][0]["file"].as_str(), Some("refund.php"), "{calls}");
+
+    f.trace_env(&["read", "ledger.php"], &session).ok();
+    let after = f.trace_env(&["context", "checkout.php", "--offset", "6", "--limit", "1", "--no-record"], &session);
+    after.ok();
+    assert!(after.stdout.contains("public function record(int $cents): int { … }"), "{}", after.stdout);
+    assert!(!after.stdout.contains("return $cents;"), "a read body is shown again: {}", after.stdout);
+
+    let whole = f.trace_env(&["read", "checkout.php"], &session);
+    whole.ok();
+    assert!(!whole.stdout.contains("calls:"), "a whole-file read carries no calls block: {}", whole.stdout);
+}
+
+#[test]
+fn a_call_whose_other_call_sites_overrun_the_budget_is_still_named() {
+    let f = Fixture::new();
+    f.write(
+        "ledger.php",
+        "<?php\nclass Ledger {\n    public function record(int $cents): int\n    {\n        return $cents;\n    }\n}\n",
+    );
+    f.write(
+        "checkout.php",
+        "<?php\nclass Checkout {\n    public function __construct(private Ledger $ledger) {}\n    public function pay(int $cents): int\n    {\n        return $this->ledger->record($cents);\n    }\n}\n",
+    );
+    for n in 0..40 {
+        f.write(
+            &format!("refund{n}.php"),
+            &format!("<?php\nclass Refund{n} {{\n    public function back(Ledger $ledger, int $cents): int\n    {{\n        return $ledger->record(-$cents - {n});\n    }}\n}}\n"),
+        );
+    }
+    f.write(
+        "split.php",
+        "<?php\nclass Split {\n    public function pay(Ledger $ledger, int $cents): int\n    {\n        $ledger->record($cents);\n        return $ledger->record($cents);\n    }\n}\n",
+    );
+    f.commit("many callers");
+    let session = [("AGENT_SESSION_ID", "calls-overrun")];
+
+    let read = f.trace_env(&["read", "checkout.php", "--lines", "6:6", "--budget", "3000"], &session);
+    read.ok();
+    for expected in [
+        "L6 Ledger::record  ledger.php:3  {callers: 43}",
+        "return $cents;",
+        "[1 of 1 calls shortened to fit --budget 3000",
+    ] {
+        assert!(read.stdout.contains(expected), "missing {expected:?} in {}", read.stdout);
+    }
+
+    let twice = f.trace_env(&["read", "split.php", "--lines", "5:6", "--budget", "0"], &session);
+    twice.ok();
+    assert!(twice.stdout.contains("L5 Ledger::record") && twice.stdout.contains("L6 Ledger::record"), "{}", twice.stdout);
+    assert_eq!(twice.stdout.matches("return $cents;").count(), 1, "{}", twice.stdout);
+    assert_eq!(twice.stdout.matches("refund7.php:5").count(), 1, "{}", twice.stdout);
 }
 
 #[test]

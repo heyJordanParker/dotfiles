@@ -28,12 +28,26 @@ def parse(text):
     wants the body always gets one.
     """
     lines = text.splitlines()
-    if not lines or lines[0].strip() != "---":
-        return {}, text
-    close = next((i for i in range(1, len(lines)) if lines[i].strip() == "---"), None)
+    close = _close(lines)
     if close is None:
         return {}, text
     return _fields(lines[1:close]), "\n".join(lines[close + 1:]).strip("\n")
+
+
+def body_start(lines):
+    """The index of the first body line: below the frontmatter block, if any,
+    and the blank lines after it."""
+    close = _close(lines)
+    start = 0 if close is None else close + 1
+    while start < len(lines) and not lines[start].strip():
+        start += 1
+    return start
+
+
+def _close(lines):
+    if not lines or lines[0].strip() != "---":
+        return None
+    return next((i for i in range(1, len(lines)) if lines[i].strip() == "---"), None)
 
 
 def declared(text, key):

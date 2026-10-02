@@ -813,6 +813,62 @@ fn php_member_call_collision_is_the_only_ambiguity() {
 }
 
 #[test]
+fn php_member_call_with_a_stated_receiver_resolves_to_that_class() {
+    let f = Fixture::new();
+    f.write(
+        "first.php",
+        "<?php\nclass First {\n  public function handle() { return 1; }\n}\n",
+    );
+    f.write(
+        "second.php",
+        "<?php\nclass Second {\n  public function handle() { return 2; }\n}\n",
+    );
+    f.write(
+        "caller.php",
+        concat!(
+            "<?php\n",
+            "class Caller {\n",
+            "  public function __construct(private readonly First $promoted) {}\n",
+            "  private First $declared;\n",
+            "  public function viaParameter(First $first) { return $first->handle(); }\n",
+            "  public function viaPromoted() { return $this->promoted->handle(); }\n",
+            "  public function viaDeclared() { return $this->declared->handle(); }\n",
+            "  public function viaContainer() { return app(First::class)->handle(); }\n",
+            "  public function viaNew() { return (new First())->handle(); }\n",
+            "  public function viaLocal() { $first = new First(); return $first->handle(); }\n",
+            "  public function viaExternal() { $method = new ReflectionMethod('a', 'b'); return $method->handle(); }\n",
+            "}\n",
+        ),
+    );
+    f.commit("php stated receivers");
+    f.trace(&["cache", "build", "."]).ok();
+    let r = f.trace(&["callers", "handle", "--json"]);
+    r.ok();
+    let v = r.view();
+    let rows_first = caller_rows(&v, "first.php::handle");
+    let rows_second = caller_rows(&v, "second.php::handle");
+    for line in 5..=10 {
+        assert!(
+            rows_first
+                .iter()
+                .any(|(f, l, c)| f == "caller.php" && *l == line && c != "AMBIGUOUS"),
+            "First::handle must record a resolved call at caller.php:{line} — got {:?}",
+            rows_first
+        );
+    }
+    assert!(
+        !rows_second.iter().any(|(f, _, _)| f == "caller.php"),
+        "Second::handle must receive no call whose receiver is stated as another class — got {:?}",
+        rows_second
+    );
+    assert!(
+        !rows_first.iter().any(|(f, l, _)| f == "caller.php" && *l == 11),
+        "a receiver stated as an external class resolves to no project method — got {:?}",
+        rows_first
+    );
+}
+
+#[test]
 fn php_inferred_reference_resolves_without_target_module() {
     let f = Fixture::new();
     f.write(

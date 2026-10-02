@@ -5,7 +5,7 @@ Use this Reference when selecting an exact `trace` command, flag, JSON shape, do
 ## 1. Use the command catalog
 
 ### Start with the narrowest command that answers the question
-Do not run a broad command and filter it outside trace. Every command takes the global `--budget <chars>` (24,000 by default, 0 unbounded) and, with `--json`, the global `--filter '<jq expression>'`.
+Do not run a broad command and filter it outside trace. Every command takes the global `--budget <chars>` (30,000 by default, 0 unbounded) and, with `--json`, the global `--filter '<jq expression>'`.
 
 Template:
   ```bash
@@ -32,7 +32,7 @@ Template:
   trace logs [<pattern>] [--path <p>] [--file <glob>] [--since <when>] [--until <when>] [--around N] [--limit N]
   trace find <pattern> [bases...] [--path <p>] [--exclude <p>]... [--type f|d] [--limit N] [--sort complexity|recent|path]
   trace read <paths...> [--method <name>] [--at <ref>] [--lines L1:L2] [--between START END] [--diff] [--raw] [--all] [--docs]
-  trace docs <path> [--directory] [--source <s>] [--triggering-tool <t>] [--triggering-command <c>]
+  trace docs <paths...> [--directory] [--skip <path>]... [--source <s>] [--triggering-tool <t>] [--triggering-command <c>]
   trace docs <path> --graph
   trace docs status [<path>]
   trace docs reset [--source <s>]
@@ -76,8 +76,8 @@ IF asking who calls a property:
 
 ## 3. Use `trace docs` correctly
 
-### `trace docs <path>` sends the docs not yet loaded, nearest first
-Text is Markdown: `## <path>` and the whole document, nearest directory first. A doc longer than the room left under `--budget` is named with `trace read <path> --all` and not recorded, so it is offered again. Nothing prints when every doc is already loaded. `--json` returns every doc whole and records them all.
+### `trace docs <paths...>` sends the docs not yet loaded, nearest first
+Text is Markdown: `## <path>` and the document below its frontmatter, nearest directory first, each from the first line the agent has not seen. The first doc longer than the room left under `--budget` arrives as `## <path> (L<from>-L<to> of <total>)`, cut at a whole line and ending in `read`'s trim marker; the docs after it are named under the `trace docs` command that sends them. A doc is loaded once every line arrived, so the next call continues it. `--skip <path>` leaves out a doc the calling command prints itself. Nothing prints when every doc is already loaded. `--json` returns every doc whole and records them all.
 
 Template:
   ```json

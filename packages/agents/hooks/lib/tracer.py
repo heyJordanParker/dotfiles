@@ -89,14 +89,18 @@ def resolve(target, cwd):
     return os.path.normpath(target)
 
 
-def docs(event, target, name, tool, command=None):
-    """The project docs for `target` not yet in the agent's context, as Markdown
+def docs(event, targets, name, tool, command=None, skip=()):
+    """The project docs for `targets` not yet in the agent's context, as Markdown
     sized to fit one `name` hook message: (exit code, text, stderr).
 
-    `trace` sends whole docs nearest first, names the ones that do not fit, and
-    records only what it sent — so the agent is never told a doc it only saw
-    cut short is loaded."""
-    args = ["docs", target, "--budget", str(room(name)), "--source", name, "--triggering-tool", tool]
+    `trace` sends each doc from its first unread line, nearest first, cuts the
+    first one that does not fit at a whole line, and names the rest. A doc
+    counts as loaded only once every line arrived, so one cut short continues
+    on the next message. `skip` names docs the triggering command delivers
+    itself."""
+    args = ["docs", *targets, "--budget", str(room(name)), "--source", name, "--triggering-tool", tool]
+    for path in skip:
+        args += ["--skip", path]
     if command is not None:
         args += ["--triggering-command", command]
     return run(event, *args)

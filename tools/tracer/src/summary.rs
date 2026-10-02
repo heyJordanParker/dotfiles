@@ -6,11 +6,14 @@
 //! are counts, names, and ages, never ratios. `headline` is the one-line form
 //! a list of many files shows.
 
+use crate::commands::session_log;
 use crate::file_facts::FileFacts;
 use crate::git_activity::GitActivity;
-use crate::relations::ModuleCounts;
+use crate::relations::{self, ModuleCounts};
 use serde::Serialize;
 use serde_json::{Map, Value};
+use std::collections::{BTreeMap, BTreeSet};
+use std::path::Path;
 
 #[derive(Serialize)]
 pub struct Facts {
@@ -204,6 +207,200 @@ pub(crate) fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
     let doy = (153 * (if m > 2 { m - 3 } else { m + 9 }) + 2) / 5 + d - 1;
     let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
     era * 146097 + doe - 719468
+}
+
+const CALL_BODY_LINES: i64 = 12;
+
+#[derive(Serialize)]
+pub struct Call {
+    pub line: i64,
+    pub method: String,
+    pub file: String,
+    pub declared_at: i64,
+    pub callers: usize,
+    pub source: String,
+    pub also_called_from: Vec<CallSite>,
+}
+
+#[derive(Serialize)]
+pub struct CallSite {
+    pub file: String,
+    pub line: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub caller: Option<String>,
+    pub text: String,
+}
+
+pub fn calls(facts: &FileFacts, relative: &str, window: (i64, i64), repo_root: &Path) -> Vec<Call> {
+    let Some(extraction) = &facts.extraction else {
+        return Vec::new();
+    };
+    let within = |line: i64| window.0 <= line && line <= window.1;
+    let called: BTreeMap<&str, BTreeSet<i64>> = extraction
+        .references
+        .iter()
+        .filter(|reference| within(reference.line) && reference.receiver.as_deref() != Some(&reference.name))
+        .fold(BTreeMap::new(), |mut called, reference| {
+            called.entry(reference.name.as_str()).or_default().insert(reference.line);
+            called
+        });
+    let mut sources: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    let mut out = Vec::new();
+    for (name, lines) in called {
+        let sites = relations::use_sites(name, repo_root);
+        for line in lines {
+            let here: Vec<&relations::UseSite> =
+                sites.iter().filter(|site| site.file == relative && site.line == line).collect();
+            let [site] = here.as_slice() else {
+                continue;
+            };
+            if site.confidence == "AMBIGUOUS" || site.target.kind != "function" {
+                continue;
+            }
+            let target = &site.target;
+            let mut callers: Vec<&relations::UseSite> = sites
+                .iter()
+                .filter(|other| other.target_file == site.target_file && other.target.line == target.line)
+                .collect();
+            callers.sort_by(|a, b| (&a.file, a.line).cmp(&(&b.file, b.line)));
+            let target_source = sources
+                .entry(site.target_file.clone())
+                .or_insert_with(|| source_lines(&repo_root.join(&site.target_file)));
+            let span = target.end_line - target.header_line + 1;
+            let read = session_log::has_read(
+                &repo_root.join(&site.target_file),
+                &session_log::content_hash(&target_source.concat()),
+                target.header_line as usize,
+                target.end_line as usize,
+            );
+            let source = if read || span > CALL_BODY_LINES {
+                target.header.clone()
+            } else {
+                excerpt(target_source, target.header_line, target.end_line)
+            };
+            let also_called_from = callers
+                .iter()
+                .filter(|other| !(other.file == relative && within(other.line)))
+                .map(|other| CallSite {
+                    file: other.file.clone(),
+                    line: other.line,
+                    caller: other.caller.as_ref().map(|caller| caller.name.clone()),
+                    text: excerpt(
+                        sources
+                            .entry(other.file.clone())
+                            .or_insert_with(|| source_lines(&repo_root.join(&other.file))),
+                        other.line,
+                        other.line,
+                    )
+                    .trim()
+                    .to_string(),
+                })
+                .collect();
+            out.push(Call {
+                line,
+                method: match &target.container {
+                    Some(container) => format!("{container}::{}", target.name),
+                    None => target.name.clone(),
+                },
+                file: site.target_file.clone(),
+                declared_at: target.line,
+                callers: callers.len(),
+                source,
+                also_called_from,
+            });
+        }
+    }
+    out.sort_by_key(|call| call.line);
+    out
+}
+
+/// The calls block in at most `budget` characters with every call still
+/// named: each call starts as its head line, then calls get their source back
+/// in line order, then their other call sites, while the budget holds — the
+/// way `surface::render_within` grows rows. `None` renders every call whole.
+/// A function the window calls on several lines shows its source and other
+/// call sites once, under its first line.
+pub fn render_calls(calls: &[Call], budget: Option<usize>) -> String {
+    if calls.is_empty() {
+        return String::new();
+    }
+    let mut seen = BTreeSet::new();
+    let first: Vec<bool> = calls.iter().map(|call| seen.insert((&call.file, call.declared_at))).collect();
+    let heads: Vec<String> = calls
+        .iter()
+        .map(|call| {
+            format!(
+                "  L{} {}  {}:{}  {{callers: {}}}\n",
+                call.line, call.method, call.file, call.declared_at, call.callers
+            )
+        })
+        .collect();
+    let sourced: Vec<String> = calls
+        .iter()
+        .zip(&heads)
+        .zip(&first)
+        .map(|((call, head), &first)| match first {
+            true => call.source.lines().fold(head.clone(), |text, line| text + &format!("    {line}\n")),
+            false => head.clone(),
+        })
+        .collect();
+    let whole: Vec<String> = calls
+        .iter()
+        .zip(&sourced)
+        .zip(&first)
+        .map(|((call, sourced), &first)| {
+            if !first || call.also_called_from.is_empty() {
+                return sourced.clone();
+            }
+            call.also_called_from
+                .iter()
+                .fold(format!("{sourced}    also called from:\n"), |text, site| {
+                    let caller = site.caller.as_ref().map(|caller| format!("  {caller}")).unwrap_or_default();
+                    text + &format!("      {}:{}{caller}  {}\n", site.file, site.line, clip(&site.text, 100))
+                })
+        })
+        .collect();
+    let Some(budget) = budget.map(|budget| budget.saturating_sub("calls:\n".len())) else {
+        return format!("calls:\n{}", whole.concat());
+    };
+    if whole.iter().map(String::len).sum::<usize>() <= budget {
+        return format!("calls:\n{}", whole.concat());
+    }
+    let shortened = crate::output::shortened_line(calls.len(), calls.len(), "calls");
+    let budget = budget.saturating_sub(shortened.len() + 3);
+    let mut texts = heads;
+    let mut size: usize = texts.iter().map(String::len).sum();
+    for level in [&sourced, &whole] {
+        for (text, grown) in texts.iter_mut().zip(level) {
+            let resized = size - text.len() + grown.len();
+            if resized <= budget {
+                size = resized;
+                *text = grown.clone();
+            }
+        }
+    }
+    let cut = texts.iter().zip(&whole).filter(|(text, whole)| text != whole).count();
+    format!(
+        "calls:\n{}  {}\n",
+        texts.concat(),
+        crate::output::shortened_line(cut, calls.len(), "calls")
+    )
+}
+
+fn source_lines(path: &Path) -> Vec<String> {
+    std::fs::read_to_string(path)
+        .map(|source| source.split_inclusive('\n').map(str::to_string).collect())
+        .unwrap_or_default()
+}
+
+fn excerpt(lines: &[String], start: i64, end: i64) -> String {
+    lines
+        .iter()
+        .skip((start - 1).max(0) as usize)
+        .take((end - start + 1).max(0) as usize)
+        .map(|line| line.trim_end_matches(['\n', '\r']))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 #[cfg(test)]

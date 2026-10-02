@@ -51,6 +51,7 @@ type RenderedLine<'a> = (usize, Cow<'a, str>);
 struct RenderedRead {
     payload: Value,
     memories: Vec<nested_memory::LoadedMemory>,
+    docs: super::docs::Fitted,
     file_path: std::path::PathBuf,
     content_hash: String,
     content_size: usize,
@@ -266,23 +267,31 @@ fn leading_header_lines(source: &str, file: &str) -> Vec<(usize, usize)> {
 }
 
 fn clean<'a>(mut pairs: Vec<SourceLine<'a>>, source: &str, file: &str) -> Vec<RenderedLine<'a>> {
-    let header_lines = leading_header_lines(source, file);
-    pairs.retain(|(line, _)| {
-        !header_lines
-            .iter()
-            .any(|(start, end)| line >= start && line <= end)
-    });
-    pairs.retain(|(_, line)| !is_decorative_separator(line));
-    let mut blank_run = 0;
-    pairs.retain(|(_, line)| {
-        if line.trim().is_empty() {
-            blank_run += 1;
-            blank_run <= 2
-        } else {
-            blank_run = 0;
-            true
-        }
-    });
+    // Markdown is prose: a `---` rule, a `===` underline, and its blank lines
+    // carry meaning, so it is shown whole and a doc read to its end is read.
+    let markdown = Path::new(file)
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("md"));
+    if !markdown {
+        let header_lines = leading_header_lines(source, file);
+        pairs.retain(|(line, _)| {
+            !header_lines
+                .iter()
+                .any(|(start, end)| line >= start && line <= end)
+        });
+        pairs.retain(|(_, line)| !is_decorative_separator(line));
+        let mut blank_run = 0;
+        pairs.retain(|(_, line)| {
+            if line.trim().is_empty() {
+                blank_run += 1;
+                blank_run <= 2
+            } else {
+                blank_run = 0;
+                true
+            }
+        });
+    }
     let width = pairs
         .iter()
         .map(|(n, _)| n.to_string().len())
@@ -313,27 +322,26 @@ fn line_count(content: &str) -> usize {
 /// anything was dropped. A first line larger than the whole budget — one
 /// minified line can be megabytes — is cut at a character boundary.
 fn trim_to_budget(lines: &mut Vec<RenderedLine<'_>>, budget: usize) -> bool {
-    let mut bytes = 0usize;
+    let mut used = 0usize;
     let mut keep = 0usize;
     for (_, line) in lines.iter() {
-        if keep > 0 && bytes + line.len() > budget {
+        let size = crate::output::width(line);
+        if keep > 0 && used + size > budget {
             break;
         }
-        bytes += line.len();
+        used += size;
         keep += 1;
     }
-    let first_too_long = lines.first().is_some_and(|(_, line)| line.len() > budget.max(1));
+    let first_too_long = lines
+        .first()
+        .is_some_and(|(_, line)| crate::output::width(line) > budget.max(1));
     if keep == lines.len() && !first_too_long {
         return false;
     }
     lines.truncate(keep);
     if first_too_long {
-        let line = &lines[0].1;
-        let mut cut = budget.max(1).min(line.len());
-        while !line.is_char_boundary(cut) {
-            cut -= 1;
-        }
-        lines[0].1 = Cow::Owned(format!("{}\u{2026}\n", &line[..cut]));
+        let cut = crate::output::clip(&lines[0].1, budget.max(1)).to_string();
+        lines[0].1 = Cow::Owned(format!("{cut}\u{2026}\n"));
     }
     true
 }
@@ -341,7 +349,7 @@ fn trim_to_budget(lines: &mut Vec<RenderedLine<'_>>, budget: usize) -> bool {
 /// The inline trim marker. It sits in the content stream itself, at the
 /// end, so an agent reading top-to-bottom reaches it and no consumer can
 /// drop it.
-fn trim_marker(
+pub(crate) fn trim_marker(
     file: &str,
     flags: &str,
     last_line: usize,
@@ -861,12 +869,23 @@ fn render_one(
         .as_ref()
         .map(|facts| surface::rows(facts, Some(window)))
         .unwrap_or_default();
-    let surface_text = surface::render_within(
+    let mut surface_text = surface::render_within(
         &surface_rows,
         &relative,
         Some(window),
         budget.map(|budget| budget.saturating_sub(front_matter_size) / 2),
     );
+    let windowed = method.is_some() || line_range.is_some() || between.is_some();
+    let calls = match facts.as_ref() {
+        Some(facts) if windowed && in_repository && ref_.is_none() => {
+            summary::calls(facts, &relative, window, &repo_root)
+        }
+        _ => Vec::new(),
+    };
+    surface_text.push_str(&summary::render_calls(
+        &calls,
+        budget.map(|budget| budget.saturating_sub(front_matter_size) / 4),
+    ));
     let mut rendered: Vec<RenderedLine<'_>> = if raw {
         selected
             .into_iter()
@@ -933,11 +952,29 @@ fn render_one(
             symbol_diff(Some(source.as_str()), worktree_source.as_deref(), &relative);
     }
 
-    let memories = if docs_on {
+    let file_key = file_path.to_string_lossy();
+    let memories: Vec<nested_memory::LoadedMemory> = if docs_on {
         nested_memory::load_for_file(&file_path, &repo_root, session_dedupe, false)
+            .into_iter()
+            .filter(|memory| memory.path != file_key)
+            .collect()
     } else {
         Vec::new()
     };
+    // The docs take the room the file left, and page from there.
+    let docs_room = budget.map(|budget| {
+        budget.saturating_sub(
+            front_matter_size
+                + crate::output::width(&surface_text)
+                + crate::output::width(&content)
+                + reserved,
+        )
+    });
+    let docs = super::docs::fit(
+        super::docs::unread(memories.clone()),
+        docs_room,
+        &super::docs::shell_command("trace docs", std::slice::from_ref(&file_path)),
+    );
 
     let display_file = cache::relative_to_root(&file_path, &repo_root);
 
@@ -958,6 +995,7 @@ fn render_one(
         "facts": front_matter,
         "symbol_diff": symbol_diff_data,
         "surface": surface_rows,
+        "calls": if calls.is_empty() { Value::Null } else { json!(calls) },
     });
     if !memories.is_empty() {
         payload["nested_memories"] = json!(memories
@@ -974,6 +1012,7 @@ fn render_one(
     Ok(RenderedRead {
         payload,
         memories,
+        docs,
         file_path,
         content_hash,
         content_size,
@@ -985,7 +1024,7 @@ fn render_one(
 
 fn emit_human(
     payload: &Value,
-    memories: &[nested_memory::LoadedMemory],
+    docs: &str,
     surface_text: &str,
     output: &mut impl Write,
 ) -> Result<()> {
@@ -1021,13 +1060,8 @@ fn emit_human(
     }
     write!(output, "{surface_text}")?;
     output.flush()?;
-    let memories_block = if memories.is_empty() {
-        String::new()
-    } else {
-        nested_memory::render(memories)
-    };
-    if !memories_block.is_empty() {
-        writeln!(output, "{memories_block}")?;
+    if !docs.is_empty() {
+        writeln!(output, "{docs}")?;
         writeln!(output)?;
     }
     if !surface_text.is_empty() {
@@ -1101,6 +1135,7 @@ pub fn run(
         std::process::exit(2);
     }
 
+    let _delivering = docs_on.then(session_log::delivery_lock);
     let mut session_dedupe = if docs_on {
         session_log::loaded_paths()
     } else {
@@ -1148,7 +1183,7 @@ pub fn run(
         }));
         // The front matter's keys, then what else the read carried.
         let mut entry = payload["facts"].as_object().cloned().unwrap_or_default();
-        for key in ["surface", "symbol_diff", "nested_memories"] {
+        for key in ["surface", "calls", "symbol_diff", "nested_memories"] {
             if !payload[key].is_null() {
                 entry.insert(key.into(), payload[key].clone());
             }
@@ -1193,12 +1228,10 @@ pub fn run(
             writeln!(output)?;
             writeln!(output, "---")?;
         }
-        emit_human(&rendered.payload, &rendered.memories, &rendered.surface_text, &mut output)?;
+        emit_human(&rendered.payload, &rendered.docs.text, &rendered.surface_text, &mut output)?;
         output.flush()?;
         if record {
-            if docs_on {
-                session_log::record_emission(&rendered.memories, "trace_read");
-            }
+            rendered.docs.record("trace_read");
             if ref_.is_none() {
                 record_delivered_read(rendered);
             }

@@ -39,29 +39,66 @@ BINDING = {
 
 SOURCE = "reload_harness_context"
 
-UNSENT = "### Read these Rules whole\nThey did not fit in this message: %s"
+QUEUED = "Queued; `trace read <path>` reads each:"
+MARKER = "[trimmed at L%d of %d — continue: trace read %s --lines %d:%d]"
 
 
 def resend_user_rules(event):
+    """Each Rule whole while it fits, then the next cut at a whole line with
+    `trace read`'s own marker, then the rest named. Only a whole Rule is
+    recorded, so one cut short is sent again where it applies."""
     recs = transcript.live_records(transcript.records(field(event, "transcript_path", "")))
-    room = tracer.room(SOURCE)
-    sections, unsent = [], []
+    rules = []
     for path in transcript.user_rules_loaded(recs):
         try:
             with open(path, encoding="utf-8") as fh:
-                _, body = frontmatter.parse(fh.read())
+                rules.append((path, fh.read().splitlines()))
         except OSError:
             continue
-        section = "Contents of %s:\n\n%s" % (path, body)
-        if len("\n\n".join(sections + [section])) > room:
-            unsent.append(path)
+    room = tracer.room(SOURCE)
+    sections = []
+    for index, (path, lines) in enumerate(rules):
+        start = frontmatter.body_start(lines)
+        whole = "Contents of %s:\n\n%s" % (path, "\n".join(lines[start:]).strip("\n"))
+        used = feedback.width("\n\n".join(sections + [""]))
+        if used + feedback.width(whole) + _queue_width(rules[index + 1:]) <= room:
+            sections.append(whole)
+            tracer.run(event, "docs", "prime", path)
             continue
-        sections.append(section)
-        tracer.run(event, "docs", "prime", path)
-    if unsent:
-        sections.append(UNSENT % ", ".join(unsent))
+        part = _cut(path, lines, start, room - used - _queue_width(rules[index:]))
+        queued = rules[index + 1:] if part else rules[index:]
+        sections += [part] if part else []
+        sections.append(_queue(queued))
+        break
     if sections:
         feedback.context(SOURCE, "SessionStart", "\n\n".join(sections))
+
+
+def _cut(path, lines, start, room):
+    """The Rule's whole lines from `start` that fit `room` beside the marker for
+    the rest, or "" when not one does."""
+    total = len(lines)
+    frame = "Contents of %s (L%d-L%d of %d):\n\n\n\n" % (path, total, total, total)
+    left = room - feedback.width(frame + MARKER % (total, total, path, total, total))
+    shown = []
+    for line in lines[start:]:
+        if feedback.width(line) + 1 > left:
+            break
+        left -= feedback.width(line) + 1
+        shown.append(line)
+    if not shown:
+        return ""
+    last = start + len(shown)
+    return "Contents of %s (L%d-L%d of %d):\n\n%s\n\n%s" % (
+        path, start + 1, last, total, "\n".join(shown), MARKER % (last, total, path, last + 1, total))
+
+
+def _queue(rules):
+    return "\n".join([QUEUED] + ["- %s" % path for path, _ in rules])
+
+
+def _queue_width(rules):
+    return feedback.width(_queue(rules)) + 2 if rules else 0
 
 
 def main():

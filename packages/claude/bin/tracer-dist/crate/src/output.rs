@@ -31,9 +31,27 @@ use std::collections::HashSet;
 use std::io::Write;
 use std::sync::OnceLock;
 
-/// `--budget`'s default: a Bash result Claude Code shows whole (it spills
-/// anything over 30,000 characters to a file) with headroom for the harness.
-pub const DEFAULT_BUDGET: usize = 24_000;
+/// `--budget`'s default: the longest Bash result Claude Code shows whole. It
+/// saves anything longer to a file and shows the Agent a 2,000-character
+/// preview.
+pub const DEFAULT_BUDGET: usize = 30_000;
+
+/// The length Claude Code measures text by: JavaScript's, in UTF-16 units.
+pub fn width(text: &str) -> usize {
+    text.encode_utf16().count()
+}
+
+/// The longest prefix of `text` at most `room` wide, cut at a character.
+pub fn clip(text: &str, room: usize) -> &str {
+    let mut used = 0;
+    for (at, c) in text.char_indices() {
+        used += c.len_utf16();
+        if used > room {
+            return &text[..at];
+        }
+    }
+    text
+}
 
 static BUDGET: OnceLock<Option<usize>> = OnceLock::new();
 
@@ -78,7 +96,7 @@ pub struct Entry {
 pub fn fit(entries: &[Entry], fixed: usize) -> (Vec<&str>, usize) {
     let mut level = vec![0usize; entries.len()];
     if let Some(budget) = budget() {
-        let mut size = fixed + entries.iter().map(|entry| entry.levels[0].len() + 1).sum::<usize>();
+        let mut size = fixed + entries.iter().map(|entry| width(&entry.levels[0]) + 1).sum::<usize>();
         let mut by_rank: Vec<usize> = (0..entries.len()).collect();
         by_rank.sort_by_key(|&index| entries[index].rank);
         'entries: for index in by_rank {
@@ -87,7 +105,7 @@ pub fn fit(entries: &[Entry], fixed: usize) -> (Vec<&str>, usize) {
                 if size <= budget {
                     break 'entries;
                 }
-                size = size - levels[level[index]].len() + levels[level[index] + 1].len();
+                size = size - width(&levels[level[index]]) + width(&levels[level[index] + 1]);
                 level[index] += 1;
             }
         }
@@ -108,7 +126,7 @@ pub fn fit(entries: &[Entry], fixed: usize) -> (Vec<&str>, usize) {
 /// entry is.
 pub fn fit_listing(entries: &[Entry], paths: &[&str], fixed: usize) -> (Vec<String>, usize) {
     let (texts, shortened) = fit(entries, fixed);
-    let size = |lines: &[String]| fixed + lines.iter().map(|line| line.len() + 1).sum::<usize>();
+    let size = |lines: &[String]| fixed + lines.iter().map(|line| width(line) + 1).sum::<usize>();
     let texts: Vec<String> = texts.into_iter().map(str::to_string).collect();
     let Some(budget) = budget().filter(|&budget| size(&texts) > budget) else {
         return (texts, shortened);
@@ -161,7 +179,7 @@ pub fn shortened_line(shortened: usize, of: usize, unit: &str) -> String {
 }
 
 pub fn closing_room(of: usize, unit: &str) -> usize {
-    shortened_line(of, of, unit).len() + 1
+    width(&shortened_line(of, of, unit)) + 1
 }
 
 /// This invocation as a shell command, without its own `--budget`.

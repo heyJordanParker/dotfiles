@@ -38,11 +38,17 @@ CONTEXT_EVENTS = (
 )
 
 
-# The most additionalContext Claude Code shows whole; above it the text is cut
-# to a 2,000-character preview. codex's own cut is turned off
+# The most additionalContext Claude Code shows whole; above it the text is saved
+# to a file and the agent sees its path and a 2,000-character preview, measured
+# in JavaScript's UTF-16 length. codex's own cut is turned off
 # (`additionalContextLimit = 0`) on the hooks that inject, so this one number
 # sizes every injection on both harnesses.
 CONTEXT_LIMIT = 10_000
+
+
+def width(text):
+    """The length Claude Code measures text by: JavaScript's, in UTF-16 units."""
+    return len(text.encode("utf-16-le")) // 2
 
 
 def wrap(name, body):
@@ -67,14 +73,16 @@ def _carries_context(name, event_name):
     return False
 
 
-def context(name, event_name, body):
+def context(name, event_name, body, tool_input=None):
+    """Inject `body`; on PreToolUse, `tool_input` also replaces the call's input
+    in the same answer, since a hook gives one answer per event."""
     if not _carries_context(name, event_name):
         return 0
+    output = {"hookEventName": event_name, "additionalContext": wrap(name, body)}
+    if tool_input is not None and event_name == "PreToolUse":
+        output["updatedInput"] = tool_input
     sys.stdout.write(json.dumps(
-        {"hookSpecificOutput": {
-            "hookEventName": event_name,
-            "additionalContext": wrap(name, body),
-        }},
+        {"hookSpecificOutput": output},
         separators=(",", ":"), ensure_ascii=False,
     ) + "\n")
     return 0

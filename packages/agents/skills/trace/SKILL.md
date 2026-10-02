@@ -37,7 +37,7 @@ Example: `trace list tests/.runs --recent --limit 5` replaces `ls -t tests/.runs
 ## 2. Read an output cut to its budget
 
 ### Expect every file and declaration, with less detail
-Text output fits `--budget <chars>`, 24,000 by default. The budget cuts detail, never coverage: the files the fewest others import lose their detail first, down to their path, and a listing too long even for bare paths names its files one line per directory (`dir/: a.php, b.php`).
+Text output fits `--budget <chars>`, 30,000 by default, the longest Bash result Claude Code shows whole. The budget cuts detail, never coverage: the files the fewest others import lose their detail first, down to their path, and a listing too long even for bare paths names its files one line per directory (`dir/: a.php, b.php`).
 
 ### Run the command the last line names for the rest
 A cut output ends with `[N of M files shortened to fit --budget B — whole: <command> --budget 0]`. Run that command, or narrow the paths, when the cut detail is what you need.

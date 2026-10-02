@@ -257,6 +257,13 @@ fn file_mode_inner(
     let mut out = summary::front_matter(&map);
     let rows_budget = budget.map(|budget| budget.saturating_sub(out.len()));
     out.push_str(&surface::render_within(&rows, &relative, window, rows_budget));
+    if let (Some(window), Some(facts)) = (window, facts.as_ref()) {
+        let calls = summary::calls(facts, &relative, window, &repo_root);
+        out.push_str(&summary::render_calls(&calls, budget.map(|budget| budget.saturating_sub(out.len()))));
+        if !calls.is_empty() {
+            map.insert("calls".into(), serde_json::json!(calls));
+        }
+    }
     Ok((out, Some(map), rows))
 }
 

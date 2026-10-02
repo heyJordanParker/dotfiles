@@ -47,6 +47,11 @@ struct Cli {
     /// 0 is unbounded.
     #[arg(long, global = true, value_name = "CHARS", default_value_t = output::DEFAULT_BUDGET)]
     budget: usize,
+
+    /// The agent whose session record this call reads and writes, in place
+    /// of `TRACER_AGENT_ID`.
+    #[arg(long, global = true, value_name = "ID")]
+    agent: Option<String>,
 }
 
 #[derive(Subcommand)]
@@ -277,10 +282,13 @@ enum Command {
     /// to forget what was loaded, or `prime` to record what the harness loaded.
     #[command(args_conflicts_with_subcommands = true)]
     Docs {
-        /// Path for the default path-mode (`trace docs <path>`) or for
-        /// `--graph` (optional; defaults to the cwd's repo root). Replaced by
-        /// any present sub-verb (`status`, `reset`, `prime`).
-        path: Option<PathBuf>,
+        /// Paths for the default path-mode (`trace docs <paths>`), or the one
+        /// path for `--graph` (optional; defaults to the cwd's repo root).
+        /// Replaced by any present sub-verb (`status`, `reset`, `prime`).
+        paths: Vec<PathBuf>,
+        /// A doc the triggering command delivers itself, never sent here.
+        #[arg(long = "skip", value_name = "PATH")]
+        skip: Vec<PathBuf>,
         /// Treat <path> as a directory even when it points at a file (path-mode only).
         #[arg(long = "directory")]
         directory: bool,
@@ -459,6 +467,9 @@ fn main() -> Result<()> {
 fn run() -> Result<()> {
     let cli = Cli::parse();
     output::set_budget(cli.budget);
+    if let Some(agent) = cli.agent {
+        commands::session_log::set_agent(agent);
+    }
     let filter = cli.filter.as_deref();
     match cli.command {
         Command::Info { paths, json, brief } => {
@@ -638,7 +649,8 @@ fn run() -> Result<()> {
             commands::status::run(json, state.as_deref())
         }),
         Command::Docs {
-            path,
+            paths,
+            skip,
             directory,
             graph,
             source,
@@ -658,15 +670,16 @@ fn run() -> Result<()> {
                 commands::docs_prime::run(parsed, &files, json)
             }),
             None if graph => output::run_value(json, filter, || {
-                commands::docs::run_graph(path.as_deref(), json)
+                commands::docs::run_graph(paths.first().map(PathBuf::as_path), json)
             }),
             None => output::run_value(json, filter, || {
-                let target = path.unwrap_or_else(|| {
-                    eprintln!("Error: <PATH> is required (use `trace docs --graph` for the whole-repo graph)");
+                if paths.is_empty() {
+                    eprintln!("Error: <PATHS> is required (use `trace docs --graph` for the whole-repo graph)");
                     std::process::exit(2)
-                });
+                }
                 commands::docs::run(
-                    &target,
+                    &paths,
+                    &skip,
                     directory,
                     &source,
                     triggering_tool.as_deref(),

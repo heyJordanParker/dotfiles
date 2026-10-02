@@ -84,6 +84,10 @@ pub struct View {
     pub emitted: std::collections::BTreeMap<String, String>,
     #[serde(default)]
     pub coverage: std::collections::BTreeMap<String, ReadCoverage>,
+    /// The docs delivered whole at their emitted content, so reading part of
+    /// one later never makes it partial.
+    #[serde(default)]
+    pub whole: BTreeSet<String>,
 }
 
 /// Accumulated line-read coverage for one file in this (session, agent) scope.
@@ -111,6 +115,17 @@ impl ReadCoverage {
             1.0
         } else {
             self.lines_read() as f64 / self.total_lines as f64
+        }
+    }
+
+    pub fn complete(&self) -> bool {
+        self.lines_read() >= self.total_lines
+    }
+
+    pub fn first_unread(&self) -> usize {
+        match self.read.first() {
+            Some([1, end]) => end + 1,
+            _ => 1,
         }
     }
 }
@@ -149,9 +164,19 @@ fn merge_range(ranges: &mut Vec<[usize; 2]>, start: usize, end: usize) {
     *ranges = out;
 }
 
+static AGENT: OnceLock<String> = OnceLock::new();
+
+/// Name the agent from `--agent`, which a hook writes into a Subagent's own
+/// `trace` commands: its shell carries the session id but no agent id.
+pub fn set_agent(id: String) {
+    let _ = AGENT.set(id);
+}
+
 fn agent_id() -> String {
-    std::env::var("TRACER_AGENT_ID")
-        .ok()
+    AGENT
+        .get()
+        .cloned()
+        .or_else(|| std::env::var("TRACER_AGENT_ID").ok())
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| AGENT_ID_DEFAULT.to_string())
 }
@@ -430,20 +455,69 @@ pub fn session_active() -> bool {
     nested_memory::session_id().is_some()
 }
 
-/// Paths whose content the current (session, agent) log
-/// already surfaced. Shape-compatible with the prior flat session-dedupe
-/// set so call sites pass it straight into `nested_memory::load_for_file`.
-/// Reads from the active log when present, else falls back
-/// to the archived one.
+/// Paths the current (session, agent) holds whole: surfaced, and either sent
+/// whole or read to their last line. A doc seen only in part is not loaded.
+/// Shape-compatible with the prior flat session-dedupe set so call sites pass
+/// it straight into `nested_memory::load_for_file`. Reads from the active log
+/// when present, else falls back to the archived one.
 pub fn loaded_paths() -> BTreeSet<String> {
+    let View { emitted, coverage, whole } = current_view();
+    emitted
+        .into_keys()
+        .filter(|path| whole.contains(path) || coverage.get(path).is_none_or(ReadCoverage::complete))
+        .collect()
+}
+
+/// Where the Agent stopped in each path it read in part: the content hash it
+/// read and the lines it has.
+pub fn partial_reads() -> BTreeMap<String, (String, ReadCoverage)> {
+    let View { emitted, coverage, whole } = current_view();
+    coverage
+        .into_iter()
+        .filter(|(path, read)| !read.complete() && !whole.contains(path))
+        .filter_map(|(path, read)| emitted.get(&path).map(|hash| (path, (hash.clone(), read))))
+        .collect()
+}
+
+/// Holds this (session, agent)'s doc delivery to one call at a time, from the
+/// read of what it holds to the record of what it sent, so calls running side
+/// by side send the next lines rather than the same ones. The lock sits beside
+/// the agent's log directory, so taking it never re-creates an archived log.
+/// Released on drop; `None` with no session.
+pub fn delivery_lock() -> Option<fs::File> {
+    let session = log_dir()?.parent()?.to_path_buf();
+    fs::create_dir_all(&session).ok()?;
+    let file = fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(session.join(format!("{}.delivery.lock", agent_id())))
+        .ok()?;
+    rustix::fs::flock(&file, rustix::fs::FlockOperation::LockExclusive).ok()?;
+    Some(file)
+}
+
+fn current_view() -> View {
+    read_log_dir()
+        .map(|dir| load_view(&dir.join("view.json")))
+        .unwrap_or_default()
+}
+
+pub fn has_read(file_path: &std::path::Path, content_hash: &str, start: usize, end: usize) -> bool {
     let Some(dir) = read_log_dir() else {
-        return BTreeSet::new();
+        return false;
     };
-    let view_path = dir.join("view.json");
-    if !view_path.is_file() {
-        return BTreeSet::new();
-    }
-    load_view(&view_path).emitted.into_keys().collect()
+    let view = load_view(&dir.join("view.json"));
+    let canonical = file_path
+        .canonicalize()
+        .unwrap_or_else(|_| file_path.to_path_buf())
+        .to_string_lossy()
+        .to_string();
+    view.emitted.get(&canonical).map(String::as_str) == Some(content_hash)
+        && view
+            .coverage
+            .get(&canonical)
+            .is_some_and(|coverage| coverage.read.iter().any(|[s, e]| *s <= start && end <= *e))
 }
 
 /// Record a doc-injection emission: append one event per memory not already
@@ -482,8 +556,10 @@ pub fn record_emission(memories: &[LoadedMemory], source: &str) {
     let triggering_command = std::env::var("TRACER_TRIGGERING_COMMAND").ok();
 
     let mut new_events: Vec<Event> = Vec::new();
+    let mut completed = false;
     for m in memories {
         let hash = content_hash(&m.content);
+        completed |= view.whole.insert(m.path.clone());
         if view.emitted.get(&m.path) == Some(&hash) {
             continue;
         }
@@ -503,6 +579,8 @@ pub fn record_emission(memories: &[LoadedMemory], source: &str) {
 
     if !new_events.is_empty() {
         let _ = append_events(&events_path, &new_events);
+    }
+    if !new_events.is_empty() || completed {
         let _ = save_view(&view_path, &view);
     }
 
@@ -594,6 +672,7 @@ pub fn record_read(
     }
 
     if first_touch {
+        view.whole.remove(&canonical);
         view.emitted.insert(canonical.clone(), hash.clone());
         let event = Event {
             ts: unix_ms(),
@@ -669,6 +748,7 @@ pub fn record_context_reset(source: &str) -> usize {
     // A context reset drops everything the agent had, including read state —
     // the coverage accumulator resets alongside the emitted projection.
     view.coverage.clear();
+    view.whole.clear();
 
     let payload = serde_json::to_string(&cleared).unwrap_or_else(|_| "[]".to_string());
     let event = Event {
