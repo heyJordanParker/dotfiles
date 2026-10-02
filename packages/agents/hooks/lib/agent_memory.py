@@ -1,16 +1,11 @@
 """The declarations an agent's definition file carries in its frontmatter.
 
-One definition file is the whole agent on both harnesses, so a declaration in it
-means the same thing on both. Every declaration is read here: the restrictions
-(`memory: none`, `readonly: true`), the one grant (`ssh: enabled`), and the
-settings a run resolves (`codex-model`, `effort`, `harness`). They all come off
-the same line shape in the same file from the same roster, and defining that
-parse a second time is how the memory syntax nearly drifted in the first place.
-
-The gates did not share code once, and the syntax was defined twice — the Claude
-gate and the codex gate could silently drift apart. This module is the single
-definition; each gate keeps only its own way of locating the file, which
-`definition_path` answers for both.
+Every declaration is read here: the restrictions (`memory: none`,
+`readonly: true`), the one grant (`ssh: enabled`), and the `mode` a dispatch
+works under. They all come off the same line shape in the same file from the
+same roster, and defining that parse a second time is how the memory syntax
+nearly drifted in the first place. Each gate locates the file through
+`definition_path`.
 
 The failure directions are not symmetric, and each declaration names its own. A
 *missing* restriction must leave the capability reachable: that is the contract
@@ -29,13 +24,6 @@ import os
 
 from lib import frontmatter
 
-# The environment variable carrying the running agent's definition path into a
-# codex run. Named here because both ends read declarations through this module:
-# codex_run.py sets it when it launches, and the codex-side gates read it to find
-# the file whose declarations they enforce. A codex session that is not a
-# codex-run agent does not set it, and an absent value means no agent to gate.
-AGENT_FILE_VAR = "CODEX_RUN_AGENT_FILE"
-
 # The keys whose answer depends on what an unreadable definition means. Each has
 # its own reader below; `declaration` refuses them so no caller can reach one
 # through the reader that treats unreadable as undeclared.
@@ -45,17 +33,9 @@ _PERMISSION = ("memory", "readonly", "ssh")
 def definition_path(name):
     """The definition file governing the running agent, or "" when none does.
 
-    A codex run carries its own path, exported by its launcher, which is the
-    identity that run was founded on. An agent codex spawns inside that run shares
-    its process and so its environment, and is told apart only by the role codex
-    names on the payload, so the exported path answers for the founding agent's own
-    name alone. Every other name resolves under the *active* config root, because
-    a profile carries its own agents/ directory and a name means whichever file
-    that root holds.
+    A name resolves under the *active* config root, because a profile carries its
+    own agents/ directory and a name means whichever file that root holds.
     """
-    exported = os.environ.get(AGENT_FILE_VAR, "")
-    if exported and name in ("", os.path.basename(exported)[:-len(".md")]):
-        return exported
     if not name:
         return ""
     root = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude")

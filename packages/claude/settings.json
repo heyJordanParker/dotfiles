@@ -6,6 +6,10 @@
   "cleanupPeriodDays": 100000000,
   "skillListingBudgetFraction": 0.02,
   "env": {
+    "ANTHROPIC_BASE_URL": "http://127.0.0.1:8317",
+    "CLAUDE_CODE_ENABLE_FINE_GRAINED_TOOL_STREAMING": "1",
+    "CLAUDE_CODE_MAX_CONTEXT_TOKENS": "272000",
+    "ENABLE_TOOL_SEARCH": "true",
     "EDITOR": "prompt-editor",
     "HCOM": "hcom",
     "USER_TYPE": "ant"
@@ -34,7 +38,6 @@
       "Bash(ls:*)",
       "mcp__pencil",
       "Bash(stow:*)",
-      "Bash(codex-run:*)",
       "Bash(codex:*)",
       "Bash(hcom send:*)",
       "Bash(hcom start:*)",
@@ -254,8 +257,8 @@
           },
           {
             "type": "command",
-            "command": "python3 ~/.agents/hooks/combine_hooks.py block_branch_change block_composed_commands block_denied_access block_git_revert block_invalid_browsers block_memory_access block_path_assignment block_spawning block_unauthorized_commits block_unsafe_delete block_writes enforce_background_codex_run guard_trace name_memory_caller protect_session_state",
-            "timeout": 75
+            "command": "python3 ~/.agents/hooks/combine_hooks.py block_branch_change block_composed_commands block_denied_access block_git_revert block_invalid_browsers block_memory_access block_path_assignment block_spawning block_unauthorized_commits block_unsafe_delete block_writes guard_trace name_memory_caller protect_session_state",
+            "timeout": 70
           }
         ]
       },
@@ -269,8 +272,8 @@
           },
           {
             "type": "command",
-            "command": "python3 ~/.agents/hooks/combine_hooks.py block_builtin_subagents block_spawning block_worktree_isolation block_wrong_harness",
-            "timeout": 20
+            "command": "python3 ~/.agents/hooks/combine_hooks.py block_builtin_subagents block_spawning block_worktree_isolation",
+            "timeout": 15
           }
         ]
       },
@@ -365,15 +368,6 @@
           {
             "type": "command",
             "command": "cmd=${HCOM:-hcom}; command -v \"${cmd%% *}\" >/dev/null 2>&1 && exec $cmd sessionend || exit 0"
-          }
-        ]
-      },
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 ~/.agents/hooks/end_codex_jobs.py",
-            "timeout": 1
           }
         ]
       }
@@ -509,11 +503,6 @@
           },
           {
             "type": "command",
-            "command": "python3 ~/.agents/hooks/rewake_codex_failure.py",
-            "asyncRewake": true
-          },
-          {
-            "type": "command",
             "command": "python3 ~/.agents/hooks/block_silent_stop.py"
           }
         ]
@@ -560,11 +549,6 @@
             "type": "command",
             "command": "python3 ~/.agents/hooks/remember_agent_message.py",
             "timeout": 10
-          },
-          {
-            "type": "command",
-            "command": "python3 ~/.agents/hooks/rewake_codex_failure.py",
-            "asyncRewake": true
           }
         ]
       }
@@ -702,6 +686,5 @@
   "autoMemoryEnabled": false,
   "skipDangerousModePermissionPrompt": true,
   "fileCheckpointingEnabled": false,
-  "remoteControlAtStartup": true,
   "voiceEnabled": true
 }

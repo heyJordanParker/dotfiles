@@ -105,7 +105,7 @@ The discomfort means the table is missing a requirement.
 
 IF mechanics or feasibility are uncertain:
 ### Research each unknown before proposing the part
-Run `codex-run @explorer` for existing code and `codex-run @researcher` for libraries and vendors, one per unknown.
+Dispatch the explorer Agent for existing code and the researcher Agent for libraries and vendors, one per unknown.
 
 ### Research acceptance names understanding, not a Decision
 Acceptance says what you will be able to describe after research. The Decision clears the flag afterward; the research does not.

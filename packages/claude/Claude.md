@@ -36,4 +36,3 @@ copy of it has to make the project better.
 # Facts
 
 - The domain language lives in `Domain.md`.
-- One Agent roster serves both Harnesses: dispatched by name on Claude, run as `@<name>` on codex.

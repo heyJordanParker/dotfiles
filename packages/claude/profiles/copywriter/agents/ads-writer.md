@@ -6,7 +6,7 @@ description: |
   Does not research.
 color: orange
 model: opus
-effort: low
+effort: high
 tools: Read, Grep, Glob, Write, Edit
 skills: write-ads, write-vsl, revise
 memory: none

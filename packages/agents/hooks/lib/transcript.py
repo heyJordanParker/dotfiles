@@ -109,8 +109,8 @@ Harness = "harness"
 _CLAUDE_AUTHOR = {"typed": Architect, "queued": Architect, "system": Harness}
 
 # Codex names its thread's entry point instead. Only a person at the desktop app
-# is him: `codex-run` is this repo's own wrapper, `codex_exec` is a script, and a
-# `source` that is a dict carries a subagent spawn.
+# is him: `codex_exec` is a script, and a `source` that is a dict carries a
+# subagent spawn.
 _ARCHITECT_ORIGINATORS = ("codex_work_desktop",)
 
 # What a harness-authored block looks like when nothing labels it: a whole message

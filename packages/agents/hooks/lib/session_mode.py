@@ -1,7 +1,5 @@
 """Resolve the running event's mode and its allowed surfaces."""
 
-import os
-
 from lib import agent_memory
 from lib.event import agent_name, field, owner_session
 from lib.session_state import load_state
@@ -44,10 +42,9 @@ def is_dispatched(event):
 
     Claude puts `agent_id` on a payload only inside a Subagent call, so it names a
     Claude dispatch. A session started with `--agent`, the architect's own
-    teammate, carries `agent_type` without it and stays his. A codex-run agent is
-    named by its exported definition path instead.
+    teammate, carries `agent_type` without it and stays his.
     """
-    return bool(field(event, "agent_id", "") or os.environ.get(agent_memory.AGENT_FILE_VAR))
+    return bool(field(event, "agent_id", ""))
 
 
 def resolve(event, session_id=None):
@@ -97,11 +94,10 @@ def permits(event, surface):
 def state(event):
     """The launching session's state axis, which every event answers to.
 
-    A dispatched agent inherits its launcher's stage: a codex run exempted from it
+    A dispatched agent inherits its launcher's stage: an agent exempted from it
     wrote the repo while the architect was still weighing the proposal. An
     unrecorded session defaults to propose, except a dispatch with no recorded
-    launcher behind it — a `codex-run` started outside any Claude session — whose
-    task arrived already scoped.
+    launcher behind it, whose task arrived already scoped.
     """
     value = load_state(owner_session(event)).get("state")
     if value in STATES:

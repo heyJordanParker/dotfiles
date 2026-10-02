@@ -14,8 +14,8 @@ and no conclusion exists in two places. An agent's collection therefore fills
 with what it said; `remember` is how something it was told gets in.
 
 Stdlib only, so this speaks to the v3 REST API directly instead of through
-`@honcho-ai/sdk`, and `packages/bin/honcho` is a two-line wrapper around `main`
-the way `codex-run` wraps `lib/codex_run.py`. Reads `~/.honcho/config.json`.
+`@honcho-ai/sdk`, and `packages/bin/honcho` is a two-line wrapper around `main`.
+Reads `~/.honcho/config.json`.
 
 Every hook-facing failure is silent. A memory write is never worth blocking a
 turn over, and the hooks that call this have nothing to say to the agent. A write
@@ -342,15 +342,11 @@ no collection to land in. Name one with `--as <agent>`.
 def running_agent():
     """The agent this process is running as, or "".
 
-    A codex run carries its own definition path, exported by its launcher, and a
-    Claude session carries the name it was started as. Inside a Claude subagent
-    neither is right — `CLAUDE_CODE_AGENT` still holds the dispatching agent —
+    A Claude session carries the name it was started as. Inside a Claude subagent
+    that is not right — `CLAUDE_CODE_AGENT` still holds the dispatching agent —
     which is why `name_memory_caller.py` writes `--as` into the command there
     before it reaches this function.
     """
-    path = os.environ.get("CODEX_RUN_AGENT_FILE", "")
-    if path.endswith(".md"):
-        return os.path.basename(path)[:-3]
     return os.environ.get("CLAUDE_CODE_AGENT", "")
 
 

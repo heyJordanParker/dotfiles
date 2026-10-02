@@ -21,8 +21,7 @@ max_threads = 100
 command = "/Applications/Pencil.app/Contents/Resources/app.asar.unpacked/out/mcp-server-darwin-arm64"
 args = [ "--app", "desktop" ]
 
-# Library docs for the researcher, which runs here now that it declares
-# `harness: codex`, over a bunx stdio bridge.
+# Library docs, over a bunx stdio bridge.
 [mcp_servers.context7]
 command = "/Users/jordan/.bun/bin/bunx"
 args = ["-y", "@upstash/context7-mcp"]

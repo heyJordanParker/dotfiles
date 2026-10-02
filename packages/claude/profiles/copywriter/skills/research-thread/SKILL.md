@@ -16,7 +16,7 @@ Example: subject "what problems do people voice about funnel attribution?" → `
 
 ## 2. Run the pass through single-task assistants
 
-ONE ASSISTANT = ONE TASK. A discovery search is one assistant dispatch carrying the query; a page extract is one assistant dispatch carrying the subject and the cached page path from /browse. Each dispatch carries its one task and the subject only — no sibling results, no thread narrative, no meta context about the run. You read every page through /browse before handing its cache path to an assistant; a page /browse could not read gets no assistant and no content.
+ONE ASSISTANT = ONE TASK. A discovery search is one assistant dispatch carrying the query; a page extract is one assistant dispatch carrying the subject and the cached page path from /browse. Each dispatch carries its one task and the subject only — no sibling results, no thread narrative, no meta context about the run. You read every page through /browse before handing its cache path to an assistant. When /browse is blocked (exit 2), get the page's content another way, such as WebSearch opening the page and quoting it verbatim with each speaker, and save it to `/tmp/browse-cache/<sha256 of the URL>.txt`, the path /browse would have written. Any other page /browse could not read gets no assistant and no content.
 
 ## 3. File every return yourself
 

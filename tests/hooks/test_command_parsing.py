@@ -45,38 +45,38 @@ def heads(line):
 
 
 @pytest.mark.parametrize("line", [
-    "codex-run @architect 'review'",
-    " codex-run @architect 'review'",
-    "echo hi\ncodex-run @architect 'review'",
-    "env FOO=1 codex-run @architect 'review'",
-    "FOO=1 codex-run @architect 'review'",
-    "/Users/jordan/.local/bin/codex-run @architect 'review'",
-    "./codex-run @architect 'review'",
-    "cd /tmp && codex-run @architect 'review'",
-    "$(codex-run @architect 'review')",
-    "bash -c 'codex-run @architect review'",
-    "sh -lc 'codex-run @architect review'",
-    "timeout 600 codex-run @architect 'review'",
-    "sudo -u jordan codex-run @architect 'review'",
-    "nohup codex-run @architect 'review'",
+    "claude @architect 'review'",
+    " claude @architect 'review'",
+    "echo hi\nclaude @architect 'review'",
+    "env FOO=1 claude @architect 'review'",
+    "FOO=1 claude @architect 'review'",
+    "/Users/jordan/.local/bin/claude @architect 'review'",
+    "./claude @architect 'review'",
+    "cd /tmp && claude @architect 'review'",
+    "$(claude @architect 'review')",
+    "bash -c 'claude @architect review'",
+    "sh -lc 'claude @architect review'",
+    "timeout 600 claude @architect 'review'",
+    "sudo -u jordan claude @architect 'review'",
+    "nohup claude @architect 'review'",
 ])
 def test_the_command_is_found_whatever_shape_it_arrives_in(line):
-    assert "codex-run" in heads(line)
+    assert "claude" in heads(line)
 
 
 @pytest.mark.parametrize("line", [
-    "echo codex-run",
-    "cat docs/codex-run-notes.md",
+    "echo claude",
+    "cat docs/claude-notes.md",
     "grep codex README.md",
     "rg ssh packages/ssh/config",
 ])
 def test_a_command_named_in_an_argument_is_not_a_command(line):
     assert heads(line)[0] in ("echo", "cat", "grep", "rg")
-    assert "codex-run" not in heads(line)[1:]
+    assert "claude" not in heads(line)[1:]
 
 
 def test_an_unparseable_line_resolves_to_nothing_readable():
-    assert invocations("codex-run 'unbalanced") is None
+    assert invocations("claude 'unbalanced") is None
     assert redirects_output("cat 'unbalanced") is None
 
 
@@ -93,7 +93,7 @@ def test_a_prefix_whose_flag_may_have_eaten_the_command_yields_candidates():
 
 
 def test_a_shell_inside_a_shell_still_reaches_the_command():
-    assert heads("""bash -c "bash -c 'codex-run @architect review'" """) == ["codex-run"]
+    assert heads("""bash -c "bash -c 'claude @architect review'" """) == ["claude"]
 
 
 def test_the_codex_shell_wrapper_is_transport_not_a_command():
@@ -116,24 +116,24 @@ def test_a_program_the_line_does_not_carry_is_unreadable():
     assert invocations("uv run python -c 'import os'") is None
     # The program glued to its flag, and a program arriving on stdin.
     assert invocations("python3 -c'import os'") is None
-    assert invocations("sh -c'codex-run @x y'") is None
+    assert invocations("sh -c'claude @x y'") is None
     assert invocations("echo 'import os' | python3") is None
     # Our own tooling is the readable case, a runtime running its own flags names no
     # program to hide, and a shell's own -c string still reads.
     assert heads("python3 scripts/sync.py") == ["python3"]
     assert heads("python3 --version") == ["python3"]
     assert heads("node -v") == ["node"]
-    assert heads("sh -c 'codex-run @x y'") == ["codex-run"]
+    assert heads("sh -c 'claude @x y'") == ["claude"]
 
 
 @pytest.mark.parametrize("line", [
     "source /tmp/x.sh",
     ". /tmp/x.sh",
-    "eval 'codex-run @x y'",
-    "$SHELL -c 'codex-run @x y'",
-    "`codex-run @x y`",
-    "alias c=codex-run && c @x y",
-    "awk 'BEGIN{system(\"codex-run @x y\")}'",
+    "eval 'claude @x y'",
+    "$SHELL -c 'claude @x y'",
+    "`claude @x y`",
+    "alias c=claude && c @x y",
+    "awk 'BEGIN{system(\"claude @x y\")}'",
 ])
 def test_a_command_the_shell_itself_hides_is_unreadable(line):
     """Each shape ran a command no guard could see, and none of them can be resolved
@@ -142,14 +142,14 @@ def test_a_command_the_shell_itself_hides_is_unreadable(line):
 
 
 @pytest.mark.parametrize("line", [
-    "for f in *; do codex-run @x y; done",
-    "if true; then codex-run @x y; fi",
-    "find . -name x -exec codex-run @x y ;",
+    "for f in *; do claude @x y; done",
+    "if true; then claude @x y; fi",
+    "find . -name x -exec claude @x y ;",
 ])
 def test_a_command_behind_a_keyword_or_a_find_is_read_by_name(line):
     """These shapes hid the command too, but the command is right there in the line,
     so it is resolved rather than refused."""
-    assert "codex-run" in heads(line)
+    assert "claude" in heads(line)
 
 
 @pytest.mark.parametrize("line", [
@@ -191,13 +191,13 @@ def test_command_head_agrees_with_the_first_invocation():
     "cd /Users/jordan/dotfiles && uv run pytest -q",
     "echo one; echo two",
     "uv run pytest -q || echo failed",
-    "codex-run @explorer 'x' &",
+    "claude @explorer 'x' &",
     "ls -1 packages/agents/hooks\nls -1 packages/claude/hooks",
     # The two shapes the transcripts show most: an investigation packed into one
     # call, and a loop wrapped around a single command.
     "echo '=== hooks ==='; ls -1 packages/agents/hooks; echo; ls -1 packages/bin",
     "for f in packages/agents/hooks/*.py; do python3 -m py_compile \"$f\"; done",
-    "for f in 1; do codex-run --help; done",
+    "for f in 1; do claude --help; done",
     "while read -r f; do wc -l $f; done",
     "find . -name '*.py' -exec rm {} ;",
     # A pipe whose consumer changes something is a program, not a read.

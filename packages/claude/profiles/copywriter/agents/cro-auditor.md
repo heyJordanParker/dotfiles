@@ -6,7 +6,7 @@ description: |
   conversion checks. Writes only findings files, never copy.
 color: purple
 model: opus
-effort: low
+effort: high
 tools: Read, Grep, Glob, Write
 skills: cro-review, review-copy
 memory: none

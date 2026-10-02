@@ -1,6 +1,6 @@
 """The proposing/executing guards honor the launching (governing) session.
 
-A codex run launched by Claude is a child of the launching Claude session and
+A codex run launched from a Claude session is a child of that session and
 must obey that session's proposing/executing mode — proposing means the codex
 run is read-only too. The launching session's id is inherited in the environment
 (CLAUDE_CODE_SESSION_ID); the run carries its own, different session id in the
@@ -33,7 +33,7 @@ COMMIT_GUARD = os.path.join(PY_HOOKS, "block_unauthorized_commits.py")
 REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 
 GOVERNING_SID = "launching_claude_session"
-RUN_OWN_SID = "codex_run_own_session"
+RUN_OWN_SID = "codex_own_session"
 
 
 @pytest.fixture
@@ -50,12 +50,6 @@ def governing_proposing(tmp_path, monkeypatch):
     block under either resolver."""
     monkeypatch.setenv("CLAUDE_DATA_ROOT", str(tmp_path))
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", GOVERNING_SID)
-    # A real codex run exports its agent's definition, and a build agent is one the
-    # mode axis lets write, so only the launcher's proposing state can refuse it.
-    agent = tmp_path / "agents" / "builder.md"
-    agent.parent.mkdir()
-    agent.write_text("---\nname: builder\nmode: build\n---\n\nFrame.\n")
-    monkeypatch.setenv("CODEX_RUN_AGENT_FILE", str(agent))
 
     governing_dir = tmp_path / "sessions" / GOVERNING_SID
     governing_dir.mkdir(parents=True)

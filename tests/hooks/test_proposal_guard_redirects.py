@@ -71,7 +71,6 @@ def _run_file(monkeypatch, file_path, cwd=REPO):
 
 def _spawn(tool_input):
     env = dict(os.environ)
-    env.pop("CODEX_RUN_AGENT_FILE", None)
     return subprocess.run(
         ["python3", HOOK], input=_payload(tool_input, REPO), text=True,
         capture_output=True, cwd=REPO, env=env,

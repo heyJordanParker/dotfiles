@@ -6,8 +6,8 @@ description: |
   user flow tracing, design quality, and regression prevention. Reads Claude.md files for
   stack-specific patterns.
 color: yellow
-harness: codex
-effort: low
+model: opus
+effort: high
 mode: build
 skills: design, agent-browser, naming, trace, critical-path, user-testing, debug, prove, build
 ---

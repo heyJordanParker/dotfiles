@@ -17,7 +17,7 @@ Read `research/<subject>/discovery/` for entries already found. Add only new one
 
 Answer the subject's question long — enumerate every entry the field holds, one line of context per entry. Reach for breadth over depth: many entries with a line each, never a few studied closely. The dispatch's specialization names the entry types to sweep and the surfaces to reach them through.
 
-- Codex native search is the discovery search path — the one path that surfaces the community layer (Reddit, forums) where buyers voice problems in their own words. HN Algolia (`hn.algolia.com/api/v1/search`) is the one supplementary API worth a `curl` on top of it.
+- Search the community layer (Reddit, forums) first, where buyers voice problems in their own words. HN Algolia (`hn.algolia.com/api/v1/search`) is the one supplementary API worth a `curl` on top of that search.
 
 ## 3. Record observed facts per entry, never verdicts
 
@@ -43,7 +43,7 @@ Template:
     research/<subject>/discovery/<field>.md
 
 ### File the deliverable under research, never under working state
-`.agents/` holds working state — codex-run output, wrapper trailers, scratch. The lists are done only when they live under `research/<subject>/discovery/`; nothing is done while its output sits under `.agents/`, and the codex-run trailer never travels into the deliverable.
+`.agents/` holds working state — dispatch output and scratch. The lists are done only when they live under `research/<subject>/discovery/`; nothing is done while its output sits under `.agents/`.
 
 ### Enumerate only, reference no other thread
 The output is enumeration and nothing more. No recommendation, no "this leads to" or "worth a deep dive" nomination, no gap-spotting synthesis, no forward section about what a later step should do. Never name, quote, or link another thread's files — a thread's lists stand alone.

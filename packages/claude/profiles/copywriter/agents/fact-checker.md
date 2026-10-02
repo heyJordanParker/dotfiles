@@ -6,7 +6,7 @@ description: |
   the writers and the chief. Writes only findings files, never copy.
 color: green
 model: opus
-effort: low
+effort: high
 tools: Read, Grep, Glob, Write
 skills: check-claims, review-copy
 memory: none

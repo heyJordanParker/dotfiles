@@ -2,17 +2,10 @@
 
 import io
 import json
-import os
 import sys
 
 import block_memory_access
 import pytest
-from conftest import PY_HOOKS
-
-sys.path.insert(0, os.path.join(PY_HOOKS, "lib"))
-
-from lib import codex_run  # noqa: E402
-from test_codex_run import _sent, _stub_codex  # noqa: E402
 
 BLANK = "---\nname: %s\nmodel: opus\nmemory: none\n---\n\nbody\n"
 DECLARED_ON = "---\nname: %s\nmodel: opus\nmemory: user\n---\n\nbody\n"
@@ -92,26 +85,6 @@ def test_subagent_of_that_same_agent_is_refused(config_root, monkeypatch, capsys
 
 
 
-
-# --- the codex route reads the same declaration ------------------------------------
-
-def _pin(monkeypatch, tmp_path, name, template):
-    agents = tmp_path / "agents"
-    agents.mkdir(exist_ok=True)
-    (agents / (name + ".prompt.md")).write_text("instructions for %s" % name)
-    (agents / (name + ".md")).write_text(template % name)
-    monkeypatch.setattr(codex_run, "AGENTS_DIR", str(agents))
-    # codex-run searches the active config root's roster first. Pin it at an
-    # empty root so the real ~/.claude never supplies an agent of the same name.
-    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "empty-root"))
-
-
-def _memory_config(monkeypatch, tmp_path, argv):
-    """What the run's thread request asked codex for, under a stub app-server."""
-    log = _stub_codex(monkeypatch, tmp_path)
-    assert codex_run.main(argv) == 0
-    method = "thread/resume" if argv[0] == "resume" else "thread/start"
-    return _sent(log, method)["config"]
 
 
 

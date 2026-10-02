@@ -66,7 +66,7 @@ def git_subcommand(words):
 # Shell metacharacters shlex surfaces as standalone tokens. The default
 # punctuation set is `();<>|&`; we append `\n` so a newline between commands is a
 # token too — without it shlex eats newline as whitespace and collapses
-# `a\ncodex-run` into one segment, hiding the second command from the guards.
+# `a\nclaude` into one segment, hiding the second command from the guards.
 _PUNCTUATION = "();<>|&\n"
 
 
@@ -142,7 +142,7 @@ _PREFIX = frozenset((
     "env", "sudo", "doas", "command", "exec", "nohup",
     "time", "timeout", "nice", "ionice", "stdbuf", "xargs",
     # Shell keywords sit in the same position and hide the command exactly as a
-    # prefix word does: `for f in *; do codex-run @x y; done` tokenizes to a
+    # prefix word does: `for f in *; do claude @x y; done` tokenizes to a
     # segment whose first word is `do`, and every guard read `do` as the command.
     "do", "then", "else", "elif", "if", "while", "until",
 ))
@@ -278,7 +278,7 @@ def hides_execution(words, piped=False):
         candidates = candidates + [runner]
     base = os.getcwd()
     for head, args in candidates:
-        # A head the shell expands — `$SHELL -c …`, `` `codex-run …` `` — names a
+        # A head the shell expands — `$SHELL -c …`, `` `claude …` `` — names a
         # command that is not in the line. A bare `$` is the artifact `$(…)` leaves
         # behind, and the command inside those parentheses is a segment of its own,
         # so it stays readable and is not refused here.
@@ -332,9 +332,9 @@ def head_and_args(words):
     """The executable a segment runs and the arguments it hands that executable.
 
     `words` is one tokenized segment (command + args). The head is the basename of
-    the command token, so `FOO=1 codex-run …`, `env X=1 codex-run …`,
-    `/path/to/codex-run …`, and `timeout 600 codex-run …` all reduce to
-    `codex-run`. `("", [])` for an empty segment.
+    the command token, so `FOO=1 claude …`, `env X=1 claude …`,
+    `/path/to/claude …`, and `timeout 600 claude …` all reduce to
+    `claude`. `("", [])` for an empty segment.
 
     A prefix word whose flag takes a value (`sudo -u jordan ssh`) resolves to the
     value, not the command — `invocations` is the reader for a guard that must not
@@ -474,7 +474,7 @@ def _exec_scripts(words):
     """The command line `find` runs per match, or nothing.
 
     `-exec` puts a whole command after it, which is a line of its own exactly as a
-    shell's `-c` string is. Without this, `find . -exec codex-run @x y \\;` reads as
+    shell's `-c` string is. Without this, `find . -exec claude @x y \\;` reads as
     a `find`, and the spawn it carries is invisible to every guard.
     """
     if command_head(words) not in ("find", "fd"):

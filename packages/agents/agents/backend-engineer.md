@@ -5,8 +5,8 @@ description: |
   simplicity and elegance review of a changeset. Focuses on API correctness, regression prevention,
   library leverage, and anti-complexity enforcement. Reads Claude.md files for stack-specific patterns.
 color: green
-harness: codex
-effort: low
+model: opus
+effort: high
 mode: build
 skills: naming, trace, critical-path, execute, regressions, pragmatic-engineering, prove, build
 ---

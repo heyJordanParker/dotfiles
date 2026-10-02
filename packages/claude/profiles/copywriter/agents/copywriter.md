@@ -6,7 +6,7 @@ description: |
   brief and evidence. Does not research.
 color: yellow
 model: opus
-effort: low
+effort: high
 tools: Read, Grep, Glob, Write, Edit
 skills: write-headlines, write-hooks, write-leads, write-sales-page, write-optin-page, write-catalog-page, write-story, write-social-posts, revise
 memory: none

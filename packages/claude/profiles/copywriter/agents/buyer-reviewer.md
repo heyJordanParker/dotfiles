@@ -6,7 +6,7 @@ description: |
   Writes only findings files (including the strategy-gate stub), never copy.
 color: pink
 model: opus
-effort: low
+effort: high
 tools: Read, Grep, Glob, Write
 skills: buyer-review, cold-read, check-strategy, review-copy
 memory: none

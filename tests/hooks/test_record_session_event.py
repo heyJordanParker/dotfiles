@@ -37,7 +37,7 @@ def root(tmp_path, monkeypatch):
     monkeypatch.setenv("CLAUDE_DATA_ROOT", str(data_root))
     monkeypatch.setenv("CLAUDE_PROJECTS_ROOT", str(projects_root))
     for var in ("AGENT_SESSION_ID", "CODEX_THREAD_ID", "CLAUDE_CODE_SESSION_ID",
-                "CODEX_RUN_AGENT_FILE", "CLAUDE_CONFIG_DIR"):
+                "CLAUDE_CONFIG_DIR"):
         monkeypatch.delenv(var, raising=False)
     return data_root
 

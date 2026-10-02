@@ -8,9 +8,8 @@ description: |
   mapping ("where is X used", "how does Y work end-to-end"), use the explorer agent. Read-only.
   Never writes code.
 color: green
-harness: codex
-codex-model: gpt-5.6-luna
-effort: medium
+model: gpt-6-luna
+effort: high
 tools: Read, Grep, Glob, Bash
 readonly: true
 mode: build

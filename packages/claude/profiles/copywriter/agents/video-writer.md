@@ -6,7 +6,7 @@ description: |
   DO NOT TRIGGER for video sales letters; use ads-writer.
 color: yellow
 model: opus
-effort: low
+effort: high
 tools: Read, Grep, Glob, Write, Edit
 skills: write-video-script, revise
 memory: none

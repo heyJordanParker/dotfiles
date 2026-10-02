@@ -4,7 +4,7 @@ block_spawning answers from lib.session_mode, the same policy the write gate rea
 so the two gates cannot drift apart. This file pins both halves of that answer:
 
 - A DISPATCHED executor may not start another agent, whether the route is a spawn
-  tool or a shell command naming one of the three spawn commands, and a line whose
+  tool or a shell command starting `codex` or `claude`, and a line whose
   head cannot be read is blocked because hiding the head was the bypass.
 - A session outside a dispatch is gated by the mode governing it: the agent it was
   started on, or the mode the architect typed into it. Build refuses the spawn there
@@ -18,7 +18,7 @@ The shell shapes themselves — a leading space, a second line, `env FOO=1`, an
 absolute path, `bash -c '…'`, `sudo`, `timeout`, a command named in an argument —
 are lib.command's contract and are asserted string by string in
 test_command_parsing. The hook's own contribution is `_spawns`, which tells a
-launch from a read-back, so only the cases that reach a decision of its own live here.
+launch from a version check, so only the cases that reach a decision of its own live here.
 
 Each case calls the guard's main() against an isolated CLAUDE_DATA_ROOT; the guard
 resolves its session and its dispatch marker from os.environ at call time. Two
@@ -43,8 +43,8 @@ ALLOW, BLOCK = 0, 2
 
 def _run(payload, tmp_path, monkeypatch, mode="build", dispatched=True,
          teammate=False, spawn=False, typed=True):
-    """Run the guard. `dispatched` marks a codex run declaring `mode` — pass None as
-    the mode for a run whose definition declares none. Without `dispatched` the
+    """Run the guard. `dispatched` marks a Claude subagent declaring `mode` — pass
+    None as the mode for an agent whose definition declares none. Without `dispatched` the
     payload is a top-level session recording `mode` as the one the architect typed.
     `teammate` names the mode declared by the agent such a session was started on,
     adding the agentId and the agent name the harness puts on its payload. `spawn`
@@ -72,13 +72,12 @@ def _run(payload, tmp_path, monkeypatch, mode="build", dispatched=True,
     for var in ("AGENT_SESSION_ID", "CODEX_THREAD_ID", "CLAUDE_CODE_SESSION_ID"):
         monkeypatch.delenv(var, raising=False)
     if dispatched:
-        definition = tmp_path / "agents" / "dispatched.md"
+        definition = tmp_path / "config" / "agents" / "dispatched.md"
         definition.parent.mkdir(parents=True, exist_ok=True)
         declared = ("mode: %s\n" % mode) if mode else ""
         definition.write_text("---\nname: dispatched\n%s---\n\nFrame.\n" % declared)
-        monkeypatch.setenv("CODEX_RUN_AGENT_FILE", str(definition))
-    else:
-        monkeypatch.delenv("CODEX_RUN_AGENT_FILE", raising=False)
+        monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "config"))
+        payload = dict(payload, agent_id="sub-1", agent_type="dispatched")
     body = json.dumps({"session_id": SID, **payload})
     if spawn:
         return subprocess.run(["python3", HOOK], input=body, text=True,
@@ -107,11 +106,10 @@ def test_executor_is_blocked_from_codex_namespaced_spawn_tool(tmp_path, monkeypa
                 tmp_path, monkeypatch) == BLOCK
 
 
-def test_executor_reads_back_but_never_launches(tmp_path, monkeypatch):
-    for command in ("codex-run status --all", "codex-run result abc",
-                    "codex --version", "claude --version"):
+def test_executor_checks_versions_but_never_launches(tmp_path, monkeypatch):
+    for command in ("codex --version", "claude --version"):
         assert _run(_bash(command), tmp_path, monkeypatch) == ALLOW, command
-    for command in ('codex-run resume abc "m"', "codex-run cancel abc", "codex exec x", "codex"):
+    for command in ('claude -p "m"', "codex exec x", "codex"):
         assert _run(_bash(command), tmp_path, monkeypatch) == BLOCK, command
 
 
@@ -124,10 +122,10 @@ def test_executor_reads_back_but_never_launches(tmp_path, monkeypatch):
 
 
 def test_executor_cannot_hide_the_spawn_outside_the_command_line(tmp_path, monkeypatch):
-    """Both shapes ran codex-run for real from a build session before lib.command
+    """Both shapes started an agent for real from a build session before lib.command
     started refusing a line whose program it cannot read."""
     assert _run(_bash("sh /tmp/spawnprobe.sh"), tmp_path, monkeypatch) == BLOCK
-    assert _run(_bash("python3 -c \"import subprocess; subprocess.run(['codex-run'])\""),
+    assert _run(_bash("python3 -c \"import subprocess; subprocess.run(['codex'])\""),
                 tmp_path, monkeypatch) == BLOCK
 
 
@@ -136,7 +134,7 @@ def test_executor_still_runs_ordinary_bash(tmp_path, monkeypatch):
     assert _run(_bash("git log"), tmp_path, monkeypatch, spawn=True) == ALLOW
     assert _run(_bash("trace grep foo"), tmp_path, monkeypatch) == ALLOW
     # A spawn command named in an argument is not a command head.
-    assert _run(_bash("echo codex-run"), tmp_path, monkeypatch) == ALLOW
+    assert _run(_bash("echo codex"), tmp_path, monkeypatch) == ALLOW
 
 
 
@@ -148,7 +146,7 @@ def test_executor_still_runs_ordinary_bash(tmp_path, monkeypatch):
 def test_orchestrator_spawns(tmp_path, monkeypatch):
     assert _run({"tool_name": "Agent", "tool_input": {}}, tmp_path, monkeypatch,
                 mode="orchestrate") == ALLOW
-    assert _run(_bash('codex-run @x "y"'), tmp_path, monkeypatch,
+    assert _run(_bash('claude -p "y"'), tmp_path, monkeypatch,
                 mode="orchestrate") == ALLOW
 
 
@@ -160,7 +158,7 @@ def test_orchestrator_spawns(tmp_path, monkeypatch):
 def test_typed_build_session_does_not_spawn(tmp_path, monkeypatch):
     assert _run({"tool_name": "Agent", "tool_input": {}}, tmp_path, monkeypatch,
                 dispatched=False) == BLOCK
-    assert _run(_bash('codex-run @x "y"'), tmp_path, monkeypatch,
+    assert _run(_bash('claude -p "y"'), tmp_path, monkeypatch,
                 dispatched=False) == BLOCK
 
 
@@ -197,4 +195,4 @@ def test_session_started_on_a_build_agent_does_not_spawn(tmp_path, monkeypatch):
 def test_undeclared_agent_is_gated_as_an_executor(tmp_path, monkeypatch):
     assert _run({"tool_name": "Agent", "tool_input": {}}, tmp_path, monkeypatch,
                 mode=None) == BLOCK
-    assert _run(_bash('codex-run @x "y"'), tmp_path, monkeypatch, mode=None) == BLOCK
+    assert _run(_bash('claude -p "y"'), tmp_path, monkeypatch, mode=None) == BLOCK

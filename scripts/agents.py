@@ -1,10 +1,9 @@
 """Generate codex artifacts from the shared agent definitions.
 
 Reads packages/agents/agents/*.md and writes <name>.prompt.md beside each
-definition: the frontmatter-stripped body with its named skills inlined, sent
-inline as a run's baseInstructions by codex-run and pointed at by config.toml's
-model_instructions_file for the interactive session. model/tools/color are
-dropped — codex has no key for them, and `model` names a Claude model.
+definition: the frontmatter-stripped body with its named skills inlined, pointed
+at by config.toml's model_instructions_file for the interactive session.
+model/tools/color are dropped — codex has no key for them.
 
 No `<name>.toml` role artifact is written. codex spawns a sub-agent under an
 `agent_type`, and a role backed by a `config_file` — declared in config.toml or
@@ -48,24 +47,6 @@ def generate(agents_dir):
         prompt = os.path.splitext(md)[0] + ".prompt.md"
         _write(prompt, body.strip() + "\n")
         written.append(prompt)
-    return written
-
-
-def generate_profiles(profiles_dir):
-    """Generate the same artifact for each profile's own agents.
-
-    A profile is its own config root with its own roster, and `codex-run`
-    resolves against the active root, so a profile agent needs the artifact a
-    shared one has or it is Claude-only. A symlinked agents/ is the shared roster
-    under another name and is skipped — it generates where it really lives.
-    """
-    written = []
-    if not os.path.isdir(profiles_dir):
-        return written
-    for name in sorted(os.listdir(profiles_dir)):
-        agents_dir = os.path.join(profiles_dir, name, "agents")
-        if os.path.isdir(agents_dir) and not os.path.islink(agents_dir):
-            written.extend(generate(agents_dir))
     return written
 
 
@@ -123,5 +104,4 @@ if __name__ == "__main__":
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     packages = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "packages")
     written = generate(os.path.join(packages, "agents", "agents"))
-    written += generate_profiles(os.path.join(packages, "claude", "profiles"))
     print(f"{len(written)} artifacts written")

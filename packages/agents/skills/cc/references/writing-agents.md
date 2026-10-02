@@ -30,7 +30,7 @@ Use an agent when the Task recurs across sessions and the separate Frame or runt
 - `disallowedTools` denies listed tools.
 - `model` accepts `opus`, `sonnet`, `haiku`, `fable`, a full model identifier, or `inherit`; `inherit` matches the spawning conversation and is the default when omitted.
 - `best`, `opusplan`, and `[1m]` long-context model variants resolve.
-- `effort` takes `low`, `medium`, `high`, `xhigh`, or `max`, and one declaration governs both Harnesses. Claude also accepts an integer; that fails a codex run, so never write one.
+- `effort` sets a dispatched Agent's effort: `low`, `medium`, `high`, `xhigh`, or `max`. A session running as the Agent takes its effort from `modelSettings.<model>.effortLevel` in `settings.json`.
 - `skills` injects Skills into the Agent Context at startup when the agent is dispatched as a Subagent.
 - `permissionMode` accepts `acceptEdits`, `auto`, `bypassPermissions`, `default`, `dontAsk`, or `plan`.
 - `color` sets the user interface accent color; invalid values are dropped.
@@ -42,18 +42,11 @@ Use an agent when the Task recurs across sessions and the separate Frame or runt
 - `readonly: true` is ours, not the Harness's: it takes writing away from the Agent on both Harnesses — the write tools, the shell commands that change the tree, and output redirection. The key is optional, has no other value, and omitting it leaves the Agent writing (step 7).
 - `mode: orchestrate|build|interview` is ours, not the Harness's: `orchestrate` spawns Subagents and mutates nothing, while read-only commands still run; `build` writes and spawns nothing; `interview` neither writes nor spawns. Every roster Agent declares it, so the `build` fallback an unreadable declaration falls to never decides a real dispatch. It gates a dispatched Agent alone; on a main session the mode only picks which Skill loads (step 8).
 - `ssh: enabled` is ours, not the Harness's: it lets the Agent reach another machine. It is the one opt-in declaration, so omitting it denies (step 7).
-- `codex-model` is ours, not the Harness's: the model the Agent runs on under codex, where `model` names a Claude model and reaches nothing.
-- `harness` is ours, not the Harness's: `all`, `claude`, or `codex`, naming where the Agent may run. It is optional and means `all` when absent. A `harness: codex` Agent declares `codex-model` and no `model`.
 - `background: true` always runs the agent in the background.
 - `isolation: worktree` runs the agent in a temporary git worktree.
 - `isolation: remote` runs the agent in a remote Claude Code remote environment and always backgrounds it.
 - `worktree.sparsePaths` limits large worktrees to selected paths.
 - `worktree.baseRef` accepts `fresh` or `head`; `fresh` branches from `origin/<default>`, while `head` carries local unpushed commits into the worktree (v2.1.133+).
-
-IF an Agent should run on a different codex model:
-### Declare `codex-model` only on Evidence covering the Agent's whole job
-The key is per Agent, so every Skill it runs moves with it. Evidence from one Skill is not Evidence for the Agent.
-Never: moving an Agent to a cheaper model because one of its Skills scored well on it.
 
 ### Name the model category, never a version or a variant
 Every place a Claude model is named — agent frontmatter `model`, settings JSON `"model"`, a `--model` flag — takes the category: `opus`, `sonnet`, `haiku`, `fable`. A pinned version or a variant suffix goes stale on the next release and has to be hunted down everywhere it was written. The category already resolves to the long-context variant: a bare `opus` session reports a 1,000,000-token context window, while a pinned `claude-opus-4-5` reports 200,000.

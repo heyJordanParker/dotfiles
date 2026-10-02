@@ -2,6 +2,10 @@
   "autoMemoryEnabled": false,
   "cleanupPeriodDays": 100000000,
   "env": {
+    "ANTHROPIC_BASE_URL": "http://127.0.0.1:8317",
+    "CLAUDE_CODE_ENABLE_FINE_GRAINED_TOOL_STREAMING": "1",
+    "CLAUDE_CODE_MAX_CONTEXT_TOKENS": "272000",
+    "ENABLE_TOOL_SEARCH": "true",
     "EDITOR": "prompt-editor",
     "HCOM": "hcom",
     "USER_TYPE": "ant"
@@ -85,11 +89,6 @@
             "type": "command",
             "command": "python3 ~/.agents/hooks/inject_honcho_memory.py",
             "timeout": 20
-          },
-          {
-            "type": "command",
-            "command": "python3 ~/.agents/hooks/block_wrong_harness.py",
-            "timeout": 5
           }
         ]
       },
@@ -98,8 +97,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 ~/.agents/hooks/combine_hooks.py block_composed_commands block_denied_access block_invalid_browsers block_memory_access enforce_background_codex_run name_memory_caller",
-            "timeout": 30
+            "command": "python3 ~/.agents/hooks/combine_hooks.py block_composed_commands block_denied_access block_invalid_browsers block_memory_access name_memory_caller",
+            "timeout": 25
           }
         ]
       },

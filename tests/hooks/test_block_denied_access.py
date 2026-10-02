@@ -1,7 +1,6 @@
 """Contract for the access declarations (block_denied_access.py).
 
-`readonly: true` and `ssh: enabled` are ours, not the harness's, and one
-definition governs an agent on both. The tests pin the boundary in both
+`readonly: true` and `ssh: enabled` are ours, not the harness's. The tests pin the boundary in both
 directions: what each declaration must refuse — including every shell shape that
 used to walk around a string match — and everything it must leave alone, because
 a gate that denies more than the declaration does breaks agents rather than
@@ -20,14 +19,23 @@ import pytest
 from conftest import PY_HOOKS
 
 HOOK = os.path.join(PY_HOOKS, "block_denied_access.py")
-AGENT_FILE_VAR = "CODEX_RUN_AGENT_FILE"
 
 
 def _definition(tmp_path, name, *lines):
     body = "---\nname: %s\n%s\n---\n\nA frame.\n" % (name, "\n".join(lines))
-    path = tmp_path / ("%s.md" % name)
+    agents = tmp_path / "agents"
+    agents.mkdir(exist_ok=True)
+    path = agents / ("%s.md" % name)
     path.write_text(body)
     return str(path)
+
+
+def _subagent(definition_path, payload):
+    """The payload and environment of a Claude subagent dispatched as the agent the
+    definition names, under the config root that holds it."""
+    name = os.path.basename(definition_path)[:-len(".md")]
+    root = os.path.dirname(os.path.dirname(definition_path))
+    return {"agent_id": "sub-1", "agent_type": name, **payload}, root
 
 
 @contextlib.contextmanager
@@ -56,16 +64,15 @@ def _call(payload, **environment):
 
 
 def _run(definition_path, payload):
-    """Run the gate as a codex run, whose launcher exports the definition path."""
-    return _call(payload, **{AGENT_FILE_VAR: definition_path or None})
+    """Run the gate inside a subagent of the agent the definition names."""
+    payload, root = _subagent(definition_path, payload)
+    return _call(payload, CLAUDE_CONFIG_DIR=root)
 
 
 def _run_process(definition_path, payload):
     """The same call as a real process, for the exit code and the stderr envelope."""
-    env = dict(os.environ)
-    env.pop(AGENT_FILE_VAR, None)
-    if definition_path:
-        env[AGENT_FILE_VAR] = definition_path
+    payload, root = _subagent(definition_path, payload)
+    env = dict(os.environ, CLAUDE_CONFIG_DIR=root)
     proc = subprocess.run([sys.executable, HOOK], input=json.dumps(payload),
                           capture_output=True, text=True, env=env)
     return proc.returncode, proc.stderr
@@ -154,23 +161,10 @@ def test_an_agent_declaring_ssh_reaches_the_machine(tmp_path):
 
 # --- who the declarations govern ---------------------------------------------
 
-def test_a_claude_subagent_is_gated_by_its_own_definition(tmp_path):
-    """The Claude half: no exported path, the name on the payload resolves the
-    definition under the active config root."""
-    root = tmp_path / "root"
-    (root / "agents").mkdir(parents=True)
-    (root / "agents" / "explorer.md").write_text(
-        "---\nname: explorer\nreadonly: true\n---\n\nA frame.\n")
-    code, _err = _call({"agent_id": "sub-1", "agent_type": "explorer", **_bash("cp a b")},
-                       CLAUDE_CONFIG_DIR=str(root), **{AGENT_FILE_VAR: None})
-    assert code == 2
-
-
 def test_the_architects_own_session_is_never_gated(tmp_path):
     """`--agent cto` puts agent_type on the main thread with no agent_id. His
     shell is not a one-shot execution and keeps everything."""
-    code, _err = _call({"agent_type": "explorer", **_bash("ssh prod")},
-                       **{AGENT_FILE_VAR: None})
+    code, _err = _call({"agent_type": "explorer", **_bash("ssh prod")})
     assert code == 0
 
 

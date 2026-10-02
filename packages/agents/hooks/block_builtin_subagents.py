@@ -14,16 +14,11 @@ BINDING = {
 
 EXPLORE_MSG = """BLOCKED: use the explorer agent instead of Explore.
 
-Run it through Bash with `run_in_background: true`:
-
-  codex-run @explorer "<the task>"
-
-Run library and API research as `codex-run @researcher`."""
+Set subagent_type: explorer. Send library and API research to subagent_type: researcher."""
 
 GENERAL_MSG = """BLOCKED: use a roster Agent instead of general-purpose.
 
-Dispatch these with subagent_type: architect, designer, code-reviewer, debugger, ux-tester, context-engineer.
-Run these through Bash with `run_in_background: true`, as codex-run @<name>: backend-engineer, frontend-engineer, researcher, tester.
+Dispatch one with subagent_type: architect, designer, code-reviewer, debugger, ux-tester, context-engineer, backend-engineer, frontend-engineer, researcher, tester, explorer.
 
 Write the brief with /delegate."""
 

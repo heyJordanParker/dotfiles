@@ -1,11 +1,11 @@
 ---
 name: review
-description: Read the changeset yourself, review it with one Claude reviewer and one codex reviewer on the same target at once, triage their findings with /triage, and iterate until a round returns no breaking finding. TRIGGER on "review the changes", "code review", on the Review before a changeset is presented to the Architect, and when a /orchestrate or /verify-changes step names it. DO NOT TRIGGER for N identical reviewers on one Task (that is /independent-review).
+description: Read the changeset yourself, review it with the code-reviewer and ponytail Agents on the same target at once, triage their findings with /triage, and iterate until a round returns no breaking finding. TRIGGER on "review the changes", "code review", on the Review before a changeset is presented to the Architect, and when a /orchestrate or /verify-changes step names it. DO NOT TRIGGER for N identical reviewers on one Task (that is /independent-review).
 ---
 
 # Review
 
-- Two Harnesses read the same changeset, so a blind spot in one is caught by the other.
+- Two reviewers read the same changeset, code-reviewer for correctness and ponytail for size, so a blind spot in one is caught by the other.
 - /delegate owns the dispatch Prompt; /orchestrate owns judging what returns.
 
 ## 1. Read the changeset yourself first
@@ -16,7 +16,7 @@ Never: a Review whose every finding arrived in a reviewer's report.
 
 ## 2. Dispatch both reviewers on one target
 
-Use /delegate to send one Claude Subagent and /codex to send one codex Subagent, in the same message, both given the same target and the same Verification.
+Use /delegate to send the code-reviewer and ponytail Agents in the same message, both given the same target and the same Verification.
 
 ### Give both reviewers the identical target
 Same diff, same surrounding code, same Prompt. A difference in scope makes the two returns incomparable.

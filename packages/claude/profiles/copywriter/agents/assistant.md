@@ -7,9 +7,9 @@ description: |
   files records into the thread.
 color: green
 memory: none
-harness: codex
-effort: low
-tools: Read, Grep, Glob, Bash
+model: gpt-6-luna
+effort: high
+tools: Read, Grep, Glob, Bash, WebSearch
 skills: extract, browse
 ---
 
@@ -27,4 +27,4 @@ When the task is a page, run /extract against the subject and the cached page te
 
 ## Search wide, return what surfaced
 
-When the task is a search, run codex native search for the query the dispatch names and return what surfaced — the URLs and the one-line context each carries. You enumerate what exists; you do not read the pages, rate them, or pick a winner. The researcher weighs the results and decides which pages become extraction tasks.
+When the task is a search, run WebSearch for the query the dispatch names and return what surfaced — the URLs and the one-line context each carries. You enumerate what exists; you do not read the pages, rate them, or pick a winner. The researcher weighs the results and decides which pages become extraction tasks.

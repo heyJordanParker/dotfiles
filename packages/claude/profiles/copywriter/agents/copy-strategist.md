@@ -7,7 +7,7 @@ description: |
   Proof.md). Returns the strategies and the plan grounded in the research records. Proposes; the owner picks.
 color: blue
 model: opus
-effort: medium
+effort: high
 tools: Read, Grep, Glob, Bash, Write, Edit, Task
 skills: plan-copy, draft-offers, mechanism, ideate, big-idea, name-things, grading
 memory: none

@@ -47,7 +47,6 @@ def session(tmp_path, monkeypatch):
     """Seed one main session's state.json and hand back a runner for the gates."""
     monkeypatch.setenv("CLAUDE_DATA_ROOT", str(tmp_path))
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", SID)
-    monkeypatch.delenv("CODEX_RUN_AGENT_FILE", raising=False)
     session_dir = tmp_path / "sessions" / SID
     session_dir.mkdir(parents=True)
     state_file = session_dir / "state.json"
@@ -64,19 +63,17 @@ def session(tmp_path, monkeypatch):
         path.write_text(body + "---\n\nFrame.\n")
         return name, str(path)
 
-    def run(hook, tool_name, tool_input, dispatched_as=..., subagent_as=...,
-            teammate=False, teammate_as=..., missing_agent="", spawn=False, child_as=...):
+    def run(hook, tool_name, tool_input, subagent_as=...,
+            teammate=False, teammate_as=..., missing_agent="", spawn=False):
         """Run one gate against one shape of caller.
 
-        `dispatched_as` names the mode a codex run declares, `subagent_as` the mode
-        a Claude subagent declares, `missing_agent` names a subagent whose name has
-        no roster file behind it, and `teammate` marks a hand-managed top-level
-        agent — an agentId with no `agent_id`. `teammate_as` is that same
-        teammate with an agent named on the payload, the way the harness names one a
-        session was started on, declaring the given mode. Pass none of them for the
-        architect's own plain session. `spawn` runs the gate as its own process.
-        `child_as` is an agent codex spawned inside the `dispatched_as` run: codex
-        names its role on the payload as `agent_type`, declaring the given mode.
+        `subagent_as` names the mode a Claude subagent declares, `missing_agent`
+        names a subagent whose name has no roster file behind it, and `teammate`
+        marks a hand-managed top-level agent — an agentId with no `agent_id`.
+        `teammate_as` is that same teammate with an agent named on the payload, the
+        way the harness names one a session was started on, declaring the given
+        mode. Pass none of them for the architect's own plain session. `spawn` runs
+        the gate as its own process.
 
         Every environment variable is set or deleted on each call, never left from
         the last one, because monkeypatch holds its writes for the whole test.
@@ -87,21 +84,13 @@ def session(tmp_path, monkeypatch):
             payload["agentId"] = "agent-abc"
         if teammate_as is not ...:
             payload["agent_type"] = agent_file(teammate_as)[0]
-        if dispatched_as is not ...:
-            monkeypatch.setenv("CODEX_RUN_AGENT_FILE", agent_file(dispatched_as)[1])
-        else:
-            monkeypatch.delenv("CODEX_RUN_AGENT_FILE", raising=False)
         if subagent_as is not ...:
             payload["agent_id"] = "a6ae6febe3a8e3621"
             payload["agent_type"] = agent_file(subagent_as)[0]
         if missing_agent:
             payload["agent_id"] = "a6ae6febe3a8e3621"
             payload["agent_type"] = missing_agent
-        if child_as is not ...:
-            payload["agent_id"] = "01a0-child"
-            payload["agent_type"] = agent_file(child_as)[0]
-        if (subagent_as is not ... or missing_agent or teammate_as is not ...
-                or child_as is not ...):
+        if subagent_as is not ... or missing_agent or teammate_as is not ...:
             monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "config"))
         else:
             monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
@@ -125,15 +114,15 @@ def session(tmp_path, monkeypatch):
 def test_dispatched_orchestrator_spawns(session):
     """Spawned: the allowing exit code the harness reads off block_spawning."""
     session(state="execute", mode="build", mode_typed=True)
-    assert session.run(SPAWNING, "Bash", {"command": 'codex-run @cto "y"'},
-                       dispatched_as="orchestrate", spawn=True) == ALLOW
+    assert session.run(SPAWNING, "Agent", {"subagent_type": "cto"},
+                       subagent_as="orchestrate", spawn=True) == ALLOW
 
 
 def test_dispatched_orchestrator_own_edit_is_blocked(session):
     """Spawned: the blocking exit code the harness reads off block_writes."""
     session(state="execute", mode="build", mode_typed=True)
     assert session.run(WRITES, "Edit", {"file_path": os.path.join(REPO, "note.txt")},
-                       dispatched_as="orchestrate", spawn=True) == BLOCK
+                       subagent_as="orchestrate", spawn=True) == BLOCK
 
 
 
@@ -147,47 +136,16 @@ def test_dispatched_orchestrator_own_edit_is_blocked(session):
 def test_dispatched_executor_writes(session):
     session(state="execute", mode="orchestrate", mode_typed=True)
     assert session.run(WRITES, "Write", {"file_path": os.path.join(REPO, "note.txt")},
-                       dispatched_as="build") == ALLOW
-
-
-def test_codex_child_of_an_orchestrator_is_gated_as_its_own_role(session):
-    """codex runs a spawned child in its parent's process, so the parent's exported
-    definition gated every child as the orchestrator: no writes, free spawns."""
-    session(state="execute", mode="build", mode_typed=True)
-    assert session.run(WRITES, "Write", {"file_path": os.path.join(REPO, "note.txt")},
-                       dispatched_as="orchestrate", child_as="build") == ALLOW
-    assert session.run(SPAWNING, "collaborationspawn_agent", {},
-                       dispatched_as="orchestrate", child_as="build") == BLOCK
+                       subagent_as="build") == ALLOW
 
 
 def test_dispatched_executor_does_not_spawn(session):
     session(state="execute", mode="orchestrate", mode_typed=True)
     # Spawned: the blocking exit code the harness reads off block_spawning.
     assert session.run(SPAWNING, "Agent", {"subagent_type": "cto"},
-                       dispatched_as="build", spawn=True) == BLOCK
-    assert session.run(SPAWNING, "Bash", {"command": 'codex-run @cto "y"'},
-                       dispatched_as="build") == BLOCK
-
-
-
-
-# ---------------------------------------------------------------------------
-# a Claude subagent: the same policy the codex path answers from
-# ---------------------------------------------------------------------------
-
-def test_claude_subagent_spawns_under_its_own_mode(session):
-    session(state="execute", mode="orchestrate", mode_typed=True)
-    assert session.run(SPAWNING, "Bash", {"command": 'codex-run @cto "y"'},
+                       subagent_as="build", spawn=True) == BLOCK
+    assert session.run(SPAWNING, "Bash", {"command": 'claude -p "y"'},
                        subagent_as="build") == BLOCK
-    session(state="execute", mode="build", mode_typed=True)
-    assert session.run(SPAWNING, "Bash", {"command": 'codex-run @cto "y"'},
-                       subagent_as="orchestrate") == ALLOW
-
-
-def test_claude_subagent_orchestrator_own_edit_is_blocked(session):
-    session(state="execute", mode="build", mode_typed=True)
-    assert session.run(WRITES, "Edit", {"file_path": os.path.join(REPO, "note.txt")},
-                       subagent_as="orchestrate") == BLOCK
 
 
 

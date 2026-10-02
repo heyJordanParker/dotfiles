@@ -8,12 +8,9 @@ IF using remote, production, or staging access:
 ### Keep diagnostics read-only
 Read logs, status, system information, config files, and read-only database queries. Do not restart services, kill processes, mutate data, edit files, attach debuggers, or print secrets unless the Architect explicitly approves mutation.
 
-IF broad codebase exploration needs more than three queries:
-### Run `codex-run @explorer` in the background
-
-IF direct code research is enough:
-### Use the trace Skill directly
-Use the trace Skill directly. Subagents protect the main Context but are not free — do not spawn one where a direct call answers faster, and do not duplicate research a Subagent is already running.
+IF answering needs more than three searches of the codebase:
+### Dispatch the explorer Agent
+Search with `trace` yourself when fewer searches answer it, and never repeat research an Agent is already running.
 
 IF the question is what was said, decided, or preferred before this session:
 ### Ask Memory with `honcho`

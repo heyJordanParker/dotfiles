@@ -29,7 +29,6 @@ def main():
     migrate_sessions()
     clear_stale_locks()
     agents.generate(os.path.join(PACKAGES, "agents", "agents"))
-    agents.generate_profiles(os.path.join(PACKAGES, "claude", "profiles"))
     hooks.generate(
         os.path.join(PACKAGES, "agents", "hooks"),
         os.path.join(PACKAGES, "claude", "settings.json"),

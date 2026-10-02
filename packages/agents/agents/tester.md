@@ -6,9 +6,8 @@ description: |
   Triggers: "test this feature", "does this work", "verify the flow", "check the API",
   "browser test", or the whole-changeset validation pass at the end of a plan.
 color: red
-harness: codex
-codex-model: gpt-5.6-luna
-effort: high
+model: sonnet
+effort: medium
 tools: Read, Grep, Glob, Bash, WebFetch
 mode: build
 skills: user-testing, agent-browser, design, trace, regressions, prove

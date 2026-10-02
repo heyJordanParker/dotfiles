@@ -6,8 +6,8 @@ description: |
   the named gap. Fresh context, runs when the chief closes the research phase. Reviews the artifacts,
   never rewrites a record or a discovery list, never writes copy.
 color: purple
-harness: codex
-effort: medium
+model: opus
+effort: high
 tools: Read, Grep, Glob, Bash
 skills: review-research, browse
 memory: none

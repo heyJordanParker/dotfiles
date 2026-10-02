@@ -2,7 +2,7 @@
 
 While a proposal is expected, block_writes allows an interpreter
 to run an existing script in our tree, but blocks inline code and every other
-script. It leaves the named tools (codex, codex-run, trace, git, uv/pytest, npm)
+script. It leaves the named tools (codex, trace, git, uv/pytest, npm)
 running, and never blocks *writing* a script outside that tree: it allows the
 write and emits a heads-up that execution is blocked.
 
@@ -47,7 +47,6 @@ def proposing(tmp_path, monkeypatch):
 
 
 def _run(monkeypatch, tool_input, cwd=REPO):
-    monkeypatch.delenv("CODEX_RUN_AGENT_FILE", raising=False)
     payload = json.dumps({"session_id": RUN_OWN_SID, "cwd": cwd, "tool_input": tool_input})
     monkeypatch.setattr(sys, "stdin", io.StringIO(payload))
     return block_writes.main()
@@ -63,9 +62,8 @@ INTERP_ALLOWED = [
     "python3 scripts/sync.py",
 ]
 
-# Named tools — including the codex flow via codex-run — must run (exit 0)
+# Named tools must run (exit 0)
 TOOLS_ALLOWED = [
-    'codex-run @architect "review this"',
     "codex exec -s read-only 'x'",
     "trace grep foo",
     "git log",
@@ -92,27 +90,5 @@ def test_existing_tree_script_is_allowed(proposing, monkeypatch, cmd):
 
 
 
-# --- a dispatched codex agent is not the architect's conversation -------------
-
-def _run_as(monkeypatch, tool_input, agent_file, tool_name="Bash"):
-    if agent_file:
-        monkeypatch.setenv("CODEX_RUN_AGENT_FILE", agent_file)
-    else:
-        monkeypatch.delenv("CODEX_RUN_AGENT_FILE", raising=False)
-    payload = json.dumps({"session_id": RUN_OWN_SID, "cwd": REPO,
-                          "tool_name": tool_name, "tool_input": tool_input})
-    monkeypatch.setattr(sys, "stdin", io.StringIO(payload))
-    return block_writes.main()
-
-
-AGENT = os.path.join(REPO, "packages", "agents", "agents", "ponytail.md")
-
-
-
-
-
-
-_PATCH = ("*** Begin Patch\n*** Update File: docs/x.md\n@@\n"
-          "+echo hi > packages/out.txt\n*** End Patch")
 
 

@@ -7,7 +7,7 @@ description: |
   Never reads a judged workspace file, never writes an agent's opinion, never writes copy.
 color: blue
 model: opus
-effort: low
+effort: high
 tools: Read, Grep, Glob, Bash, Write, Edit
 skills: curate-research, wiki
 memory: none

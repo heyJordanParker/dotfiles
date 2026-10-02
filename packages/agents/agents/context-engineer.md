@@ -6,9 +6,7 @@ description: |
   Claude Code extensibility components. Also use when optimizing documentation for agent autonomy or user DX.
 color: cyan
 model: opus
-effort: low
-codex-model: gpt-5.6-sol
-codex-effort: medium
+effort: high
 mode: build
 skills: cc, naming, trace, build
 memory: user

@@ -8,9 +8,7 @@ description: |
   Reads Claude.md files for stack-specific patterns.
 color: cyan
 model: opus
-effort: low
-codex-model: gpt-5.6-sol
-codex-effort: medium
+effort: high
 mode: build
 skills: naming, trace, critical-path, pragmatic-engineering, debug, prove, build
 ---

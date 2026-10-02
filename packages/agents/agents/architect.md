@@ -6,9 +6,7 @@ description: |
   integration points, or any structural change touching 3+ files.
 color: blue
 model: opus
-effort: low
-codex-model: gpt-5.6-sol
-codex-effort: medium
+effort: high
 tools: Read, Glob, Grep, Bash
 readonly: true
 mode: build

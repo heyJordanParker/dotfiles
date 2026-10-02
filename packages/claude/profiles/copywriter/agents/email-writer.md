@@ -6,7 +6,7 @@ description: |
   the email from the brief and evidence. Does not research.
 color: cyan
 model: opus
-effort: low
+effort: high
 tools: Read, Grep, Glob, Write, Edit
 skills: write-emails, revise
 memory: none

@@ -4,10 +4,13 @@ Claude Code hands a hook its event as JSON on stdin. These helpers read the
 payload once and pull nested fields with a string default.
 """
 
+import glob
 import json
 import os
 import re
 import sys
+
+from lib import agent_memory
 
 
 def read_event():
@@ -150,18 +153,51 @@ def agent_name(event):
     agent's name. Claude puts it on the payload as `agent_type` — on a subagent
     event, and on the main thread of a session started with `--agent`, correct
     for both. Codex names it the same way for an agent it spawned, as the role it
-    spawned under, and nowhere for a run's founding thread, so the run's own
-    definition path answers there, the same variable the codex-side gates read.
+    spawned under.
 
     The environment is not consulted on Claude: `CLAUDE_CODE_AGENT` inside a
     subagent still holds the dispatching agent's name, verified live from a
     `code-reviewer` dispatch that read back `cto`.
+
+    A Claude Subagent started with a name reports that name as `agent_type`, so
+    its agent comes from the record Claude writes beside its transcript.
     """
     named = field(event, "agent_type", "")
     if named:
-        return named
-    path = os.environ.get("CODEX_RUN_AGENT_FILE", "")
-    return os.path.basename(path)[:-3] if path.endswith(".md") else ""
+        return _started_as(event, named) or named
+    return ""
+
+
+def _started_as(event, named):
+    """The agent Claude's start record names for a Subagent started with a name, or "".
+
+    Claude writes `agent-<id>.meta.json` beside each Subagent transcript under the
+    parent session's `subagents/` folder. A Subagent started with a name has an id
+    that embeds it, `a<name>-<hash>`, and its record carries the agent it runs as
+    in `customAgentType`. A Subagent started by type has no such field.
+    """
+    if os.path.isfile(agent_memory.definition_path(named)):
+        return ""
+    record = field(event, "agent_transcript_path", "")
+    if record.endswith(".jsonl"):
+        paths = [record[:-len(".jsonl")] + ".meta.json"]
+    else:
+        parent = field(event, "transcript_path", "")
+        if not parent.endswith(".jsonl"):
+            return ""
+        folder = os.path.join(parent[:-len(".jsonl")], "subagents")
+        agent_id = field(event, "agent_id", "")
+        paths = ([os.path.join(folder, "agent-%s.meta.json" % agent_id)] if agent_id
+                 else glob.glob(os.path.join(folder, "agent-a%s-*.meta.json" % glob.escape(named))))
+    for path in paths:
+        try:
+            with open(path, encoding="utf-8") as fh:
+                started = json.load(fh).get("customAgentType")
+        except (OSError, ValueError, AttributeError):
+            continue
+        if isinstance(started, str) and started:
+            return started
+    return ""
 
 
 def _is_codex_rollout(path):

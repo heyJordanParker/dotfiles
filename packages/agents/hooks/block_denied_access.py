@@ -29,13 +29,12 @@ writing agent keeps its shell and loses only the remote commands. What the agent
 then runs on that machine is not read here: the declaration grants the machine,
 and `readonly` governs this repository, not the far end of the connection.
 
-The declaration governs a subagent dispatch and a codex run — the two one-shot
-executions it is written for. The architect's own session is not one, even when
+The declaration governs a subagent dispatch, the one-shot execution it is
+written for. The architect's own session is not one, even when
 he starts it with `--agent`, so his shell keeps everything whatever that agent
 declares.
 """
 
-import os
 import sys
 
 from lib import agent_memory, command, feedback, session_mode
@@ -93,12 +92,12 @@ Run the command with literal words and balanced quotes."""
 def governing_definition(event):
     """The definition file whose declarations govern this call, and its agent.
 
-    A subagent dispatch and a codex run are the two one-shot executions the
-    declarations are written for. The main thread of a session started with
-    `--agent` is not one — `agent_id` is the field that means "inside a subagent"
-    and nothing else — so the architect's own session is never gated.
+    A subagent dispatch is the one-shot execution the declarations are written
+    for. The main thread of a session started with `--agent` is not one —
+    `agent_id` is the field that means "inside a subagent" and nothing else — so
+    the architect's own session is never gated.
     """
-    if not field(event, "agent_id", "") and not os.environ.get(agent_memory.AGENT_FILE_VAR):
+    if not field(event, "agent_id", ""):
         return "", ""
     name = agent_name(event)
     return agent_memory.definition_path(name), name

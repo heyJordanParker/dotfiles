@@ -19,13 +19,9 @@ holds. No declaration means Memory stays reachable.
 
 Memory is reachable one way: the `honcho` command. The plugin's MCP tools were
 the old surface and are gone with it, so the gate reads the shell command, which
-makes it the gate on both harnesses — codex used to be covered by switching off
-an MCP server that no longer exists. The injection hook is the other way in, and
+makes it the gate on both harnesses. The injection hook is the other way in, and
 it reads the same declaration before it puts anything in a turn or in a dispatch
 brief, so a blank agent stays blank whichever direction memory travels.
-
-codex names no agent in its payload, so a codex run's definition comes from the
-path its launcher exported, the same variable lib/codex_run.py sets.
 
 One gate covers both directions the command travels: `context`, `search` and
 `ask` read, and `remember` and `forget` write. The hooks that write a turn's
@@ -33,7 +29,6 @@ messages carry the same declaration check of their own, because nothing routes
 them through here.
 """
 
-import os
 import re
 import sys
 
@@ -64,11 +59,11 @@ through another memory tool, and do not ask another agent to reach it for you.""
 def gated(event):
     """The agent whose declaration governs this call, or "".
 
-    A subagent dispatch and a codex run are the two one-shot executions the
-    declaration is for. The main thread of a session started with `--agent` is
-    not one, and keeps Memory whatever that agent declares.
+    A subagent dispatch is the one-shot execution the declaration is for. The
+    main thread of a session started with `--agent` is not one, and keeps Memory
+    whatever that agent declares.
     """
-    if not field(event, "agent_id", "") and not os.environ.get(agent_memory.AGENT_FILE_VAR):
+    if not field(event, "agent_id", ""):
         return ""
     return agent_name(event)
 

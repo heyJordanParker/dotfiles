@@ -6,9 +6,7 @@ description: |
   stack traces, and unexpected state. Investigates and reports — never writes code.
 color: magenta
 model: opus
-effort: low
-codex-model: gpt-5.6-sol
-codex-effort: medium
+effort: high
 tools: Read, Grep, Glob, Bash
 readonly: true
 mode: build

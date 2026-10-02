@@ -42,14 +42,14 @@ Template:
     research/<subject>/<topic>.md
 
 ### File records under research, never under working state
-`.agents/` holds working state — codex-run output, wrapper trailers, scratch. A record is filed only when it lives under `research/<subject>/<topic>.md`; nothing is done while a record sits under `.agents/`.
+`.agents/` holds working state — dispatch output and scratch. A record is filed only when it lives under `research/<subject>/<topic>.md`; nothing is done while a record sits under `.agents/`.
 
 ### File only on-subject extracts
 Before filing an extract, confirm its quotes are about this subject. Return an extract whose quotes are about a different topic to the assistant with the subject restated, unfiled. When a page is genuinely about the other topic, note its URL off-subject in the source registry (`sources.py log <url> --note`) and file no record from that page. Page outcomes — unreadable, off-subject, render caveats — live in the registry only, never as a file in the thread: the records are the deliverable, the registry is the implementation ledger.
 Never: a `discovery/` folder or a page-outcomes file inside a deep thread — `discovery/` is the discover pass's output alone.
 
 ### State in the file why a record is thin
-A record below 3 entries states in the file itself why it is thin — the page was thin, off-subject, or paywalled. The record body is the extract's Quotes and Facts content alone; codex-run trailers, session or model lines, and other tool output never enter a record.
+A record below 3 entries states in the file itself why it is thin — the page was thin, off-subject, or paywalled. The record body is the extract's Quotes and Facts content alone; session or model lines and other tool output never enter a record.
 
 ## 6. Review the thread against this contract before it closes
 
@@ -62,6 +62,6 @@ Verification:
 - The records live at `research/<subject>/<topic>.md`, no index, no judgments, read back from that path after writing.
 - No record sits under `.agents/`; no working copy sits at the run root or under a name of your own.
 - Every filed extract is on-subject; an off-subject page is noted in the registry with no record filed, and the thread holds no `discovery/` folder and no page-outcomes file.
-- Every record below 3 entries states in the file why it is thin and carries no codex-run trailer or tool output.
+- Every record below 3 entries states in the file why it is thin and carries no tool output.
 - The closing review ran against this contract and failing work was returned.
 - You read nothing the Inputs section excludes.

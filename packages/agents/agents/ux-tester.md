@@ -7,8 +7,7 @@ description: |
   Triggers: "ux test", "test the ux", "is this confusing", "walk the flow", or a Critical Path walk.
 color: pink
 model: opus
-effort: low
-harness: claude
+effort: high
 tools: Read, Write, Glob, Bash, WebFetch
 mode: build
 skills: design, agent-browser, prove

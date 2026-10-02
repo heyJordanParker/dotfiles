@@ -1,8 +1,7 @@
 ---
 name: explorer
 description: Maps architectural relationships in our codebase. Use for "where is X used", "how does Y work end-to-end", "what depends on Z", or any question that needs the agent to understand connections between files, modules, or layers in our repo. For external research (library docs, APIs, framework references), use the researcher agent. Read-only.
-harness: codex
-codex-model: gpt-5.6-luna
+model: sonnet
 effort: medium
 tools: Bash
 readonly: true

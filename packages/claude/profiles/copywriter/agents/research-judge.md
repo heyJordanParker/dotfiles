@@ -7,8 +7,8 @@ description: |
   Writes only the four judged files, never copy and never a research record.
 color: yellow
 memory: none
-harness: codex
-effort: medium
+model: opus
+effort: high
 tools: Read, Grep, Glob, Write
 skills: judge-research, grading
 ---

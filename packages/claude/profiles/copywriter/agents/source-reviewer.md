@@ -7,8 +7,8 @@ description: |
   judgments — never a research record, never copy, never a rating of a problem or buyer.
 color: red
 memory: none
-harness: codex
-effort: low
+model: opus
+effort: high
 tools: Read, Grep, Glob, Bash
 skills: review-source, browse
 ---

@@ -15,8 +15,6 @@ Sweep every axis wide first, so the deep passes only mine what discovery surface
 
 From what discovery surfaced, run the deep passes — research-problem, research-market, research-audience, and research-competitor — each mining one entry into verbatim records with citations. The researcher orchestrates one thread end to end; its assistants do the page work through /browse and /extract, one page at a time.
 
-- Dispatched through codex, `gpt-5.6-luna` at MEDIUM effort is the assistant model — validated at 100% verbatim fidelity across every extraction test. The dispatch carries the assistant's generated instruction artifact inline, never a file pointer.
-
 ## 3. Review each thread and the phase
 
 Sweep unjudged URLs through review-source as the source-reviewer meets them — a page is scored once. Close each thread with its own review, then run review-research at the phase close for a per-thread pass or return-for-re-execution verdict. Nothing is auto-killed; a returned thread re-runs.

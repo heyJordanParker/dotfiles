@@ -2,7 +2,6 @@
 import sys
 
 from lib import command, feedback
-from lib.codex_run import launches
 from lib.event import canonical_tool, command_str, read_event
 from lib.session_mode import permits, resolve
 
@@ -18,11 +17,6 @@ MSG = "BLOCKED: %s mode does not spawn subagents.\n\nIn build mode, do the work 
 
 
 def _spawns(head, args):
-    if head == "codex-run":
-        # Cancelling stops another agent's run, which is as much the orchestrator's
-        # call as starting one.
-        action = args[0] if args else ""
-        return launches(action) or action == "cancel"
     if head in ("codex", "claude"):
         return not (len(args) == 1 and args[0] in _INFO_FLAGS)
     return False

@@ -6,9 +6,7 @@ description: |
   Does NOT cover architecture (architect agent), naming (the /naming Skill), or stack-specific patterns.
 color: red
 model: opus
-effort: low
-codex-model: gpt-5.6-sol
-codex-effort: medium
+effort: high
 tools: Read, Grep, Glob, Bash
 readonly: true
 mode: build

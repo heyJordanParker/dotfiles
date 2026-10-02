@@ -7,7 +7,7 @@ description: |
   the final "will this sell" call. Talk to it for any copy job, large or small.
 color: red
 model: opus
-effort: medium
+effort: high
 skills: setup, start, market-research, product-research, strategy, write, review-copy, record-decision, ideate, learn
 ---
 

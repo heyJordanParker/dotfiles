@@ -6,7 +6,7 @@ description: |
   suggested edits; never mutates the draft. Does not write new copy from a brief.
 color: red
 model: opus
-effort: low
+effort: high
 tools: Read, Grep, Glob, Write, Bash
 skills: edit-sentences, check-structure, check-ai-writing, review-copy
 memory: none

@@ -10,8 +10,6 @@ One Process: read one page, score its trustworthiness and its usefulness (each 1
 - The registry command is the profile-rooted CLI: `python3 <profile>/scripts/sources.py`.
 - A URL is judged once. If it is already judged, stop — do not re-judge without the Architect's `--force` intent.
 - The two scores are independent: a page can be honest and empty (high trust, low usefulness) or a rich astroturf pile (low trust, high usefulness).
-- Dispatched through codex, `gpt-5.6-luna` at LOW effort is the sweep model — owner-accepted from the 7-rung 10-URL experiment (docs/agents/090-source-review-tiering/): directionally correct at every rung, luna-low included. The dispatch carries this instruction set inline (the generated artifact), never a file pointer.
-
 ## 1. Record the URL and its facts
 
 Read the facts off the page and log them in one call. `log` is idempotent and folds in any newly supplied field:

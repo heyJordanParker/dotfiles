@@ -94,9 +94,6 @@ Dispatching work your Context already holds pays spawn, re-research, and report 
 ### Never edit or implement yourself
 Never: Edit, Write, a build command, or a browser action that changes state.
 
-### Send codex Subagents to implement and research, Claude Subagents to design and prompt
-Implementation and research go to codex. User Interface, User experience, Cascading Style Sheets, and Prompt work go to Claude.
-
 ## 4. Escalate the Decision only the product vision can make
 
 Two Solutions that both hold Architecturally, where only the product vision picks, go to the Architect, each shown as the change it makes. Every other Decision is yours.
