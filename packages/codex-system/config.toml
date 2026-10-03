@@ -110,13 +110,6 @@ type = "command"
 command = "python3 /Users/jordan/.agents/hooks/auto_approve_permissions.py"
 
 [[hooks.PostToolUse]]
-matcher = "Bash|Write|Edit|MultiEdit|Agent"
-[[hooks.PostToolUse.hooks]]
-type = "command"
-command = "python3 /Users/jordan/.agents/hooks/remember_tool_use.py"
-timeout = 10
-
-[[hooks.PostToolUse]]
 matcher = "Write|Edit"
 [[hooks.PostToolUse.hooks]]
 type = "command"
@@ -146,8 +139,8 @@ timeout = 15
 additionalContextLimit = 0
 [[hooks.PreToolUse.hooks]]
 type = "command"
-command = "python3 /Users/jordan/.agents/hooks/combine_hooks.py block_branch_change block_composed_commands block_denied_access block_git_revert block_invalid_browsers block_memory_access block_path_assignment block_spawning block_unauthorized_commits block_unsafe_delete block_writes guard_trace name_memory_caller protect_session_state"
-timeout = 70
+command = "python3 /Users/jordan/.agents/hooks/combine_hooks.py block_branch_change block_composed_commands block_denied_access block_git_revert block_invalid_browsers block_memory_access block_path_assignment block_spawning block_unauthorized_commits block_unsafe_delete block_writes guard_trace protect_session_state"
+timeout = 65
 
 [[hooks.PreToolUse]]
 matcher = "Agent"
@@ -220,7 +213,7 @@ command = "python3 /Users/jordan/.agents/hooks/close_abandoned_browsers.py"
 timeout = 60
 [[hooks.Stop.hooks]]
 type = "command"
-command = "python3 /Users/jordan/.agents/hooks/remember_agent_message.py"
+command = "python3 /Users/jordan/.agents/hooks/remember_turn.py"
 timeout = 10
 
 [[hooks.SubagentStop]]
@@ -230,7 +223,7 @@ command = "python3 /Users/jordan/.agents/hooks/close_abandoned_browsers.py"
 timeout = 60
 [[hooks.SubagentStop.hooks]]
 type = "command"
-command = "python3 /Users/jordan/.agents/hooks/remember_agent_message.py"
+command = "python3 /Users/jordan/.agents/hooks/remember_turn.py"
 timeout = 10
 
 [[hooks.UserPromptSubmit]]
@@ -242,10 +235,6 @@ timeout = 60
 type = "command"
 command = "python3 /Users/jordan/.agents/hooks/inject_honcho_memory.py"
 timeout = 20
-[[hooks.UserPromptSubmit.hooks]]
-type = "command"
-command = "python3 /Users/jordan/.agents/hooks/remember_architect_message.py"
-timeout = 10
 [[hooks.UserPromptSubmit.hooks]]
 type = "command"
 command = "python3 /Users/jordan/.agents/hooks/record_session_event.py"

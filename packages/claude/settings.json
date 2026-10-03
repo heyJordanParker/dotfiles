@@ -168,16 +168,6 @@
         ]
       },
       {
-        "matcher": "Bash|Write|Edit|MultiEdit|Agent",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 ~/.agents/hooks/remember_tool_use.py",
-            "timeout": 10
-          }
-        ]
-      },
-      {
         "matcher": "Write|Edit",
         "hooks": [
           {
@@ -257,8 +247,8 @@
           },
           {
             "type": "command",
-            "command": "python3 ~/.agents/hooks/combine_hooks.py block_branch_change block_composed_commands block_denied_access block_git_revert block_invalid_browsers block_memory_access block_path_assignment block_spawning block_unauthorized_commits block_unsafe_delete block_writes guard_trace name_memory_caller protect_session_state",
-            "timeout": 70
+            "command": "python3 ~/.agents/hooks/combine_hooks.py block_branch_change block_composed_commands block_denied_access block_git_revert block_invalid_browsers block_memory_access block_path_assignment block_spawning block_unauthorized_commits block_unsafe_delete block_writes guard_trace protect_session_state",
+            "timeout": 65
           }
         ]
       },
@@ -498,7 +488,7 @@
           },
           {
             "type": "command",
-            "command": "python3 ~/.agents/hooks/remember_agent_message.py",
+            "command": "python3 ~/.agents/hooks/remember_turn.py",
             "timeout": 10
           },
           {
@@ -547,7 +537,7 @@
           },
           {
             "type": "command",
-            "command": "python3 ~/.agents/hooks/remember_agent_message.py",
+            "command": "python3 ~/.agents/hooks/remember_turn.py",
             "timeout": 10
           }
         ]
@@ -599,11 +589,6 @@
             "type": "command",
             "command": "python3 ~/.agents/hooks/inject_honcho_memory.py",
             "timeout": 20
-          },
-          {
-            "type": "command",
-            "command": "python3 ~/.agents/hooks/remember_architect_message.py",
-            "timeout": 10
           },
           {
             "type": "command",

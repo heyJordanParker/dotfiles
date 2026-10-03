@@ -1,4 +1,4 @@
-"""Honcho memory: the whole path in and out, plus the `honcho` command.
+"""Honcho memory: every call the hooks make, in and out.
 
 The plugin's own uploaders decided who spoke from which hook fired: anything
 arriving on UserPromptSubmit was stored as the architect, so task notifications,
@@ -7,31 +7,36 @@ derived "jordan instructed…" from an agent's own words. Every path lives here
 now, where `lib/transcript.py` can answer who actually spoke before anything is
 sent, and the plugin is uninstalled.
 
-Memory is stored per peer, one peer per human and one per agent, all inside one
-session per repository. Nobody observes anybody: each peer's collection holds
-Honcho's own conclusions about that peer's messages, so nothing is derived twice
-and no conclusion exists in two places. An agent's collection therefore fills
-with what it said; `remember` is how something it was told gets in.
+Memory is one session per conversation, recording its repository, Agent, model
+and Harness. The peers are the architect and one per Agent on one model
+(`cto-claude-opus-5-5`). Each project, named by its `origin` remote, is a Honcho
+scope, and a session joins its project's scope when it is created. One derivation
+per message fills the speaker's own view and the scope's view of the speaker.
+Deliberate saves go to session `general` of an own view. An Agent's replies are
+derived too, steered by `LESSONS` to what should change its next run, and the
+architect's by `PRINCIPLES` to how he works rather than what he asked for.
 
 Stdlib only, so this speaks to the v3 REST API directly instead of through
-`@honcho-ai/sdk`, and `packages/bin/honcho` is a two-line wrapper around `main`.
-Reads `~/.honcho/config.json`.
+`@honcho-ai/sdk`. Agents reach Honcho themselves through the official `honcho`
+CLI. Reads `~/.honcho/config.json`, the file that CLI reads too.
 
-Every hook-facing failure is silent. A memory write is never worth blocking a
-turn over, and the hooks that call this have nothing to say to the agent. A write
-answers False, a list answers [], and only `context` distinguishes its failure
-from its empty answer, because its caller acts differently on each. The command
-line reports its failures, because a human ran it.
+Every failure is silent. A memory call is never worth blocking a turn over, and
+the hooks that call this have nothing to say to the agent. A write answers False,
+and a read answers None when Honcho did not answer and "" or [] when it holds
+nothing.
 """
 
+import getpass
 import json
 import os
 import re
 import subprocess
-import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+
+from lib import agent_memory, transcript
+from lib.event import agent_name, field, is_subagent
 
 API_VERSION = "v3"
 CONFIG_PATH = os.path.expanduser("~/.honcho/config.json")
@@ -41,14 +46,18 @@ CONFIG_PATH = os.path.expanduser("~/.honcho/config.json")
 MAX_MESSAGE = 24000
 
 TIMEOUT = 10
+STORE_TIMEOUT = 2
 
 
 def config():
+    """The committed server and workspace, speaking as the machine's login name unless it names a peer."""
     try:
         with open(CONFIG_PATH, encoding="utf-8") as fh:
-            return json.load(fh)
+            cfg = json.load(fh)
     except (OSError, ValueError):
         return {}
+    cfg.setdefault("peerName", _sanitize(getpass.getuser()))
+    return cfg
 
 
 def enabled(cfg):
@@ -85,21 +94,64 @@ def project_root(cwd):
     return root or cwd
 
 
-def session_name(cwd):
-    """The session a directory writes to: its repository.
+def _origin_name(cwd):
+    """The repository name its `origin` remote carries, or "" when it has none."""
+    try:
+        out = subprocess.run(["git", "remote", "get-url", "origin"], cwd=cwd,
+                             capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    url = out.stdout.strip().rstrip("/")
+    if out.returncode != 0 or not url:
+        return ""
+    name = re.split(r"[/:]", url)[-1]
+    return name[:-4] if name.endswith(".git") else name
+
+
+def project_name(cwd):
+    """The project a directory belongs to: its repository, named by its remote.
+
+    It names the project's scope, which holds every conversation held in that
+    repository, whoever holds it.
 
     Derived every time, with no per-directory override table. A stored mapping is
     a second source of truth for a name the repo already answers, and the one that
-    accumulated here pinned a worktree to its own session — splitting one project's
-    memory in half — and minted a session per scratch directory besides.
+    accumulated here pinned a worktree to its own memory — splitting one project in
+    half — and minted one per scratch directory besides.
 
-    No peer prefix: a session holds many peers, so one repository is one session
-    that every human and every agent working it writes into. Prefixing by peer
-    would split the same project per person the moment a second human arrives.
+    The `origin` remote names the repository, so a folder rename leaves its
+    memory where it was; a repository with no remote falls back to its folder."""
+    root = project_root(cwd)
+    return _sanitize(_origin_name(root) or os.path.basename(root.rstrip("/")) or "root")
 
-    The server creates a session on first write, so a repo that has never been
-    seen needs no registration."""
-    return _sanitize(os.path.basename(project_root(cwd).rstrip("/")) or "root")
+
+def peer_name(agent, model):
+    """The peer an Agent runs as on one model, such as `cto-claude-opus-5-5`, or "".
+
+    How an Agent works, and what it learns, changes with the model it runs on, so
+    each pairing is its own peer and its views stay apart without any filter."""
+    return _sanitize("%s-%s" % (agent, model)) if agent and model else ""
+
+
+def conversation(event):
+    """The Harness's own id for the conversation an event belongs to.
+
+    A Claude Subagent is a conversation of its own, with its own transcript and
+    model: its payload's `session_id` is the parent's, and `agent_id` is its own."""
+    return field(event, "agent_id", "") or field(event, "session_id", "")
+
+
+def event_model(event, recs):
+    """The model a conversation runs on, or "".
+
+    codex puts it on every Hook payload. Claude records it only on a reply, so a
+    Claude conversation's first turn has none."""
+    return field(event, "model", "") or transcript.model(recs)
+
+
+def harness(event):
+    """`codex` or `claude`: `turn_id` is codex's own payload field, and Claude sends none."""
+    return "codex" if field(event, "turn_id", "") else "claude"
 
 
 def chunks(text):
@@ -119,25 +171,126 @@ def chunks(text):
     return out
 
 
-def post(cfg, session, peer, text, metadata=None, timeout=None):
-    """Store text in a session as one peer's speech. True when the API took it.
+# Derived from an Agent's reply by default, Honcho records what the Agent did:
+# the old per-Agent collections held 50 of 50 commands and file writes. With
+# these added instructions, a live test reply listing a fix, a mistake and a
+# test count yielded the mistake's lesson and a tool quirk, and nothing else.
+LESSONS = ("The target peer is an AI coding agent. Write a conclusion only for what it observed that "
+           "changes how it works next time: a mistake it made and its cause, how a tool, system, or "
+           "environment behaved, an approach that worked. A proposal, plan, or recommendation is not "
+           "an observation, because nothing has shown it works yet. Write no conclusion for one, for "
+           "what it did, changed, or ran, or for facts about the code, because the transcript and "
+           "the repository already hold them.\n"
+           "Example: <message peer=\"builder-model-x\" target=\"true\">The migration passed its tests "
+           "and failed on live data, because the fixtures had no null rows. I added null rows and "
+           "reran it; all 40 tests pass. I propose a nightly run against a copy of live data."
+           "</message> → \"builder-model-x learned that fixtures without null rows let a migration "
+           "pass tests that live data broke\"; the rerun, the test count, and the proposed nightly "
+           "run get no conclusion.")
 
-    The peer is the caller's decision and never inferred here — that inference is
-    the defect this module exists to remove."""
-    if not session or not peer or not text:
+# Derived from the architect's messages by default, Honcho records every request
+# he makes: 23 of his messages gave 54 lines, mostly one-off tasks. These
+# instructions gave 19, nearly all principles and corrections with their reasons.
+PRINCIPLES = ("The target peer directs AI coding agents, so \"you\" in their messages means the agent. "
+              "Write a conclusion only for what will still matter on their next task: a principle "
+              "they work from and why, what they value or reject, how they judge work, a correction "
+              "they made and why, an approach they confirmed. Write no conclusion for a request for "
+              "one task, a report of one bug, or a question about status.\n"
+              "Example: <message peer=\"dana\" target=\"true\">keep it simple, every abstraction has "
+              "to earn its place</message> → \"dana favors the simplest design that works and "
+              "expects every abstraction to justify itself\"\n"
+              "Example: <message peer=\"dana\" target=\"true\">the export button is broken, fix "
+              "it</message> → no conclusion; it asks for one task.")
+
+
+def post(cfg, session, said, timeout=None):
+    """Store ordered peer-and-text pairs in a session. True when the API took them."""
+    if not session:
         return False
-    messages = [{"peer_id": peer, "content": chunk, "metadata": dict(metadata or {})}
-                for chunk in chunks(text)]
+    messages = []
+    for peer, text in said:
+        if not peer or not text.strip():
+            continue
+        instructions = PRINCIPLES if peer == cfg.get("peerName") else LESSONS
+        messages.extend({"peer_id": peer, "content": chunk,
+                         "configuration": {"reasoning": {"custom_instructions": instructions}}}
+                        for chunk in chunks(text))
+    if not messages:
+        return False
     return _request(cfg, "POST", "sessions/%s/messages" % urllib.parse.quote(str(session), safe=""),
                     body={"messages": messages}, timeout=timeout) is not None
 
 
+def members(architect, agent_peer):
+    """Who is in a conversation: both are learned about, and neither observes the other.
+
+    Honcho writes each speaker's lines into its own view and into the view of
+    every scope the session belongs to, so no member needs to observe."""
+    out = {}
+    if architect:
+        out[architect] = {"observe_me": True, "observe_others": False}
+    if agent_peer:
+        out[agent_peer] = {"observe_me": True, "observe_others": False}
+    return out
+
+
+def open_session(cfg, session, peers, metadata, scope, timeout=None):
+    """Make `session` exist with exactly `peers` as members. True when Honcho took every request.
+
+    A session joins `scope` only on the request that creates it. Joining a session
+    that already has messages queues a backfill that copies all of them again.
+    Setting the members rather than adding them retires a model's peer the moment
+    the conversation moves to another model, and leaves the scope membership alone."""
+    if not session or not peers:
+        return False
+    body = {"id": session, "metadata": {key: value for key, value in metadata.items() if value}}
+    status, _ = _call(cfg, "POST", "sessions", body=body, timeout=timeout)
+    if status is None:
+        return False
+    if status == 201 and _request(cfg, "POST", "sessions", body={"id": session, "scopes": [scope]},
+                                  timeout=timeout) is None:
+        return False
+    return _request(cfg, "PUT", "sessions/%s/peers" % urllib.parse.quote(str(session), safe=""),
+                    body=peers, timeout=timeout) is not None
+
+
+def store(cfg, event, recs, agent, architect_said, replies):
+    """Store one complete turn in its conversation. True when Honcho took it.
+
+    The Agent-on-model joins its conversation once the model is known, which on
+    Claude is from the Agent's first reply. Until then the architect's words reach
+    his own view and the project scope's.
+
+    Its requests share the calling Hook's 10-second limit, so each gets
+    `STORE_TIMEOUT`: a stalled server loses one message instead of showing every
+    running session a Hook timeout."""
+    model = event_model(event, recs)
+    agent_peer = peer_name(agent, model)
+    architect = "" if is_subagent(event) else cfg.get("peerName", "")
+    project = project_name(field(event, "cwd", "") or os.getcwd())
+    session = conversation(event)
+    said = ([(architect, text) for text in architect_said]
+            + [(agent_peer, replies)])
+    if not any(peer and text.strip() for peer, text in said):
+        return False
+    metadata = {"repository": project, "agent": agent, "model": model, "harness": harness(event)}
+    if not open_session(cfg, session, members(architect, agent_peer), metadata, project,
+                        timeout=STORE_TIMEOUT):
+        return False
+    return post(cfg, session, said, timeout=STORE_TIMEOUT)
+
+
 def _request(cfg, method, route, body=None, query=None, timeout=None):
     """Run one Honcho request, returning decoded JSON or None on failure."""
-    base = ((cfg.get("endpoint") or {}).get("baseUrl") or "").rstrip("/")
+    return _call(cfg, method, route, body=body, query=query, timeout=timeout)[1]
+
+
+def _call(cfg, method, route, body=None, query=None, timeout=None):
+    """Run one Honcho request, returning its status and decoded JSON, or (None, None) on failure."""
+    base = (cfg.get("environmentUrl") or "").rstrip("/")
     workspace = cfg.get("workspace")
     if not base or not workspace:
-        return None
+        return None, None
 
     url = "%s/%s/workspaces/%s/%s" % (base, API_VERSION, workspace, route.lstrip("/"))
     if query:
@@ -153,283 +306,124 @@ def _request(cfg, method, route, body=None, query=None, timeout=None):
     try:
         with urllib.request.urlopen(request, timeout=TIMEOUT if timeout is None else timeout) as response:
             if not 200 <= response.status < 300:
-                return None
+                return None, None
             data = response.read().decode("utf-8")
-            return json.loads(data) if data else {}
+            return response.status, json.loads(data) if data else {}
     except (urllib.error.URLError, OSError, ValueError, UnicodeDecodeError):
-        return None
+        return None, None
 
 
-def context(cfg, peer, query="", timeout=None):
-    """Relevant conclusion text for one peer, [] when it has none, None on failure.
+# Ten conclusions measured 1,915 characters. Two peers' worth and their general
+# lines fit one turn's context whole.
+MAX_CONCLUSIONS = 10
 
-    The three are different answers and a caller acts differently on each: a peer
-    Honcho knows nothing about is a fact, a server that did not answer is not.
+# How far a line may sit from a turn's words and still be read. Measured on the
+# architect's own phrasing: at 0.7 "is this a good memory system or not? check"
+# found 3 memory lines and a request nothing stored answers found none. At 0.6 the
+# first found nothing, and at 0.8 the second found 10 unrelated lines.
+DISTANCE = 0.7
 
-    `include_most_frequent` carries the conclusions that hold regardless of what
-    the turn is about. With it off, a turn whose words match nothing semantically
-    got an empty block instead of a profile."""
-    if not peer:
-        return []
-    response = _request(cfg, "GET", "peers/%s/context" % urllib.parse.quote(str(peer), safe=""),
-                        query={
-                            "search_query": query,
-                            "search_top_k": 10,
-                            "search_max_distance": 0.6,
-                            "max_conclusions": 15,
-                            "include_most_frequent": "true",
-                        }, timeout=timeout)
+
+def search(cfg, peer, project, query, timeout=None):
+    """The project's lines about `peer` that match `query`, nearest first, [] when none match, None on failure.
+
+    Honcho's plain search over the scope's view. Its representation read fills
+    every slot the hits leave with the newest lines, so a turn nothing stored
+    matched got ten memories about other work."""
+    response = _request(cfg, "POST", "conclusions/query", body={
+        "query": query, "top_k": MAX_CONCLUSIONS, "distance": DISTANCE,
+        "filters": {"observer": "scope." + project, "observed": peer}}, timeout=timeout)
+    return _dated(response) if isinstance(response, list) else None
+
+
+def card(cfg, project, peer, timeout=None):
+    """The project scope's card of `peer`: its standing facts, [] when none, None on failure."""
+    response = _request(cfg, "GET", "peers/%s/card" % urllib.parse.quote("scope." + project, safe=""),
+                        query={"target": peer}, timeout=timeout)
     if not isinstance(response, dict):
         return None
-    representation = response.get("representation")
-    if not isinstance(representation, str):
-        return None
-    return [re.sub(r"^- ", "", re.sub(r"^\[.*?\]\s*", "", line)).strip()
-            for line in representation.splitlines()
-            if line.strip() and not line.startswith("#")]
+    return response.get("peer_card") or []
 
 
-CACHE_DIR = os.path.expanduser("~/.honcho/cache")
+def patterns(cfg, peer, project, timeout=None):
+    """The patterns Honcho's dream drew about `peer` in the project, newest first, [] when none, None on failure."""
+    page = _request(cfg, "POST", "conclusions/list", body={"filters": {
+        "observer_id": "scope." + project, "observed_id": peer, "level": "inductive"}},
+        query={"size": MAX_CONCLUSIONS}, timeout=timeout)
+    return _dated(page["items"]) if isinstance(page, dict) else None
 
 
-def _cache_path(cfg, peer):
-    # Keyed by workspace as well as peer: the same peer name lives in every
-    # workspace, and a fallback served across that line would put one workspace's
-    # conclusions in front of another's turn.
-    return os.path.join(CACHE_DIR, "%s.%s.json" % (_sanitize(str(cfg.get("workspace") or "none")),
-                                                   _sanitize(str(peer))))
+def _dated(items):
+    return ["[%s] %s" % (item["created_at"][:10], item["content"].strip()) for item in items]
 
 
-def remembered_context(cfg, peer, query="", timeout=None):
-    """A peer's conclusions, falling back to the last set that arrived.
-
-    The retrieval is one network call in front of every turn. When it fails or
-    times out, returning nothing makes that turn memory-blind and nothing says
-    so; the last successful answer is stale but true, and the turn reads as a
-    turn rather than as a fresh start. Every success replaces the fallback.
-
-    Only a failure falls back. An answered "this peer has nothing" is the truth
-    about a peer, and treating it as a failure kept replaying a stale set at a
-    fresh agent forever — its collection would have had to out-argue a cache that
-    was never allowed to empty.
-    """
-    lines = context(cfg, peer, query=query, timeout=timeout)
-    if lines is not None:
-        try:
-            os.makedirs(CACHE_DIR, exist_ok=True)
-            with open(_cache_path(cfg, peer), "w", encoding="utf-8") as fh:
-                json.dump(lines, fh)
-        except OSError:
-            pass
-        return lines
-    try:
-        with open(_cache_path(cfg, peer), encoding="utf-8") as fh:
-            stale = json.load(fh)
-    except (OSError, ValueError):
-        return []
-    return stale if isinstance(stale, list) else []
+GENERAL = "general"
 
 
-def card(cfg, peer, timeout=None):
-    """The peer card: the standing lines about a peer, independent of any query.
+def general(cfg, peer, query="", timeout=None):
+    """The lines of a peer's own view that hold in every project, [] when none match, None on failure.
 
-    The one part of the plugin's block that never depended on the turn's words
-    matching a conclusion semantically."""
+    An own view collects every project's lessons, so only deliberate saves and
+    patterns whose evidence spans two projects are read outside their project.
+    With no query to search on, the newest deliberate saves stand in."""
     if not peer:
         return []
-    response = _request(cfg, "GET", "peers/%s/card" % urllib.parse.quote(str(peer), safe=""),
-                        timeout=timeout)
-    lines = response.get("peer_card") if isinstance(response, dict) else None
-    return [str(line).strip() for line in lines if str(line).strip()] if lines else []
-
-
-def search(cfg, query, peer=None):
-    """Messages matching `query`, scoped to a peer or to the whole workspace.
-
-    Conclusions are what a turn is injected with; the messages behind them are
-    reachable only here. "What did we decide about X" is a message question."""
     if not query:
+        page = _request(cfg, "POST", "conclusions/list", body={"filters": {
+            "observer_id": peer, "observed_id": peer, "session_id": GENERAL}},
+            query={"size": MAX_CONCLUSIONS}, timeout=timeout)
+        return _dated(page["items"]) if isinstance(page, dict) else None
+    response = _request(cfg, "POST", "conclusions/query", body={
+        "query": query, "top_k": 5, "distance": DISTANCE,
+        "filters": {"observer": peer, "observed": peer, "OR": [
+            {"session_id": GENERAL}, {"level": {"in": ["deductive", "inductive"]}}]},
+    }, timeout=timeout)
+    if not isinstance(response, list):
+        return None
+    sources = _by_id(cfg, "conclusions/list",
+                     [sid for item in response if item["session_id"] != GENERAL
+                      for sid in item["source_ids"]], timeout)
+    sessions = _by_id(cfg, "sessions/list",
+                      sorted({source["session_id"] for source in sources or [] if source["session_id"]}),
+                      timeout)
+    if sources is None or sessions is None:
+        return None
+    session_of = {source["id"]: source["session_id"] for source in sources}
+    project_of = {session["id"]: session["metadata"].get("repository") for session in sessions}
+
+    def projects(item):
+        return {project_of.get(session_of.get(sid)) for sid in item["source_ids"]} - {None}
+
+    return _dated([item for item in response
+                   if item["session_id"] == GENERAL or len(projects(item)) >= 2])
+
+
+def _by_id(cfg, route, ids, timeout):
+    if not ids:
         return []
-    # `_request` already prefixes `workspaces/<workspace>`; naming it again here
-    # built `/workspaces/<w>/<w>/search`, which 404s into an empty list that reads
-    # exactly like "no matches".
-    route = "peers/%s/search" % urllib.parse.quote(str(peer), safe="") if peer else "search"
-    response = _request(cfg, "POST", route, body={"query": query, "limit": 10})
-    items = response.get("items") if isinstance(response, dict) else response
-    return items if isinstance(items, list) else []
+    response = _request(cfg, "POST", route, body={"filters": {"id": ids}}, query={"size": 100},
+                        timeout=timeout)
+    return response["items"] if isinstance(response, dict) else None
 
-
-def ask(cfg, peer, question):
-    """Honcho's reasoning over everything it knows about a peer, None on failure.
-
-    The dialectic endpoint: it searches and reasons rather than returning stored
-    lines, which is the one read no amount of conclusion retrieval substitutes for.
-    A human waits on this one, which is what buys it the 120s ceiling.
-
-    Failure and an empty answer are told apart the way `context` tells them apart,
-    and for the same reason: this endpoint answered 500 for every peer while the
-    rest of the API was healthy, and "no answer" read as "memory knows nothing
-    about him"."""
-    if not peer or not question:
-        return None
-    response = _request(cfg, "POST", "peers/%s/chat" % urllib.parse.quote(str(peer), safe=""),
-                        body={"query": question, "stream": False, "reasoning_level": "low"},
-                        timeout=120)
-    if not isinstance(response, dict):
-        return None
-    content = response.get("content")
-    return content if isinstance(content, str) else ""
-
-
-def conclusions(cfg, filters=None):
-    """The first page of raw conclusion objects matching filters, or [] on failure."""
-    response = _request(cfg, "POST", "conclusions/list", body={"filters": filters},
-                        query={"page": 1, "size": 50})
-    if isinstance(response, list):
-        return response
-    if isinstance(response, dict) and isinstance(response.get("items"), list):
-        return response["items"]
-    return []
-
-
-def create_conclusion(cfg, observer, observed, content):
-    """Create one conclusion. Return False when Honcho cannot accept it.
-
-    No session: the collection is the key a read asks for, and naming a session
-    the messages have not created yet is a 404 rather than a placement."""
-    if not observer or not observed or not content:
-        return False
-    response = _request(cfg, "POST", "conclusions", body={"conclusions": [{
-        "observer_id": observer,
-        "observed_id": observed,
-        "content": content,
-        "session_id": None,
-    }]})
-    return response is not None
-
-
-def delete_conclusion(cfg, conclusion_id):
-    """Delete one conclusion. Return False when Honcho cannot accept it."""
-    if not conclusion_id:
-        return False
-    response = _request(cfg, "DELETE", "conclusions/%s" %
-                        urllib.parse.quote(str(conclusion_id), safe=""))
-    return response is not None
-
-
-# --- command line ---------------------------------------------------------------
-
-USAGE = """honcho — read and write Honcho memory
-
-  honcho remember [--as <agent>] <text>   keep one thing in an agent's collection
-  honcho context <peer> [query]           the conclusions the server holds now
-  honcho ask <peer> <question>            reason over everything known about a peer
-  honcho search <query> [--peer <p>]      the stored messages behind the conclusions
-  honcho list [peer]                      the first page of raw conclusions
-  honcho forget <id>                      delete one conclusion
-
-`remember` names the running agent itself; `--as` is for writing into another
-agent's collection, which is the architect's call to make.
-
-`context` returns stored conclusions; `ask` reasons over the messages behind them
-and answers in prose; `search` returns the messages themselves. A question about
-what was decided is a `search` or an `ask`, never a `context`."""
-
-NO_AGENT = """honcho: nothing here names which agent is running, so a write has
-no collection to land in. Name one with `--as <agent>`.
-"""
 
 def running_agent():
     """The agent this process is running as, or "".
 
     A Claude session carries the name it was started as. Inside a Claude subagent
-    that is not right — `CLAUDE_CODE_AGENT` still holds the dispatching agent —
-    which is why `name_memory_caller.py` writes `--as` into the command there
-    before it reaches this function.
+    `CLAUDE_CODE_AGENT` still holds the dispatching agent, which is why
+    `memory_agent` reads the event's own agent first.
     """
     return os.environ.get("CLAUDE_CODE_AGENT", "")
 
 
-def main(argv):
-    cfg = config()
-    if not enabled(cfg):
-        sys.stderr.write("honcho memory is disabled in %s\n" % CONFIG_PATH)
-        return 1
+def memory_agent(event):
+    """The agent whose memory an event belongs to, on either harness, or "".
 
-    command = argv[0] if argv else ""
-    rest = argv[1:]
-
-    if command == "remember" and rest:
-        named = ""
-        if rest[0] == "--as":
-            # Without both a name and something to keep, the flag and its value
-            # would otherwise be stored as the text itself.
-            if len(rest) < 3:
-                sys.stderr.write(USAGE + "\n")
-                return 1
-            named, rest = rest[1], rest[2:]
-        text = " ".join(rest)
-        agent = named or running_agent()
-        if not agent:
-            sys.stderr.write(NO_AGENT)
-            return 1
-        # Observer and observed are both the agent: the subject is its own
-        # behaviour, and no second party's view of it differs.
-        if not create_conclusion(cfg, agent, agent, text):
-            sys.stderr.write("honcho refused the write\n")
-            return 1
-        sys.stdout.write("remembered for %s\n" % agent)
-        return 0
-
-    if command == "context" and rest:
-        lines = context(cfg, rest[0], query=" ".join(rest[1:]))
-        if lines is None:
-            sys.stderr.write("honcho did not answer for %s\n" % rest[0])
-            return 1
-        for line in card(cfg, rest[0]) + lines:
-            sys.stdout.write("- %s\n" % line)
-        return 0
-
-    if command == "ask" and len(rest) > 1:
-        answer = ask(cfg, rest[0], " ".join(rest[1:]))
-        if answer is None:
-            sys.stderr.write("honcho did not answer. The rest of the API may still be up: "
-                             "this endpoint reasons with a model and fails on its own.\n")
-            return 1
-        if not answer:
-            sys.stderr.write("honcho knows nothing about %s that answers this\n" % rest[0])
-            return 1
-        sys.stdout.write(answer + "\n")
-        return 0
-
-    if command == "search" and rest:
-        peer = ""
-        if "--peer" in rest:
-            at = rest.index("--peer")
-            if at + 1 >= len(rest):
-                sys.stderr.write(USAGE + "\n")
-                return 1
-            peer, rest = rest[at + 1], rest[:at] + rest[at + 2:]
-        for item in search(cfg, " ".join(rest), peer=peer or None):
-            sys.stdout.write("%s  %s  %s\n" % (
-                (item.get("created_at") or "")[:19], item.get("peer_id", ""),
-                " ".join((item.get("content") or "").split())[:200]))
-        return 0
-
-    if command == "list":
-        filters = {"observed_id": rest[0]} if rest else None
-        for item in conclusions(cfg, filters=filters):
-            sys.stdout.write("%s  (%s, %s)  %s\n" % (
-                item.get("id", ""), item.get("observer_id", ""),
-                item.get("observed_id", ""), item.get("content", "")))
-        return 0
-
-    if command == "forget" and rest:
-        if not delete_conclusion(cfg, rest[0]):
-            sys.stderr.write("honcho refused the delete\n")
-            return 1
-        sys.stdout.write("deleted %s\n" % rest[0])
-        return 0
-
-    sys.stderr.write(USAGE + "\n")
-    return 1
+    The event's agent when it is one of ours. Otherwise the agent the session runs
+    as: a Claude fork and a Subagent codex starts under its own role name report
+    names that are not agents of ours, and they work for the agent that started
+    them."""
+    named = agent_name(event)
+    if named and os.path.isfile(agent_memory.definition_path(named)):
+        return named
+    return running_agent()

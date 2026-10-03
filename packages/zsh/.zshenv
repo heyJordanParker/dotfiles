@@ -21,6 +21,8 @@ export AGENT_BROWSER_IDLE_TIMEOUT_MS=300000
 # npm auth lives untracked so `npm login` never writes into the dotfiles tree
 export NPM_CONFIG_USERCONFIG="$HOME/.config/npm/npmrc"
 export NPM_CONFIG_FUND=false
+# The official honcho CLI takes its workspace from this variable
+export HONCHO_WORKSPACE_ID="parkerlabs"
 export PATH="$HOME/.local/bin:$HOME/.claude/local:$HOME/bin:$BUN_INSTALL/bin:$HOME/.antigravity/antigravity/bin:$HOME/.lando/bin:/opt/homebrew/opt/ruby/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:${PATH:-/usr/bin:/bin:/usr/sbin:/sbin}"
 
 # Safe delete - moves to Trash instead of permanent deletion

@@ -24,6 +24,7 @@ TARGETS = {
     "bin": f"{HOME}/.local/bin",
     "starship": f"{HOME}/.config",
     "hcom": f"{HOME}/.hcom",
+    "honcho": f"{HOME}/.honcho",
 }
 
 # packages that each land in their own ~/.config/<pkg> directory

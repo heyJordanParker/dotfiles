@@ -24,7 +24,7 @@ def config_root(tmp_path, monkeypatch):
     return write
 
 
-def _run(monkeypatch, agent_type, command="honcho context jordan",
+def _run(monkeypatch, agent_type, command='honcho peer chat "x" -p jordan',
          agent_id="a1d6344fe2b8d8332"):
     """A subagent's PreToolUse payload by default: both fields present, which is
     the shape observed from a real Agent-tool dispatch. `agent_id=None` is the

@@ -27,8 +27,8 @@ Edit the Hook's `BINDING` and run `sync.py`. Add `roots: "all"` when the Hook mu
 Never: hand-edit the generated regions, in `settings.json`, in a profile's `settings.json`, or in `config.toml`.
 
 IF renaming or deleting a wired Hook:
-### Migrate wiring-first
-Add the new file, run `sync.py`, let the live sessions drain, then delete the old file and run `sync.py` again. A session holds the wiring snapshot taken at its start, and a wired Hook whose file is missing blocks every tool call in that session.
+### Unwire it, then delete it
+Set its `BINDING` events to `{}` and run `sync.py`, then delete the file and run `sync.py` again. A running Claude session reloads its settings when they change, so it drops the Hook before the file goes. A file deleted while still wired blocks every tool call.
 
 IF adding or changing a test under tests/:
 ### Earn the test with a demonstrated failure

@@ -13,16 +13,13 @@ IF answering needs more than three searches of the codebase:
 Search with `trace` yourself when fewer searches answer it, and never repeat research an Agent is already running.
 
 IF the question is what was said, decided, or preferred before this session:
-### Ask Memory with `honcho`
-`honcho ask <peer> <question>` reasons over everything Memory holds about a peer, `honcho search <query>` returns the messages behind it, and `honcho context <peer> [query]` returns the stored conclusions. The injected block is a summary, not the record. Peers are `jordan` and one per Agent by its name.
+### Ask Memory with `honcho peer chat`
+`honcho peer chat "<question>" -p <peer> --scope <project>` answers from what Memory holds about a peer in this project, and `honcho peer search "<query>" -p <peer>` returns the messages behind it. The injected block is a summary, not the record. Peers are `jordan` and one per Agent and model, such as `cto-claude-opus-5-5`. Each project is a scope named for its repository, such as `dotfiles`.
 
-IF the Architect tells you something about yourself that this session's Memory did not carry:
-### Keep it with `honcho remember`
-`honcho remember <text>` keeps one line in your own collection. Never name the Agent; the running Agent is resolved for you.
-
-### Record to Memory only what outlives the session
-Memory records the Architect's corrections, recurring patterns, and conventions of your own craft that improve future runs.
-Never: session context, one-time fixes, or content that belongs in Claude.md files.
+IF you learn something that holds in every project:
+### Keep it with `honcho conclusion create`
+`honcho conclusion create "<text>" --observer <peer> --session general` keeps one line about that peer, yours or `jordan`'s, and every project reads it. What holds in one project needs no command: Memory learns it from the conversation.
+Never: a project's names, modules, or files, session context, or a one-time fix.
 
 ### Read, search, and list repository files with /trace
 Use `trace read`, `trace grep`, `trace find`, `trace list`, `trace status`, `trace history`, and `trace blame` for repository files, and read their output whole. A raw `cat`, `grep`, `ls`, or `git log` on a repository path, or a pipe on trace output, is refused.

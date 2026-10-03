@@ -58,11 +58,25 @@ def is_real_user(record):
     return True
 
 
+def _queued(record):
+    """The `queued_command` attachment a Claude record carries, or None.
+
+    A message that arrives while a turn is running is never written as a user
+    record. Claude absorbs it into the running turn and records it as this
+    attachment, labelled with its origin."""
+    attachment = record.get("attachment") if record.get("type") == "attachment" else None
+    return attachment if isinstance(attachment, dict) and attachment.get("type") == "queued_command" else None
+
+
 def text_of(record):
     """A record's text: scalar content, or its text blocks joined.
 
     Handles both transcript shapes. Claude puts content on `message`; codex puts
     it on `payload`, with `input_text`/`output_text` blocks instead of `text`."""
+    queued = _queued(record)
+    if queued:
+        prompt = queued.get("prompt")
+        return prompt if isinstance(prompt, str) else ""
     c = _content(record)
     if c is None:
         c = (record.get("payload") or {}).get("content")
@@ -163,6 +177,8 @@ def _role(record):
     kind = record.get("type")
     if kind in ("user", "assistant"):
         return kind
+    if _queued(record):
+        return "user"
     return (record.get("payload") or {}).get("role", "")
 
 
@@ -176,6 +192,10 @@ def speaker(record, meta=None):
         return Agent
     if role != "user":
         return ""
+    queued = _queued(record)
+    if queued:
+        human = (queued.get("origin") or {}).get("kind") == "human"
+        return Architect if human and queued.get("commandMode") == "prompt" else Harness
     if record.get("isMeta"):
         return Harness
     if meta:
@@ -190,19 +210,20 @@ def speaker(record, meta=None):
     return author
 
 
-def architect_message(recs):
-    """The architect's most recent message in this transcript, or ""."""
+def architect_messages(recs):
+    """The Architect's messages after this transcript's latest turn boundary."""
     meta = session_meta(recs)
-    for r in reversed(recs):
-        if _role(r) != "user":
-            continue
-        if speaker(r, meta) == Architect:
-            return text_of(r)
-        if not meta:
-            # Claude labels every record, so the newest user record is the prompt
-            # this fired on; an older one is a different turn, not this one.
-            return ""
-    return ""
+    cut = 0
+    if meta:
+        for i, record in enumerate(recs):
+            payload = record.get("payload") or {}
+            if record.get("type") == "event_msg" and payload.get("type") == "task_started":
+                cut = i + 1
+    else:
+        for i, record in enumerate(recs):
+            if record.get("type") == "system" and record.get("subtype") == "stop_hook_summary":
+                cut = i + 1
+    return [text_of(record) for record in recs[cut:] if speaker(record, meta) == Architect]
 
 
 def agent_replies(recs):
@@ -214,6 +235,22 @@ def agent_replies(recs):
     scope = recs if session_meta(recs) else current_turn(recs)
     return "\n\n".join(t for t in (text_of(r) for r in scope
                                    if speaker(r) == Agent) if t.strip())
+
+
+def model(recs):
+    """The model the newest record names, for either transcript, or "".
+
+    Claude names it on every reply's `message`; codex on each `turn_context`
+    payload. Claude writes `<synthetic>` for a reply the harness made up itself,
+    which no model wrote."""
+    for r in reversed(recs):
+        msg = r.get("message")
+        name = msg.get("model") if isinstance(msg, dict) else None
+        if not name and r.get("type") == "turn_context":
+            name = (r.get("payload") or {}).get("model")
+        if isinstance(name, str) and name and not name.startswith("<"):
+            return name
+    return ""
 
 
 def current_turn(recs):

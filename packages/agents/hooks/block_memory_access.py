@@ -23,17 +23,17 @@ makes it the gate on both harnesses. The injection hook is the other way in, and
 it reads the same declaration before it puts anything in a turn or in a dispatch
 brief, so a blank agent stays blank whichever direction memory travels.
 
-One gate covers both directions the command travels: `context`, `search` and
-`ask` read, and `remember` and `forget` write. The hooks that write a turn's
-messages carry the same declaration check of their own, because nothing routes
-them through here.
+One gate covers both directions the command travels: Honcho's official CLI reads
+with `peer chat` and `peer search`, and writes with `conclusion create`. The hooks
+that write a turn's messages carry the same declaration check of their own,
+because nothing routes them through here.
 """
 
 import re
 import sys
 
-from lib import agent_memory, feedback
-from lib.event import agent_name, command_str, field, read_event
+from lib import agent_memory, feedback, honcho
+from lib.event import command_str, field, read_event
 
 BINDING = {
     "events": {"PreToolUse": ["Bash"]},
@@ -42,7 +42,7 @@ BINDING = {
     "roots": "all",
 }
 
-# The command as a word, so `honcho context …` and an absolute path to it match
+# The command as a word, so `honcho peer chat …` and an absolute path to it match
 # while `echo honcho` in prose does not.
 _HONCHO = re.compile(r"(^|[\s;&|(])(\S*/)?honcho(\s|$)")
 
@@ -65,7 +65,7 @@ def gated(event):
     """
     if not field(event, "agent_id", ""):
         return ""
-    return agent_name(event)
+    return honcho.memory_agent(event)
 
 
 def main():
