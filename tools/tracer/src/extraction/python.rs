@@ -123,6 +123,7 @@ pub fn extract_from_tree(tree: &tree_sitter::Tree, source: &[u8]) -> ExtractionR
                     symbol: None,
                     locals: Vec::new(),
                     line: c.line,
+                    block: None,
                 }),
                 "import_from.module" => {}
                 "import_from.symbol" => {
@@ -132,6 +133,7 @@ pub fn extract_from_tree(tree: &tree_sitter::Tree, source: &[u8]) -> ExtractionR
                         symbol: Some(c.text.clone()),
                         locals: Vec::new(),
                         line: c.line,
+                        block: None,
                     });
                 }
                 "export.function" => exports.push(Export {
@@ -221,6 +223,9 @@ fn walk_declarations(root: Node, source: &[u8]) -> Vec<Declaration> {
                             parent: None,
                             header: python_header(n, source),
                             annotations: python_annotations(n, source),
+                            self_type: None,
+                            module_file: None,
+                            supertypes: Vec::new(),
                         });
                     }
                 }
@@ -355,13 +360,8 @@ fn python_annotations(node: Node, source: &[u8]) -> Vec<String> {
 /// matters for reference resolution against the declaration index.
 fn walk_references(root: Node, source: &[u8]) -> Vec<Reference> {
     let mut out = Vec::new();
-    // Each stack entry carries the name of the nearest enclosing
-    // `function_definition` — the calling symbol a use site belongs to. A
-    // function node sets the enclosing for its subtree; a nested function
-    // overrides it with its own name (innermost wins). `None` is module top
-    // level, where the edge keeps the importer-module source.
-    let mut stack: Vec<(Node, Option<String>)> = vec![(root, None)];
-    while let Some((n, enclosing)) = stack.pop() {
+    let mut stack = vec![root];
+    while let Some(n) = stack.pop() {
         if n.kind() == "call" {
             if let Some(func) = n.child_by_field_name("function") {
                 if let Some((name, line, shape, receiver)) = call_shape(func, source) {
@@ -370,23 +370,12 @@ fn walk_references(root: Node, source: &[u8]) -> Vec<Reference> {
                         line,
                         shape,
                         receiver,
-                        enclosing: enclosing.clone(),
                     });
                 }
             }
         }
-        let child_enclosing = if n.kind() == "function_definition" {
-            n.child_by_field_name("name")
-                .and_then(|nm| nm.utf8_text(source).ok())
-                .map(|s| s.to_string())
-                .or_else(|| enclosing.clone())
-        } else {
-            enclosing.clone()
-        };
         let mut c = n.walk();
-        for child in n.children(&mut c) {
-            stack.push((child, child_enclosing.clone()));
-        }
+        stack.extend(n.children(&mut c));
     }
     out
 }

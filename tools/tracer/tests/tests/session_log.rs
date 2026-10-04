@@ -810,6 +810,64 @@ fn a_resumed_subagent_sees_its_directory_listing_again_after_a_context_reset() {
 }
 
 #[test]
+fn a_resumed_subagents_first_read_keeps_the_docs_it_was_sent() {
+    let f = docs_repo();
+    let sid = fresh_session_id("archive-resume-write");
+    let aid = "subagent-epsilon";
+    let env = [
+        ("CLAUDE_CODE_SESSION_ID", sid.as_str()),
+        ("TRACER_AGENT_ID", aid),
+    ];
+
+    f.trace_env(&["docs", "sub/util.py"], &env).ok();
+    run_archive_hook(&f.root, &sid, aid);
+
+    // Resumed, its first read writes its record, and the docs stay loaded.
+    f.trace_env(&["read", "sub/util.py"], &env).ok();
+    let docs = f.trace_env(&["docs", "sub/util.py", "--json"], &env);
+    docs.ok();
+    let view = docs.view();
+    assert_eq!(view["docs"], 0, "the resumed Subagent was sent its docs again: {view}");
+    assert_eq!(view["already_loaded"].as_array().map(Vec::len), Some(2), "{view}");
+}
+
+#[test]
+fn the_shown_record_holds_each_listing_until_a_context_reset() {
+    let f = docs_repo();
+    let sid = fresh_session_id("shown-listing");
+    let env = [("AGENT_SESSION_ID", sid.as_str())];
+
+    let first = f.trace_env(&["context", "sub/util.py"], &env);
+    first.ok();
+    assert!(first.stdout.contains("  entries: [Claude.md, util.py]\n"), "{}", first.stdout);
+    let dir = log_dir(&f.root, &sid, "root");
+    let shown: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(dir.join("shown.json")).expect("shown.json written"),
+    )
+    .expect("shown.json is valid JSON");
+    let sub = f.root.join("sub").canonicalize().unwrap();
+    let block = &shown["listing"][sub.to_string_lossy().as_ref()]["directory"];
+    assert_eq!(block["path"], "sub/", "{shown}");
+    assert!(
+        block["entries"].as_str().is_some_and(|hash| hash.starts_with("sha256:")),
+        "{shown}"
+    );
+
+    let repeat = f.trace_env(&["context", "sub/util.py"], &env);
+    repeat.ok();
+    assert!(!repeat.stdout.contains("  entries: "), "{}", repeat.stdout);
+
+    f.trace_env(&["docs", "reset"], &env).ok();
+    let after_reset = f.trace_env(&["context", "sub/util.py"], &env);
+    after_reset.ok();
+    assert!(
+        after_reset.stdout.contains("  entries: [Claude.md, util.py]\n"),
+        "{}",
+        after_reset.stdout
+    );
+}
+
+#[test]
 fn archive_hook_is_a_no_op_for_a_subagent_that_never_wrote_a_log() {
     // A subagent that returned without surfacing any docs or reads never
     // creates `sessions/<sid>/<aid>/`. The hook must exit cleanly and not

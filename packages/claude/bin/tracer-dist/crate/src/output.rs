@@ -91,9 +91,9 @@ pub struct Entry {
 /// characters. Detail is cut, never coverage: the lowest-ranked entry is cut
 /// down one level at a time to its last, then the next lowest, so the
 /// highest-ranked entries keep their detail longest and every entry keeps at
-/// least its last level. Returns each entry's text in input order, and how
-/// many were shortened.
-pub fn fit(entries: &[Entry], fixed: usize) -> (Vec<&str>, usize) {
+/// least its last level. Returns each entry's chosen level and its text in
+/// input order, and how many were shortened.
+pub fn fit(entries: &[Entry], fixed: usize) -> (Vec<(usize, &str)>, usize) {
     let mut level = vec![0usize; entries.len()];
     if let Some(budget) = budget() {
         let mut size = fixed + entries.iter().map(|entry| width(&entry.levels[0]) + 1).sum::<usize>();
@@ -111,12 +111,12 @@ pub fn fit(entries: &[Entry], fixed: usize) -> (Vec<&str>, usize) {
         }
     }
     let shortened = level.iter().filter(|&&at| at > 0).count();
-    let texts = entries
+    let chosen = entries
         .iter()
-        .zip(&level)
-        .map(|(entry, &at)| entry.levels[at].as_str())
+        .zip(level)
+        .map(|(entry, at)| (at, entry.levels[at].as_str()))
         .collect();
-    (texts, shortened)
+    (chosen, shortened)
 }
 
 /// `fit` for a listing with one entry per path, in the same order; a path
@@ -125,9 +125,9 @@ pub fn fit(entries: &[Entry], fixed: usize) -> (Vec<&str>, usize) {
 /// that each directory with its counts, so the listing still says where every
 /// entry is.
 pub fn fit_listing(entries: &[Entry], paths: &[&str], fixed: usize) -> (Vec<String>, usize) {
-    let (texts, shortened) = fit(entries, fixed);
+    let (chosen, shortened) = fit(entries, fixed);
     let size = |lines: &[String]| fixed + lines.iter().map(|line| width(line) + 1).sum::<usize>();
-    let texts: Vec<String> = texts.into_iter().map(str::to_string).collect();
+    let texts: Vec<String> = chosen.into_iter().map(|(_, text)| text.to_string()).collect();
     let Some(budget) = budget().filter(|&budget| size(&texts) > budget) else {
         return (texts, shortened);
     };

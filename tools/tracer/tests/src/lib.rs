@@ -26,6 +26,15 @@ pub fn trace_bin() -> String {
     std::env::var("TRACE_BIN").unwrap_or_else(|_| "trace".to_string())
 }
 
+/// SCHEMA_VERSION as published in the tracer Claude.md and `cache.rs`.
+pub const PUBLISHED_SCHEMA_VERSION: u32 = 49;
+
+/// The directory under `.tracer-cache/file/` holding every entry `schema`
+/// writes in the worktree at `root`.
+pub fn schema_directory(root: &Path, schema: u32) -> PathBuf {
+    root.join(format!(".tracer-cache/file/schema{schema}"))
+}
+
 /// Outcome of one CLI invocation.
 pub struct Run {
     pub code: i32,

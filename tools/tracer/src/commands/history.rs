@@ -6,15 +6,15 @@
 //!
 //! Whole-file mode reuses the cached bulk git pipeline (`git_activity`) for
 //! the settled-history fields. The function and pickaxe modes shell out to
-//! git's native function-range and pickaxe history — command-local
-//! git/ctags calls outside the cached pipeline.
+//! git's native function-range and pickaxe history — command-local git calls
+//! outside the cached pipeline. A pickaxe match names the declaration
+//! `surface::innermost` picks from the file's extraction at that commit.
 
 use crate::{cache, git_activity};
 use anyhow::{bail, Result};
 use rayon::prelude::*;
 use serde_json::{json, Value};
 use std::path::Path;
-use std::process::Command;
 
 const RECENT_COMMITS: i64 = 10;
 const FUNCTION_COMMITS: i64 = 20;
@@ -323,8 +323,8 @@ fn render_function(p: &Value) {
         }
         entries.push(crate::output::Entry { rank: -(index as i64), levels: vec![format!("{whole}\n"), header] });
     }
-    let (texts, shortened) = crate::output::fit(&entries, head.len() + crate::output::closing_room(entries.len(), "commits"));
-    for text in texts {
+    let (chosen, shortened) = crate::output::fit(&entries, head.len() + crate::output::closing_room(entries.len(), "commits"));
+    for (_, text) in chosen {
         println!("{text}");
     }
     if shortened > 0 {
@@ -422,66 +422,13 @@ fn commit_line_for_pattern(blob: &[u8], pattern: &str) -> Option<i64> {
     None
 }
 
-/// universal-ctags on the file's blob at `commit_sha` to find the enclosing
-/// symbol for `line`. None when ctags can't resolve. Command-local ctags is
-/// allowed by the brief (the foundation does not cover blob-scoped ctags).
-fn enclosing_symbol(blob: &[u8], path: &str, line: i64) -> Option<String> {
-    let suffix = Path::new(path)
-        .extension()
-        .and_then(|e| e.to_str())
-        .map(|e| format!(".{e}"))
-        .unwrap_or_else(|| ".txt".into());
-    let mut tmp = tempfile::Builder::new().suffix(&suffix).tempfile().ok()?;
-    use std::io::Write;
-    tmp.write_all(blob).ok()?;
-    let tmp_path = tmp.path().to_path_buf();
-
-    let ctags = Command::new("ctags")
-        .args([
-            "--output-format=json",
-            "--fields=+ne",
-            "--sort=no",
-            "-f",
-            "-",
-            &tmp_path.to_string_lossy(),
-        ])
-        .output()
-        .ok()?;
-    if !ctags.status.success() {
-        return None;
-    }
-    let mut enclosing: Option<(i64, String)> = None;
-    for entry_line in String::from_utf8_lossy(&ctags.stdout).split('\n') {
-        if entry_line.trim().is_empty() {
-            continue;
-        }
-        let entry: Value = match serde_json::from_str(entry_line) {
-            Ok(v) => v,
-            Err(_) => continue,
-        };
-        let start = entry.get("line").and_then(|x| x.as_i64());
-        let name = entry.get("name").and_then(|x| x.as_str());
-        let (start, name) = match (start, name) {
-            (Some(s), Some(n)) if !n.is_empty() => (s, n.to_string()),
-            _ => continue,
-        };
-        let end = entry.get("end").and_then(|x| x.as_i64()).unwrap_or(start);
-        if start <= line && line <= end {
-            if enclosing.as_ref().map(|(s, _)| start > *s).unwrap_or(true) {
-                enclosing = Some((start, name));
-            }
-        }
-    }
-    enclosing.map(|(_, n)| n)
-}
-
 fn pickaxe_payload(pattern: &str, regex: bool, repo_root: &Path) -> Result<Value> {
     let commits = pickaxe_commits(pattern, regex, repo_root, PICKAXE_COMMITS)?;
     let mut annotated: Vec<Value> = Vec::new();
     for commit in &commits {
-        // Every touched path in a commit is an independent `git show` plus a
-        // ctags run. Serially, a pickaxe over a wide commit spent its whole
-        // wall clock waiting on processes.
+        // Every touched path in a commit is an independent `git show`.
+        // Serially, a pickaxe over a wide commit spent its whole wall clock
+        // waiting on processes.
         let entries: Vec<Value> = commit
             .files
             .par_iter()
@@ -490,10 +437,15 @@ fn pickaxe_payload(pattern: &str, regex: bool, repo_root: &Path) -> Result<Value
                 let line = blob
                     .as_deref()
                     .and_then(|b| commit_line_for_pattern(b, pattern));
-                let symbol = match (blob.as_deref(), line) {
-                    (Some(b), Some(l)) => enclosing_symbol(b, path, l),
-                    _ => None,
-                };
+                let symbol = blob
+                    .as_deref()
+                    .zip(line)
+                    .and_then(|(b, l)| {
+                        let extraction = crate::extraction::extract(b, path)?;
+                        let declarations = &extraction.declarations;
+                        crate::surface::innermost(declarations.iter().map(|d| (d.header_line, d.end_line)), l)
+                            .map(|index| declarations[index].name.clone())
+                    });
                 json!({
                     "path": path,
                     "line": line,
@@ -678,8 +630,8 @@ fn render_commit(p: &Value) {
         })
         .collect();
     let fixed = head.len() + 1 + crate::output::closing_room(entries.len(), "files");
-    let (texts, shortened) = crate::output::fit(&entries, fixed);
-    for text in texts {
+    let (chosen, shortened) = crate::output::fit(&entries, fixed);
+    for (_, text) in chosen {
         println!("{text}");
     }
     if shortened > 0 {

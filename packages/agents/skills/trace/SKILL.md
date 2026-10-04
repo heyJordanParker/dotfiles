@@ -15,8 +15,9 @@ description: Code intelligence for the local codebase — search, callers, defin
 Inside the local codebase, every search, listing, and read goes through the matching `trace` command.
 
 ### Do not pipe or redirect trace output
-Use `trace <cmd> --json --filter '<jq expr>'` when you need partial output. The filter requires `--json`, and it keeps `context` for the files its result names.
+Use `trace <cmd> --json --filter '<jq expr>'` to narrow the rows of a search or listing. The filter requires `--json`, and it keeps `context` for the files its result names. Read code as `trace read` text: it prints a file's facts once per context, so the next window of that file costs one heading line.
 Never: pipe `trace` into `grep`, `rg`, `head`, `tail`, `sed`, `awk`, `cut`, `sort`, `uniq`, `wc`, `jq`, or redirect it into a repository file.
+Never: `--json` or `--filter` on `trace read` to get bare content.
 
 ### Do not use raw file-search or listing commands on repository paths
 Use the matching `trace` subcommand instead. `guard_trace.py` blocks raw `cat`, `grep`, `rg`, `find`, `sed`, `awk`, `head`, and `tail` against in-repo paths, and blocks `ls` and `tree` reaching the repo.
@@ -38,6 +39,11 @@ Example: `trace list tests/.runs --recent --limit 5` replaces `ls -t tests/.runs
 
 ### Expect every file and declaration, with less detail
 Text output fits `--budget <chars>`, 30,000 by default, the longest Bash result Claude Code shows whole. The budget cuts detail, never coverage: the files the fewest others import lose their detail first, down to their path, and a listing too long even for bare paths names its files one line per directory (`dir/: a.php, b.php`).
+A window's `calls:` block keeps a share of the budget and leaves the rest to the code: past one head per call it prints one head per function with every line that calls it (`L52, L60 Ledger::record  ledger.php:3`), then one line per file the calls reach (`ledger.php  {calls: 12}`).
+
+IF a `calls:` line ends in `→ trace callers <name>`:
+### Run the `trace callers` command it names
+A window resolves a name only while it fits a fixed work budget, spent on the cheapest names first. A name too many files mention still names the function its line calls, with its source, but no `callers` count and no other call sites: `L4 nextTestSetup  test/lib/e2e-utils/index.ts:315 → trace callers nextTestSetup`. A name too many files declare prints `{defined_in: N}`, the number of files that declare it, and no file or source. `--budget 0` resolves neither.
 
 ### Run the command the last line names for the rest
 A cut output ends with `[N of M files shortened to fit --budget B — whole: <command> --budget 0]`. Run that command, or narrow the paths, when the cut detail is what you need.
@@ -149,12 +155,12 @@ Template:
 
 ## 6. Read the facts and rows instead of opening the file
 
-- `trace context <file>`, `read`, file `info`, `structure`, and `blame <file> <symbol>` print the file's facts as YAML front matter, then one row per declaration.
+- `trace context <file>`, `read`, file `info`, and `structure` print the file's facts as YAML front matter, then one row per declaration. `blame <file> <symbol>` prints the rows alone.
 - A windowed `read --method`, `read --lines`, `read --between`, or `context --offset/--limit` prints only the rows whose span intersects the window, plus the rows that hold them.
 - A list of many files prints each file's facts on one line: `path  {imported_by: 63, cyclomatic_complexity: 66, lines: 318, git: modified}`.
 
 ### Read the front matter as the file's facts
-Keys use git and GitHub words; dates are ages. `docs_not_loaded` names the project docs this session has not read, and `directory` names the file's directory, its importers and imports, and its entries the first time you see that directory or after they change. Entries leave out what git ignores.
+Keys use git and GitHub words; dates are ages. `docs_not_loaded` names the project docs this session has not read, and `directory` names the file's directory, its importers and imports, and its entries the first time you see that directory or after its entries change. Entries leave out what git ignores.
 
 Template:
   ```yaml
@@ -183,6 +189,10 @@ Template:
     entries: [Author.php, Book.php, …]
   ---
   ```
+
+### Read a heading's headline as facts you already hold
+A file's facts print once per context, whichever command showed them, and whole again after a compaction or `/clear`. A repeat carries the headline on its heading line. After an edit or another Agent's commit, a repeat shows only the lines that changed, and a fact that went away shows as `null`. Its block keeps the command's own answer, such as `info`'s `language` and `functions` or `structure`'s `declarations`, plus `docs_not_loaded`. A `directory` you already hold prints only the lines that changed, such as a new `imported_by`, and none when nothing changed.
+Example: `# src/Entity/Loan.php :: L24-L40  {imported_by: 21, cyclomatic_complexity: 18, lines: 164, git: modified}`
 
 ### Read the row as the source's own text
 A row is `L<line>` and the declaration's header as written — attributes, modifiers, name, parameters, return type, heritage — with every body elided as `{ … }` and a data initializer as `= …`. A row indents two spaces under the declaration that holds it, and a function's complexity follows as a comment in the file's own syntax.

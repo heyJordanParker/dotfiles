@@ -214,6 +214,38 @@ fn reset_before_anything_surfaces_clears_nothing() {
     );
 }
 
+#[test]
+fn reset_clears_shown_facts_and_listings_when_no_docs_view_exists() {
+    let f = Fixture::new();
+    f.write("app/one.py", "def one():\n    return 1\n");
+    f.commit("one file, no docs");
+    let sid = fresh_session_id("shown-only");
+    let env = [("CLAUDE_CODE_SESSION_ID", sid.as_str())];
+    let whole = "---\nfile: app/one.py\n";
+    let listed = "\n  entries: [one.py]\n";
+
+    let first = f.trace_env(&["context", "app/one.py", "--no-record"], &env);
+    first.ok();
+    assert!(first.stdout.starts_with(whole) && first.stdout.contains(listed), "{}", first.stdout);
+    let repeat = f.trace_env(&["context", "app/one.py", "--no-record"], &env);
+    repeat.ok();
+    assert!(repeat.stdout.starts_with("# app/one.py  {"), "{}", repeat.stdout);
+    assert!(!repeat.stdout.contains(listed), "{}", repeat.stdout);
+    assert!(
+        !log_dir(&f.root, &sid, "root").join("view.json").exists(),
+        "the Agent must hold only listings and facts"
+    );
+
+    f.trace_env(&["docs", "reset"], &env).ok();
+    let after_reset = f.trace_env(&["context", "app/one.py", "--no-record"], &env);
+    after_reset.ok();
+    assert!(
+        after_reset.stdout.starts_with(whole) && after_reset.stdout.contains(listed),
+        "{}",
+        after_reset.stdout
+    );
+}
+
 // --- append-only history preserved ----------------------------------------
 
 #[test]

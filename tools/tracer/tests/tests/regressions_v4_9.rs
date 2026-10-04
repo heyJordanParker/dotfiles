@@ -3,7 +3,7 @@
 //! against a real-CLI fixture and pins the corrected behaviour.
 
 use std::fs;
-use tracer_cli_tests::Fixture;
+use tracer_cli_tests::{schema_directory, Fixture, PUBLISHED_SCHEMA_VERSION};
 
 /// The one result row for `node_id`. The graph commands return a row list,
 /// so a test that means "the entry for this symbol" says so.
@@ -21,11 +21,11 @@ fn symbol<'a>(v: &'a serde_json::Value, node_id: &str) -> &'a serde_json::Value 
 // ---------------------------------------------------------------------------
 //
 // Simulates "binary upgrade against a repo with a pre-existing
-// `.tracer-cache/`": we plant cache entries whose per-file hashes use an
-// older SCHEMA_VERSION token, plus a matching mtime index and a prior
-// schema's relations index. The new binary must NOT honour those stale
-// per-file hashes — the first query has to re-absorb under the current
-// schema — and the superseded index must be swept, not left to accumulate.
+// `.tracer-cache/`": we plant a prior schema's directory holding a stale
+// per-file entry, a matching mtime index, and a relations index. The new
+// binary must NOT honour those stale per-file hashes — the first query has
+// to re-absorb under the current schema — and the superseded directory must
+// be swept, not left to accumulate.
 
 #[test]
 fn the_relations_index_rebuilds_after_schema_shape_change() {
@@ -39,12 +39,10 @@ fn the_relations_index_rebuilds_after_schema_shape_change() {
     f.commit("init");
 
     // Plant a stale on-disk cache shaped like an older schema. The mtime
-    // index keys per-file entries by mtime+size; the new binary's mtime
-    // index key must rotate with the schema so this stale index is
-    // unreachable on upgrade.
-    let cache_root = f.root.join(".tracer-cache");
-    let file_ns = cache_root.join("file");
-    fs::create_dir_all(&file_ns).unwrap();
+    // index keys per-file entries by mtime+size; it sits in the prior
+    // schema's directory, so this stale index is unreachable on upgrade.
+    let prior_schema = schema_directory(&f.root, 1);
+    fs::create_dir_all(&prior_schema).unwrap();
 
     // Stale per-file entry — body shaped like a real FileFacts JSON but
     // missing `references`, mimicking an older extraction shape.
@@ -65,15 +63,15 @@ fn the_relations_index_rebuilds_after_schema_shape_change() {
         }
     });
     fs::write(
-        file_ns.join(format!("{stale_file_key}.json")),
+        prior_schema.join(format!("{stale_file_key}.json")),
         serde_json::to_string(&stale_file_body).unwrap(),
     )
     .unwrap();
 
-    // Stale mtime index — under the OLD schema's key name. The bug it
-    // pins: any mtime-index key shape that omits SCHEMA_VERSION returns
-    // stale per-file hashes after a schema bump, which keep the
-    // architecture fingerprint stable and serve the stale graph.
+    // Stale mtime index in the OLD schema's directory. The bug it pins: an
+    // mtime index read across a schema bump returns stale per-file hashes,
+    // which keep the architecture fingerprint stable and serve the stale
+    // graph.
     let md = fs::metadata(f.root.join("pkg/a.py")).unwrap();
     use std::time::UNIX_EPOCH;
     let mtime_ns = md
@@ -93,16 +91,17 @@ fn the_relations_index_rebuilds_after_schema_shape_change() {
     // Old key shape: `mtime_index_v1__{backend}` — what the v4.8 binary
     // wrote. The new binary must not read from that location.
     fs::write(
-        file_ns.join("mtime_index_v1__ast.json"),
+        prior_schema.join("mtime_index_v1__ast.json"),
         serde_json::to_string(&stale_idx).unwrap(),
     )
     .unwrap();
 
     // A prior schema's relations index, holding an answer that contradicts
-    // the tree: it claims nothing declares b_fn. The current binary keys its
-    // index by the current schema, so this one is unreachable, and the
-    // eviction sweep must then delete it.
-    let stale_index = file_ns.join("relations_v1__schema1.json");
+    // the tree: it claims nothing declares b_fn. The current binary reads
+    // only its own schema's directory, so this one is unreachable, and no
+    // build at its schema has written for a year, so the eviction sweep must
+    // then delete its directory.
+    let stale_index = prior_schema.join("relations_v1.json");
     let stale_relations = serde_json::json!({
         "symbols": {},
         "importers": {},
@@ -113,6 +112,10 @@ fn the_relations_index_rebuilds_after_schema_shape_change() {
         serde_json::to_string(&stale_relations).unwrap(),
     )
     .unwrap();
+    fs::File::open(&prior_schema)
+        .unwrap()
+        .set_modified(std::time::SystemTime::now() - std::time::Duration::from_secs(365 * 24 * 60 * 60))
+        .unwrap();
 
     // First query after the "upgrade". No manual cache clear.
     let r = f.trace(&["callers", "b_fn", "--json"]);
@@ -128,15 +131,15 @@ fn the_relations_index_rebuilds_after_schema_shape_change() {
         v
     );
 
-    // Eviction: the prior schema's index is gone, and the namespace holds
-    // exactly four current relations-index entries: edges, symbols, imports,
-    // and directories.
+    // Eviction: the prior schema's directory is gone, and the current
+    // schema's directory holds exactly four relations-index entries: edges,
+    // symbols, imports, and directories.
     assert!(
-        !stale_index.exists(),
-        "the prior schema's relations index survived the rebuild — a schema \
+        !prior_schema.exists(),
+        "the prior schema's directory survived the rebuild — a schema \
          bump would leave one behind on every upgrade"
     );
-    let indexes: Vec<_> = fs::read_dir(&file_ns)
+    let indexes: Vec<_> = fs::read_dir(schema_directory(&f.root, PUBLISHED_SCHEMA_VERSION))
         .unwrap()
         .flatten()
         .map(|e| e.path())

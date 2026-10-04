@@ -75,6 +75,7 @@ fn walk_imports(root: Node, source: &[u8]) -> Vec<Import> {
                         symbol: None,
                         locals: Vec::new(),
                         line: n.start_position().row as i64 + 1,
+                        block: None,
                     });
                 }
             }
@@ -116,6 +117,9 @@ fn walk_declarations(root: Node, source: &[u8]) -> Vec<Declaration> {
                                 builder.finish()
                             },
                             annotations: Vec::new(),
+                            self_type: None,
+                            module_file: None,
+                            supertypes: Vec::new(),
                         });
                     }
                 }
@@ -156,6 +160,9 @@ fn walk_declarations(root: Node, source: &[u8]) -> Vec<Declaration> {
                                     builder.finish()
                                 },
                                 annotations: Vec::new(),
+                                self_type: None,
+                                module_file: None,
+                                supertypes: Vec::new(),
                             });
                         }
                     }
@@ -193,6 +200,9 @@ fn walk_declarations(root: Node, source: &[u8]) -> Vec<Declaration> {
                             parent: None,
                             header: builder.finish(),
                             annotations: Vec::new(),
+                            self_type: None,
+                            module_file: None,
+                            supertypes: Vec::new(),
                         });
                     }
                 }
@@ -213,6 +223,9 @@ fn walk_declarations(root: Node, source: &[u8]) -> Vec<Declaration> {
                                 n.start_position().row as i64 + 1,
                             ),
                             annotations: Vec::new(),
+                            self_type: None,
+                            module_file: None,
+                            supertypes: Vec::new(),
                         });
                     }
                 }
@@ -235,6 +248,9 @@ fn walk_declarations(root: Node, source: &[u8]) -> Vec<Declaration> {
                                     n.start_position().row as i64 + 1,
                                 ),
                                 annotations: Vec::new(),
+                                self_type: None,
+                                module_file: None,
+                                supertypes: Vec::new(),
                             });
                         }
                     }
@@ -264,6 +280,9 @@ fn walk_declarations(root: Node, source: &[u8]) -> Vec<Declaration> {
                     parent: None,
                     header: trimmed.into(),
                     annotations: Vec::new(),
+                    self_type: None,
+                    module_file: None,
+                    supertypes: Vec::new(),
                 });
             }
         }
@@ -295,6 +314,9 @@ fn walk_declarations(root: Node, source: &[u8]) -> Vec<Declaration> {
                             closing.trim().trim_start_matches('}').trim()
                         ),
                         annotations: Vec::new(),
+                        self_type: None,
+                        module_file: None,
+                        supertypes: Vec::new(),
                     });
                 }
             }
@@ -312,6 +334,9 @@ fn walk_declarations(root: Node, source: &[u8]) -> Vec<Declaration> {
                     parent: None,
                     header: trimmed.into(),
                     annotations: Vec::new(),
+                    self_type: None,
+                    module_file: None,
+                    supertypes: Vec::new(),
                 });
             }
         }
@@ -361,8 +386,8 @@ fn function_name(n: Node, source: &[u8]) -> Option<(String, i64)> {
 /// (`obj->fn(..)`) resolves the field name as `Member`.
 fn walk_references(root: Node, source: &[u8]) -> Vec<Reference> {
     let mut out = Vec::new();
-    let mut stack: Vec<(Node, Option<String>)> = vec![(root, None)];
-    while let Some((n, enclosing)) = stack.pop() {
+    let mut stack = vec![root];
+    while let Some(n) = stack.pop() {
         if n.kind() == "call_expression" {
             if let Some(func) = n.child_by_field_name("function") {
                 if let Some((name, line, shape)) = call_shape(func, source) {
@@ -371,16 +396,12 @@ fn walk_references(root: Node, source: &[u8]) -> Vec<Reference> {
                         line,
                         shape,
                         receiver: None,
-                        enclosing: enclosing.clone(),
                     });
                 }
             }
         }
-        let child_enclosing = enclosing_function_name(n, source).or_else(|| enclosing.clone());
         let mut c = n.walk();
-        for child in n.children(&mut c) {
-            stack.push((child, child_enclosing.clone()));
-        }
+        stack.extend(n.children(&mut c));
     }
     out
 }
@@ -408,13 +429,4 @@ fn call_shape(node: Node, source: &[u8]) -> Option<(String, i64, RefShape)> {
         }
         _ => None,
     }
-}
-
-/// A `function_definition` introduces its function name as the enclosing
-/// scope for its body.
-fn enclosing_function_name(node: Node, source: &[u8]) -> Option<String> {
-    if node.kind() == "function_definition" {
-        return function_name(node, source).map(|(n, _)| n);
-    }
-    None
 }

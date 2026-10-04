@@ -10,7 +10,10 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::process::Command;
-use tracer_cli_tests::{parse_stats_table, standard_repo, Fixture};
+use std::time::{Duration, SystemTime};
+use tracer_cli_tests::{
+    parse_stats_table, schema_directory, standard_repo, Fixture, PUBLISHED_SCHEMA_VERSION,
+};
 
 /// The published on-disk cache key (tracer Claude.md + cache.rs module
 /// header): sha256("v{SCHEMA}|ccn:ast\0" + file_bytes + "\0" + relpath),
@@ -25,12 +28,6 @@ fn file_cache_key(schema_version: u32, file_bytes: &[u8], relpath: &str) -> Stri
     h.update(relpath.as_bytes());
     hex::encode(h.finalize())
 }
-
-/// SCHEMA_VERSION as published in the tracer Claude.md / cache.rs. The
-/// schema-bump test plants a poison entry at this version's key (proving
-/// the cache IS consulted by this exact schema-versioned key) and at a
-/// neighbor version's key (proving it is unreachable).
-const PUBLISHED_SCHEMA_VERSION: u32 = 27;
 
 /// The facts a one-file document carries for its file.
 fn file_facts(v: &serde_json::Value) -> &serde_json::Value {
@@ -66,9 +63,7 @@ fn typescript_import_bindings_are_cached_without_changing_structure_output() {
     let key = file_cache_key(PUBLISHED_SCHEMA_VERSION, source.as_bytes(), "app.ts");
     let cached: serde_json::Value = serde_json::from_slice(
         &fs::read(
-            f.root
-                .join(".tracer-cache/file")
-                .join(format!("{key}.json")),
+            schema_directory(&f.root, PUBLISHED_SCHEMA_VERSION).join(format!("{key}.json")),
         )
         .unwrap(),
     )
@@ -195,12 +190,11 @@ fn repo_context_snapshot_tracks_filesystem_inputs_but_not_tracer_cache() {
     f.write("u.py", "value = 1\n");
     f.commit("seed");
     let (path, count) = counting_scc(&f);
-    fs::create_dir_all(f.root.join(".tracer-cache/file")).unwrap();
-    fs::write(
-        f.root.join(".tracer-cache/file/repo_context_v3_old.json"),
-        "{}",
-    )
-    .unwrap();
+    plant_entry(
+        &schema_directory(&f.root, PUBLISHED_SCHEMA_VERSION),
+        "repo_context_v3_old",
+        a_year_ago(),
+    );
 
     let first = f.trace_env(&["info", "u.py", "--json"], &[("PATH", &path)]);
     first.ok();
@@ -394,22 +388,8 @@ fn a_failed_status_keeps_warm_repo_and_relations_caches() {
     f.trace_env(&["cache", "build", "."], &[("PATH", &path)])
         .ok();
     let before_scc = invocation_count(&scc_count);
-    let before_edges = fs::read(
-        f.root
-            .join(".tracer-cache/file")
-            .read_dir()
-            .expect("file cache exists")
-            .flatten()
-            .map(|entry| entry.path())
-            .find(|path| {
-                path.file_name()
-                    .unwrap_or_default()
-                    .to_string_lossy()
-                    .starts_with("relations_edges_v1__")
-            })
-            .expect("relations edges entry exists"),
-    )
-    .expect("relations edges are readable");
+    let edges = schema_directory(&f.root, PUBLISHED_SCHEMA_VERSION).join("relations_edges_v1.json");
+    let before_edges = fs::read(&edges).expect("relations edges are readable");
     fs::remove_file(&failed_once).expect("remove initial status sentinel");
 
     let failed = f.trace_env(&["info", "src/util.py", "--json"], &[("PATH", &path)]);
@@ -425,22 +405,7 @@ fn a_failed_status_keeps_warm_repo_and_relations_caches() {
         "status failure reran scc"
     );
     assert_eq!(entries_with_prefix(&f, "repo_context_v6"), 1);
-    let after_edges = fs::read(
-        f.root
-            .join(".tracer-cache/file")
-            .read_dir()
-            .expect("file cache exists")
-            .flatten()
-            .map(|entry| entry.path())
-            .find(|path| {
-                path.file_name()
-                    .unwrap_or_default()
-                    .to_string_lossy()
-                    .starts_with("relations_edges_v1__")
-            })
-            .expect("relations edges entry remains"),
-    )
-    .expect("relations edges remain readable");
+    let after_edges = fs::read(&edges).expect("relations edges remain readable");
     assert_eq!(
         after_edges, before_edges,
         "status failure rewrote relations edges"
@@ -745,18 +710,8 @@ fn malformed_cached_repo_context_is_recomputed() {
     let (path, count) = counting_scc(&f);
     f.trace_env(&["info", "u.py", "--json"], &[("PATH", &path)])
         .ok();
-    let entry = fs::read_dir(f.root.join(".tracer-cache/file"))
-        .unwrap()
-        .flatten()
-        .find(|entry| {
-            entry
-                .file_name()
-                .to_string_lossy()
-                .starts_with("repo_context_v6")
-        })
-        .unwrap();
     fs::write(
-        entry.path(),
+        schema_directory(&f.root, PUBLISHED_SCHEMA_VERSION).join("repo_context_v6.json"),
         r#"{"summary":{},"per_file":{},"languages":[]}"#,
     )
     .unwrap();
@@ -820,9 +775,9 @@ fn editing_a_file_leaves_the_entry_count_unchanged() {
     );
 }
 
-/// Count the four relations-index entries in the file namespace: edges,
-/// symbols, import rows, and directory metrics. Each entry is keyed by schema alone and
-/// rewritten in place rather than rotated.
+/// Count the four relations-index entries in the current schema's directory:
+/// edges, symbols, import rows, and directory metrics. Each entry has one
+/// fixed key and is rewritten in place rather than rotated.
 fn relations_entry_count(f: &Fixture) -> usize {
     entries_with_prefix(f, "relations_")
 }
@@ -894,6 +849,157 @@ fn the_relations_index_stays_single_and_current_across_builds() {
         1,
         "the index did not pick up the new file's declaration: {}",
         added.stdout
+    );
+}
+
+/// Writes a planted entry in `directory` and sets the time it was last written.
+fn plant_entry(directory: &Path, key: &str, written: SystemTime) -> std::path::PathBuf {
+    let path = directory.join(format!("{key}.json"));
+    fs::create_dir_all(directory).unwrap();
+    fs::write(&path, format!("{{\"planted\":\"{key}\"}}")).unwrap();
+    set_written(&path, written);
+    path
+}
+
+/// Sets the time a file or directory was last written.
+fn set_written(path: &Path, written: SystemTime) {
+    fs::File::open(path).unwrap().set_modified(written).unwrap();
+}
+
+fn a_year_ago() -> SystemTime {
+    SystemTime::now() - Duration::from_secs(365 * 24 * 60 * 60)
+}
+
+/// The plugin's prebuilt `trace` and `~/.local/bin/trace` run at different
+/// schemas in one repository during every upgrade, and a build from before
+/// schema directories writes its entries straight into `file/`. Each build
+/// sweeps only its own directory's superseded keys, so the other builds'
+/// entries survive and neither rebuilds on its next call.
+#[test]
+fn another_schemas_entries_survive_this_schemas_writes() {
+    let f = standard_repo();
+    let mut planted: Vec<std::path::PathBuf> =
+        [PUBLISHED_SCHEMA_VERSION - 1, PUBLISHED_SCHEMA_VERSION + 1]
+            .into_iter()
+            .flat_map(|schema| {
+                let directory = schema_directory(&f.root, schema);
+                [
+                    "relations_edges_v1".to_string(),
+                    "relations_symbols_v1".to_string(),
+                    "relations_imports_v1".to_string(),
+                    "relations_directories_v1".to_string(),
+                    "mtime_index_v2__ast".to_string(),
+                    "repo_context_v6".to_string(),
+                    format!("git_activity_v2__{:040}__2026-01-01", 0),
+                ]
+                .map(|key| plant_entry(&directory, &key, SystemTime::now()))
+            })
+            .collect();
+    let file_namespace = f.root.join(".tracer-cache/file");
+    planted.extend(
+        [
+            format!("relations_edges_v1__schema{PUBLISHED_SCHEMA_VERSION}"),
+            format!("git_activity_v2__{:040}__2026-01-01__schema{PUBLISHED_SCHEMA_VERSION}", 0),
+        ]
+        .map(|key| plant_entry(&file_namespace, &key, SystemTime::now())),
+    );
+
+    f.trace(&["cache", "build", "."]).ok();
+    f.write("src/extra.py", "def extra_fn():\n    return 1\n");
+    f.commit("head move");
+    f.trace(&["context", "src/extra.py"]).ok();
+
+    let lost: Vec<_> = planted.iter().filter(|path| !path.exists()).collect();
+    assert!(
+        lost.is_empty(),
+        "this schema's writes swept another schema's entries: {lost:?}"
+    );
+}
+
+/// A schema directory no build has written for longer than the idle bound is
+/// gone after the next index update, and so are the loose entries from before
+/// schema directories once none of them was written for as long. A schema
+/// directory with a recent write keeps every entry, however old each one is.
+#[test]
+fn entries_of_a_stale_schema_are_removed() {
+    let f = standard_repo();
+    f.trace(&["cache", "build", "."]).ok();
+    let stale_schema = schema_directory(&f.root, PUBLISHED_SCHEMA_VERSION - 1);
+    let mut stale: Vec<std::path::PathBuf> = ["relations_edges_v1", "mtime_index_v2__ast"]
+        .map(|key| plant_entry(&stale_schema, key, a_year_ago()))
+        .to_vec();
+    set_written(&stale_schema, a_year_ago());
+    stale.push(stale_schema);
+    let file_namespace = f.root.join(".tracer-cache/file");
+    stale.extend(
+        [
+            format!("relations_edges_v1__schema{}", PUBLISHED_SCHEMA_VERSION - 1),
+            format!("mtime_index_v2__schema{PUBLISHED_SCHEMA_VERSION}__ast"),
+            "repo_context_v6".to_string(),
+            "tracked_files_v1".to_string(),
+            "ctags_maps_v1".to_string(),
+        ]
+        .map(|key| plant_entry(&file_namespace, &key, a_year_ago())),
+    );
+    let active_schema = schema_directory(&f.root, PUBLISHED_SCHEMA_VERSION + 1);
+    let active = [
+        plant_entry(&active_schema, "relations_edges_v1", a_year_ago()),
+        plant_entry(&active_schema, "tracked_files_v1", SystemTime::now()),
+    ];
+
+    f.write("src/extra.py", "def extra_fn():\n    return 1\n");
+    f.commit("head move");
+    f.trace(&["context", "src/extra.py"]).ok();
+
+    let kept: Vec<_> = stale.iter().filter(|path| path.exists()).collect();
+    assert!(kept.is_empty(), "a stale schema's entries survived the sweep: {kept:?}");
+    let lost: Vec<_> = active.iter().filter(|path| !path.exists()).collect();
+    assert!(
+        lost.is_empty(),
+        "the sweep removed an entry of a schema in use: {lost:?}"
+    );
+}
+
+/// Content entries are named by their hash alone, so before schema
+/// directories a removed schema's content entries stayed on disk forever.
+/// Now they leave with their schema's directory, and the current schema's
+/// stay however long ago they were written.
+#[test]
+fn content_entries_of_a_stale_schema_are_removed() {
+    let f = standard_repo();
+    f.trace(&["cache", "build", "."]).ok();
+    let current: Vec<std::path::PathBuf> =
+        fs::read_dir(schema_directory(&f.root, PUBLISHED_SCHEMA_VERSION))
+            .unwrap()
+            .flatten()
+            .map(|entry| entry.path())
+            .filter(|path| {
+                path.file_stem().and_then(|stem| stem.to_str()).is_some_and(|stem| {
+                    stem.len() == 64 && stem.bytes().all(|b| b.is_ascii_hexdigit())
+                })
+            })
+            .collect();
+    assert!(!current.is_empty(), "the build wrote no content entry");
+    for path in &current {
+        set_written(path, a_year_ago());
+    }
+    set_written(&schema_directory(&f.root, PUBLISHED_SCHEMA_VERSION), a_year_ago());
+    let stale_schema = schema_directory(&f.root, PUBLISHED_SCHEMA_VERSION - 1);
+    let stale_content = plant_entry(&stale_schema, &"0".repeat(64), a_year_ago());
+    set_written(&stale_schema, a_year_ago());
+
+    f.write("src/extra.py", "def extra_fn():\n    return 1\n");
+    f.commit("head move");
+    f.trace(&["context", "src/extra.py"]).ok();
+
+    assert!(
+        !stale_content.exists() && !stale_schema.exists(),
+        "a stale schema's content entry outlived its directory: {stale_content:?}"
+    );
+    let lost: Vec<_> = current.iter().filter(|path| !path.exists()).collect();
+    assert!(
+        lost.is_empty(),
+        "the sweep removed the current schema's content entries: {lost:?}"
     );
 }
 
@@ -1178,7 +1284,7 @@ fn json_output_is_ascii_escaped_on_raw_bytes() {
     // entry for uni.py records its language; assert the entry bytes are
     // also pure ASCII (same serializer, same guarantee on disk).
     f.trace(&["cache", "build", "."]).ok();
-    let entry_dir = f.root.join(".tracer-cache/file");
+    let entry_dir = schema_directory(&f.root, PUBLISHED_SCHEMA_VERSION);
     let mut checked_an_entry = false;
     for e in fs::read_dir(&entry_dir).unwrap().flatten() {
         let p = e.path();
@@ -1250,7 +1356,7 @@ fn schema_version_bump_makes_prior_entries_unreachable() {
     assert_eq!(true_ccn, 2, "fixture sanity: helper() CCN is exactly 2");
 
     let cur_key = file_cache_key(PUBLISHED_SCHEMA_VERSION, bytes, "u.py");
-    let entry_dir = f.root.join(".tracer-cache/file");
+    let entry_dir = schema_directory(&f.root, PUBLISHED_SCHEMA_VERSION);
     let cur_path = entry_dir.join(format!("{cur_key}.json"));
     assert!(
         cur_path.exists(),
@@ -1271,11 +1377,7 @@ fn schema_version_bump_makes_prior_entries_unreachable() {
     // Poison the current-schema entry and defeat the mtime fast-path so the
     // content-hash (schema-versioned) key path is what answers.
     fs::write(&cur_path, serde_json::to_string(&poison_entry).unwrap()).unwrap();
-    fs::remove_file(entry_dir.join(format!(
-        "mtime_index_v1__schema{}__ast.json",
-        PUBLISHED_SCHEMA_VERSION
-    )))
-    .ok();
+    fs::remove_file(entry_dir.join("mtime_index_v2__ast.json")).unwrap();
     assert_eq!(
         grep_ccn(&f),
         999,
@@ -1310,15 +1412,11 @@ fn schema_version_bump_makes_prior_entries_unreachable() {
     g.write("u.py", src);
     g.commit("seed");
     g.trace(&["cache", "build", "."]).ok();
-    let g_entry_dir = g.root.join(".tracer-cache/file");
+    let g_entry_dir = schema_directory(&g.root, PUBLISHED_SCHEMA_VERSION);
     // Remove the legitimate current-schema entry and the mtime index, then
     // plant the SAME poison under the *previous* schema version's key.
-    fs::remove_file(g_entry_dir.join(format!("{cur_key}.json"))).ok();
-    fs::remove_file(g_entry_dir.join(format!(
-        "mtime_index_v1__schema{}__ast.json",
-        PUBLISHED_SCHEMA_VERSION
-    )))
-    .ok();
+    fs::remove_file(g_entry_dir.join(format!("{cur_key}.json"))).unwrap();
+    fs::remove_file(g_entry_dir.join("mtime_index_v2__ast.json")).unwrap();
     let old_key = file_cache_key(PUBLISHED_SCHEMA_VERSION - 1, bytes, "u.py");
     fs::write(
         g_entry_dir.join(format!("{old_key}.json")),
@@ -1346,7 +1444,7 @@ fn info_and_structure_serve_the_same_retained_function_rows() {
     f.commit("seed");
     f.trace(&["cache", "build", "."]).ok();
 
-    let entry_dir = f.root.join(".tracer-cache/file");
+    let entry_dir = schema_directory(&f.root, PUBLISHED_SCHEMA_VERSION);
     let entry = fs::read_dir(&entry_dir)
         .unwrap()
         .flatten()
@@ -1407,9 +1505,9 @@ fn git_facts(f: &Fixture, rel: &str) -> serde_json::Value {
     file_facts(&v)["git"].clone()
 }
 
-/// Cache entries in the `file` namespace whose key starts with `prefix`.
+/// The current schema's cache entries whose key starts with `prefix`.
 fn entries_with_prefix(f: &Fixture, prefix: &str) -> usize {
-    fs::read_dir(f.root.join(".tracer-cache/file"))
+    fs::read_dir(schema_directory(&f.root, PUBLISHED_SCHEMA_VERSION))
         .map(|rd| {
             rd.flatten()
                 .filter(|e| {
@@ -1542,9 +1640,11 @@ fn prior_presence_cache_representation_is_unreachable() {
     hasher.update(tip.trim().as_bytes());
     hasher.update(b"\n");
     let old_key = format!("git_presence__{}", hex::encode(hasher.finalize()));
-    let file_cache = f.root.join(".tracer-cache/file");
-    fs::create_dir_all(&file_cache).unwrap();
-    fs::write(file_cache.join(format!("{old_key}.json")), "{}").unwrap();
+    plant_entry(
+        &schema_directory(&f.root, PUBLISHED_SCHEMA_VERSION),
+        &old_key,
+        a_year_ago(),
+    );
 
     let git = git_facts(&f, "deployed.py");
     assert_eq!(
@@ -1576,7 +1676,7 @@ fn prior_git_activity_cache_representation_is_unreachable() {
         "fixture unexpectedly deployed: {clean}"
     );
 
-    let file_cache = f.root.join(".tracer-cache/file");
+    let file_cache = schema_directory(&f.root, PUBLISHED_SCHEMA_VERSION);
     let current = fs::read_dir(&file_cache)
         .unwrap()
         .flatten()

@@ -172,6 +172,7 @@ pub fn extract_from_tree(
                         symbol: None,
                         locals: c.locals.clone(),
                         line: c.line,
+                        block: None,
                     });
                 }
                 "import.symbol" => {
@@ -184,6 +185,7 @@ pub fn extract_from_tree(
                         symbol: Some(c.text.clone()),
                         locals: c.locals.clone(),
                         line: c.line,
+                        block: None,
                     });
                 }
                 "export.function" => exports.push(Export {
@@ -253,6 +255,7 @@ fn reexport_and_dynamic_imports(root: Node, source: &[u8]) -> Vec<Import> {
                     symbol: None,
                     locals: Vec::new(),
                     line: source_node.start_position().row as i64 + 1,
+                    block: None,
                 });
             }
         }
@@ -375,6 +378,9 @@ fn walk_declarations(root: Node, source: &[u8]) -> Vec<Declaration> {
                             parent: None,
                             header: typescript_header(n, source),
                             annotations: typescript_annotations(n, source),
+                            self_type: None,
+                            module_file: None,
+                            supertypes: Vec::new(),
                         });
                     }
                 }
@@ -619,16 +625,8 @@ fn typescript_annotations(node: Node, source: &[u8]) -> Vec<String> {
 /// class name is the receiver).
 fn walk_references(root: Node, source: &[u8]) -> Vec<Reference> {
     let mut out = Vec::new();
-    // Each stack entry carries the name of the nearest enclosing declared
-    // function symbol — the calling symbol the use site belongs to. The
-    // declaration index resolves three function-bearing shapes: a
-    // `function_declaration` / `method_definition` (named directly) and a
-    // `variable_declarator` whose value is an arrow/function (named by the
-    // declarator). Setting the enclosing for exactly those keeps the edge
-    // source pointing at a node the declaration index actually created.
-    // `None` is module top level.
-    let mut stack: Vec<(Node, Option<String>)> = vec![(root, None)];
-    while let Some((n, enclosing)) = stack.pop() {
+    let mut stack = vec![root];
+    while let Some(n) = stack.pop() {
         if n.kind() == "new_expression" {
             let ctor = n
                 .child_by_field_name("constructor")
@@ -640,7 +638,6 @@ fn walk_references(root: Node, source: &[u8]) -> Vec<Reference> {
                         line,
                         shape: RefShape::Static,
                         receiver: Some(name),
-                        enclosing: enclosing.clone(),
                     });
                 }
             }
@@ -652,48 +649,14 @@ fn walk_references(root: Node, source: &[u8]) -> Vec<Reference> {
                         line,
                         shape,
                         receiver,
-                        enclosing: enclosing.clone(),
                     });
                 }
             }
         }
-        let child_enclosing = enclosing_function_name(n, source).or_else(|| enclosing.clone());
         let mut c = n.walk();
-        for child in n.children(&mut c) {
-            stack.push((child, child_enclosing.clone()));
-        }
+        stack.extend(n.children(&mut c));
     }
     out
-}
-
-/// The declared function-symbol name a node introduces as a new enclosing
-/// scope, or `None` if the node is not a function-bearing declaration. A
-/// `function_declaration` / `method_definition` names its own scope; a
-/// `variable_declarator` whose value is an arrow / function expression names
-/// the scope by the declarator (the arrow-const form the declaration index
-/// records). Other nodes introduce no new function scope.
-fn enclosing_function_name(node: Node, source: &[u8]) -> Option<String> {
-    match node.kind() {
-        "function_declaration" | "method_definition" => node
-            .child_by_field_name("name")
-            .and_then(|nm| nm.utf8_text(source).ok())
-            .map(|s| s.to_string()),
-        "variable_declarator" => {
-            let value = node.child_by_field_name("value")?;
-            if matches!(
-                value.kind(),
-                "arrow_function" | "function_expression" | "function"
-            ) {
-                node.child_by_field_name("name")
-                    .filter(|nm| nm.kind() == "identifier")
-                    .and_then(|nm| nm.utf8_text(source).ok())
-                    .map(|s| s.to_string())
-            } else {
-                None
-            }
-        }
-        _ => None,
-    }
 }
 
 /// The callee name + line for a `new_expression` constructor node.

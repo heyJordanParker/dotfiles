@@ -13,7 +13,7 @@ use crate::{cache, file_facts, relations, surface};
 use anyhow::Result;
 use serde::Serialize;
 use serde_json::{json, Value};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 fn confidence_rank(confidence: &str) -> u8 {
@@ -86,30 +86,72 @@ impl Symbol {
     }
 }
 
-fn importers(file: &str, index: &relations::Relations) -> Vec<Caller> {
-    index
-        .importers_of(file)
-        .iter()
-        .map(|importer| {
-            let language = index.language(&importer.file);
-            Caller {
-                node_id: relations::module_id(&importer.file, language),
-                label: relations::file_to_module(&importer.file, language),
-                kind: "module".to_string(),
-                source_file: importer.file.to_string(),
-                source_line: 1,
-                relation: "imports",
-                confidence: importer.confidence,
-                declaration: None,
+enum Edge<'a> {
+    Reference(&'a relations::UseSite),
+    Import(&'a relations::Importer),
+}
+
+impl Edge<'_> {
+    fn order(&self) -> (u8, &str, i64) {
+        match self {
+            Edge::Reference(site) => (confidence_rank(site.confidence), &site.file, site.line),
+            Edge::Import(importer) => (confidence_rank(importer.confidence), &importer.file, 1),
+        }
+    }
+
+    fn to_caller(&self, rows: &HashMap<&str, Vec<surface::Row>>, index: &relations::Relations) -> Caller {
+        match self {
+            Edge::Reference(site) => match &site.caller {
+                Some(caller) => Caller {
+                    node_id: relations::symbol_id(&site.file, &caller.name),
+                    label: caller.name.clone(),
+                    kind: caller.kind.clone(),
+                    source_file: site.file.clone(),
+                    source_line: site.line,
+                    relation: "references",
+                    confidence: site.confidence,
+                    declaration: rows
+                        .get(site.file.as_str())
+                        .and_then(|rows| rows.iter().find(|row| row.line == caller.line && row.name == caller.name))
+                        .cloned(),
+                },
+                None => {
+                    let language = index.language(&site.file);
+                    Caller {
+                        node_id: relations::module_id(&site.file, language),
+                        label: relations::file_to_module(&site.file, language),
+                        kind: "module".to_string(),
+                        source_file: site.file.clone(),
+                        source_line: site.line,
+                        relation: "references",
+                        confidence: site.confidence,
+                        declaration: None,
+                    }
+                }
+            },
+            Edge::Import(importer) => {
+                let language = index.language(&importer.file);
+                Caller {
+                    node_id: relations::module_id(&importer.file, language),
+                    label: relations::file_to_module(&importer.file, language),
+                    kind: "module".to_string(),
+                    source_file: importer.file.to_string(),
+                    source_line: 1,
+                    relation: "imports",
+                    confidence: importer.confidence,
+                    declaration: None,
+                }
             }
-        })
-        .collect()
+        }
+    }
 }
 
 pub fn run(symbol: &str, limit: usize, as_json: bool) -> Result<Value> {
     let here = Path::new(".");
     let repo_root = cache::worktree_root_for(here).unwrap_or_else(|| cache::display_root(here));
-    let declarations = relations::declarations(symbol, &repo_root);
+    let candidates = relations::candidates(&[symbol], &repo_root);
+    let declarations: Vec<&relations::Candidate> =
+        candidates.iter().flat_map(relations::Candidates::declarations).collect();
     let modules = if declarations.is_empty() {
         relations::modules_named(symbol, &repo_root)
     } else {
@@ -129,112 +171,104 @@ pub fn run(symbol: &str, limit: usize, as_json: bool) -> Result<Value> {
         std::process::exit(2);
     }
 
-    let mut sites = if declarations.is_empty() {
+    let sites = if declarations.is_empty() {
         Vec::new()
     } else {
-        relations::use_sites(symbol, &repo_root)
+        crate::timing::phase("use_sites", || relations::use_sites(&candidates, None, &repo_root)).concat()
     };
-    sites.sort_by(|a, b| {
-        confidence_rank(a.confidence)
-            .cmp(&confidence_rank(b.confidence))
-            .then_with(|| a.file.cmp(&b.file))
-            .then_with(|| a.line.cmp(&b.line))
-    });
-    let total_sites = sites.len();
-    let truncated = total_sites > limit;
-    sites.truncate(limit);
-
     let index = relations::get(&repo_root);
-    let mut row_files: Vec<String> = sites.iter().map(|s| s.file.clone()).collect();
-    for file in modules.iter().chain(declarations.iter().map(|declaration| &declaration.file)) {
-        row_files.extend(index.importers_of(file).iter().map(|i| i.file.to_string()));
+    let declared: HashMap<(&str, &str, i64), usize> = declarations
+        .iter()
+        .enumerate()
+        .map(|(at, declaration)| {
+            let key = (declaration.file.as_str(), declaration.declaration.name.as_str(), declaration.declaration.line);
+            (key, at)
+        })
+        .collect();
+    let mut edges: Vec<(usize, Edge)> = sites
+        .iter()
+        .filter_map(|site| {
+            let key = (site.target_file.as_str(), site.target.name.as_str(), site.target.line);
+            declared.get(&key).map(|&at| (at, Edge::Reference(site)))
+        })
+        .collect();
+    let referenced: HashSet<usize> = edges.iter().map(|(at, _)| *at).collect();
+    let subjects: Vec<&str> = declarations
+        .iter()
+        .map(|declaration| declaration.file.as_str())
+        .chain(modules.iter().map(String::as_str))
+        .collect();
+    for (at, file) in subjects.iter().enumerate().filter(|(at, _)| !referenced.contains(at)) {
+        edges.extend(index.importers_of(file).iter().map(|importer| (at, Edge::Import(importer))));
     }
+    edges.sort_by(|(_, a), (_, b)| a.order().cmp(&b.order()));
+    let total = edges.len();
+    let truncated = total > limit;
+    edges.truncate(limit);
+
+    let mut row_files: Vec<String> = edges.iter().map(|(_, edge)| edge.order().1.to_string()).collect();
     row_files.sort();
     row_files.dedup();
     let fact_paths: Vec<PathBuf> = row_files.iter().map(|file| repo_root.join(file)).collect();
     let facts = file_facts::get_batch(&fact_paths, &repo_root);
     let file_facts_by_path = enrich::facts_of(&facts, &repo_root);
-    let rows: HashMap<&str, Vec<surface::Row>> = sites
+    let rows: HashMap<&str, Vec<surface::Row>> = edges
         .iter()
-        .filter(|site| site.caller.is_some())
-        .filter_map(|site| facts.get(&site.file).map(|facts| (site.file.as_str(), facts)))
-        .map(|(file, facts)| (file, surface::rows(facts, None)))
+        .filter_map(|(_, edge)| match edge {
+            Edge::Reference(site) if site.caller.is_some() => Some(site.file.as_str()),
+            _ => None,
+        })
+        .collect::<HashSet<&str>>()
+        .into_iter()
+        .filter_map(|file| facts.get(file).map(|facts| (file, surface::rows(facts, None))))
         .collect();
 
-    let mut symbols: Vec<Symbol> = Vec::new();
-    for declaration in &declarations {
-        let mut callers: Vec<Caller> = sites
-            .iter()
-            .filter(|s| s.target_file == declaration.file && s.target.name == declaration.declaration.name)
-            .map(|s| match &s.caller {
-                Some(caller) => Caller {
-                    node_id: relations::symbol_id(&s.file, &caller.name),
-                    label: caller.name.clone(),
-                    kind: caller.kind.clone(),
-                    source_file: s.file.clone(),
-                    source_line: s.line,
-                    relation: "references",
-                    confidence: s.confidence,
-                    declaration: rows
-                        .get(s.file.as_str())
-                        .and_then(|rows| rows.iter().find(|row| row.line == caller.line && row.name == caller.name))
-                        .cloned(),
-                },
-                None => {
-                    let language = index.language(&s.file);
-                    Caller {
-                        node_id: relations::module_id(&s.file, language),
-                        label: relations::file_to_module(&s.file, language),
-                        kind: "module".to_string(),
-                        source_file: s.file.clone(),
-                        source_line: s.line,
-                        relation: "references",
-                        confidence: s.confidence,
-                        declaration: None,
-                    }
-                }
-            })
-            .collect();
-        if callers.is_empty() {
-            callers = importers(&declaration.file, &index);
-        }
-        symbols.push(Symbol::new(
-            relations::symbol_id(&declaration.file, &declaration.declaration.name),
-            &declaration.declaration.name,
-            &declaration.declaration.kind,
-            &declaration.file,
-            declaration.declaration.line,
-            callers,
-        ));
+    let mut callers: Vec<Vec<Caller>> = subjects.iter().map(|_| Vec::new()).collect();
+    for (at, edge) in &edges {
+        callers[*at].push(edge.to_caller(&rows, &index));
     }
-    for file in &modules {
+    let mut callers = callers.into_iter();
+    let mut symbols: Vec<Symbol> = declarations
+        .iter()
+        .zip(&mut callers)
+        .map(|(declaration, callers)| {
+            Symbol::new(
+                relations::symbol_id(&declaration.file, &declaration.declaration.name),
+                &declaration.declaration.name,
+                &declaration.declaration.kind,
+                &declaration.file,
+                declaration.declaration.line,
+                callers,
+            )
+        })
+        .collect();
+    symbols.extend(modules.iter().zip(callers).map(|(file, callers)| {
         let language = index.language(file);
-        symbols.push(Symbol::new(
+        Symbol::new(
             relations::module_id(file, language),
             &relations::file_to_module(file, language),
             "module",
             file,
             1,
-            importers(file, &index),
-        ));
-    }
+            callers,
+        )
+    }));
 
     if !as_json {
         let sections: Vec<enrich::Section> = symbols.iter().map(section).collect();
         enrich::render_sections(&sections, &file_facts_by_path, "call site", "call sites");
         if truncated {
-            println!("\n... {} more (see all: --limit {total_sites})", total_sites - sites.len());
+            println!("\n... {} more (see all: --limit {total})", total - edges.len());
         }
     }
-    let total: usize = symbols.iter().map(|symbol| symbol.callers.len()).sum();
     Ok(crate::output::document(
         json!({"symbol": symbol, "limit": limit}),
         json!({"files": enrich::facts_context(&file_facts_by_path)}),
         Value::Array(symbols.iter().map(Symbol::to_value).collect()),
         json!({
             "symbols": symbols.len(),
-            "callers": total,
-            "total": total_sites,
+            "callers": edges.len(),
+            "total": total,
             "truncated": truncated,
         }),
     ))

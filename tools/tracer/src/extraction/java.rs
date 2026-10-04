@@ -88,6 +88,7 @@ fn walk_imports(root: Node, source: &[u8]) -> Vec<Import> {
                         symbol: None,
                         locals: Vec::new(),
                         line,
+                        block: None,
                     });
                 } else {
                     let (module, symbol) = match p.rsplit_once('.') {
@@ -99,6 +100,7 @@ fn walk_imports(root: Node, source: &[u8]) -> Vec<Import> {
                         symbol,
                         locals: Vec::new(),
                         line,
+                        block: None,
                     });
                 }
             }
@@ -199,6 +201,9 @@ fn walk_declarations(root: Node, source: &[u8]) -> Vec<Declaration> {
                                 builder.finish()
                             },
                             annotations: java_annotations(n, source),
+                            self_type: None,
+                            module_file: None,
+                            supertypes: Vec::new(),
                         });
                     }
                 }
@@ -245,20 +250,16 @@ fn java_annotations(node: Node, source: &[u8]) -> Vec<String> {
 }
 
 /// Method invocations, object creation, and parameter / return type hints,
-/// stamped with shape and enclosing method.
+/// stamped with shape.
 fn walk_references(root: Node, source: &[u8]) -> Vec<Reference> {
     let mut out = Vec::new();
-    let mut stack: Vec<(Node, Option<String>)> = vec![(root, None)];
-    while let Some((n, enclosing)) = stack.pop() {
+    let mut stack = vec![root];
+    while let Some(n) = stack.pop() {
         let line = n.start_position().row as i64 + 1;
-        // The enclosing scope for this node's children — a method /
-        // constructor names its own scope, so its parameter type hints
-        // resolve to the declaring method.
-        let child_enclosing = enclosing_function_name(n, source).or_else(|| enclosing.clone());
         match n.kind() {
             // `obj.name(..)` or bare `name(..)` — Java has no free functions,
             // so every invocation is a method call. The receiver type is not
-            // named at the site, so it is `Member`.
+            // named at the site, so it is `Member`, carrying the object text.
             "method_invocation" => {
                 if let Some(name_node) = n.child_by_field_name("name") {
                     if let Ok(name) = name_node.utf8_text(source) {
@@ -266,8 +267,10 @@ fn walk_references(root: Node, source: &[u8]) -> Vec<Reference> {
                             name: name.to_string(),
                             line: name_node.start_position().row as i64 + 1,
                             shape: RefShape::Member,
-                            receiver: None,
-                            enclosing: enclosing.clone(),
+                            receiver: n
+                                .child_by_field_name("object")
+                                .and_then(|object| object.utf8_text(source).ok())
+                                .map(str::to_string),
                         });
                     }
                 }
@@ -281,29 +284,25 @@ fn walk_references(root: Node, source: &[u8]) -> Vec<Reference> {
                             line,
                             shape: RefShape::Static,
                             receiver: Some(name),
-                            enclosing: enclosing.clone(),
                         });
                     }
                 }
             }
-            // A parameter's type hint names a class — a Static use belonging
-            // to the declaring method (its scope is in `child_enclosing`).
+            // A parameter's type hint names a class — a Static use.
             "formal_parameter" | "spread_parameter" => {
                 if let Some(ty) = n.child_by_field_name("type") {
-                    push_type(ty, source, child_enclosing.as_deref(), &mut out);
+                    push_type(ty, source, &mut out);
                 }
             }
             "method_declaration" => {
                 if let Some(ty) = n.child_by_field_name("type") {
-                    push_type(ty, source, child_enclosing.as_deref(), &mut out);
+                    push_type(ty, source, &mut out);
                 }
             }
             _ => {}
         }
         let mut c = n.walk();
-        for child in n.children(&mut c) {
-            stack.push((child, child_enclosing.clone()));
-        }
+        stack.extend(n.children(&mut c));
     }
     out
 }
@@ -311,7 +310,7 @@ fn walk_references(root: Node, source: &[u8]) -> Vec<Reference> {
 /// Emit a Static reference for each named class inside a type node — handles
 /// a bare `type_identifier`, a `generic_type` (`List<Foo>` references both
 /// `List` and `Foo`), and a `scoped_type_identifier` (`a.b.C` → `C`).
-fn push_type(node: Node, source: &[u8], enclosing: Option<&str>, out: &mut Vec<Reference>) {
+fn push_type(node: Node, source: &[u8], out: &mut Vec<Reference>) {
     let mut stack = vec![node];
     while let Some(n) = stack.pop() {
         match n.kind() {
@@ -322,7 +321,6 @@ fn push_type(node: Node, source: &[u8], enclosing: Option<&str>, out: &mut Vec<R
                         line: n.start_position().row as i64 + 1,
                         shape: RefShape::Static,
                         receiver: Some(name.to_string()),
-                        enclosing: enclosing.map(|s| s.to_string()),
                     });
                 }
             }
@@ -333,7 +331,6 @@ fn push_type(node: Node, source: &[u8], enclosing: Option<&str>, out: &mut Vec<R
                         line: n.start_position().row as i64 + 1,
                         shape: RefShape::Static,
                         receiver: Some(name),
-                        enclosing: enclosing.map(|s| s.to_string()),
                     });
                 }
             }
@@ -357,19 +354,4 @@ fn last_type_segment(node: Node, source: &[u8]) -> Option<String> {
     } else {
         Some(seg.to_string())
     }
-}
-
-/// A `method_declaration` / `constructor_declaration` introduces its own
-/// name as the enclosing method scope.
-fn enclosing_function_name(node: Node, source: &[u8]) -> Option<String> {
-    if matches!(
-        node.kind(),
-        "method_declaration" | "constructor_declaration"
-    ) {
-        return node
-            .child_by_field_name("name")
-            .and_then(|nm| nm.utf8_text(source).ok())
-            .map(|s| s.to_string());
-    }
-    None
 }

@@ -1,19 +1,20 @@
 //! Worktree-anchored disk cache for the repo-state namespace.
 //!
-//! `.tracer-cache/file/{key}.json` at the worktree root — the main-repo root
-//! for a normal checkout, or the linked-worktree's own root for a
-//! `git worktree add` checkout. A tracer cache exists ONLY at a worktree
-//! root. Outside any worktree, reads still return live results but nothing
-//! persists — the `cache::save` chokepoint hard-gates on `worktree_root_for`
-//! and no-ops when it returns `None`.
+//! `.tracer-cache/file/schema{SCHEMA_VERSION}/{key}.json` at the worktree
+//! root — the main-repo root for a normal checkout, or the linked-worktree's
+//! own root for a `git worktree add` checkout. A tracer cache exists ONLY at
+//! a worktree root. Outside any worktree, reads still return live results but
+//! nothing persists — the `cache::save` chokepoint hard-gates on
+//! `worktree_root_for` and no-ops when it returns `None`.
 //!
-//! `file/` holds two kinds of entry, both JSON written as a single line (no
-//! indent, the `jsonfmt` byte format) via `save`: content-addressed per-file
-//! entries, which are immutable, and repo-wide mutable indexes keyed by
-//! schema alone — the mtime index and the relations index — each swept by
-//! `evict_prefixed` so a superseded key leaves nothing behind. The second
-//! namespace, `sessions/`, lives under the same `.tracer-cache/` at the
-//! worktree root and is owned by `commands::session_log`.
+//! Each schema's directory holds two kinds of entry, both JSON written as a
+//! single line (no indent, the `jsonfmt` byte format) via `save`:
+//! content-addressed per-file entries, which are immutable, and repo-wide
+//! entries, each swept by `evict_prefixed` so a superseded key leaves nothing
+//! behind. Another schema's directory stays until no build has written in it
+//! for `stale_schema_age`. The second namespace, `sessions/`, lives under the
+//! same `.tracer-cache/` at the worktree root and is owned by
+//! `commands::session_log`.
 //!
 //! File cache key:
 //!   sha256("v{SCHEMA_VERSION}|ccn:{backend}\0" + contents + "\0" + relpath)
@@ -23,16 +24,19 @@ use sha2::{Digest, Sha256};
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub const CACHE_DIR_NAME: &str = ".tracer-cache";
 pub const NAMESPACE_FILE: &str = "file";
 
-/// The one cross-process maintenance lock: `file/.maintain.lock`, held with
-/// an exclusive `flock` across every repo-wide index update. A process that
-/// finds its index fresh never takes it; one that finds it stale takes it,
-/// re-reads the index the holder just wrote, and does only what is left.
-/// Without it eight concurrent calls after one saved file each rebuilt the
-/// index and overwrote each other's write.
+/// This schema's cross-process maintenance lock: `file/schema<N>/.maintain.lock`,
+/// held with an exclusive `flock` across every repo-wide index update. A
+/// process that finds its index fresh never takes it; one that finds it stale
+/// takes it, re-reads the index the holder just wrote, and does only what is
+/// left. Without it eight concurrent calls after one saved file each rebuilt
+/// the index and overwrote each other's write. A build at another schema
+/// writes none of these entries, so it holds its own lock and never waits here.
+/// The process that takes the lock sweeps the stale schemas.
 ///
 /// Reentrant per process: the relations update calls `get_batch`, which
 /// stores the mtime index, which takes this lock again. `flock` on a second
@@ -46,7 +50,7 @@ static maintenance: std::sync::Mutex<(usize, Option<fs::File>)> = std::sync::Mut
 pub fn maintain(repo_root: &Path) -> Option<Maintenance> {
     let mut held = maintenance.lock().unwrap();
     if held.0 == 0 {
-        let dir = namespace_dir(NAMESPACE_FILE, repo_root).ok()?;
+        let dir = schema_directory(NAMESPACE_FILE, repo_root).ok()?;
         let lock = fs::OpenOptions::new()
             .write(true)
             .create(true)
@@ -57,6 +61,7 @@ pub fn maintain(repo_root: &Path) -> Option<Maintenance> {
             rustix::fs::flock(&lock, rustix::fs::FlockOperation::LockExclusive)
         })
         .ok()?;
+        evict_stale_schemas(&dir);
         held.1 = Some(lock);
     }
     held.0 += 1;
@@ -75,9 +80,15 @@ impl Drop for Maintenance {
 }
 
 /// Bump whenever extraction, the `FileFacts` shape, or a repo-wide index
-/// shape changes — old entries become unreachable automatically across all
-/// namespaces.
-pub const SCHEMA_VERSION: u32 = 27;
+/// shape changes — a new schema writes into its own directory, so old
+/// entries become unreachable automatically.
+pub const SCHEMA_VERSION: u32 = 49;
+
+/// A build in use writes its schema's git-activity key at least once a day,
+/// because that key carries the date, so a week without a write means no build
+/// at that schema ran through a weekend and the days around it.
+#[allow(non_upper_case_globals)]
+const stale_schema_age: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 
 /// Active CCN backend. There is exactly one backend — the tree-sitter
 /// AST decision-node walker — so cache identity is unconditionally
@@ -171,8 +182,10 @@ fn cache_root(repo_root: &Path) -> Result<PathBuf> {
     Ok(dir)
 }
 
-fn namespace_dir(namespace: &str, repo_root: &Path) -> Result<PathBuf> {
-    let dir = cache_root(repo_root)?.join(namespace);
+fn schema_directory(namespace: &str, repo_root: &Path) -> Result<PathBuf> {
+    let dir = cache_root(repo_root)?
+        .join(namespace)
+        .join(format!("schema{SCHEMA_VERSION}"));
     fs::create_dir_all(&dir)?;
     Ok(dir)
 }
@@ -210,7 +223,7 @@ pub fn file_hash(path: &Path, repo_root: &Path) -> Result<String> {
 /// parsing a repo-wide index into one first costs more memory than the index
 /// itself: the relations index reads this instead.
 pub fn load_bytes(namespace: &str, key: &str, repo_root: &Path) -> Option<Vec<u8>> {
-    let dir = namespace_dir(namespace, repo_root).ok()?;
+    let dir = schema_directory(namespace, repo_root).ok()?;
     let entry = dir.join(format!("{key}.json"));
     if !entry.exists() {
         return None;
@@ -257,7 +270,7 @@ pub fn save<T: serde::Serialize + ?Sized>(
     if git_dir(repo_root).is_none() {
         return Ok(false);
     }
-    let dir = namespace_dir(namespace, repo_root)?;
+    let dir = schema_directory(namespace, repo_root)?;
     let entry = dir.join(format!("{key}.json"));
     let new = !entry.exists();
     // Unique temp per call: process id plus a monotonic sequence number,
@@ -282,36 +295,68 @@ pub fn save<T: serde::Serialize + ?Sized>(
 /// superseded, so the namespace holds one entry per file instead of one per
 /// version ever written: dotfiles had reached 17,736 entries for 795 files.
 pub fn remove(namespace: &str, key: &str, repo_root: &Path) {
-    if let Ok(dir) = namespace_dir(namespace, repo_root) {
+    if let Ok(dir) = schema_directory(namespace, repo_root) {
         let _ = fs::remove_file(dir.join(format!("{key}.json")));
     }
 }
 
-/// Delete every `{prefix}*` entry in `namespace` except `keep`.
+/// Delete every `{prefix}*` entry in this schema's directory except `keep`.
 ///
 /// The git-activity and deploy-presence maps are keyed by a repo state that
 /// moves — HEAD, the 30-day cutoff date, the deploy-branch tips — so without
 /// this sweep each move leaves its predecessor behind forever: 64 superseded
 /// `git_activity__*` entries totalling 52 MB had accumulated in this repo.
 /// Runs after the rename, so a crash mid-write never removes the only good
-/// entry, and matches on the filename prefix so the per-file content-hash
-/// entries sharing the namespace are never touched.
+/// entry. A content entry's name is its hex hash, which no prefix matches.
 pub fn evict_prefixed(namespace: &str, prefix: &str, keep: &str, repo_root: &Path) {
-    let dir = match namespace_dir(namespace, repo_root) {
-        Ok(d) => d,
-        Err(_) => return,
+    let Ok(dir) = schema_directory(namespace, repo_root) else {
+        return;
     };
-    let keep_name = format!("{keep}.json");
-    if let Ok(rd) = fs::read_dir(&dir) {
-        for e in rd.flatten() {
-            let p = e.path();
-            let name = match p.file_name().and_then(|n| n.to_str()) {
-                Some(n) => n,
-                None => continue,
-            };
-            if name != keep_name && name.starts_with(prefix) && is_cache_entry(&p) {
-                let _ = fs::remove_file(&p);
-            }
+    let Ok(entries) = fs::read_dir(&dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .and_then(|name| name.strip_suffix(".json"))
+            .is_some_and(|key| key != keep && key.starts_with(prefix))
+        {
+            let _ = fs::remove_file(&path);
+        }
+    }
+}
+
+/// Delete every other schema's directory beside `current` once nothing was
+/// written in it for `stale_schema_age`, and the loose entries a build from
+/// before schema directories left beside them once none of them was. A
+/// directory's own modification time is its newest write, because `save`
+/// renames every entry into it. Another schema's directory belongs to another
+/// installed build that may still run, so removing it on sight made the two
+/// builds rebuild each other's indexes on alternate calls.
+fn evict_stale_schemas(current: &Path) {
+    let Some(entries) = current.parent().and_then(|namespace| fs::read_dir(namespace).ok()) else {
+        return;
+    };
+    let stale = |written: SystemTime| written.elapsed().is_ok_and(|age| age > stale_schema_age);
+    let mut loose = (UNIX_EPOCH, Vec::new());
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let written = entry
+            .metadata()
+            .and_then(|metadata| metadata.modified())
+            .unwrap_or(UNIX_EPOCH);
+        if !entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+            loose.0 = loose.0.max(written);
+            loose.1.push(path);
+        } else if path != current && stale(written) {
+            let _ = fs::remove_dir_all(path);
+        }
+    }
+    if stale(loose.0) {
+        for path in loose.1 {
+            let _ = fs::remove_file(path);
         }
     }
 }
@@ -322,39 +367,39 @@ pub struct CacheStats {
     pub total_bytes: u64,
 }
 
-/// Entry count and total size of the `file/` namespace. Absent means zero,
-/// not an error: a repo that has never been read has no namespace directory.
+/// Entry count and total size of the `file/` namespace, every schema's
+/// directory included. Absent means zero, not an error: a repo that has never
+/// been read has no namespace directory.
 pub fn stats(repo_root: &Path) -> Result<CacheStats> {
     let dir = cache_root(repo_root)?.join(NAMESPACE_FILE);
     let mut out = CacheStats {
         entry_count: 0,
         total_bytes: 0,
     };
-    if let Ok(rd) = fs::read_dir(&dir) {
-        for e in rd.flatten() {
-            if is_cache_entry(&e.path()) {
-                out.entry_count += 1;
-                out.total_bytes += e.metadata().map(|m| m.len()).unwrap_or(0);
-            }
-        }
+    for e in walkdir::WalkDir::new(&dir)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| is_cache_entry(e.path()))
+    {
+        out.entry_count += 1;
+        out.total_bytes += e.metadata().map(|m| m.len()).unwrap_or(0);
     }
     Ok(out)
 }
 
-/// Delete every entry in the `file/` namespace, returning the removed count.
-/// The namespace directory itself stays, so `clear_all` remains the only way
-/// to remove the cache tree.
+/// Delete every entry in the `file/` namespace, every schema's directory
+/// included, returning the removed count. The directories and their locks
+/// stay, so `clear_all` remains the only way to remove the cache tree.
 pub fn clear(repo_root: &Path) -> Result<usize> {
     let dir = cache_root(repo_root)?.join(NAMESPACE_FILE);
     let mut removed = 0;
-    if let Ok(rd) = fs::read_dir(&dir) {
-        for e in rd.flatten() {
-            let p = e.path();
-            if is_cache_entry(&p) {
-                fs::remove_file(&p)?;
-                removed += 1;
-            }
-        }
+    for e in walkdir::WalkDir::new(&dir)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| is_cache_entry(e.path()))
+    {
+        fs::remove_file(e.path())?;
+        removed += 1;
     }
     Ok(removed)
 }

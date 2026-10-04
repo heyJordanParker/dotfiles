@@ -2887,8 +2887,8 @@ fn read_then_docs_share_session_dedupe() {
 
 #[test]
 fn context_file_mode_surfaces_rows_on_every_touch() {
-    // Every surfacing carries the rows and the directory facts; only the
-    // directory's entries, already shown, drop from the second.
+    // Every surfacing carries the rows; the front matter, already shown,
+    // gives way to its headline on the second.
     let f = standard_repo();
     // Warm the cache so graph counts are populated.
     f.trace(&["cache", "build", "."]).ok();
@@ -2905,13 +2905,11 @@ fn context_file_mode_surfaces_rows_on_every_touch() {
 
     let second = f.trace_env(&["context", "src/app.py"], &env);
     second.ok();
-    let without_entries: String = first
-        .stdout
-        .lines()
-        .filter(|line| !line.starts_with("  entries: ") && !line.starts_with("  total_entries: "))
-        .map(|line| format!("{line}\n"))
-        .collect();
-    assert_eq!(second.stdout, without_entries);
+    let rows = &first.stdout[first.stdout.rfind("---\n").unwrap() + 4..];
+    assert_eq!(
+        second.stdout,
+        format!("# src/app.py  {{imported_by: 0, cyclomatic_complexity: 4, lines: 12}}\n{rows}")
+    );
 }
 
 /// A repo with a file nested two directories deep alongside a sibling, used
@@ -3005,8 +3003,8 @@ fn directory_listing_surfaces_once_per_agent_until_it_changes() {
     first.ok();
     assert!(first.stdout.contains(listed), "the first file lists its directory:\n{}", first.stdout);
 
-    // A neighbour keeps the directory facts and its rows, never the entries
-    // again, whichever command surfaces it.
+    // A neighbour keeps its rows, never the entries again, whichever command
+    // surfaces it.
     for args in [
         vec!["context", "app/controllers/users.py"],
         vec!["read", "app/controllers/users.py"],
@@ -3014,7 +3012,6 @@ fn directory_listing_surfaces_once_per_agent_until_it_changes() {
     ] {
         let repeat = f.trace_env(&args, &env);
         repeat.ok();
-        assert!(repeat.stdout.contains("\n  path: app/controllers/\n"), "{args:?}:\n{}", repeat.stdout);
         assert!(!repeat.stdout.contains("  entries: "), "{args:?} repeated the listing:\n{}", repeat.stdout);
         assert!(repeat.stdout.contains("def show()"), "{args:?} lost the rows:\n{}", repeat.stdout);
     }
@@ -3048,6 +3045,383 @@ fn directory_listing_surfaces_once_per_agent_until_it_changes() {
         "{}",
         after_reset.stdout
     );
+}
+
+#[test]
+fn a_new_importer_of_a_shown_directory_prints_only_its_changed_lines() {
+    let f = Fixture::new();
+    f.write("lib/a.py", "def a():\n    return 1\n");
+    f.write("main.py", "x = 1\n");
+    f.commit("one directory");
+    let sid = fresh_session_id("directory-importer");
+    let env = [("AGENT_SESSION_ID", sid.as_str())];
+
+    let first = f.trace_env(&["read", "lib/a.py"], &env);
+    first.ok();
+    assert!(
+        first.stdout.contains("\ndirectory:\n  path: lib/\n  imported_by: 0\n  imports: 0\n  entries: [a.py]\n"),
+        "{}",
+        first.stdout
+    );
+
+    f.write("main.py", "from lib.a import a\n");
+    let imported = f.trace_env(&["read", "lib/a.py"], &env);
+    imported.ok();
+    assert!(
+        imported.stdout.contains("\ndirectory:\n  imported_by: 1\n  at_session_start: {imported_by: 0}\n---\n"),
+        "the new importer must print the directory lines it changed, without the entries:\n{}",
+        imported.stdout
+    );
+
+    let unchanged = f.trace_env(&["read", "lib/a.py"], &env);
+    unchanged.ok();
+    assert!(!unchanged.stdout.contains("directory:"), "{}", unchanged.stdout);
+}
+
+#[test]
+fn a_moved_session_start_notice_prints_whole() {
+    let f = Fixture::new();
+    f.write("outside/one.py", "def one():\n    return 1\n");
+    f.write("inside/main.py", "class Main:\n    pass\n");
+    f.write("consumer.py", "x = 1\n");
+    f.commit("two directories");
+    let sid = fresh_session_id("session-start-whole");
+    let env = [("AGENT_SESSION_ID", sid.as_str())];
+
+    f.trace_env(&["read", "inside/main.py"], &env).ok();
+    f.write("inside/main.py", "from outside.one import one\n\nclass Main:\n    pass\n");
+    let imports = f.trace_env(&["read", "inside/main.py"], &env);
+    imports.ok();
+    assert!(
+        imports.stdout.contains("  at_session_start: {imports: 0, now_imports_from: [outside/]}\n"),
+        "{}",
+        imports.stdout
+    );
+
+    f.write("consumer.py", "from inside.main import Main\n");
+    let imported = f.trace_env(&["read", "inside/main.py"], &env);
+    imported.ok();
+    assert!(
+        imported.stdout.contains(
+            "\ndirectory:\n  imported_by: 1\n  at_session_start: {imported_by: 0, imports: 0, now_imports_from: [outside/]}\n"
+        ),
+        "a moved notice must print whole, never only the key that moved:\n{}",
+        imported.stdout
+    );
+}
+
+#[test]
+fn a_file_a_read_cannot_answer_is_reported_and_the_rest_print() {
+    let f = Fixture::new();
+    f.write("lib/a.py", "def foo():\n    return 1\n");
+    f.write("lib/b.py", "def bar():\n    return 2\n");
+    f.commit("two files");
+    let sid = fresh_session_id("read-partial-failure");
+    let env = [("AGENT_SESSION_ID", sid.as_str())];
+
+    let both = f.trace_env(&["read", "lib/a.py", "lib/b.py", "--method", "foo"], &env);
+    both.code_is(2);
+    assert!(both.stdout.contains("# lib/a.py :: foo\n---\nfile: lib/a.py\n"), "{}", both.stdout);
+    assert!(both.stdout.contains("  entries: [a.py, b.py]\n"), "{}", both.stdout);
+    assert!(both.stdout.contains("return 1"), "{}", both.stdout);
+    assert!(!both.stdout.contains("# lib/b.py"), "{}", both.stdout);
+    assert!(both.stderr.contains("no function 'foo' in lib/b.py"), "{}", both.stderr);
+
+    let next = f.trace_env(&["read", "lib/a.py"], &env);
+    next.ok();
+    assert!(next.stdout.starts_with("# lib/a.py  {"), "the facts it printed must stay shown:\n{}", next.stdout);
+}
+
+/// A file with no project doc above it, so its front matter carries no
+/// `docs_not_loaded` and a repeat has nothing new to print in a block.
+fn ledger_repo() -> Fixture {
+    let f = Fixture::new();
+    f.write(
+        "ledger.py",
+        "def record(cents):\n    if cents > 0:\n        return cents\n    return 0\n\ndef total(rows):\n    return sum(rows)\n",
+    );
+    f.commit("ledger");
+    f
+}
+
+fn has_whole_front_matter(output: &str) -> bool {
+    output.contains("\n---\nfile: ledger.py\nlines: 7\n") && output.contains("\ndirectory:\n  path: ./\n")
+}
+
+#[test]
+fn a_repeated_read_window_carries_the_headline_instead_of_the_front_matter() {
+    let f = ledger_repo();
+    let sid = fresh_session_id("repeat-window");
+    let env = [("AGENT_SESSION_ID", sid.as_str())];
+
+    let first = f.trace_env(&["read", "ledger.py", "--lines", "1:4"], &env);
+    first.ok();
+    assert!(has_whole_front_matter(&first.stdout), "{}", first.stdout);
+
+    let second = f.trace_env(&["read", "ledger.py", "--lines", "6:7"], &env);
+    second.ok();
+    let heading = second.stdout.lines().next().unwrap_or_default();
+    assert!(
+        heading.starts_with("# ledger.py :: L6-L7  {") && heading.contains("lines: 7") && heading.ends_with('}'),
+        "the repeat must carry the headline on its heading line:\n{}",
+        second.stdout
+    );
+    assert!(!second.stdout.contains("---"), "the repeat printed a front matter block:\n{}", second.stdout);
+    assert!(second.stdout.contains("def total(rows): …"), "the rows still print:\n{}", second.stdout);
+    assert!(second.stdout.contains("return sum(rows)"), "the content still prints:\n{}", second.stdout);
+}
+
+#[test]
+fn a_context_reset_shows_the_front_matter_again() {
+    let f = ledger_repo();
+    let sid = fresh_session_id("facts-reset");
+    let env = [("AGENT_SESSION_ID", sid.as_str())];
+
+    f.trace_env(&["read", "ledger.py", "--lines", "1:4"], &env).ok();
+    let repeat = f.trace_env(&["read", "ledger.py", "--lines", "1:4"], &env);
+    repeat.ok();
+    assert!(!has_whole_front_matter(&repeat.stdout), "{}", repeat.stdout);
+
+    f.trace_env(&["docs", "reset", "--source", "test"], &env).ok();
+    let after_reset = f.trace_env(&["read", "ledger.py", "--lines", "1:4"], &env);
+    after_reset.ok();
+    assert!(has_whole_front_matter(&after_reset.stdout), "{}", after_reset.stdout);
+}
+
+#[test]
+fn another_agent_gets_the_whole_front_matter() {
+    let f = ledger_repo();
+    let sid = fresh_session_id("facts-other-agent");
+    let env = [("AGENT_SESSION_ID", sid.as_str())];
+
+    f.trace_env(&["read", "ledger.py"], &env).ok();
+    let repeat = f.trace_env(&["read", "ledger.py"], &env);
+    repeat.ok();
+    assert!(!has_whole_front_matter(&repeat.stdout), "{}", repeat.stdout);
+
+    let other = f.trace_env(&["read", "ledger.py", "--agent", "sub-1"], &env);
+    other.ok();
+    assert!(has_whole_front_matter(&other.stdout), "{}", other.stdout);
+}
+
+#[test]
+fn a_commit_by_another_agent_shows_only_the_changed_git_lines() {
+    let f = ledger_repo();
+    let sid = fresh_session_id("facts-commit");
+    let env = [("AGENT_SESSION_ID", sid.as_str())];
+
+    f.write(
+        "ledger.py",
+        "def record(cents):\n    if cents > 0:\n        return cents\n    return 0\n\ndef total(rows):\n    return sum(rows, 0)\n",
+    );
+    let first = f.trace_env(&["read", "ledger.py"], &env);
+    first.ok();
+    assert!(first.stdout.contains("\n---\nfile: ledger.py\n"), "{}", first.stdout);
+
+    f.commit("edit");
+    let after_commit = f.trace_env(&["info", "ledger.py", "--brief"], &env);
+    after_commit.ok();
+    assert!(
+        after_commit.stdout.contains(
+            "\n---\ngit:\n  status: unmodified\n  commits: 2\n  commits_last_30_days: 2\n  last_commit: \"today by Tracer Test: edit\"\nlanguage: python\nfunctions: 2\nmax_function_complexity: 2\n---\n"
+        ),
+        "the commit must show only the git lines it changed, beside info's answer:\n{}",
+        after_commit.stdout
+    );
+
+    let further = f.trace_env(&["info", "ledger.py", "--brief"], &env);
+    further.ok();
+    assert!(further.stdout.starts_with("# ledger.py  {"), "{}", further.stdout);
+    assert!(
+        further.stdout.contains("\n---\nlanguage: python\nfunctions: 2\nmax_function_complexity: 2\n---\n"),
+        "a further info shows only its own answer:\n{}",
+        further.stdout
+    );
+}
+
+#[test]
+fn an_edit_shows_only_the_changed_lines() {
+    let f = ledger_repo();
+    let sid = fresh_session_id("facts-edit");
+    let env = [("AGENT_SESSION_ID", sid.as_str())];
+
+    f.trace_env(&["read", "ledger.py"], &env).ok();
+    f.write(
+        "ledger.py",
+        "def record(cents):\n    if cents > 0:\n        return cents\n    return 0\n\ndef total(rows):\n    return sum(rows)\n\ndef count(rows):\n    return len(rows)\n",
+    );
+    let edited = f.trace_env(&["read", "ledger.py", "--lines", "1:2"], &env);
+    edited.ok();
+    assert!(
+        edited.stdout.starts_with("# ledger.py :: L1-L2  {")
+            && edited.stdout.contains("\n---\nlines: 10\ncyclomatic_complexity: 4\ngit:\n  status: modified\n---\n"),
+        "the edit must show only the lines it changed:\n{}",
+        edited.stdout
+    );
+}
+
+#[test]
+fn a_removed_fact_shows_as_null() {
+    let f = ledger_repo();
+    let sid = fresh_session_id("facts-removed");
+    let env = [("AGENT_SESSION_ID", sid.as_str())];
+
+    f.git(&["mv", "ledger.py", "books.py"]);
+    let staged = f.trace_env(&["read", "books.py"], &env);
+    staged.ok();
+    assert!(staged.stdout.contains("\n  renamed_from: ledger.py\n"), "{}", staged.stdout);
+
+    f.git(&["reset", "--quiet"]);
+    let unstaged = f.trace_env(&["read", "books.py"], &env);
+    unstaged.ok();
+    assert!(!unstaged.stdout.contains("\nfile: books.py\n"), "{}", unstaged.stdout);
+    assert!(
+        unstaged.stdout.contains("\ngit:\n") && unstaged.stdout.contains("\n  renamed_from: null\n"),
+        "the fact the unstaged rename removed must print as null under git:\n{}",
+        unstaged.stdout
+    );
+}
+
+#[test]
+fn without_a_session_every_read_prints_the_whole_front_matter() {
+    let f = ledger_repo();
+    for _ in 0..2 {
+        let read = f.trace(&["read", "ledger.py", "--lines", "1:4"]);
+        read.ok();
+        assert!(has_whole_front_matter(&read.stdout), "{}", read.stdout);
+        assert!(read.stdout.contains("\n  entries: [ledger.py]\n"), "{}", read.stdout);
+    }
+}
+
+/// A call whose text never reaches the Agent, because its stdout is gone by
+/// the time it prints, records none of what it rendered: the next read prints
+/// the whole front matter and directory again.
+#[test]
+fn a_call_whose_output_never_arrives_records_nothing_as_shown() {
+    let f = ledger_repo();
+    let mut recorded = Vec::new();
+    for args in [
+        ["context", "ledger.py", "--offset", "1", "--limit", "2"].as_slice(),
+        ["read", "ledger.py", "--lines", "1:4"].as_slice(),
+        ["info", "ledger.py", "--brief"].as_slice(),
+        ["structure", "ledger.py"].as_slice(),
+    ] {
+        let sid = fresh_session_id("closed-stdout");
+        let mut child = std::process::Command::new(tracer_cli_tests::trace_bin())
+            .args(args)
+            .current_dir(&f.root)
+            .env("HOME", &f.root)
+            .env("AGENT_SESSION_ID", &sid)
+            .env_remove("CLAUDE_CODE_SESSION_ID")
+            .env_remove("CODEX_THREAD_ID")
+            .env_remove("TRACER_AGENT_ID")
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .expect("spawn trace");
+        drop(child.stdout.take().expect("child stdout"));
+        let undelivered = child.wait_with_output().expect("wait for trace");
+        assert!(!undelivered.status.success(), "{args:?} must fail on a closed stdout");
+
+        let next = f.trace_env(&["read", "ledger.py", "--lines", "1:4"], &[("AGENT_SESSION_ID", sid.as_str())]);
+        next.ok();
+        if !has_whole_front_matter(&next.stdout) {
+            recorded.push(format!("{args:?}, then the next read printed:\n{}", next.stdout));
+        }
+    }
+    assert!(recorded.is_empty(), "recorded facts that never arrived:\n{}", recorded.join("\n"));
+}
+
+#[test]
+fn json_carries_the_whole_facts_on_a_repeat() {
+    let f = ledger_repo();
+    let sid = fresh_session_id("facts-json");
+    let env = [("AGENT_SESSION_ID", sid.as_str())];
+
+    f.trace_env(&["read", "ledger.py"], &env).ok();
+    let repeat = f.trace_env(&["read", "ledger.py", "--json"], &env);
+    repeat.ok();
+    let facts = &repeat.json()["context"]["files"]["ledger.py"];
+    assert_eq!(facts["file"], "ledger.py", "{facts}");
+    assert_eq!(facts["lines"], 7, "{facts}");
+    assert_eq!(facts["git"]["status"], "unmodified", "{facts}");
+    assert_eq!(facts["directory"]["entries"], serde_json::json!(["ledger.py"]), "{facts}");
+
+    let context = f.trace_env(&["context", "ledger.py", "--json"], &env);
+    context.ok();
+    let facts = &context.json()["context"]["files"]["ledger.py"];
+    assert_eq!(facts["lines"], 7, "{facts}");
+    assert_eq!(facts["directory"]["entries"], serde_json::json!(["ledger.py"]), "{facts}");
+}
+
+#[test]
+fn facts_shown_by_one_command_stay_shown_for_the_others() {
+    let f = ledger_repo();
+    let sid = fresh_session_id("facts-across-commands");
+    let env = [("AGENT_SESSION_ID", sid.as_str())];
+
+    let first = f.trace_env(&["read", "ledger.py", "--lines", "1:4"], &env);
+    first.ok();
+    assert!(has_whole_front_matter(&first.stdout), "{}", first.stdout);
+
+    let structure = f.trace_env(&["structure", "ledger.py"], &env);
+    structure.ok();
+    assert!(structure.stdout.starts_with("# ledger.py  {"), "structure repeated the facts:\n{}", structure.stdout);
+
+    let third = f.trace_env(&["read", "ledger.py", "--lines", "6:7"], &env);
+    third.ok();
+    assert!(
+        third.stdout.starts_with("# ledger.py :: L6-L7  {"),
+        "the third call must carry the headline:\n{}",
+        third.stdout
+    );
+    assert!(!third.stdout.contains("\nfile: ledger.py\n"), "the third call repeated the facts:\n{}", third.stdout);
+}
+
+/// The lines of `output` that start with any of `keys`, each a command's own
+/// answer in its front matter.
+fn answer_lines<'a>(output: &'a str, keys: &[&str]) -> Vec<&'a str> {
+    output.lines().filter(|line| keys.iter().any(|key| line.starts_with(key))).collect()
+}
+
+#[test]
+fn a_repeated_info_keeps_its_own_answer() {
+    let f = ledger_repo();
+    f.write("Claude.md", "# Ledger\n");
+    f.commit("doc");
+    let sid = fresh_session_id("info-repeat");
+    let env = [("AGENT_SESSION_ID", sid.as_str())];
+    let keys = ["language: ", "functions: ", "max_function_complexity: ", "nearest_doc: "];
+
+    let first = f.trace_env(&["info", "ledger.py", "--brief"], &env);
+    first.ok();
+    let answer = answer_lines(&first.stdout, &keys);
+    assert_eq!(answer.len(), keys.len(), "the first info lacks its answer:\n{}", first.stdout);
+
+    let repeat = f.trace_env(&["info", "ledger.py", "--brief"], &env);
+    repeat.ok();
+    assert!(repeat.stdout.starts_with("# ledger.py  {"), "the repeat must carry the headline:\n{}", repeat.stdout);
+    assert!(!repeat.stdout.contains("\nfile: ledger.py\n"), "the repeat repeated the facts:\n{}", repeat.stdout);
+    assert_eq!(answer_lines(&repeat.stdout, &keys), answer, "the repeat lost info's answer:\n{}", repeat.stdout);
+}
+
+#[test]
+fn a_repeated_structure_keeps_its_own_answer() {
+    let f = ledger_repo();
+    let sid = fresh_session_id("structure-repeat");
+    let env = [("AGENT_SESSION_ID", sid.as_str())];
+    let keys = ["language: ", "declarations:", "  symbols: ", "  imports: ", "  exports: "];
+
+    let first = f.trace_env(&["structure", "ledger.py"], &env);
+    first.ok();
+    let answer = answer_lines(&first.stdout, &keys);
+    assert_eq!(answer.len(), keys.len(), "the first structure lacks its answer:\n{}", first.stdout);
+
+    let repeat = f.trace_env(&["structure", "ledger.py"], &env);
+    repeat.ok();
+    assert!(repeat.stdout.starts_with("# ledger.py  {"), "the repeat must carry the headline:\n{}", repeat.stdout);
+    assert!(!repeat.stdout.contains("\nfile: ledger.py\n"), "the repeat repeated the facts:\n{}", repeat.stdout);
+    assert_eq!(answer_lines(&repeat.stdout, &keys), answer, "the repeat lost structure's answer:\n{}", repeat.stdout);
 }
 
 #[test]
@@ -3894,6 +4268,30 @@ fn shallow_clone_graft_commit_leaves_no_history() {
 }
 
 #[test]
+fn structure_shows_whole_facts_again_for_a_file_the_budget_cut_to_its_path() {
+    let f = Fixture::new();
+    f.write("alpha.py", "def first():\n    return 1\n\n\ndef second():\n    return 2\n");
+    f.write("beta.py", "from alpha import first\n\n\ndef third():\n    return first()\n");
+    f.commit("two files");
+    let sid = fresh_session_id("structure-cut");
+    let env = [("AGENT_SESSION_ID", sid.as_str())];
+
+    let cut = f.trace_env(&["structure", "alpha.py", "beta.py", "--budget", "650"], &env);
+    cut.ok();
+    assert!(cut.stdout.contains("---\nfile: alpha.py\nlines: 6\n"), "alpha keeps its facts:\n{}", cut.stdout);
+    assert!(cut.stdout.contains("---\nfile: beta.py\n---\n"), "beta is cut to its path:\n{}", cut.stdout);
+
+    let whole = f.trace_env(&["structure", "alpha.py", "beta.py", "--budget", "0"], &env);
+    whole.ok();
+    assert!(
+        whole.stdout.contains("---\nfile: beta.py\nlines: 5\n"),
+        "facts the budget cut were never shown:\n{}",
+        whole.stdout
+    );
+    assert!(whole.stdout.starts_with("# alpha.py  {"), "alpha's facts were shown:\n{}", whole.stdout);
+}
+
+#[test]
 fn structure_reports_a_failing_ctags_instead_of_thinning_its_answer() {
     // `structure` takes its symbols from universal-ctags and backfills from the
     // tree-sitter cache when ctags returns none, which is what keeps .tsx
@@ -3962,7 +4360,11 @@ fn surface_rows_repeat_on_context_read_info_and_blame() {
         assert!(!output.contains("[symbols:"), "{output}");
         assert!(!output.contains("annotated:"), "{output}");
     }
-    assert_eq!(second.stdout, first.stdout.replace("  entries: [entry.php]\n", ""));
+    let rows = &first.stdout[first.stdout.rfind("---\n").unwrap() + 4..];
+    assert_eq!(
+        second.stdout,
+        format!("# entry.php  {{imported_by: 0, cyclomatic_complexity: 1, lines: 6}}\n{rows}")
+    );
 
     let read = f.trace(&["read", "entry.php", "--method", "create", "--json"]);
     read.ok();
@@ -4053,6 +4455,30 @@ fn a_windowed_read_lists_what_its_lines_call_and_who_else_calls_it() {
 }
 
 #[test]
+fn a_call_on_a_base_class_names_its_declared_method_beside_the_overrides() {
+    let f = Fixture::new();
+    f.write(
+        "element.php",
+        "<?php\nabstract class Element {\n    public function render(): string\n    {\n        return '';\n    }\n}\n",
+    );
+    f.write(
+        "button.php",
+        "<?php\nclass Button extends Element {\n    public function render(): string { return 'b'; }\n}\n",
+    );
+    f.write(
+        "page.php",
+        "<?php\nclass Page {\n    public function show(Element $element): string\n    {\n        return $element->render();\n    }\n}\n",
+    );
+    f.commit("a call on a base class with an override");
+    let context = f.trace_env(
+        &["context", "page.php", "--offset", "5", "--limit", "1", "--no-record"],
+        &[("AGENT_SESSION_ID", "base-call")],
+    );
+    context.ok();
+    assert!(context.stdout.contains("L5 Element::render  element.php:3"), "{}", context.stdout);
+}
+
+#[test]
 fn a_call_whose_other_call_sites_overrun_the_budget_is_still_named() {
     let f = Fixture::new();
     f.write(
@@ -4091,6 +4517,208 @@ fn a_call_whose_other_call_sites_overrun_the_budget_is_still_named() {
     assert!(twice.stdout.contains("L5 Ledger::record") && twice.stdout.contains("L6 Ledger::record"), "{}", twice.stdout);
     assert_eq!(twice.stdout.matches("return $cents;").count(), 1, "{}", twice.stdout);
     assert_eq!(twice.stdout.matches("refund7.php:5").count(), 1, "{}", twice.stdout);
+}
+
+/// `book.php` calls `count` methods of `Ledger`, one per line from line 6.
+fn book_calling_ledger(f: &Fixture, count: usize) {
+    let entries: String = (0..count)
+        .map(|n| format!("    public function entry{n:03}(): int {{ return {n}; }}\n"))
+        .collect();
+    f.write("ledger.php", &format!("<?php\nclass Ledger {{\n{entries}}}\n"));
+    let calls: String = (0..count).map(|n| format!("        $this->ledger->entry{n:03}();\n")).collect();
+    f.write(
+        "book.php",
+        &format!("<?php\nclass Book {{\n    public function __construct(private Ledger $ledger) {{}}\n    public function post(): void\n    {{\n{calls}    }}\n}}\n"),
+    );
+}
+
+#[test]
+fn a_window_whose_call_heads_overrun_their_share_still_prints_code_within_the_budget() {
+    let f = Fixture::new();
+    book_calling_ledger(&f, 80);
+    f.commit("eighty calls");
+
+    let read = f.trace(&["read", "book.php", "--lines", "6:85", "--budget", "4000"]);
+    read.ok();
+    let size = read.stdout.chars().count();
+    assert!(size <= 4000, "read spent {size} characters of a 4000 budget:\n{}", read.stdout);
+    for expected in [
+        "  ledger.php  {calls: 80}",
+        "L 6:         $this->ledger->entry000();",
+        "L 7:         $this->ledger->entry001();",
+    ] {
+        assert!(read.stdout.contains(expected), "missing {expected:?} in {}", read.stdout);
+    }
+
+    let context = f.trace(&["context", "book.php", "--offset", "6", "--limit", "80", "--no-record", "--budget", "2500"]);
+    context.ok();
+    let size = context.stdout.chars().count();
+    assert!(size <= 2500, "context spent {size} characters of a 2500 budget:\n{}", context.stdout);
+    assert!(context.stdout.contains("  ledger.php  {calls: 80}"), "{}", context.stdout);
+}
+
+#[test]
+fn repeat_calls_to_one_target_print_one_head_with_all_their_lines() {
+    let f = Fixture::new();
+    f.write(
+        "ledger.php",
+        "<?php\nclass Ledger {\n    public function record(int $cents): int\n    {\n        return $cents;\n    }\n}\n",
+    );
+    let calls: String = (0..60).map(|_| "        $this->ledger->record($cents);\n").collect();
+    f.write(
+        "checkout.php",
+        &format!("<?php\nclass Checkout {{\n    public function __construct(private Ledger $ledger) {{}}\n    public function pay(int $cents): void\n    {{\n{calls}    }}\n}}\n"),
+    );
+    f.commit("sixty calls to one function");
+
+    let read = f.trace(&["read", "checkout.php", "--lines", "6:65", "--budget", "4000"]);
+    read.ok();
+    let size = read.stdout.chars().count();
+    assert!(size <= 4000, "read spent {size} characters of a 4000 budget:\n{}", read.stdout);
+    assert_eq!(read.stdout.matches("Ledger::record  ledger.php:3").count(), 1, "{}", read.stdout);
+    let lines: Vec<String> = (6..=65).map(|n| format!("L{n}")).collect();
+    let head = format!("  {} Ledger::record  ledger.php:3", lines.join(", "));
+    assert!(read.stdout.contains(&head), "missing {head:?} in {}", read.stdout);
+}
+
+#[test]
+fn a_trimmed_window_continues_past_the_lines_it_printed() {
+    let f = Fixture::new();
+    book_calling_ledger(&f, 200);
+    f.commit("two hundred calls");
+
+    let read = f.trace(&["read", "book.php", "--lines", "6:205", "--budget", "4000"]);
+    read.ok();
+    let marker = "— continue: trace read book.php --lines ";
+    let next: usize = read
+        .stdout
+        .split_once(marker)
+        .and_then(|(_, rest)| rest.split_once(':'))
+        .and_then(|(start, _)| start.parse().ok())
+        .unwrap_or_else(|| panic!("no continue hint in {}", read.stdout));
+    assert!(next > 7, "the hint moves past one line only: --lines {next}:205 in {}", read.stdout);
+    assert!(read.stdout.contains(&format!("\nL{:>3}: ", next - 1)), "L{} is not printed: {}", next - 1, read.stdout);
+    assert!(!read.stdout.contains(&format!("\nL{next:>3}: ")), "L{next} is printed and continued: {}", read.stdout);
+}
+
+#[test]
+fn calls_into_other_files_list_their_call_sites_before_calls_into_the_reading_file() {
+    let f = Fixture::new();
+    f.write(
+        "ledger.php",
+        "<?php\nclass Ledger {\n    public function record(int $cents): int\n    {\n        return $cents;\n    }\n}\n",
+    );
+    for n in 0..4 {
+        f.write(
+            &format!("refund{n}.php"),
+            &format!("<?php\nclass Refund{n} {{\n    public function back(Ledger $ledger, int $cents): int\n    {{\n        return $ledger->record(-$cents - {n});\n    }}\n}}\n"),
+        );
+    }
+    let notes: String = (0..10)
+        .map(|n| format!("    public function caller{n:02}(): int {{ return $this->note({n}); }}\n"))
+        .collect();
+    f.write(
+        "checkout.php",
+        &format!("<?php\nclass Checkout {{\n    public function __construct(private Ledger $ledger) {{}}\n    public function pay(int $cents): int\n    {{\n        $this->note($cents);\n        return $this->ledger->record($cents);\n    }}\n    public function note(int $cents): int {{ return $cents; }}\n{notes}}}\n"),
+    );
+    f.commit("one call into this file, one into another");
+
+    let read = f.trace(&["read", "checkout.php", "--lines", "6:7", "--budget", "2250"]);
+    read.ok();
+    for expected in ["refund0.php:5  back", "refund3.php:5  back", "L6 Checkout::note  checkout.php:9"] {
+        assert!(read.stdout.contains(expected), "missing {expected:?} in {}", read.stdout);
+    }
+    assert!(!read.stdout.contains("checkout.php:10  caller00"), "the reading file's sites came first: {}", read.stdout);
+}
+
+#[test]
+fn a_call_used_in_more_files_than_the_work_budget_names_the_function_its_line_resolves_to() {
+    let f = Fixture::new();
+    f.write("target.py", "def shared_target(value):\n    return value\n");
+    for index in 0..400 {
+        f.write(
+            &format!("callers/caller_{index:03}.py"),
+            &format!("from target import shared_target\n\ndef caller_{index:03}(value):\n    return shared_target(value)\n"),
+        );
+    }
+    f.commit("a name used past the work budget");
+
+    let text = f.trace(&["context", "callers/caller_000.py", "--offset", "4", "--limit", "1"]);
+    text.ok();
+    for expected in ["L4 shared_target  target.py:1 \u{2192} trace callers shared_target", "    return value"] {
+        assert!(text.stdout.contains(expected), "missing {expected:?} in {}", text.stdout);
+    }
+    assert!(!text.stdout.contains("{callers:"), "a call past the budget counts no callers: {}", text.stdout);
+    assert!(!text.stdout.contains("also called from"), "a call past the budget lists no call sites: {}", text.stdout);
+
+    let json = f.trace(&["context", "callers/caller_000.py", "--offset", "4", "--limit", "1", "--json"]);
+    json.ok();
+    assert_eq!(
+        json.json()["context"]["files"]["callers/caller_000.py"]["calls"],
+        serde_json::json!([{
+            "line": 4,
+            "method": "shared_target",
+            "file": "target.py",
+            "declared_at": 1,
+            "source": "def shared_target(value):\n    return value",
+        }])
+    );
+}
+
+#[test]
+fn a_call_defined_in_more_files_than_the_work_budget_is_named_with_its_definitions_and_no_source() {
+    let f = Fixture::new();
+    for index in 0..301 {
+        f.write(&format!("targets/target_{index:03}.py"), "def shared_target(value):\n    return value\n");
+    }
+    f.write("caller.py", "from targets.target_000 import shared_target\n\ndef caller(value):\n    return shared_target(value)\n");
+    f.commit("a name defined past the work budget");
+
+    let text = f.trace(&["context", "caller.py", "--offset", "4", "--limit", "1"]);
+    text.ok();
+    assert!(
+        text.stdout.contains("L4 shared_target  {defined_in: 301} \u{2192} trace callers shared_target"),
+        "{}",
+        text.stdout
+    );
+    assert!(!text.stdout.contains("target_000.py:1"), "a call past the budget names no target: {}", text.stdout);
+    assert!(!text.stdout.contains("return value"), "a call past the budget shows no source: {}", text.stdout);
+
+    let json = f.trace(&["context", "caller.py", "--offset", "4", "--limit", "1", "--json"]);
+    json.ok();
+    assert_eq!(
+        json.json()["context"]["files"]["caller.py"]["calls"],
+        serde_json::json!([{"line": 4, "method": "shared_target", "defined_in": 301}])
+    );
+}
+
+#[test]
+fn the_work_budget_resolves_every_cheap_name_before_a_costly_one() {
+    let f = Fixture::new();
+    for index in 0..295 {
+        f.write(&format!("models/model_{index:03}.py"), "def where(value):\n    return value\n");
+    }
+    for index in 0..20 {
+        f.write(&format!("cheap_{index:02}.py"), &format!("def cheap_{index:02}(value):\n    return value\n"));
+    }
+    let imports: String = (0..20).map(|index| format!("from cheap_{index:02} import cheap_{index:02}\n")).collect();
+    let calls: String = (0..20).map(|index| format!("    cheap_{index:02}(value)\n")).collect();
+    f.write(
+        "caller.py",
+        &format!("from models.model_000 import where\n{imports}\n\ndef run(value):\n    where(value)\n{calls}"),
+    );
+    f.commit("one costly name called before twenty cheap ones");
+
+    let json = f.trace(&["context", "caller.py", "--offset", "25", "--limit", "21", "--json"]);
+    json.ok();
+    let calls = json.json()["context"]["files"]["caller.py"]["calls"].clone();
+    assert_eq!(calls[0], serde_json::json!({"line": 25, "method": "where", "defined_in": 295}), "{calls}");
+    for index in 0..20 {
+        let call = &calls[index + 1];
+        assert_eq!(call["method"].as_str(), Some(format!("cheap_{index:02}").as_str()), "{calls}");
+        assert_eq!(call["file"].as_str(), Some(format!("cheap_{index:02}.py").as_str()), "{calls}");
+        assert_eq!(call["callers"], 1, "{calls}");
+    }
 }
 
 #[test]

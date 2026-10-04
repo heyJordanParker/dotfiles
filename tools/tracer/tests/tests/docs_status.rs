@@ -903,6 +903,85 @@ fn closed_stdout_does_not_record_human_or_json_delivery() {
 }
 
 #[test]
+fn closed_stdout_does_not_record_docs_delivery() {
+    let f = docs_repo();
+    let sid = fresh_session_id("docs-closed-stdout");
+    let env = [("CLAUDE_CODE_SESSION_ID", sid.as_str())];
+
+    for args in [
+        vec!["docs", "sub/util.py"],
+        vec!["docs", "sub/util.py", "--json"],
+    ] {
+        let mut child = Command::new(tracer_cli_tests::trace_bin())
+            .args(&args)
+            .current_dir(&f.root)
+            .env("HOME", &f.root)
+            .env("CLAUDE_CODE_SESSION_ID", sid.as_str())
+            .env_remove("AGENT_SESSION_ID")
+            .env_remove("CODEX_THREAD_ID")
+            .env_remove("TRACER_AGENT_ID")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("spawn trace");
+        drop(child.stdout.take().expect("child stdout"));
+        let output = child.wait_with_output().expect("wait for trace");
+        assert!(
+            !output.status.success(),
+            "a closed stdout must make `trace {}` fail",
+            args.join(" ")
+        );
+        assert!(
+            String::from_utf8_lossy(&output.stderr).contains("Broken pipe"),
+            "failed delivery must name the broken stdout: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        let status = status_json(&f, &env);
+        assert!(
+            status["loaded"].as_array().unwrap().is_empty(),
+            "`trace {}` must not record docs it never delivered: {status}",
+            args.join(" ")
+        );
+    }
+
+    let again = f.trace_env(&["docs", "sub/util.py"], &env);
+    again.ok();
+    assert!(
+        again.stdout.contains("This dir has rules.") && again.stdout.contains("Project root."),
+        "the next call must send the undelivered docs: {}",
+        again.stdout
+    );
+}
+
+#[test]
+fn filtered_docs_do_not_record_delivery() {
+    let f = docs_repo();
+    let sid = fresh_session_id("docs-filter");
+    let env = [("CLAUDE_CODE_SESSION_ID", sid.as_str())];
+
+    f.trace_env(
+        &["docs", "sub/util.py", "--json", "--filter", ".counts"],
+        &env,
+    )
+    .ok();
+
+    let status = status_json(&f, &env);
+    assert!(
+        status["loaded"].as_array().unwrap().is_empty(),
+        "a filtered projection must not claim the docs arrived: {status}"
+    );
+
+    let again = f.trace_env(&["docs", "sub/util.py"], &env);
+    again.ok();
+    assert!(
+        again.stdout.contains("This dir has rules.") && again.stdout.contains("Project root."),
+        "the next call must send the docs the filter dropped: {}",
+        again.stdout
+    );
+}
+
+#[test]
 fn source_edit_after_output_starts_keeps_the_captured_hash() {
     let f = Fixture::new();
     let source: String = (1..=1_000)

@@ -436,12 +436,7 @@ fn load_or_compute_uncached(repo_root: &Path) -> Payload {
         .ok()
         .and_then(|value| cache::save(cache::NAMESPACE_FILE, CACHE_KEY, &value, repo_root).ok())
     {
-        cache::evict_prefixed(
-            cache::NAMESPACE_FILE,
-            "repo_context_v",
-            CACHE_KEY,
-            repo_root,
-        );
+        cache::evict_prefixed(cache::NAMESPACE_FILE, "repo_context_v", CACHE_KEY, repo_root);
     }
     payload_from(entry.per_file)
 }
@@ -641,12 +636,7 @@ mod tests {
             directory.path(),
         )
         .unwrap();
-        let first_bytes = fs::read(
-            directory
-                .path()
-                .join(".tracer-cache/file/repo_context_fixture.json"),
-        )
-        .unwrap();
+        let first_bytes = cache::load_bytes("file", "repo_context_fixture", directory.path()).unwrap();
 
         let second = scc_rows(directory.path(), &executable, None).unwrap();
         let second_value = serde_json::to_value(second).unwrap();
@@ -657,12 +647,7 @@ mod tests {
             directory.path(),
         )
         .unwrap();
-        let second_bytes = fs::read(
-            directory
-                .path()
-                .join(".tracer-cache/file/repo_context_fixture.json"),
-        )
-        .unwrap();
+        let second_bytes = cache::load_bytes("file", "repo_context_fixture", directory.path()).unwrap();
 
         assert_eq!(second_bytes, first_bytes);
     }

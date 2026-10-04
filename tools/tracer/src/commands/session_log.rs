@@ -3,8 +3,11 @@
 //! `<repo>/.tracer-cache/sessions/<session_id>/<agent_id>/` holds:
 //!   - `events.jsonl` — append-only event log, one JSON object per line
 //!   - `view.json`    — materialized projection: emitted (canonical path → content hash)
-//!   - `listings.json` — directory listings shown (canonical directory → listing hash)
-//!   - `.lock`        — flock'd across read + append + materialize
+//!   - `shown.json`   — what the Agent was last shown, by kind: each directory
+//!     listing's hash and each file's facts (canonical path → value)
+//!   - `.lock`        — flock'd across read + append + materialize, and by a
+//!     `ShownRecord` from its first gate that must write until it is saved or
+//!     dropped
 //!
 //! The single source of session-context state for the tracer. Replaces the
 //! flat path-set dedupe that previously lived in `nested_memory.rs` and is
@@ -21,9 +24,9 @@
 //! Subagent stop archives the active log to
 //! `<repo>/.tracer-cache/sessions/<session_id>/archived/<agent_id>/` via the
 //! `archive_subagent_log.py` hook. The move is a directory rename at the
-//! harness layer — this module never writes the archived path, only reads
-//! it as a fallback when the active path is absent. Writes
-//! (`record_emission`, `record_read`) always target the active directory.
+//! harness layer. Reads fall back to the archived log while the active one is
+//! absent; the first write of a resumed Subagent renames it back, so its
+//! record carries on whole. Writes always target the active directory.
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
@@ -32,7 +35,7 @@ use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -40,9 +43,100 @@ use super::nested_memory::{self, LoadedMemory};
 use crate::{cache, relations::DirectoryMetrics};
 
 const AGENT_ID_DEFAULT: &str = "root";
-const LISTINGS: &str = "listings.json";
+const SHOWN: &str = "shown.json";
 
 static DIRECTORY_BASELINES: OnceLock<Mutex<BTreeMap<String, DirectoryMetrics>>> = OnceLock::new();
+
+/// What a text command shows an Agent once per context, until it changes: a
+/// directory's entries, keyed by the directory, and a file's facts, keyed by
+/// the file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ShownKind {
+    Listing,
+    Facts,
+}
+
+/// What a gated value is to the Agent beside the value it was last shown.
+pub enum Shown {
+    New,
+    Same,
+    /// Only the lines that changed, nested as in the value; a removed line
+    /// is `null`.
+    Changed(Map<String, Value>),
+}
+
+/// One call's gates and the values they found new or changed, not yet
+/// recorded as shown. The first gate that must write takes the Agent's
+/// `.lock`, and every later gate in the call compares under it, until the
+/// record is saved or dropped, so a call beside it compares against what it
+/// saves. Dropped unsaved, it writes nothing.
+#[must_use = "save the record once the text that shows it is flushed"]
+#[derive(Default)]
+pub struct ShownRecord {
+    values: Vec<(ShownKind, String, Value)>,
+    held: Option<(PathBuf, fs::File)>,
+}
+
+impl ShownRecord {
+    /// What `value` is to this Agent as `key`'s `kind` beside the value it
+    /// was last shown since its context reset; a value not `Same` joins the
+    /// record. Always `New` without a session, so standalone use shows
+    /// everything every time. A gate that finds nothing changed before the
+    /// record holds the lock reads one file and takes no lock. `value` is
+    /// shaped as the front matter prints it, so each line `Changed` returns
+    /// is one printed line, never part of a flow mapping.
+    pub fn shown(&mut self, kind: ShownKind, key: &str, value: &Value) -> Shown {
+        if log_dir().is_none() {
+            return Shown::New;
+        }
+        let compare = |record: &BTreeMap<ShownKind, BTreeMap<String, Value>>| {
+            match record.get(&kind).and_then(|keys| keys.get(key)) {
+                None => Shown::New,
+                Some(last) if last == value => Shown::Same,
+                Some(last) => changed(last, value).map_or(Shown::New, Shown::Changed),
+            }
+        };
+        if self.held.is_none() {
+            if let Shown::Same = compare(&load_shown()) {
+                return Shown::Same;
+            }
+            let Some(dir) = writable_log_dir() else {
+                return Shown::New;
+            };
+            let Some(lock) = lock(&dir.join(".lock"), "lock session shown") else {
+                return Shown::New;
+            };
+            self.held = Some((dir, lock));
+        }
+        // A concurrent call may have saved it before this record held the lock.
+        let comparison = compare(&load_shown());
+        if !matches!(comparison, Shown::Same) {
+            self.values.push((kind, key.to_string(), value.clone()));
+        }
+        comparison
+    }
+
+    /// Record every value as shown. Call it only after the text that shows
+    /// them is flushed, so a call that dies first records nothing.
+    pub fn save(self) {
+        let Some((dir, _lock)) = self.held else {
+            return;
+        };
+        if self.values.is_empty() {
+            return;
+        }
+        let mut record = load_shown();
+        for (kind, key, value) in self.values {
+            record.entry(kind).or_default().insert(key, value);
+        }
+        if let Ok(mut temp) = tempfile::Builder::new().prefix(".shown.").tempfile_in(&dir) {
+            if temp.write_all(crate::jsonfmt::to_compact(&record).as_bytes()).is_ok() {
+                let _ = crate::timing::phase("session shown", || temp.persist(dir.join(SHOWN)));
+            }
+        }
+    }
+}
 
 /// Event kinds. Extensible by intent — Read tracking and future surfaces
 /// add their own variants without breaking the on-disk JSONL shape (older
@@ -272,25 +366,15 @@ pub fn directory_baseline(dir: &str, current: &DirectoryMetrics) -> DirectoryMet
     if fs::create_dir_all(&session_dir).is_err() {
         return current.clone();
     }
-    let lock_path = session_dir.join(".lock");
-    let Ok(lock_fh) = fs::OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .open(lock_path)
-    else {
+    let Some(_lock) = lock(&session_dir.join(".lock"), "lock session directories") else {
         return current.clone();
     };
-    let _ = crate::timing::phase("lock session directories", || {
-        rustix::fs::flock(&lock_fh, rustix::fs::FlockOperation::LockExclusive)
-    });
     stored = fs::read_to_string(&path)
         .ok()
         .and_then(|text| serde_json::from_str(&text).ok())
         .unwrap_or_default();
     if let Some(baseline) = stored.get(dir).cloned() {
         *memo.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = stored;
-        let _ = rustix::fs::flock(&lock_fh, rustix::fs::FlockOperation::Unlock);
         return baseline;
     }
     let baseline = current.clone();
@@ -309,73 +393,76 @@ pub fn directory_baseline(dir: &str, current: &DirectoryMetrics) -> DirectoryMet
         }
     }
     *memo.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = stored;
-    let _ = rustix::fs::flock(&lock_fh, rustix::fs::FlockOperation::Unlock);
     baseline
 }
 
-/// Whether this Agent has not been shown `entries` as `directory`'s listing
-/// since its context last reset, recording them as shown when it has not. A
-/// listing that changed on disk is unseen again. Always `true` without a
-/// session, so standalone use lists every time. A repeat reads one small file
-/// and takes no lock.
-pub fn listing_unseen(directory: &str, entries: &[String]) -> bool {
-    let Some(dir) = log_dir() else {
-        return true;
+/// The lines of `new` that differ from `old` when both are mappings: a
+/// top-level key, or one key inside a mapping, the levels `yamlfmt::block`
+/// prints one per line. Anything deeper is one line. `None` when either is
+/// not a mapping.
+fn changed(old: &Value, new: &Value) -> Option<Map<String, Value>> {
+    let (Value::Object(old), Value::Object(new)) = (old, new) else {
+        return None;
     };
-    let hash = content_hash(&entries.join("\n"));
-    if shown_listings().get(directory) == Some(&hash) {
-        return false;
+    let leaves = |old: &Map<String, Value>, new: &Map<String, Value>| -> Map<String, Value> {
+        new.keys()
+            .chain(old.keys())
+            .filter(|key| old.get(*key) != new.get(*key))
+            .map(|key| (key.clone(), new.get(key).cloned().unwrap_or(Value::Null)))
+            .collect()
+    };
+    let mut lines = leaves(old, new);
+    for (key, line) in lines.iter_mut() {
+        if let (Some(Value::Object(before)), Some(Value::Object(after))) = (old.get(key), new.get(key)) {
+            *line = Value::Object(leaves(before, after));
+        }
     }
-    if fs::create_dir_all(&dir).is_err() {
-        return true;
+    Some(lines)
+}
+
+/// Every value this Agent was last shown, by kind.
+fn load_shown() -> BTreeMap<ShownKind, BTreeMap<String, Value>> {
+    read_log_dir()
+        .and_then(|dir| fs::read_to_string(dir.join(SHOWN)).ok())
+        .and_then(|text| serde_json::from_str(&text).ok())
+        .unwrap_or_default()
+}
+
+/// The active log directory, ready for a write. A Subagent resumed after its
+/// log was archived takes the archived log back first, so its first write
+/// carries its record on rather than starting it over.
+fn writable_log_dir() -> Option<PathBuf> {
+    let dir = log_dir()?;
+    if let Some(archived) = archived_log_dir().filter(|archived| !dir.is_dir() && archived.is_dir()) {
+        let _ = fs::rename(archived, &dir);
     }
-    let Ok(lock_fh) = fs::OpenOptions::new()
+    fs::create_dir_all(&dir).ok()?;
+    Some(dir)
+}
+
+/// Holds the lock file at `path` until the returned handle drops, timed as
+/// `phase`. Not re-entrant: a second take, in this process or another, waits
+/// for the first to drop. `None` when the file cannot be opened or locked.
+fn lock(path: &Path, phase: &str) -> Option<fs::File> {
+    let file = fs::OpenOptions::new()
         .write(true)
         .create(true)
         .truncate(true)
-        .open(dir.join(".lock"))
-    else {
-        return true;
-    };
-    let _ = crate::timing::phase("lock session listings", || {
-        rustix::fs::flock(&lock_fh, rustix::fs::FlockOperation::LockExclusive)
-    });
-    // A concurrent call may have shown it between the read and the lock.
-    let mut shown = shown_listings();
-    let unseen = shown.get(directory) != Some(&hash);
-    if unseen {
-        shown.insert(directory.to_string(), hash);
-        if let Ok(value) = serde_json::to_value(&shown) {
-            if let Ok(mut temp) = tempfile::Builder::new().prefix(".listings.").tempfile_in(&dir) {
-                if temp.write_all(crate::jsonfmt::to_compact(&value).as_bytes()).is_ok() {
-                    let _ = crate::timing::phase("session listings", || temp.persist(dir.join(LISTINGS)));
-                }
-            }
-        }
-    }
-    let _ = rustix::fs::flock(&lock_fh, rustix::fs::FlockOperation::Unlock);
-    unseen
-}
-
-/// The listings this Agent has been shown: the active log's, else the
-/// archived one's, so a resumed Subagent keeps what its context still holds.
-fn shown_listings() -> BTreeMap<String, String> {
-    [log_dir(), archived_log_dir()]
-        .into_iter()
-        .flatten()
-        .map(|dir| dir.join(LISTINGS))
-        .find(|path| path.is_file())
-        .and_then(|path| fs::read_to_string(path).ok())
-        .and_then(|text| serde_json::from_str(&text).ok())
-        .unwrap_or_default()
+        .open(path)
+        .ok()?;
+    crate::timing::phase(phase, || {
+        rustix::fs::flock(&file, rustix::fs::FlockOperation::LockExclusive)
+    })
+    .ok()?;
+    Some(file)
 }
 
 /// Archived log directory for the current (session, agent).
 /// Subagent stores are moved here on subagent stop by the
 /// `archive_subagent_log.py` hook so the active sessions directory stays
 /// bounded over a long-running orchestrator's lifetime. Reads fall back
-/// here when the active directory is absent — writes never target this
-/// path.
+/// here when the active directory is absent, and `writable_log_dir` moves it
+/// back before a write.
 fn archived_log_dir() -> Option<PathBuf> {
     let sid = nested_memory::session_id()?;
     Some(
@@ -487,14 +574,7 @@ pub fn partial_reads() -> BTreeMap<String, (String, ReadCoverage)> {
 pub fn delivery_lock() -> Option<fs::File> {
     let session = log_dir()?.parent()?.to_path_buf();
     fs::create_dir_all(&session).ok()?;
-    let file = fs::OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .open(session.join(format!("{}.delivery.lock", agent_id())))
-        .ok()?;
-    rustix::fs::flock(&file, rustix::fs::FlockOperation::LockExclusive).ok()?;
-    Some(file)
+    lock(&session.join(format!("{}.delivery.lock", agent_id())), "lock doc delivery")
 }
 
 fn current_view() -> View {
@@ -528,24 +608,12 @@ pub fn record_emission(memories: &[LoadedMemory], source: &str) {
     if memories.is_empty() {
         return;
     }
-    let Some(dir) = log_dir() else {
+    let Some(dir) = writable_log_dir() else {
         return;
     };
-    if fs::create_dir_all(&dir).is_err() {
+    let Some(_lock) = lock(&dir.join(".lock"), "lock session docs") else {
         return;
-    }
-
-    let lock_path = dir.join(".lock");
-    let lock_fh = match fs::OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .open(&lock_path)
-    {
-        Ok(fh) => fh,
-        Err(_) => return,
     };
-    let _ = rustix::fs::flock(&lock_fh, rustix::fs::FlockOperation::LockExclusive);
 
     let view_path = dir.join("view.json");
     let events_path = dir.join("events.jsonl");
@@ -583,8 +651,6 @@ pub fn record_emission(memories: &[LoadedMemory], source: &str) {
     if !new_events.is_empty() || completed {
         let _ = save_view(&view_path, &view);
     }
-
-    let _ = rustix::fs::flock(&lock_fh, rustix::fs::FlockOperation::Unlock);
 }
 
 /// Record a `read_file` event for a path the agent just read, accumulating
@@ -614,26 +680,12 @@ pub fn record_read(
     total_lines: usize,
     spans: &[Option<(usize, usize)>],
 ) {
-    let Some(dir) = log_dir() else {
+    let Some(dir) = writable_log_dir() else {
         return;
     };
-    if fs::create_dir_all(&dir).is_err() {
+    let Some(_lock) = lock(&dir.join(".lock"), "lock session view") else {
         return;
-    }
-
-    let lock_path = dir.join(".lock");
-    let lock_fh = match fs::OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .open(&lock_path)
-    {
-        Ok(fh) => fh,
-        Err(_) => return,
     };
-    let _ = crate::timing::phase("lock session view", || {
-        rustix::fs::flock(&lock_fh, rustix::fs::FlockOperation::LockExclusive)
-    });
 
     let view_path = dir.join("view.json");
     let events_path = dir.join("events.jsonl");
@@ -690,65 +742,36 @@ pub fn record_read(
     // Always persist: the coverage accumulator advances even when the emitted
     // projection (and thus the event log) is unchanged on a repeat read.
     let _ = crate::timing::phase("session view", || save_view(&view_path, &view));
-
-    let _ = rustix::fs::flock(&lock_fh, rustix::fs::FlockOperation::Unlock);
 }
 
-/// Reset the surfaced-docs state for the current (session, agent): clear the
-/// view's `emitted` map so a subsequent `trace docs` re-surfaces every doc as
-/// new, and append one `context_reset` event recording the cleared set. The
-/// append-only `events.jsonl` is preserved — only the materialized projection
-/// is reconciled.
+/// Clear everything the current (session, agent) record says the Agent holds,
+/// because its context dropped it: every kind it was shown once, and the docs
+/// view's `emitted`, `coverage`, and `whole`, so the next call shows each
+/// again. One `context_reset` event records the docs cleared; the append-only
+/// `events.jsonl` is preserved.
 ///
-/// This is the seam the Codex compaction/clear hook drives: after a context
-/// reset drops injected rule text from the model, the surfaced-docs state must
-/// reset so the rules re-inject instead of being skipped as already-loaded.
+/// This is the seam the compaction and clear hooks drive.
 ///
-/// Returns the number of paths cleared. A clean no-op (returns 0) when the
-/// session id is absent, no repo root is resolvable, or nothing was surfaced —
-/// keeping standalone tracer use valid. Lock failures swallow, matching
-/// `record_emission`.
+/// Returns the number of docs cleared. A clean no-op that writes nothing when
+/// no session is active or the Agent has no record yet. Lock failures swallow,
+/// matching `record_emission`.
 pub fn record_context_reset(source: &str) -> usize {
-    let Some(dir) = log_dir() else {
+    if read_log_dir().is_none() {
+        return 0;
+    }
+    let Some(dir) = writable_log_dir() else {
         return 0;
     };
-    // The reset drops the directory listings the Agent was shown too. It
-    // leaves an empty record, so an archived one never stands in for it.
-    if !shown_listings().is_empty() && fs::create_dir_all(&dir).is_ok() {
-        let _ = fs::write(dir.join(LISTINGS), "{}");
-    }
+    let Some(_lock) = lock(&dir.join(".lock"), "lock session reset") else {
+        return 0;
+    };
+    let _ = fs::remove_file(dir.join(SHOWN));
+
     let view_path = dir.join("view.json");
-    // Nothing surfaced yet (no view on disk) → clean no-op, no event, no dir.
-    if !view_path.is_file() {
-        return 0;
-    }
-
-    let lock_path = dir.join(".lock");
-    let lock_fh = match fs::OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .open(&lock_path)
-    {
-        Ok(fh) => fh,
-        Err(_) => return 0,
-    };
-    let _ = rustix::fs::flock(&lock_fh, rustix::fs::FlockOperation::LockExclusive);
-
-    let events_path = dir.join("events.jsonl");
-    let mut view = load_view(&view_path);
-    let cleared: Vec<String> = view.emitted.keys().cloned().collect();
-
+    let cleared: Vec<String> = load_view(&view_path).emitted.into_keys().collect();
     if cleared.is_empty() {
-        let _ = rustix::fs::flock(&lock_fh, rustix::fs::FlockOperation::Unlock);
         return 0;
     }
-
-    view.emitted.clear();
-    // A context reset drops everything the agent had, including read state —
-    // the coverage accumulator resets alongside the emitted projection.
-    view.coverage.clear();
-    view.whole.clear();
 
     let payload = serde_json::to_string(&cleared).unwrap_or_else(|_| "[]".to_string());
     let event = Event {
@@ -762,10 +785,8 @@ pub fn record_context_reset(source: &str) -> usize {
         triggering_command: std::env::var("TRACER_TRIGGERING_COMMAND").ok(),
         visible_as: payload,
     };
-    let _ = append_events(&events_path, &[event]);
-    let _ = save_view(&view_path, &view);
-
-    let _ = rustix::fs::flock(&lock_fh, rustix::fs::FlockOperation::Unlock);
+    let _ = append_events(&dir.join("events.jsonl"), &[event]);
+    let _ = save_view(&view_path, &View::default());
     cleared.len()
 }
 

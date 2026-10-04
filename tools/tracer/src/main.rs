@@ -672,7 +672,7 @@ fn run() -> Result<()> {
             None if graph => output::run_value(json, filter, || {
                 commands::docs::run_graph(paths.first().map(PathBuf::as_path), json)
             }),
-            None => output::run_value(json, filter, || {
+            None => output::run_streamed(json, filter, |sink| {
                 if paths.is_empty() {
                     eprintln!("Error: <PATHS> is required (use `trace docs --graph` for the whole-repo graph)");
                     std::process::exit(2)
@@ -685,6 +685,8 @@ fn run() -> Result<()> {
                     triggering_tool.as_deref(),
                     triggering_command.as_deref(),
                     json,
+                    filter.is_none(),
+                    sink,
                 )
             }),
         },

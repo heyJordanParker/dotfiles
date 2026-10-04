@@ -692,8 +692,8 @@ fn render_human(
         ),
     };
     let summary = format!("\nentries={} files={} scanned={}{}", entries.len(), files_matched, scanned, window);
-    let (texts, shortened) = crate::output::fit(&rows, summary.len() + 1 + crate::output::closing_room(rows.len(), "entries"));
-    for text in texts {
+    let (chosen, shortened) = crate::output::fit(&rows, summary.len() + 1 + crate::output::closing_room(rows.len(), "entries"));
+    for (_, text) in chosen {
         println!("{text}");
     }
     println!("{summary}");

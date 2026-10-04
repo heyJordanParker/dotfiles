@@ -6,7 +6,7 @@
 use super::{context, nested_memory, session_log};
 use crate::summary::Facts;
 use crate::{cache, ccn, extraction, file_facts, relations, summary, surface};
-use anyhow::Result;
+use anyhow::{bail, Context, Result};
 use regex::Regex;
 use serde_json::{json, Value};
 use std::borrow::Cow;
@@ -57,8 +57,13 @@ struct RenderedRead {
     content_size: usize,
     total_lines: usize,
     delivered_spans: Vec<(usize, usize)>,
+    /// The heading line and the front matter as the text output shows them.
+    head: String,
     /// The rows as the text output shows them, fitted to the budget.
     surface_text: String,
+    /// What the text output shows once per Agent context, saved once it is
+    /// flushed.
+    shown: session_log::ShownRecord,
 }
 
 fn comment_syntax(file: &str) -> (Option<&'static str>, Option<(&'static str, &'static str)>) {
@@ -721,6 +726,7 @@ fn render_one(
     docs_on: bool,
     session_dedupe: &mut std::collections::BTreeSet<String>,
     budget: Option<usize>,
+    once: bool,
 ) -> Result<RenderedRead> {
     let file_path_raw = Path::new(file_arg);
     let file_path = file_path_raw
@@ -738,26 +744,19 @@ fn render_one(
     let mut binary: Option<usize> = None;
     let source: String;
     if let Some(r) = ref_ {
-        match resolve_ref(r, &repo_root) {
-            Some(m) => ref_meta = Some(m),
-            None => {
-                eprintln!("Error: unknown git ref '{r}'");
-                std::process::exit(2);
-            }
-        }
-        match load_at_ref(r, &repo_root, &relative) {
-            Some(s) => source = s,
-            None => {
-                eprintln!("Error: '{relative}' does not exist at ref '{r}'");
-                std::process::exit(2);
-            }
-        }
+        let Some(m) = resolve_ref(r, &repo_root) else {
+            bail!("unknown git ref '{r}'");
+        };
+        ref_meta = Some(m);
+        let Some(s) = load_at_ref(r, &repo_root, &relative) else {
+            bail!("'{relative}' does not exist at ref '{r}'");
+        };
+        source = s;
     } else {
         if !file_path.is_file() {
-            eprintln!("Error: file not found: {file_arg}");
-            std::process::exit(2);
+            bail!("file not found: {file_arg}");
         }
-        let bytes = std::fs::read(&file_path)?;
+        let bytes = std::fs::read(&file_path).with_context(|| format!("cannot read {file_arg}"))?;
         if bytes[..bytes.len().min(8000)].contains(&0) {
             binary = Some(bytes.len());
             source = String::new();
@@ -779,16 +778,14 @@ fn render_one(
                     .take(20)
                     .collect();
                 if lines.is_empty() {
-                    eprintln!("Error: no function '{m}' in {relative}, and the word does not appear in it");
-                } else {
-                    eprintln!(
-                        "Error: no function '{m}' in {relative}; the word appears on lines {} → trace read {relative} --lines {}:{}",
-                        lines.join(", "),
-                        lines[0],
-                        lines[lines.len() - 1],
-                    );
+                    bail!("no function '{m}' in {relative}, and the word does not appear in it");
                 }
-                std::process::exit(2);
+                bail!(
+                    "no function '{m}' in {relative}; the word appears on lines {} → trace read {relative} --lines {}:{}",
+                    lines.join(", "),
+                    lines[0],
+                    lines[lines.len() - 1],
+                );
             }
         }
     } else if let Some((l1, l2)) = line_range {
@@ -802,10 +799,7 @@ fn render_one(
                     .map(|((start, _), (end, _))| vec![*start as i64, *end as i64]);
                 lines
             }
-            None => {
-                eprintln!("Error: start anchor '{a}' not found in {relative}");
-                std::process::exit(2);
-            }
+            None => bail!("start anchor '{a}' not found in {relative}"),
         }
     } else {
         source_lines(&source).collect()
@@ -830,6 +824,50 @@ fn render_one(
     // log`'s own words; in the worktree, the file's facts and its directory.
     // A file outside any git repository has neither.
     let in_repository = cache::worktree_root_for(&file_path).is_some();
+    let shown_facts = facts
+        .as_ref()
+        .filter(|_| in_repository && ref_.is_none())
+        .map(|facts| Facts::of(facts, relations::get(&repo_root).module_counts(&relative).as_ref()));
+    let window = (start_line as i64, selection_end as i64);
+    let windowed = method.is_some() || line_range.is_some() || between.is_some();
+    let calls = match facts.as_ref() {
+        Some(facts) if windowed && in_repository && ref_.is_none() => {
+            summary::calls(facts, &relative, window, &repo_root)
+        }
+        _ => Vec::new(),
+    };
+    let surface_rows = facts
+        .as_ref()
+        .map(|facts| surface::rows(facts, Some(window)))
+        .unwrap_or_default();
+    let mut rendered: Vec<RenderedLine<'_>> = if raw {
+        selected
+            .into_iter()
+            .map(|(number, line)| (number, Cow::Borrowed(line)))
+            .collect()
+    } else {
+        clean(selected, &source, &relative)
+    };
+    let symbol_diff_data = (as_diff && ref_.is_some())
+        .then(|| {
+            let worktree_source = std::fs::read(&file_path)
+                .ok()
+                .map(|bytes| String::from_utf8_lossy(&bytes).to_string());
+            symbol_diff(Some(source.as_str()), worktree_source.as_deref(), &relative)
+        })
+        .flatten();
+    let file_key = file_path.to_string_lossy();
+    let memories: Vec<nested_memory::LoadedMemory> = if docs_on {
+        nested_memory::load_for_file(&file_path, &repo_root, session_dedupe, false)
+            .into_iter()
+            .filter(|memory| memory.path != file_key)
+            .collect()
+    } else {
+        Vec::new()
+    };
+    let unread = super::docs::unread(memories.clone());
+
+    let mut shown = session_log::ShownRecord::default();
     let front_matter: Option<serde_json::Map<String, Value>> = if ref_.is_some() {
         ref_meta.as_ref().map(|m| {
             let mut map = serde_json::Map::new();
@@ -840,63 +878,50 @@ fn render_one(
             map.insert("subject".into(), summary::clip(m["subject"].as_str().unwrap_or(""), 60).into());
             map
         })
-    } else if in_repository {
-        facts.as_ref().map(|facts| {
-            let graph = relations::get(&repo_root).module_counts(&relative);
-            let mut map = Facts::of(facts, graph.as_ref()).to_map();
+    } else {
+        shown_facts.as_ref().map(|shown_facts| {
+            let mut map = shown_facts.to_map();
             let not_loaded = context::docs_not_loaded(&file_path, &repo_root);
             if !not_loaded.is_empty() {
                 map.insert("docs_not_loaded".into(), not_loaded.into());
             }
-            if let Some(directory) =
-                file_path.parent().and_then(|directory| context::directory_facts(directory, true))
+            if let Some(directory) = file_path
+                .parent()
+                .and_then(|directory| context::directory_facts(directory, &mut shown, once))
             {
                 map.insert("directory".into(), Value::Object(directory));
             }
             map
         })
-    } else {
-        None
+    };
+    let header = heading(&relative, ref_, method, line_range, between, between_resolved_lines.as_deref());
+    let head = match &front_matter {
+        Some(map) => summary::front_matter_once(Some(&header), &file_path, shown_facts.as_ref(), map, &mut shown, once),
+        None => format!("{header}\n"),
     };
 
     // The budget holds the whole read: the front matter first, then the rows
     // in at most half of what is left (each still named when cut), then the
-    // content in the rest.
+    // calls in what the content and its docs leave, at least a quarter, then
+    // the content in the rest. The `# <file>` header, the blank line after
+    // the rows, and the trim marker naming `file_arg` also count.
     let budget = if all { None } else { budget };
-    let front_matter_size = front_matter.as_ref().map_or(0, |map| summary::front_matter(map).len());
-    let window = (start_line as i64, selection_end as i64);
-    let surface_rows = facts
-        .as_ref()
-        .map(|facts| surface::rows(facts, Some(window)))
-        .unwrap_or_default();
+    let front_matter_size = head.len().saturating_sub(header.len() + 1);
+    let reserved = relative.len() + file_arg.len() + 100;
+    let docs_command = super::docs::shell_command("trace docs", std::slice::from_ref(&file_path));
     let mut surface_text = surface::render_within(
         &surface_rows,
         &relative,
         Some(window),
         budget.map(|budget| budget.saturating_sub(front_matter_size) / 2),
     );
-    let windowed = method.is_some() || line_range.is_some() || between.is_some();
-    let calls = match facts.as_ref() {
-        Some(facts) if windowed && in_repository && ref_.is_none() => {
-            summary::calls(facts, &relative, window, &repo_root)
-        }
-        _ => Vec::new(),
-    };
-    surface_text.push_str(&summary::render_calls(
-        &calls,
-        budget.map(|budget| budget.saturating_sub(front_matter_size) / 4),
-    ));
-    let mut rendered: Vec<RenderedLine<'_>> = if raw {
-        selected
-            .into_iter()
-            .map(|(number, line)| (number, Cow::Borrowed(line)))
-            .collect()
-    } else {
-        clean(selected, &source, &relative)
-    };
-    // The `# <file>` header, the blank line after the rows, and the trim
-    // marker naming `file_arg` also count.
-    let reserved = relative.len() + file_arg.len() + 100;
+    let calls_share = budget.map(|budget| {
+        let left = budget.saturating_sub(front_matter_size);
+        let content_size: usize = rendered.iter().map(|(_, line)| crate::output::width(line)).sum();
+        let docs_size = crate::output::width(&super::docs::fit(unread.clone(), None, &docs_command).text);
+        (left / 4).max(left.saturating_sub(surface_text.len() + content_size + docs_size + reserved))
+    });
+    surface_text.push_str(&summary::render_calls(&calls, &relative, calls_share));
     let truncated = budget.is_some_and(|budget| {
         trim_to_budget(
             &mut rendered,
@@ -939,28 +964,6 @@ fn render_one(
         }
     }
 
-    let mut symbol_diff_data: Option<Value> = None;
-    if as_diff && ref_.is_some() {
-        let worktree_source = if file_path.is_file() {
-            std::fs::read(&file_path)
-                .ok()
-                .map(|b| String::from_utf8_lossy(&b).to_string())
-        } else {
-            None
-        };
-        symbol_diff_data =
-            symbol_diff(Some(source.as_str()), worktree_source.as_deref(), &relative);
-    }
-
-    let file_key = file_path.to_string_lossy();
-    let memories: Vec<nested_memory::LoadedMemory> = if docs_on {
-        nested_memory::load_for_file(&file_path, &repo_root, session_dedupe, false)
-            .into_iter()
-            .filter(|memory| memory.path != file_key)
-            .collect()
-    } else {
-        Vec::new()
-    };
     // The docs take the room the file left, and page from there.
     let docs_room = budget.map(|budget| {
         budget.saturating_sub(
@@ -970,21 +973,13 @@ fn render_one(
                 + reserved,
         )
     });
-    let docs = super::docs::fit(
-        super::docs::unread(memories.clone()),
-        docs_room,
-        &super::docs::shell_command("trace docs", std::slice::from_ref(&file_path)),
-    );
+    let docs = super::docs::fit(unread, docs_room, &docs_command);
 
     let display_file = cache::relative_to_root(&file_path, &repo_root);
 
     let mut payload = json!({
         "file": display_file,
-        "method": method,
-        "lines": line_range.map(|(a, b)| vec![a, b]),
-        "between": between.map(|(a, b)| vec![a.to_string(), b.to_string()]),
         "between_resolved_lines": between_resolved_lines,
-        "ref": ref_,
         "ref_resolved": ref_meta,
         "source": if ref_.is_some() { "ref" } else { "worktree" },
         "content": content,
@@ -1018,46 +1013,47 @@ fn render_one(
         content_size,
         total_lines,
         delivered_spans,
+        head,
         surface_text,
+        shown,
     })
+}
+
+/// The `# <file>` line naming what a read selected: the ref, then the method,
+/// the lines, or the anchors with the lines they resolved to.
+fn heading(
+    relative: &str,
+    ref_: Option<&str>,
+    method: Option<&str>,
+    line_range: Option<(i64, i64)>,
+    between: Option<(&str, &str)>,
+    between_resolved_lines: Option<&[i64]>,
+) -> String {
+    let mut header = format!("# {relative}");
+    if let Some(r) = ref_ {
+        header += &format!(" @ {r}");
+    }
+    if let Some(m) = method {
+        header += &format!(" :: {m}");
+    } else if let Some((start, end)) = line_range {
+        header += &format!(" :: L{start}-L{end}");
+    } else if let Some((start, end)) = between {
+        header += &format!(" :: between /{start}/,/{end}/");
+        if let Some(&[first, last]) = between_resolved_lines {
+            header += &format!(" (L{first}-L{last})");
+        }
+    }
+    header
 }
 
 fn emit_human(
     payload: &Value,
+    head: &str,
     docs: &str,
     surface_text: &str,
     output: &mut impl Write,
 ) -> Result<()> {
-    let mut header = format!("# {}", payload["file"].as_str().unwrap_or(""));
-    if let Some(r) = payload["ref"].as_str() {
-        header += &format!(" @ {r}");
-    }
-    if let Some(m) = payload["method"].as_str() {
-        header += &format!(" :: {m}");
-    } else if let Some(lines) = payload["lines"].as_array() {
-        header += &format!(
-            " :: L{}-L{}",
-            lines[0].as_i64().unwrap_or(0),
-            lines[1].as_i64().unwrap_or(0)
-        );
-    } else if let Some(between) = payload["between"].as_array() {
-        header += &format!(
-            " :: between /{}/,/{}/",
-            between[0].as_str().unwrap_or(""),
-            between[1].as_str().unwrap_or("")
-        );
-        if let Some(resolved) = payload["between_resolved_lines"].as_array() {
-            header += &format!(
-                " (L{}-L{})",
-                resolved[0].as_i64().unwrap_or(0),
-                resolved[1].as_i64().unwrap_or(0)
-            );
-        }
-    }
-    writeln!(output, "{header}")?;
-    if let Some(facts) = payload["facts"].as_object() {
-        write!(output, "{}", summary::front_matter(facts))?;
-    }
+    write!(output, "{head}")?;
     write!(output, "{surface_text}")?;
     output.flush()?;
     if !docs.is_empty() {
@@ -1143,11 +1139,15 @@ pub fn run(
     };
     let between_ref = between.as_ref().map(|(a, b)| (a.as_str(), b.as_str()));
 
-    // Several files share one budget evenly.
+    // Several files share one budget evenly. Text prints each file as it
+    // renders and records it once flushed, so the next file compares against
+    // what this one showed.
     let budget = crate::output::budget().map(|budget| budget / files.len().max(1));
+    let mut output = (!as_json).then(|| std::io::BufWriter::with_capacity(64 * 1024, std::io::stdout().lock()));
     let mut results: Vec<RenderedRead> = Vec::new();
+    let mut failed = false;
     for f in &files {
-        let rendered = render_one(
+        let mut rendered = match render_one(
             f,
             method.as_deref(),
             line_range,
@@ -1159,7 +1159,30 @@ pub fn run(
             docs_on,
             &mut session_dedupe,
             budget,
-        )?;
+            !as_json,
+        ) {
+            Ok(rendered) => rendered,
+            Err(error) => {
+                eprintln!("Error: {error:#}");
+                failed = true;
+                continue;
+            }
+        };
+        if let Some(output) = output.as_mut() {
+            if !results.is_empty() {
+                writeln!(output)?;
+                writeln!(output, "---")?;
+            }
+            emit_human(&rendered.payload, &rendered.head, &rendered.docs.text, &rendered.surface_text, output)?;
+            output.flush()?;
+            std::mem::take(&mut rendered.shown).save();
+            if record {
+                rendered.docs.record("trace_read");
+                if ref_.is_none() {
+                    record_delivered_read(&rendered);
+                }
+            }
+        }
         results.push(rendered);
     }
 
@@ -1218,24 +1241,9 @@ pub fn run(
                 }
             }
         }
-        return Ok(());
     }
-
-    let stdout = std::io::stdout();
-    let mut output = std::io::BufWriter::with_capacity(64 * 1024, stdout.lock());
-    for (i, rendered) in results.iter().enumerate() {
-        if i > 0 {
-            writeln!(output)?;
-            writeln!(output, "---")?;
-        }
-        emit_human(&rendered.payload, &rendered.docs.text, &rendered.surface_text, &mut output)?;
-        output.flush()?;
-        if record {
-            rendered.docs.record("trace_read");
-            if ref_.is_none() {
-                record_delivered_read(rendered);
-            }
-        }
+    if failed {
+        std::process::exit(2);
     }
     Ok(())
 }

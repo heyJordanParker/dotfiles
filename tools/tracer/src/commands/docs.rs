@@ -35,13 +35,16 @@ use crate::{cache, docs_graph};
 use anyhow::Result;
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 /// Path-mode, the default `trace docs <paths>`. Each path's chain is walked
 /// with no dedupe, then partitioned against the live log: new entries land in
 /// `docs[]` (with content); already-loaded entries land in `already_loaded[]`
 /// (without content, with per-entry source). `skip` names the docs the
-/// triggering command delivers itself. Only what was sent gets recorded.
+/// triggering command delivers itself. Only what was sent gets recorded, and
+/// `record` is false under `--filter`, whose projection may drop the docs.
+#[allow(clippy::too_many_arguments)]
 pub fn run(
     targets_raw: &[PathBuf],
     skip: &[PathBuf],
@@ -50,7 +53,9 @@ pub fn run(
     triggering_tool: Option<&str>,
     triggering_command: Option<&str>,
     as_json: bool,
-) -> Result<Value> {
+    record: bool,
+    sink: &crate::output::Sink<'_>,
+) -> Result<()> {
     // Triggering env vars feed `session_log::record_emission`, which reads
     // them at append time. Setting them here keeps the log
     // API unchanged and lets the same flag shape work for every caller.
@@ -58,7 +63,6 @@ pub fn run(
     let _delivering = session_log::delivery_lock();
 
     let pre_loaded: BTreeSet<String> = session_log::loaded_paths();
-    let prior_sources: BTreeMap<String, String> = prior_source_map();
     let skip: BTreeSet<String> = skip
         .iter()
         .filter_map(|path| path.canonicalize().ok())
@@ -87,18 +91,19 @@ pub fn run(
         }
     }
 
-    // JSON is whole, so every new doc arrives and is recorded. Text sends each
-    // doc from its first unread line, nearest first, and records exactly the
-    // lines that printed.
-    let fitted = (!as_json).then(|| {
+    // Text sends each doc from its first unread line, nearest first, and
+    // records exactly the lines that printed. JSON sends every new doc whole
+    // and records them all. Each records only once its output is flushed.
+    if !as_json {
         let again = shell_command("trace docs", targets_raw);
-        fit(unread(new_docs.clone()), crate::output::budget(), &again)
-    });
-    match &fitted {
-        Some(fitted) => fitted.record(source),
-        None => session_log::record_emission(&new_docs, source),
+        let fitted = fit(unread(new_docs), crate::output::budget(), &again);
+        print!("{}", fitted.text);
+        std::io::stdout().flush()?;
+        fitted.record(source);
+        return Ok(());
     }
 
+    let prior_sources: BTreeMap<String, String> = prior_source_map();
     let already_loaded: Vec<Value> = skipped
         .iter()
         .map(|m| {
@@ -115,7 +120,7 @@ pub fn run(
         })
         .collect();
 
-    let out = crate::output::document(
+    sink.emit(&crate::output::document(
         json!({
             "path": displays.first(),
             "paths": displays,
@@ -136,12 +141,11 @@ pub fn run(
             }))
             .collect::<Vec<_>>()),
         json!({"docs": new_docs.len(), "skipped": already_loaded.len()}),
-    );
-
-    if let Some(fitted) = &fitted {
-        print!("{}", fitted.text);
+    ))?;
+    if record {
+        session_log::record_emission(&new_docs, source);
     }
-    Ok(out)
+    Ok(())
 }
 
 /// A doc the agent does not hold whole, from its first unread line. `start`

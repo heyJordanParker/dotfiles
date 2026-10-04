@@ -46,13 +46,40 @@ const ctags_denied_languages: &[&str] = &[
 #[allow(non_upper_case_globals)]
 const ctags_denied_kinds: &[&str] = &["heredoc"];
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// One imported name. A Rust `type Name = path;` imports `path` bound as
+/// `Name`, the way `use path as Name;` does. `block` is the first and last
+/// line of the block that holds the import, a Rust `mod` body or block, and
+/// `None` for the whole file.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Import {
     pub module: String,
     pub symbol: Option<String>,
     #[serde(default)]
     pub locals: Vec<String>,
     pub line: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub block: Option<(i64, i64)>,
+}
+
+impl Import {
+    /// The name the import binds: its alias, else its symbol.
+    pub fn binding(&self) -> Option<&str> {
+        self.locals.first().or(self.symbol.as_ref()).map(String::as_str)
+    }
+
+    /// Whether the import binds its name at `line`: its block holds the
+    /// line, and no import of `imports` whose block holds it is smaller and
+    /// binds the same name.
+    pub fn in_force(&self, line: i64, imports: &[Import]) -> bool {
+        let holds = |import: &Import| import.block.is_none_or(|(first, last)| (first..=last).contains(&line));
+        let size = |import: &Import| import.block.map_or(i64::MAX, |(first, last)| last - first);
+        holds(self)
+            && !self.binding().is_some_and(|name| {
+                imports
+                    .iter()
+                    .any(|inner| inner.binding() == Some(name) && holds(inner) && size(inner) < size(self))
+            })
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -68,6 +95,12 @@ pub struct Export {
 /// `container` is the enclosing class/interface/trait/enum name for a method
 /// declaration, `None` for a free function or a top-level type. Reference
 /// resolution uses it to tell a method from a free function of the same name.
+/// `self_type` is a Rust method's `Self`, the type its `impl` names or its
+/// trait, read the way a call's receiver is read. `module_file` is a Rust
+/// `mod` item's `#[path]` value. `supertypes` are the types a PHP class,
+/// interface, trait, or enum names after `extends` and `implements` and in
+/// its body's trait `use`, each by its last segment, nearest first: its
+/// traits, then its parent, then its interfaces.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Declaration {
     pub name: String,
@@ -80,6 +113,12 @@ pub struct Declaration {
     pub header: String,
     #[serde(default)]
     pub annotations: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub self_type: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub module_file: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub supertypes: Vec<String>,
 }
 
 pub fn line_text(source: &[u8], line: i64) -> String {
@@ -107,22 +146,17 @@ pub enum RefShape {
 /// A reference — an identifier use site (a call or qualified-name access).
 /// Resolved into edges at graph-build time. `shape` is the call form;
 /// `receiver` is the class named at the site for a `Static` use (e.g. `Foo`
-/// in `Foo::bar()` / `new Foo`), or `None` when the receiver type is not
-/// named (a `Member` call on a variable whose type the site doesn't state).
-/// `enclosing` is the name of the nearest enclosing function/method
-/// declaration the use site sits inside — captured during the same AST walk
-/// that emits the reference (the walk already holds the enclosing scope, the
-/// way `walk_declarations` holds `container`). It makes the resolved edge
-/// function-granular: the edge's source becomes that calling symbol's node
-/// (`file::enclosing`) rather than the importer module. `None` for a use
-/// site at module top level, which keeps the importer-module source.
+/// in `Foo::bar()` / `new Foo`), in Rust the whole path written before the
+/// name (`crate::summary` in `crate::summary::front_matter()`), for a
+/// `Member` call the receiver's type where PHP or Rust states it, else the
+/// receiver's text in TypeScript, Python, Java, and Ruby, and `None`
+/// otherwise.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Reference {
     pub name: String,
     pub line: i64,
     pub shape: RefShape,
     pub receiver: Option<String>,
-    pub enclosing: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -362,6 +396,9 @@ fn ctags_extract(source: &[u8], path: &str, extension: &str) -> Option<Extractio
                 .trim()
                 .to_string(),
             annotations: Vec::new(),
+            self_type: None,
+            module_file: None,
+            supertypes: Vec::new(),
         });
     }
     declarations.sort_by_key(|declaration| declaration.line);

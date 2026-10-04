@@ -88,11 +88,12 @@ no `jq` is shelled out.
 
 `.tracer-cache/` at the repo root, two namespaces that never cross-read — `file/` and `sessions/`:
 
-- `file/{hash}.json` — per-file facts (complexity, imports list, exports list). One entry per file, keyed by SHA-256 of file contents + path + cache schema version.
-- `file/relations_edges_v1__schema{N}.json` and `file/relations_symbols_v1__schema{N}.json` — the relations index for the whole repo: the edges entry holds the file table, provenance, and `file -> [importer]`; the symbols entry holds `name -> {defined_in, used_in}` and is parsed only for a symbol query. Rewritten in place, and only the files whose contents moved are re-absorbed. Reference edges are resolved per query, never stored.
+- `file/schema{N}/` — every entry cache schema `N` writes. Another schema's directory is removed once nothing was written in it for seven days.
+- `file/schema{N}/{hash}.json` — per-file facts (complexity, imports list, exports list). One entry per file, keyed by SHA-256 of file contents + path + cache schema version.
+- `file/schema{N}/relations_edges_v1.json` and `file/schema{N}/relations_symbols_v1.json` — the relations index for the whole repo: the edges entry holds the file table, provenance, and `file -> [importer]`; the symbols entry holds `name -> {defined_in, used_in}` and is parsed only for a symbol query. Rewritten in place, and only the files whose contents moved are re-absorbed. Reference edges are resolved per query, never stored.
 - `sessions/{session}/{agent}/` — the per-session, per-Agent docs context log.
 
-The git-activity map's history-derived facts live under `file/`, keyed by HEAD and the 30-day cutoff date; working-tree state is recomputed fresh on every read. The deploy-presence map is cached separately under `file/`, keyed by the present deploy branches' tip commit ids. The mtime index is cached separately again, keyed by the cache schema version and the active complexity backend.
+The git-activity map's history-derived facts live in the schema's directory, keyed by HEAD and the 30-day cutoff date; working-tree state is recomputed fresh on every read. The deploy-presence map is cached separately there, keyed by the present deploy branches' tip commit ids. The mtime index is cached separately again, keyed by the active complexity backend.
 
 The cache writes its own `.tracer-cache/.gitignore`, so it never enters git or the tracked file list. Use `trace cache clear` to invalidate manually.
 

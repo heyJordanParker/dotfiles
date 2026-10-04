@@ -6,20 +6,15 @@ use std::fs;
 use std::process::{Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-use tracer_cli_tests::{standard_repo, trace, trace_env, Fixture};
+use tracer_cli_tests::{
+    schema_directory, standard_repo, trace, trace_env, Fixture, PUBLISHED_SCHEMA_VERSION,
+};
 
 fn mtime_index(fixture: &Fixture) -> String {
-    let entries = fs::read_dir(fixture.root.join(".tracer-cache/file")).unwrap();
-    let path = entries
-        .flatten()
-        .map(|entry| entry.path())
-        .find(|path| {
-            path.file_name()
-                .and_then(|name| name.to_str())
-                .is_some_and(|name| name.starts_with("mtime_index_"))
-        })
-        .expect("the mtime index exists after a call");
-    fs::read_to_string(path).unwrap()
+    fs::read_to_string(
+        schema_directory(&fixture.root, PUBLISHED_SCHEMA_VERSION).join("mtime_index_v2__ast.json"),
+    )
+    .expect("the mtime index exists after a call")
 }
 
 /// An agent runs several `trace` calls side by side, each with its own docs
@@ -93,6 +88,64 @@ fn two_concurrent_calls_both_land_in_the_mtime_index() {
     assert!(
         index.contains("src/one.py") && index.contains("src/two.py"),
         "one concurrent write erased the other's entry:\n{index}"
+    );
+}
+
+/// Two installed builds at different schemas update their own indexes side by
+/// side: an update holds only the lock in its own schema's directory, so a
+/// build of a neighbor schema, or one from before schema directories at any
+/// schema, holding its lock mid-update never stalls it.
+#[test]
+fn an_index_update_never_waits_on_another_schemas_lock() {
+    let f = standard_repo();
+    f.trace(&["cache", "build", "."]).ok();
+    let file_namespace = f.root.join(".tracer-cache/file");
+    let held: Vec<fs::File> = [
+        file_namespace.join(".maintain.lock"),
+        file_namespace.join(format!(".maintain__schema{PUBLISHED_SCHEMA_VERSION}.lock")),
+        schema_directory(&f.root, PUBLISHED_SCHEMA_VERSION - 1).join(".maintain.lock"),
+        schema_directory(&f.root, PUBLISHED_SCHEMA_VERSION + 1).join(".maintain.lock"),
+    ]
+    .iter()
+    .map(|path| {
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let lock = fs::File::options()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(path)
+            .unwrap();
+        lock.lock().unwrap();
+        lock
+    })
+    .collect();
+    f.write("src/added.py", "def added():\n    return 1\n");
+
+    let mut child = Command::new(tracer_cli_tests::trace_bin())
+        .args(["grep", "added", "src"])
+        .current_dir(&f.root)
+        .env("HOME", &f.root)
+        .env("TRACE_TIMING", "1")
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let started = Instant::now();
+    while child.try_wait().unwrap().is_none() {
+        if started.elapsed() >= Duration::from_secs(10) {
+            child.kill().unwrap();
+            child.wait().unwrap();
+            panic!("the index update waited 10 seconds on another schema's lock");
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
+    let run = child.wait_with_output().unwrap();
+    drop(held);
+    let stderr = String::from_utf8_lossy(&run.stderr);
+    assert!(run.status.success(), "the call failed: {stderr}");
+    assert!(
+        stderr.contains("timing lock maintain "),
+        "the call took no index lock, so it proved nothing about waiting:\n{stderr}"
     );
 }
 
@@ -214,6 +267,88 @@ fn concurrent_calls_show_a_directory_listing_once() {
     }
     let listed = runs.iter().filter(|run| run.stdout.contains("  entries: ")).count();
     assert_eq!(listed, 1, "the listing must show exactly once across concurrent calls");
+}
+
+/// The microseconds one `TRACE_TIMING` phase took across a call's stderr.
+fn phase_micros(stderr: &str, phase: &str) -> u128 {
+    let prefix = format!("timing {phase} ");
+    stderr
+        .lines()
+        .filter_map(|line| line.strip_prefix(&prefix)?.parse::<u128>().ok())
+        .sum()
+}
+
+/// Claude Code sends one Agent's `Read`s in parallel, and each runs a windowed
+/// `context` on its own file. Each call resolves its `calls:` block before it
+/// takes the Agent's lock, so a call waits on the others only for their
+/// compare, print, and save, never for their resolution. Measured on this
+/// fixture: holding the lock across the resolution made five of six calls
+/// wait 40% to 67% of their render; resolving first, the longest wait was
+/// 0.3%, so the 10% bound sits well clear of both.
+#[test]
+fn one_agents_parallel_windowed_calls_never_wait_on_each_others_calls() {
+    let f = Fixture::new();
+    let methods: Vec<String> = (0..16).map(|m| format!("record{m}")).collect();
+    let declared: String = methods
+        .iter()
+        .map(|method| format!("    public function {method}(int $cents): int\n    {{\n        return $cents;\n    }}\n"))
+        .collect();
+    f.write("ledger.php", &format!("<?php\nclass Ledger {{\n{declared}}}\n"));
+    let called: String = methods
+        .iter()
+        .map(|method| format!("        $this->ledger->{method}($cents);\n"))
+        .collect();
+    for n in 0..6 {
+        f.write(
+            &format!("checkout{n}.php"),
+            &format!("<?php\nclass Checkout{n} {{\n    public function __construct(private Ledger $ledger) {{}}\n    public function pay(int $cents): void\n    {{\n{called}    }}\n}}\n"),
+        );
+    }
+    for n in 0..100 {
+        let called: String = methods
+            .iter()
+            .map(|method| format!("        $ledger->{method}(-$cents - {n});\n"))
+            .collect();
+        f.write(
+            &format!("refund{n}.php"),
+            &format!("<?php\nclass Refund{n} {{\n    public function back(Ledger $ledger, int $cents): void\n    {{\n{called}    }}\n}}\n"),
+        );
+    }
+    f.commit("many callers");
+    f.trace(&["cache", "build", "."]).ok();
+    let session_id = format!(
+        "parallel-windows-{}",
+        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+    );
+
+    let handles: Vec<_> = (0..6)
+        .map(|n| {
+            let root = f.root.clone();
+            let session_id = session_id.clone();
+            let file = format!("checkout{n}.php");
+            thread::spawn(move || {
+                trace_env(
+                    &root,
+                    ["context", file.as_str(), "--offset", "6", "--limit", "16", "--no-record"],
+                    &[("AGENT_SESSION_ID", session_id.as_str()), ("TRACE_TIMING", "1")],
+                )
+            })
+        })
+        .collect();
+    let runs: Vec<_> = handles.into_iter().map(|h| h.join().unwrap()).collect();
+    for run in &runs {
+        run.ok();
+        assert!(run.stdout.contains("Ledger::record15"), "the window resolves its calls:\n{}", run.stdout);
+        assert!(run.stderr.contains("timing lock session shown "), "each new file takes the lock:\n{}", run.stderr);
+    }
+    let waits: Vec<(u128, u128)> = runs
+        .iter()
+        .map(|run| (phase_micros(&run.stderr, "lock session shown"), phase_micros(&run.stderr, "render")))
+        .collect();
+    assert!(
+        waits.iter().all(|(lock, render)| lock * 10 < *render),
+        "a call waited on another's calls: (lock µs, render µs) per call: {waits:?}"
+    );
 }
 
 /// A primer must finish when its warm cache learns a newly tracked directory.

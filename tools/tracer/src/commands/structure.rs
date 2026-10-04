@@ -1,15 +1,19 @@
 //! `trace structure` — the cached declaration record as source rows, for
 //! every file the path arguments name (a directory names the files under it).
 
+use super::session_log::ShownRecord;
 use crate::summary::Facts;
 use crate::{cache, file_facts, relations, surface};
 use anyhow::Result;
 use serde_json::{json, Map, Value};
+use std::io::Write as _;
 use std::path::{Path, PathBuf};
 
 /// One file's structure: its facts, its rows, and its imports and exports.
 struct FileStructure {
+    path: PathBuf,
     relative: String,
+    shown_facts: Option<Facts>,
     facts: Map<String, Value>,
     rows: Vec<surface::Row>,
     imports: Vec<Value>,
@@ -22,6 +26,9 @@ fn file_structure(path: &Path) -> FileStructure {
     let repo_root = root.clone().unwrap_or_else(|| cache::display_root(&path));
     let relative = cache::relative_to_root(&path, &repo_root);
     let facts = file_facts::get(&path, &repo_root);
+    let shown_facts = facts
+        .as_ref()
+        .map(|facts| Facts::of(facts, relations::get(&repo_root).module_counts(&relative).as_ref()));
     let (language, imports, exports, rows) = facts
         .as_ref()
         .and_then(|facts| facts.extraction.as_ref().map(|extraction| {
@@ -33,10 +40,7 @@ fn file_structure(path: &Path) -> FileStructure {
             )
         }))
         .unwrap_or_else(|| (String::new(), Vec::new(), Vec::new(), Vec::new()));
-    let mut file_facts = facts
-        .as_ref()
-        .map(|facts| Facts::of(facts, relations::get(&repo_root).module_counts(&relative).as_ref()).to_map())
-        .unwrap_or_default();
+    let mut file_facts = shown_facts.as_ref().map(Facts::to_map).unwrap_or_default();
     // Outside any git repository there is no git state to describe.
     if root.is_none() {
         file_facts.remove("git");
@@ -45,7 +49,9 @@ fn file_structure(path: &Path) -> FileStructure {
         file_facts.insert("language".into(), language.into());
     }
     FileStructure {
+        path,
         relative,
+        shown_facts,
         facts: file_facts,
         rows,
         imports,
@@ -109,7 +115,7 @@ pub fn run(paths: &[PathBuf], as_json: bool) -> Result<Value> {
     let closing = crate::output::closing_room(structures.len(), "files");
     let share = crate::output::budget()
         .map(|budget| budget.saturating_sub(closing) / structures.len().max(1));
-    let entries: Vec<crate::output::Entry> = structures
+    let front_matters: Vec<Map<String, Value>> = structures
         .iter()
         .map(|structure| {
             let mut front_matter = structure.facts.clone();
@@ -118,23 +124,51 @@ pub fn run(paths: &[PathBuf], as_json: bool) -> Result<Value> {
                 "declarations".into(),
                 json!({"symbols": structure.rows.len(), "imports": structure.imports.len(), "exports": structure.exports.len()}),
             );
-            let front_matter = crate::summary::front_matter(&front_matter);
-            let rows = &structure.rows;
-            let within = share.map(|share| share.saturating_sub(front_matter.len()));
-            crate::output::Entry {
-                rank: structure.facts.get("imported_by").and_then(Value::as_i64).unwrap_or(0),
-                levels: vec![
-                    format!("{front_matter}{}", surface::render_within(rows, &structure.relative, None, None)),
-                    format!("{front_matter}{}", surface::render_within(rows, &structure.relative, None, within)),
-                    front_matter,
-                    format!("---\nfile: {}\n---\n", structure.relative),
-                ],
-            }
+            front_matter
         })
         .collect();
-    let (texts, shortened) = crate::output::fit(&entries, closing);
-    for text in texts {
-        print!("{text}");
+    let blocks: Vec<String> = front_matters.iter().map(crate::summary::front_matter).collect();
+    let surfaces: Vec<[String; 3]> = structures
+        .iter()
+        .zip(&blocks)
+        .map(|(structure, block)| {
+            let render = |within| surface::render_within(&structure.rows, &structure.relative, None, within);
+            [render(None), render(share.map(|share| share.saturating_sub(block.len()))), String::new()]
+        })
+        .collect();
+    let entries: Vec<crate::output::Entry> = structures
+        .iter()
+        .zip(&blocks)
+        .zip(&surfaces)
+        .map(|((structure, block), surfaces)| crate::output::Entry {
+            rank: structure.facts.get("imported_by").and_then(Value::as_i64).unwrap_or(0),
+            levels: surfaces
+                .iter()
+                .map(|surface| format!("{block}{surface}"))
+                .chain([format!("---\nfile: {}\n---\n", structure.relative)])
+                .collect(),
+        })
+        .collect();
+    let (chosen, shortened) = crate::output::fit(&entries, closing);
+    for (index, (level, text)) in chosen.into_iter().enumerate() {
+        let structure = &structures[index];
+        match surfaces[index].get(level) {
+            Some(surface) => {
+                let mut record = ShownRecord::default();
+                let front_matter = crate::summary::front_matter_once(
+                    None,
+                    &structure.path,
+                    structure.shown_facts.as_ref(),
+                    &front_matters[index],
+                    &mut record,
+                    true,
+                );
+                print!("{front_matter}{surface}");
+                std::io::stdout().flush()?;
+                record.save();
+            }
+            None => print!("{text}"),
+        }
     }
     if shortened > 0 {
         println!("{}", crate::output::shortened_line(shortened, entries.len(), "files"));

@@ -267,17 +267,23 @@ fn called(row: &Row) -> String {
 /// Whether a row is part of its file's public surface, read from the header
 /// the way the language spells it.
 fn is_public(row: &Row, file: &str) -> bool {
-    let rust = file.ends_with(".rs");
-    let declaring_line = row
-        .header
-        .lines()
-        .find(|line| line.contains(row.name.as_str()))
-        .unwrap_or("");
-    let words: Vec<&str> = declaring_line.split(|c: char| !c.is_alphanumeric() && c != '_').collect();
-    if rust {
+    let words = modifiers(&row.header, row.line - row.header_line, &row.name);
+    if file.ends_with(".rs") {
         return words.contains(&"pub");
     }
     !(words.contains(&"private") || words.contains(&"protected") || row.name.starts_with('_') || row.name.starts_with('#'))
+}
+
+pub fn modifiers<'a>(header: &'a str, offset: i64, name: &str) -> Vec<&'a str> {
+    let name = name.trim_start_matches(['$', '#']);
+    header
+        .lines()
+        .nth(offset.max(0) as usize)
+        .unwrap_or("")
+        .split(|c: char| !c.is_alphanumeric() && c != '_')
+        .filter(|word| !word.is_empty())
+        .take_while(|word| *word != name)
+        .collect()
 }
 
 /// One row of `file` on one line.
@@ -304,14 +310,17 @@ fn complexity_comment(row: &Row, file: &str) -> String {
     format!("  {comment} complexity {complexity}")
 }
 
-pub fn enclosing(rows: &[Row], line: i64) -> (Option<&Row>, Option<&Row>) {
-    let containing = rows
-        .iter()
+pub fn innermost(spans: impl IntoIterator<Item = (i64, i64)>, line: i64) -> Option<usize> {
+    spans
+        .into_iter()
         .enumerate()
-        .filter(|(_, row)| row.header_line <= line && line <= row.end_line)
-        .max_by_key(|(index, row)| (row.header_line, *index))
-        .map(|(index, _)| index);
-    let Some(index) = containing else {
+        .filter(|(_, (start, end))| (*start..=*end).contains(&line))
+        .min_by_key(|(index, (start, end))| (end - start, std::cmp::Reverse(*index)))
+        .map(|(index, _)| index)
+}
+
+pub fn enclosing(rows: &[Row], line: i64) -> (Option<&Row>, Option<&Row>) {
+    let Some(index) = innermost(rows.iter().map(|row| (row.header_line, row.end_line)), line) else {
         return (None, None);
     };
 

@@ -9,7 +9,8 @@
 //! CCN is AST-derived; the Layout per-path aggregation uses the real
 //! `file_facts::get` (no lite-facts shortcut).
 
-use super::{nested_memory, session_log};
+use super::nested_memory;
+use super::session_log::{self, Shown, ShownKind, ShownRecord};
 use crate::git_activity::git_str;
 use crate::summary::Facts;
 use crate::{
@@ -20,6 +21,7 @@ use anyhow::{bail, Result};
 use serde_json::{Map, Value};
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::Write as _;
+use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::thread;
@@ -170,24 +172,29 @@ fn read_range(offset: Option<usize>, limit: Option<usize>) -> Option<(usize, usi
     }
 }
 
-type FileContext = (String, Option<Map<String, Value>>, Vec<surface::Row>);
+type FileContext = (String, Option<Map<String, Value>>, Vec<surface::Row>, ShownRecord);
 
 fn file_mode(
     p: &Path,
     lines: Option<(usize, usize)>,
     record: bool,
     budget: Option<usize>,
+    once: bool,
 ) -> Result<FileContext> {
-    crate::timing::phase("render", || file_mode_inner(p, lines, record, budget))
+    crate::timing::phase("render", || file_mode_inner(p, lines, record, budget, once))
 }
 
 /// A file's context: its facts as YAML front matter — with the docs governing
 /// it that the session has not loaded, and its directory — then its rows.
+/// `once` prints the front matter once per Agent context, the way text output
+/// does, and returns the record the caller saves once the text is flushed;
+/// the returned facts stay whole.
 fn file_mode_inner(
     p: &Path,
     lines: Option<(usize, usize)>,
     record: bool,
     budget: Option<usize>,
+    once: bool,
 ) -> Result<FileContext> {
     // Record that the agent just Read this file, and which line range it read.
     // Enables cross-tool dedup (a later doc-injection or read against the same
@@ -225,16 +232,16 @@ fn file_mode_inner(
             .map(rows_for)
             .unwrap_or_default();
         let text = surface::render_within(&rows, &p.to_string_lossy(), window, budget);
-        return Ok((text, None, rows));
+        return Ok((text, None, rows, ShownRecord::default()));
     };
     let relative = cache::relative_to_root(p, &repo_root);
     let facts = file_facts::get(p, &repo_root);
     let rows = facts.as_ref().map(rows_for).unwrap_or_default();
-    let mut map = match facts.as_ref() {
-        Some(facts) => {
-            let graph = relations::get(&repo_root).module_counts(&relative);
-            Facts::of(facts, graph.as_ref()).to_map()
-        }
+    let shown_facts = facts
+        .as_ref()
+        .map(|facts| Facts::of(facts, relations::get(&repo_root).module_counts(&relative).as_ref()));
+    let mut map = match &shown_facts {
+        Some(shown_facts) => shown_facts.to_map(),
         None => {
             let mut map = Map::new();
             map.insert("file".into(), relative.clone().into());
@@ -250,21 +257,23 @@ fn file_mode_inner(
     if !not_loaded.is_empty() {
         map.insert("docs_not_loaded".into(), not_loaded.into());
     }
-    if let Some(directory) = p.parent().and_then(|directory| directory_facts(directory, true)) {
+    let calls = match (window, facts.as_ref()) {
+        (Some(window), Some(facts)) => summary::calls(facts, &relative, window, &repo_root),
+        _ => Vec::new(),
+    };
+    let mut shown = ShownRecord::default();
+    if let Some(directory) = p.parent().and_then(|directory| directory_facts(directory, &mut shown, once)) {
         map.insert("directory".into(), Value::Object(directory));
     }
     // The rows fit in what the front matter leaves, each still named.
-    let mut out = summary::front_matter(&map);
+    let mut out = summary::front_matter_once(None, p, shown_facts.as_ref(), &map, &mut shown, once);
     let rows_budget = budget.map(|budget| budget.saturating_sub(out.len()));
     out.push_str(&surface::render_within(&rows, &relative, window, rows_budget));
-    if let (Some(window), Some(facts)) = (window, facts.as_ref()) {
-        let calls = summary::calls(facts, &relative, window, &repo_root);
-        out.push_str(&summary::render_calls(&calls, budget.map(|budget| budget.saturating_sub(out.len()))));
-        if !calls.is_empty() {
-            map.insert("calls".into(), serde_json::json!(calls));
-        }
+    out.push_str(&summary::render_calls(&calls, &relative, budget.map(|budget| budget.saturating_sub(out.len()))));
+    if !calls.is_empty() {
+        map.insert("calls".into(), serde_json::json!(calls));
     }
-    Ok((out, Some(map), rows))
+    Ok((out, Some(map), rows, shown))
 }
 
 /// Most entries a directory's facts list before naming the total instead.
@@ -273,11 +282,14 @@ const DIRECTORY_ENTRY_LIMIT: usize = 40;
 /// A directory's facts: its path, how many files outside it import its files
 /// and how many it imports, the annotations its files carry, and its entries
 /// one level deep — sub-directories first, each suffixed `/`, the ones git
-/// ignores left out. `once` lists the entries only when this Agent has not
-/// been shown this listing, the way a file's front matter carries its
-/// directory; a directory asked for by name always lists them. `None` when
-/// the directory cannot be read or is empty.
-pub(crate) fn directory_facts(directory: &Path, once: bool) -> Option<Map<String, Value>> {
+/// ignores left out. `once` passes the block through the `Listing` gate, the
+/// way a file's front matter carries its directory: only the lines that
+/// changed since this Agent was last shown it, and the whole block with its
+/// entries when it is new to the Agent or its entries changed; a directory
+/// asked for by name always prints whole. `None` when the directory cannot
+/// be read or is empty, or when the Agent was shown it as it is. The caller
+/// saves `record` once the block is flushed.
+pub(crate) fn directory_facts(directory: &Path, record: &mut ShownRecord, once: bool) -> Option<Map<String, Value>> {
     let mut directories = Vec::new();
     let mut files = Vec::new();
     let entries = std::fs::read_dir(directory).ok()?;
@@ -331,11 +343,21 @@ pub(crate) fn directory_facts(directory: &Path, once: bool) -> Option<Map<String
             map.insert("annotations".into(), Value::Object(annotations));
         }
     }
-    // Whether the listing changed is judged by what is on disk, so the
+    // Whether the entries changed is judged by what is on disk, so the
     // repository listing is consulted only when the entries print.
-    let seen_at = directory.canonicalize().unwrap_or_else(|_| directory.to_path_buf());
-    if once && !session_log::listing_unseen(&seen_at.to_string_lossy(), &entries) {
-        return Some(map);
+    if once {
+        let seen_at = directory.canonicalize().unwrap_or_else(|_| directory.to_path_buf());
+        let mut block = map.clone();
+        block.insert("entries".into(), session_log::content_hash(&entries.join("\n")).into());
+        let printed = serde_json::json!({ "directory": block });
+        match record.shown(ShownKind::Listing, &seen_at.to_string_lossy(), &printed) {
+            Shown::Same => return None,
+            Shown::Changed(mut lines) => match lines.remove("directory") {
+                Some(Value::Object(changed)) if !changed.contains_key("entries") => return Some(changed),
+                _ => {}
+            },
+            Shown::New => {}
+        }
     }
     // A directory git ignores whole keeps every entry: the Agent is working
     // inside it.
@@ -420,13 +442,14 @@ pub fn run(
                 // same mapping a file's front matter nests.
                 let directory_context = |directory: &Path| {
                     let mut map = Map::new();
-                    if let Some(facts) = directory_facts(directory, false) {
+                    if let Some(facts) = directory_facts(directory, &mut ShownRecord::default(), false) {
                         map.insert("directory".into(), Value::Object(facts));
                     }
                     let content =
                         if map.is_empty() { String::new() } else { summary::front_matter(&map) };
                     (content, Some(map).filter(|map| !map.is_empty()))
                 };
+                let mut shown = ShownRecord::default();
                 let (content, error, facts, surface_rows) = if !p.exists() {
                     unavailable += 1;
                     crate::pathval::report(requested, "PATHS", "does not exist");
@@ -447,8 +470,8 @@ pub fn run(
                     (content, None, facts, Vec::new())
                 } else {
                     let budget = crate::output::budget().map(|budget| budget / paths.len());
-                    match file_mode(&p, read_range(offset, limit), record, budget) {
-                        Ok((content, facts, surface_rows)) if content.is_empty() => {
+                    match file_mode(&p, read_range(offset, limit), record, budget, !json) {
+                        Ok((content, facts, surface_rows, _)) if content.is_empty() => {
                             unavailable += 1;
                             (
                                 content,
@@ -457,7 +480,10 @@ pub fn run(
                                 surface_rows,
                             )
                         }
-                        Ok((content, facts, surface_rows)) => (content, None, facts, surface_rows),
+                        Ok((content, facts, surface_rows, record)) => {
+                            shown = record;
+                            (content, None, facts, surface_rows)
+                        }
                         Err(err) => {
                             unavailable += 1;
                             (String::new(), Some(err.to_string()), None, Vec::new())
@@ -480,6 +506,8 @@ pub fn run(
                             }
                         }
                     }
+                    std::io::stdout().flush()?;
+                    shown.save();
                 }
                 rows.push(serde_json::json!({
                     "file": requested.to_string_lossy(),
@@ -1522,7 +1550,7 @@ mod tests {
         fx.write("other.rs", "fn t() {}\n");
         fx.stage();
 
-        let facts = directory_facts(&fx.root, false).expect("directory facts");
+        let facts = directory_facts(&fx.root, &mut ShownRecord::default(), false).expect("directory facts");
 
         assert_eq!(facts["path"], "./");
         assert_eq!(

@@ -5,7 +5,9 @@
 
 use std::process::Command;
 use std::thread;
-use tracer_cli_tests::{standard_repo, trace, Fixture, Run};
+use tracer_cli_tests::{
+    schema_directory, standard_repo, trace, Fixture, Run, PUBLISHED_SCHEMA_VERSION,
+};
 
 /// Assert one `structure --json` response reached the symbol declaration, not
 /// merely text that happened to include the requested name in its filename.
@@ -138,7 +140,7 @@ fn declaration_edits_reresolve_an_untouched_importer() {
     let mut stored_imports: serde_json::Value =
         serde_json::from_slice(&std::fs::read(&imports_entry).expect("imports readable"))
             .expect("imports are JSON");
-    stored_imports["imports"][importer_index][0]["module"] =
+    stored_imports["imports"][importer_index][0][0]["module"] =
         serde_json::Value::String("cached".to_string());
     std::fs::write(
         &imports_entry,
@@ -173,7 +175,11 @@ fn declaration_edits_reresolve_an_untouched_importer() {
         "the importer source changed during the cached-extraction proof"
     );
 
-    remove_matching(&f.root.join(".tracer-cache/file"), "relations_", "json");
+    remove_matching(
+        &schema_directory(&f.root, PUBLISHED_SCHEMA_VERSION),
+        "relations_",
+        "json",
+    );
     let fresh = f.trace(&["callers", "cached", "--json"]);
     fresh.ok();
     assert_eq!(
@@ -229,20 +235,11 @@ fn module_callers(run: &Run) -> Vec<String> {
 }
 
 fn file_fact_entry(fixture: &Fixture, relative_path: &str) -> std::path::PathBuf {
-    let directory = fixture.root.join(".tracer-cache/file");
-    let index = std::fs::read_dir(&directory)
-        .expect("file cache exists")
-        .flatten()
-        .find(|entry| {
-            entry
-                .file_name()
-                .to_string_lossy()
-                .starts_with("mtime_index_v2__")
-        })
-        .expect("mtime index exists");
-    let document: serde_json::Value =
-        serde_json::from_slice(&std::fs::read(index.path()).expect("mtime index is readable"))
-            .expect("mtime index is JSON");
+    let directory = schema_directory(&fixture.root, PUBLISHED_SCHEMA_VERSION);
+    let document: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(directory.join("mtime_index_v2__ast.json")).expect("mtime index is readable"),
+    )
+    .expect("mtime index is JSON");
     let key = document[relative_path]["key"]
         .as_str()
         .unwrap_or_else(|| panic!("mtime index omitted {relative_path}: {document}"));
@@ -250,45 +247,15 @@ fn file_fact_entry(fixture: &Fixture, relative_path: &str) -> std::path::PathBuf
 }
 
 fn relations_entry(fixture: &Fixture) -> std::path::PathBuf {
-    std::fs::read_dir(fixture.root.join(".tracer-cache/file"))
-        .expect("file cache exists")
-        .flatten()
-        .map(|entry| entry.path())
-        .find(|path| {
-            path.file_name()
-                .unwrap_or_default()
-                .to_string_lossy()
-                .starts_with("relations_edges_v1__")
-        })
-        .expect("relations index exists")
+    schema_directory(&fixture.root, PUBLISHED_SCHEMA_VERSION).join("relations_edges_v1.json")
 }
 
 fn relations_imports_entry(fixture: &Fixture) -> std::path::PathBuf {
-    std::fs::read_dir(fixture.root.join(".tracer-cache/file"))
-        .expect("file cache exists")
-        .flatten()
-        .map(|entry| entry.path())
-        .find(|path| {
-            path.file_name()
-                .unwrap_or_default()
-                .to_string_lossy()
-                .starts_with("relations_imports_v1__")
-        })
-        .expect("relations imports entry exists")
+    schema_directory(&fixture.root, PUBLISHED_SCHEMA_VERSION).join("relations_imports_v1.json")
 }
 
 fn relations_symbols_entry(fixture: &Fixture) -> std::path::PathBuf {
-    std::fs::read_dir(fixture.root.join(".tracer-cache/file"))
-        .expect("file cache exists")
-        .flatten()
-        .map(|entry| entry.path())
-        .find(|path| {
-            path.file_name()
-                .unwrap_or_default()
-                .to_string_lossy()
-                .starts_with("relations_symbols_v1__")
-        })
-        .expect("relations symbols entry exists")
+    schema_directory(&fixture.root, PUBLISHED_SCHEMA_VERSION).join("relations_symbols_v1.json")
 }
 
 #[test]
@@ -367,7 +334,7 @@ fn rebuilding_symbols_keeps_each_call_site_once() {
     f.write("target.py", "def selected():\n    return 1\n");
     f.write(
         "caller.py",
-        "from target import selected\n\ndef use():\n    return selected() + selected() + selected() + selected() + selected()\n",
+        "from target import selected\n\ndef use():\n    return (\n        selected()\n        + selected()\n        + selected()\n        + selected()\n        + selected()\n    )\n",
     );
     f.commit("five call sites");
     f.trace(&["cache", "build", "."]).ok();
@@ -414,11 +381,10 @@ fn a_relations_update_rewrites_both_entries() {
     f.trace(&["defines", "helper", "--json"]).code_is(2);
 }
 
-/// A prior binary's index sits under a key this one never reads. The sweep
-/// runs when this binary writes its own key for the first time, which is
-/// the moment after an upgrade, and not on every later write: a stable key
-/// is rewritten on every update, and scanning the whole namespace each
-/// time cost a directory listing of thousands of entries per call.
+/// A binary from before schema directories left its index loose in `file/`,
+/// where this one never reads. The sweep runs when an index update takes
+/// the maintenance lock, and removes the loose entries once none of them was
+/// written for the idle bound, here a year.
 #[test]
 fn a_legacy_relations_entry_is_swept_without_being_read() {
     let f = standard_repo();
@@ -427,6 +393,12 @@ fn a_legacy_relations_entry_is_swept_without_being_read() {
         .join(".tracer-cache/file/relations_v3__schema18.json");
     std::fs::create_dir_all(legacy.parent().unwrap()).expect("cache namespace");
     std::fs::write(&legacy, b"not-json").expect("plant legacy entry");
+    std::fs::File::options()
+        .write(true)
+        .open(&legacy)
+        .expect("open legacy entry")
+        .set_modified(std::time::SystemTime::now() - std::time::Duration::from_secs(365 * 24 * 60 * 60))
+        .expect("age legacy entry");
 
     f.trace(&["cache", "build"]).ok();
     assert!(!legacy.exists(), "legacy relations entry was not swept");
@@ -467,7 +439,8 @@ fn deleting_the_relations_index_alone_changes_no_answer() {
     f.trace(&["cache", "build"]).ok();
     let before = f.trace(&["context", "src/util.py"]).ok().stdout.clone();
 
-    remove_matching(&f.root.join(".tracer-cache/file"), "relations_", "json");
+    let schema = schema_directory(&f.root, PUBLISHED_SCHEMA_VERSION);
+    remove_matching(&schema, "relations_", "json");
 
     let after = f.trace(&["context", "src/util.py"]).ok().stdout.clone();
     assert_eq!(
@@ -476,7 +449,7 @@ fn deleting_the_relations_index_alone_changes_no_answer() {
         "the rebuilt index answered differently from the one that was deleted"
     );
     // Rebuilt and persisted, so the next call pays nothing.
-    remove_matching(&f.root.join(".tracer-cache/file"), "relations_", "json");
+    remove_matching(&schema, "relations_", "json");
 }
 
 fn remove_matching(dir: &std::path::Path, prefix: &str, extension: &str) {

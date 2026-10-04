@@ -129,16 +129,12 @@ fn use_imports(root: Node, source: &[u8]) -> Vec<Import> {
                 let line = node.start_position().row as i64 + 1;
                 if let Some((prefix, names)) = text.split_once('{') {
                     let prefix = prefix.trim().trim_end_matches('\\');
-                    for name in names.trim_end_matches('}').split(',') {
-                        push_use_import(
-                            &mut out,
-                            &format!("{prefix}\\{}", imported_name(name)),
-                            line,
-                        );
+                    for clause in names.trim_end_matches('}').split(',') {
+                        push_use_import(&mut out, &format!("{prefix}\\{}", clause.trim()), line);
                     }
                 } else {
-                    for name in text.split(',') {
-                        push_use_import(&mut out, imported_name(name), line);
+                    for clause in text.split(',') {
+                        push_use_import(&mut out, clause, line);
                     }
                 }
             }
@@ -153,12 +149,13 @@ fn use_imports(root: Node, source: &[u8]) -> Vec<Import> {
     out
 }
 
-fn imported_name(text: &str) -> &str {
-    text.trim().split_whitespace().next().unwrap_or("")
-}
-
-fn push_use_import(out: &mut Vec<Import>, name: &str, line: i64) {
-    let name = name.replace("\\\\", "\\");
+fn push_use_import(out: &mut Vec<Import>, clause: &str, line: i64) {
+    let mut words = clause.split_whitespace();
+    let name = words.next().unwrap_or("").replace("\\\\", "\\");
+    let alias = words
+        .next()
+        .filter(|word| word.eq_ignore_ascii_case("as"))
+        .and_then(|_| words.next());
     let segments: Vec<&str> = name.split('\\').collect();
     let (module, symbol) = match segments.split_last() {
         Some((symbol, module)) if !module.is_empty() => {
@@ -169,8 +166,9 @@ fn push_use_import(out: &mut Vec<Import>, name: &str, line: i64) {
     out.push(Import {
         module,
         symbol,
-        locals: Vec::new(),
+        locals: alias.map(str::to_string).into_iter().collect(),
         line,
+        block: None,
     });
 }
 
@@ -237,6 +235,9 @@ fn walk_declarations(root: Node, source: &[u8]) -> Vec<Declaration> {
                             parent: None,
                             header: php_header(n, source),
                             annotations: php_annotations(n, source),
+                            self_type: None,
+                            module_file: None,
+                            supertypes: php_supertypes(n, source),
                         });
                     }
                 }
@@ -263,6 +264,36 @@ fn walk_declarations(root: Node, source: &[u8]) -> Vec<Declaration> {
             .and_then(|container| parents.get(container).copied());
     }
     out
+}
+
+fn php_supertypes(node: Node, source: &[u8]) -> Vec<String> {
+    let mut cursor = node.walk();
+    let children: Vec<Node> = node.named_children(&mut cursor).collect();
+    let names_in = |clause: Node| {
+        let mut cursor = clause.walk();
+        clause
+            .named_children(&mut cursor)
+            .filter(|named| matches!(named.kind(), "name" | "qualified_name"))
+            .filter_map(|named| last_name_segment(named, source))
+            .collect::<Vec<String>>()
+    };
+    let traits = node.child_by_field_name("body").into_iter().flat_map(|body| {
+        let mut cursor = body.walk();
+        body.named_children(&mut cursor)
+            .filter(|member| member.kind() == "use_declaration")
+            .flat_map(names_in)
+            .collect::<Vec<String>>()
+    });
+    let clauses = |kind: &'static str| {
+        children
+            .iter()
+            .filter(move |child| child.kind() == kind)
+            .flat_map(|clause| names_in(*clause))
+    };
+    traits
+        .chain(clauses("base_clause"))
+        .chain(clauses("class_interface_clause"))
+        .collect()
 }
 
 fn php_header_line(node: Node, source: &[u8]) -> i64 {
@@ -485,32 +516,9 @@ fn php_access_tag(comment: Node, source: &[u8]) -> bool {
 /// return type hints, and property type declarations.
 fn walk_references(root: Node, source: &[u8]) -> Vec<Reference> {
     let mut out = Vec::new();
-    // Each stack entry carries the name of the nearest enclosing function /
-    // method / anonymous-function — the calling symbol the use site belongs
-    // to. A function-shaped node sets the enclosing for its subtree (its own
-    // parameters and body), so a parameter type hint resolves to the
-    // declaring function. `None` is module top level.
-    let mut stack: Vec<(Node, Option<String>)> = vec![(root, None)];
-    while let Some((n, enclosing)) = stack.pop() {
+    let mut stack = vec![root];
+    while let Some(n) = stack.pop() {
         let line = n.start_position().row as i64 + 1;
-        // The enclosing scope for THIS node's children. A function-shaped
-        // node names its own scope; its return type and body are emitted
-        // under that name, not the parent's.
-        let child_enclosing = if matches!(
-            n.kind(),
-            "function_definition"
-                | "method_declaration"
-                | "anonymous_function"
-                | "anonymous_function_creation_expression"
-                | "arrow_function"
-        ) {
-            n.child_by_field_name("name")
-                .and_then(|nm| nm.utf8_text(source).ok())
-                .map(|s| s.to_string())
-                .or_else(|| enclosing.clone())
-        } else {
-            enclosing.clone()
-        };
         match n.kind() {
             "function_call_expression" => {
                 if let Some(func) = n.child_by_field_name("function") {
@@ -520,7 +528,6 @@ fn walk_references(root: Node, source: &[u8]) -> Vec<Reference> {
                             line,
                             shape: RefShape::Free,
                             receiver: None,
-                            enclosing: enclosing.clone(),
                         });
                     }
                 }
@@ -532,8 +539,7 @@ fn walk_references(root: Node, source: &[u8]) -> Vec<Reference> {
                             name: name.to_string(),
                             line: method.start_position().row as i64 + 1,
                             shape: RefShape::Member,
-                            receiver: member_receiver(n, source),
-                            enclosing: enclosing.clone(),
+                            receiver: member_receiver(n, source, &[]),
                         });
                     }
                 }
@@ -541,9 +547,7 @@ fn walk_references(root: Node, source: &[u8]) -> Vec<Reference> {
             // `Foo::bar()` — a static call. The scope names the class, so
             // the receiver is that class name.
             "scoped_call_expression" => {
-                let scope_class = n
-                    .child_by_field_name("scope")
-                    .and_then(|s| last_name_segment(s, source));
+                let scope_class = scope_class(n, source);
                 if let Some(method) = n.child_by_field_name("name") {
                     if let Ok(name) = method.utf8_text(source) {
                         out.push(Reference {
@@ -551,7 +555,6 @@ fn walk_references(root: Node, source: &[u8]) -> Vec<Reference> {
                             line: method.start_position().row as i64 + 1,
                             shape: RefShape::Static,
                             receiver: scope_class.clone(),
-                            enclosing: enclosing.clone(),
                         });
                     }
                 }
@@ -565,7 +568,6 @@ fn walk_references(root: Node, source: &[u8]) -> Vec<Reference> {
                                 line,
                                 shape: RefShape::Static,
                                 receiver: Some(name),
-                                enclosing: enclosing.clone(),
                             });
                         }
                     }
@@ -584,7 +586,6 @@ fn walk_references(root: Node, source: &[u8]) -> Vec<Reference> {
                                 line,
                                 shape: RefShape::Static,
                                 receiver: Some(name),
-                                enclosing: enclosing.clone(),
                             });
                         }
                     }
@@ -602,7 +603,6 @@ fn walk_references(root: Node, source: &[u8]) -> Vec<Reference> {
                                 line,
                                 shape: RefShape::Static,
                                 receiver: Some(name),
-                                enclosing: enclosing.clone(),
                             });
                         }
                         break;
@@ -620,7 +620,6 @@ fn walk_references(root: Node, source: &[u8]) -> Vec<Reference> {
                                     line,
                                     shape: RefShape::Static,
                                     receiver: Some(name),
-                                    enclosing: enclosing.clone(),
                                 });
                             }
                         }
@@ -628,13 +627,10 @@ fn walk_references(root: Node, source: &[u8]) -> Vec<Reference> {
                 }
             }
             // Type hints carry class names: parameter types (covers
-            // constructor injection), return types, property types. A
-            // parameter sits inside the declaring function, so its type use
-            // belongs to that function (`child_enclosing` of the function is
-            // already in scope here as `enclosing`).
+            // constructor injection), return types, property types.
             "simple_parameter" | "variadic_parameter" | "property_promotion_parameter" => {
                 if let Some(type_node) = n.child_by_field_name("type") {
-                    push_named_type(type_node, source, enclosing.as_deref(), &mut out);
+                    push_named_type(type_node, source, &mut out);
                 }
             }
             "function_definition"
@@ -643,8 +639,7 @@ fn walk_references(root: Node, source: &[u8]) -> Vec<Reference> {
             | "anonymous_function_creation_expression"
             | "arrow_function" => {
                 if let Some(ret) = n.child_by_field_name("return_type") {
-                    // The return type belongs to the function being declared.
-                    push_named_type(ret, source, child_enclosing.as_deref(), &mut out);
+                    push_named_type(ret, source, &mut out);
                 }
             }
             "property_declaration" => {
@@ -659,20 +654,18 @@ fn walk_references(root: Node, source: &[u8]) -> Vec<Reference> {
                             | "intersection_type"
                             | "optional_type"
                     ) {
-                        push_named_type(child, source, enclosing.as_deref(), &mut out);
+                        push_named_type(child, source, &mut out);
                     }
                 }
             }
             // `#[Foo(...)]` names the attribute class without importing it
             // when both sit in one namespace, so the class stays reachable
-            // through the site rather than through a `use` line. A method's
-            // attribute_list sits inside the method node, so `enclosing` is
-            // already that method.
+            // through the site rather than through a `use` line.
             "attribute" => {
                 let mut c = n.walk();
                 for child in n.children(&mut c) {
                     if matches!(child.kind(), "name" | "qualified_name") {
-                        push_named_type(child, source, enclosing.as_deref(), &mut out);
+                        push_named_type(child, source, &mut out);
                         break;
                     }
                 }
@@ -680,9 +673,7 @@ fn walk_references(root: Node, source: &[u8]) -> Vec<Reference> {
             _ => {}
         }
         let mut c = n.walk();
-        for child in n.children(&mut c) {
-            stack.push((child, child_enclosing.clone()));
-        }
+        stack.extend(n.children(&mut c));
     }
     out
 }
@@ -691,7 +682,7 @@ fn walk_references(root: Node, source: &[u8]) -> Vec<Reference> {
 /// inside a type node — handles `named_type`, `nullable_type`, `union_type`,
 /// `intersection_type`, and `optional_type`. A type hint names a class, so
 /// each is a Static use whose receiver is the class itself.
-fn push_named_type(node: Node, source: &[u8], enclosing: Option<&str>, out: &mut Vec<Reference>) {
+fn push_named_type(node: Node, source: &[u8], out: &mut Vec<Reference>) {
     let mut stack = vec![node];
     while let Some(n) = stack.pop() {
         match n.kind() {
@@ -702,7 +693,6 @@ fn push_named_type(node: Node, source: &[u8], enclosing: Option<&str>, out: &mut
                         line: n.start_position().row as i64 + 1,
                         shape: RefShape::Static,
                         receiver: Some(name),
-                        enclosing: enclosing.map(|s| s.to_string()),
                     });
                 }
             }
@@ -734,13 +724,12 @@ fn type_name(node: Node, source: &[u8]) -> Option<String> {
     None
 }
 
-fn member_receiver(call: Node, source: &[u8]) -> Option<String> {
+fn member_receiver(call: Node, source: &[u8], resolving: &[&str]) -> Option<String> {
     let mut object = call.child_by_field_name("object")?;
     while object.kind() == "parenthesized_expression" {
         object = object.named_child(0)?;
     }
     match object.kind() {
-        "object_creation_expression" | "function_call_expression" => constructed_class(object, source),
         "member_access_expression" => {
             let base = object.child_by_field_name("object")?;
             let property = object.child_by_field_name("name")?.utf8_text(source).ok()?;
@@ -749,15 +738,55 @@ fn member_receiver(call: Node, source: &[u8]) -> Option<String> {
             }
             property_type(call, &format!("${property}"), source)
         }
-        "variable_name" => {
-            let variable = object.utf8_text(source).ok()?;
-            parameter_type(call, variable, source).or_else(|| local_type(call, variable, source))
-        }
-        _ => None,
+        "variable_name" => match object.utf8_text(source).ok()? {
+            "$this" => this_class(call, source),
+            variable => parameter_type(call, variable, source)
+                .or_else(|| local_type(call, variable, source, resolving)),
+        },
+        _ => constructed_class(object, source, resolving),
     }
 }
 
-fn constructed_class(value: Node, source: &[u8]) -> Option<String> {
+fn result_of(class: String, call: Node, source: &[u8]) -> Option<String> {
+    let method = call.child_by_field_name("name").filter(|name| name.kind() == "name")?;
+    Some(format!("{class}->{}()", method.utf8_text(source).ok()?))
+}
+
+fn scope_class(call: Node, source: &[u8]) -> Option<String> {
+    let scope = call.child_by_field_name("scope")?;
+    match scope.utf8_text(source).ok()? {
+        "self" | "static" => this_class(call, source),
+        _ => last_name_segment(scope, source),
+    }
+}
+
+fn this_class(node: Node, source: &[u8]) -> Option<String> {
+    match this_scope(node) {
+        ThisScope::Class(class) => last_name_segment(class.child_by_field_name("name")?, source),
+        ThisScope::AnonymousClass => None,
+        ThisScope::File => Some("$this".to_string()),
+    }
+}
+
+enum ThisScope<'a> {
+    Class(Node<'a>),
+    AnonymousClass,
+    File,
+}
+
+fn this_scope(node: Node) -> ThisScope {
+    let mut scope = node.parent();
+    while let Some(current) = scope {
+        match current.kind() {
+            "class_declaration" | "trait_declaration" | "enum_declaration" => return ThisScope::Class(current),
+            "anonymous_class" => return ThisScope::AnonymousClass,
+            _ => scope = current.parent(),
+        }
+    }
+    ThisScope::File
+}
+
+fn constructed_class(value: Node, source: &[u8], resolving: &[&str]) -> Option<String> {
     let mut value = value;
     while value.kind() == "parenthesized_expression" {
         value = value.named_child(0)?;
@@ -771,11 +800,19 @@ fn constructed_class(value: Node, source: &[u8]) -> Option<String> {
             last_name_segment(class, source)
         }
         "function_call_expression" => resolved_class(value, source),
+        "member_call_expression" | "nullsafe_member_call_expression" => {
+            result_of(member_receiver(value, source, resolving)?, value, source)
+        }
+        "scoped_call_expression" => result_of(scope_class(value, source)?, value, source),
         _ => None,
     }
 }
 
-fn local_type(node: Node, variable: &str, source: &[u8]) -> Option<String> {
+fn local_type(node: Node, variable: &str, source: &[u8], resolving: &[&str]) -> Option<String> {
+    if resolving.contains(&variable) {
+        return None;
+    }
+    let resolving = [resolving, &[variable]].concat();
     let mut scope = node.parent()?;
     while !matches!(
         scope.kind(),
@@ -789,7 +826,7 @@ fn local_type(node: Node, variable: &str, source: &[u8]) -> Option<String> {
         if n.kind() == "assignment_expression"
             && n.child_by_field_name("left").and_then(|l| l.utf8_text(source).ok()) == Some(variable)
         {
-            assigned.push(n.child_by_field_name("right").and_then(|r| constructed_class(r, source)));
+            assigned.push(n.child_by_field_name("right").and_then(|r| constructed_class(r, source, &resolving)));
         }
         let mut c = n.walk();
         stack.extend(n.children(&mut c));
@@ -809,12 +846,74 @@ fn resolved_class(call: Node, source: &[u8]) -> Option<String> {
     let [argument] = passed.as_slice() else {
         return None;
     };
+    class_argument(*argument, source)
+}
+
+fn class_argument(argument: Node, source: &[u8]) -> Option<String> {
     let access = argument.named_child(0)?;
     let named = access.named_child(0)?;
     let selector = access.named_child(access.named_child_count().checked_sub(1)?)?;
     (access.kind() == "class_constant_access_expression" && selector.utf8_text(source).ok()? == "class")
         .then(|| last_name_segment(named, source))
         .flatten()
+}
+
+/// The test case class a Pest configuration file binds `$this` to in each
+/// directory it names: `pest()->extends(X::class)->…->in('Feature', …)` and
+/// `uses(X::class, …)->…->in(…)`, each directory as written, relative to the
+/// configuration file.
+pub fn pest_bindings(source: &[u8]) -> Vec<(String, Vec<String>)> {
+    let lang: tree_sitter::Language = tree_sitter_php::LANGUAGE_PHP.into();
+    let mut parser = Parser::new();
+    if parser.set_language(&lang).is_err() {
+        return Vec::new();
+    }
+    let Some(tree) = parser.parse(source, None) else {
+        return Vec::new();
+    };
+    fn arguments(call: Node) -> Vec<Node> {
+        call.child_by_field_name("arguments")
+            .map(|arguments| {
+                let mut cursor = arguments.walk();
+                arguments.named_children(&mut cursor).collect()
+            })
+            .unwrap_or_default()
+    }
+    let mut bindings = Vec::new();
+    let mut stack = vec![tree.root_node()];
+    while let Some(node) = stack.pop() {
+        let mut cursor = node.walk();
+        stack.extend(node.children(&mut cursor));
+        let named = |call: Node| {
+            call.child_by_field_name("name")
+                .or_else(|| call.child_by_field_name("function"))
+                .and_then(|name| name.utf8_text(source).ok())
+                .map(|name| name.trim_start_matches('\\').to_string())
+        };
+        if node.kind() != "member_call_expression" || named(node).as_deref() != Some("in") {
+            continue;
+        }
+        let directories: Vec<String> = arguments(node)
+            .iter()
+            .filter_map(|argument| argument.utf8_text(source).ok())
+            .map(|text| text.trim_matches(['\'', '"']).to_string())
+            .collect();
+        let mut link = node.child_by_field_name("object");
+        let mut class = None;
+        while let Some(call) = link {
+            match (call.kind(), named(call).as_deref()) {
+                ("member_call_expression", Some("extends")) | ("function_call_expression", Some("uses")) => {
+                    class = arguments(call).first().and_then(|argument| class_argument(*argument, source));
+                }
+                _ => {}
+            }
+            link = (call.kind() == "member_call_expression").then(|| call.child_by_field_name("object")).flatten();
+        }
+        if let Some(class) = class {
+            bindings.push((class, directories));
+        }
+    }
+    bindings
 }
 
 fn parameter_type(node: Node, variable: &str, source: &[u8]) -> Option<String> {
@@ -834,10 +933,9 @@ fn parameter_type(node: Node, variable: &str, source: &[u8]) -> Option<String> {
 }
 
 fn property_type(node: Node, property: &str, source: &[u8]) -> Option<String> {
-    let mut class = node.parent()?;
-    while !matches!(class.kind(), "class_declaration" | "trait_declaration" | "enum_declaration") {
-        class = class.parent()?;
-    }
+    let ThisScope::Class(class) = this_scope(node) else {
+        return None;
+    };
     let body = class.child_by_field_name("body")?;
     let mut c = body.walk();
     for member in body.named_children(&mut c) {
@@ -883,6 +981,38 @@ fn single_type(node: Node, source: &[u8]) -> Option<String> {
         "named_type" => last_name_segment(node.named_child(0)?, source),
         "nullable_type" | "optional_type" => single_type(node.named_child(0)?, source),
         _ => None,
+    }
+}
+
+pub fn returned_class(method: &Declaration) -> Option<String> {
+    let header = method.header.trim_end();
+    let signature = header
+        .strip_suffix("{ … }")
+        .or_else(|| header.strip_suffix(';'))
+        .unwrap_or(header)
+        .trim_end();
+    let colon = signature.rfind(|c: char| !(c.is_alphanumeric() || c.is_whitespace() || "_\\?|&()".contains(c)))?;
+    if !signature[colon..].starts_with(':') || !signature[..colon].trim_end().ends_with(')') {
+        return None;
+    }
+    let written = signature[colon + 1..].trim().trim_start_matches('?');
+    if written.contains(['&', '(']) {
+        return None;
+    }
+    let mut classes = written.split('|').map(str::trim).filter(|member| {
+        !matches!(
+            member.to_ascii_lowercase().as_str(),
+            "null" | "false" | "true" | "void" | "never" | "mixed" | "int" | "float" | "string" | "bool" | "array"
+                | "iterable" | "callable" | "object"
+        )
+    });
+    let class = classes.next()?;
+    if classes.next().is_some() {
+        return None;
+    }
+    match class.to_ascii_lowercase().as_str() {
+        "self" | "static" => method.container.clone(),
+        _ => class.rsplit('\\').next().map(str::to_string),
     }
 }
 

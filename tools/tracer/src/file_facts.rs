@@ -406,16 +406,7 @@ fn stamp_matches<'a>(entry: &'a IndexEntry, s: &crate::repo_files::Stamp) -> Opt
 }
 
 fn mtime_index_key() -> String {
-    // Includes SCHEMA_VERSION so a binary upgrade that bumps the schema
-    // also rotates this index — the per-file hashes the index serves are
-    // schema-namespaced, so an index from the previous schema would point
-    // at unreachable cache entries (or worse, hand the relations index a
-    // stale content key and have it skip a file that really moved).
-    format!(
-        "mtime_index_v2__schema{}__{}",
-        cache::SCHEMA_VERSION,
-        cache::active_ccn_backend()
-    )
+    format!("mtime_index_v2__{}", cache::active_ccn_backend())
 }
 
 /// Process-wide memo of the mtime index, keyed by repo root — the same memo
@@ -468,9 +459,10 @@ fn mtime_index_store(repo_root: &Path, updates: Vec<(String, Stamp, String)>) {
         }
     }
     if let Ok(document) = serde_json::to_value(&index) {
-        // The key carries a schema and a backend, so a bump rotates it and
-        // would leave the superseded index in the namespace forever: next.js
-        // was carrying a 4.4 MB orphan beside its live 5.7 MB index.
+        // The key carries a version and a backend, so a change to either
+        // rotates it and would leave the superseded index in the schema's
+        // directory forever: next.js was carrying a 4.4 MB orphan beside its
+        // live 5.7 MB index.
         if let Ok(true) = cache::save(cache::NAMESPACE_FILE, &key, &document, repo_root) {
             cache::evict_prefixed(cache::NAMESPACE_FILE, "mtime_index_", &key, repo_root);
         }

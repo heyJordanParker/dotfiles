@@ -9,7 +9,9 @@
 use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Stdio};
-use tracer_cli_tests::{standard_repo, trace, Fixture};
+use tracer_cli_tests::{
+    schema_directory, standard_repo, trace, Fixture, PUBLISHED_SCHEMA_VERSION,
+};
 
 /// The git facts `info` shows for one repo-relative path.
 fn info_git(f: &Fixture, path: &str) -> serde_json::Value {
@@ -425,6 +427,47 @@ fn history_pickaxe_mode_finds_string_introduction() {
         v
     );
     assert_eq!(matches[0]["enclosing_symbol"], "beta");
+}
+
+#[test]
+fn history_contains_names_the_declaration_grep_names_without_ctags() {
+    let f = Fixture::new();
+    f.write(
+        "ledger.rs",
+        concat!(
+            "pub struct Ledger;\n",
+            "impl Ledger {\n",
+            "    #[must_use]\n",
+            "    pub fn total(&self) -> u32 {\n",
+            "        7 // tally_marker\n",
+            "    }\n",
+            "}\n",
+        ),
+    );
+    f.commit("ledger total");
+    let grep = f.trace(&["grep", "tally_marker", "--json"]);
+    grep.ok();
+    let named = grep.view()["results"][0]["declaration"]["name"].clone();
+    assert_eq!(named, "total", "{}", grep.stdout);
+
+    let shim_dir = f.root.join("shim");
+    std::fs::create_dir_all(&shim_dir).unwrap();
+    let shim = shim_dir.join("ctags");
+    std::fs::write(&shim, "#!/bin/sh\necho 'ctags: boom' >&2\nexit 1\n").unwrap();
+    std::fs::set_permissions(
+        &shim,
+        <std::fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(0o755),
+    )
+    .unwrap();
+    let path = format!("{}:{}", shim_dir.display(), std::env::var("PATH").unwrap_or_default());
+    let r = f.trace_env(
+        &["history", "--contains", "tally_marker", "--json"],
+        &[("PATH", &path), ("TRACE_TIMING", "1")],
+    );
+    r.ok();
+    assert!(!r.stderr.contains("timing ctags"), "{}", r.stderr);
+    let v = r.view();
+    assert_eq!(v["results"][0]["matches"][0]["enclosing_symbol"], named, "{v}");
 }
 
 #[test]
@@ -1703,7 +1746,7 @@ fn partial_clone_answers_without_fetching_and_still_reads_old_versions() {
     r.ok();
     assert!(r.stdout.contains("lib/util.py"), "{}", r.stdout);
     assert_eq!(git_in(&clone, &["count-objects", "-v"]), objects, "a background scan fetched");
-    let stored_history = std::fs::read_dir(clone.join(".tracer-cache/file"))
+    let stored_history = std::fs::read_dir(schema_directory(&clone, PUBLISHED_SCHEMA_VERSION))
         .unwrap()
         .filter_map(Result::ok)
         .filter(|entry| entry.file_name().to_string_lossy().starts_with("git_activity_v2__"))

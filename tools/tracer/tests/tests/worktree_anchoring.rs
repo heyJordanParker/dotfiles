@@ -12,7 +12,9 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use tracer_cli_tests::{standard_repo, trace, trace_bin, Fixture};
+use tracer_cli_tests::{
+    schema_directory, standard_repo, trace, trace_bin, Fixture, PUBLISHED_SCHEMA_VERSION,
+};
 
 fn counting_git(f: &Fixture) -> (String, PathBuf) {
     let real = Command::new("which")
@@ -274,13 +276,13 @@ fn linked_worktree_caches_are_isolated_from_the_main_worktree() {
         info.get("file").is_some() || info.get("path").is_some() || !info.is_null(),
         "trace info must return data for the wt-only file from inside the worktree: {info}"
     );
-    // The main worktree's `.tracer-cache/file/` entries must not include
+    // The main worktree's `.tracer-cache/file/schema<N>/` entries must not include
     // anything keyed against the wt-only file — exact key contents are
     // implementation-detail, but the *number* of entries from a pristine
     // build of the smaller main tree is strictly less than the linked
     // worktree's after adding a new file.
-    let main_files = count_json_entries(&main_cache.join("file"));
-    let wt_files = count_json_entries(&wt_cache.join("file"));
+    let main_files = count_json_entries(&schema_directory(&f.root, PUBLISHED_SCHEMA_VERSION));
+    let wt_files = count_json_entries(&schema_directory(&wt_root, PUBLISHED_SCHEMA_VERSION));
     assert!(
         wt_files > main_files,
         "linked worktree cache must hold more file entries than the main (it has one extra committed file): \

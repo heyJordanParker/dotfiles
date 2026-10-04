@@ -83,6 +83,7 @@ fn walk_imports(root: Node, source: &[u8]) -> Vec<Import> {
                                 symbol: None,
                                 locals: Vec::new(),
                                 line: n.start_position().row as i64 + 1,
+                                block: None,
                             });
                         }
                     }
@@ -210,6 +211,9 @@ fn walk_declarations(root: Node, source: &[u8]) -> Vec<Declaration> {
                             builder.finish()
                         },
                         annotations: Vec::new(),
+                        self_type: None,
+                        module_file: None,
+                        supertypes: Vec::new(),
                     });
                 }
             }
@@ -234,6 +238,9 @@ fn walk_declarations(root: Node, source: &[u8]) -> Vec<Declaration> {
                     parent: None,
                     header: visibility.to_string(),
                     annotations: Vec::new(),
+                    self_type: None,
+                    module_file: None,
+                    supertypes: Vec::new(),
                 });
             }
         }
@@ -269,51 +276,33 @@ fn constant_name(n: Node, source: &[u8]) -> Option<String> {
     }
 }
 
-/// Calls, stamped with shape and enclosing method. A `call` with no receiver
-/// is `Free`; with a receiver it is `Member` (the receiver value's class is
-/// not named at the site).
+/// Calls, stamped with shape. A `call` with no receiver is `Free`; with a
+/// receiver it is `Member`, carrying the receiver text (the receiver value's
+/// class is not named at the site).
 fn walk_references(root: Node, source: &[u8]) -> Vec<Reference> {
     let mut out = Vec::new();
-    let mut stack: Vec<(Node, Option<String>)> = vec![(root, None)];
-    while let Some((n, enclosing)) = stack.pop() {
+    let mut stack = vec![root];
+    while let Some(n) = stack.pop() {
         if n.kind() == "call" {
             if let Some(method) = n.child_by_field_name("method") {
                 if let Ok(name) = method.utf8_text(source) {
                     // `require`/`require_relative` are imports, not calls.
                     if !matches!(name, "require" | "require_relative") {
-                        let shape = if n.child_by_field_name("receiver").is_some() {
-                            RefShape::Member
-                        } else {
-                            RefShape::Free
-                        };
+                        let receiver = n.child_by_field_name("receiver");
                         out.push(Reference {
                             name: name.to_string(),
                             line: method.start_position().row as i64 + 1,
-                            shape,
-                            receiver: None,
-                            enclosing: enclosing.clone(),
+                            shape: if receiver.is_some() { RefShape::Member } else { RefShape::Free },
+                            receiver: receiver
+                                .and_then(|receiver| receiver.utf8_text(source).ok())
+                                .map(str::to_string),
                         });
                     }
                 }
             }
         }
-        let child_enclosing = enclosing_function_name(n, source).or_else(|| enclosing.clone());
         let mut c = n.walk();
-        for child in n.children(&mut c) {
-            stack.push((child, child_enclosing.clone()));
-        }
+        stack.extend(n.children(&mut c));
     }
     out
-}
-
-/// A `method` / `singleton_method` introduces its own name as the enclosing
-/// method scope.
-fn enclosing_function_name(node: Node, source: &[u8]) -> Option<String> {
-    if matches!(node.kind(), "method" | "singleton_method") {
-        return node
-            .child_by_field_name("name")
-            .and_then(|nm| nm.utf8_text(source).ok())
-            .map(|s| s.to_string());
-    }
-    None
 }

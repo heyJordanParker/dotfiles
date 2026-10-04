@@ -2,17 +2,20 @@
 //! The per-function table is AST-derived; `nloc` is the line span.
 //! Emits a function complexity profile plus architecture context.
 
+use super::session_log::ShownRecord;
 use crate::summary::Facts;
 use crate::{cache, file_facts, relations, repo_context, summary, surface};
 use anyhow::Result;
 use serde_json::{json, Value};
+use std::io::Write as _;
 use std::path::{Path, PathBuf};
 
 fn leading_comment(path: &Path) -> Option<String> {
     crate::digest::leading_comment(path, 25)
 }
 
-fn file_info(path: &Path) -> Value {
+/// A file's info and the facts its front matter shows.
+fn file_info(path: &Path) -> (Value, Option<Facts>) {
     let repo_root = cache::worktree_root_for(path).unwrap_or_else(|| cache::display_root(path));
     let facts = file_facts::get(path, &repo_root);
 
@@ -54,10 +57,11 @@ fn file_info(path: &Path) -> Value {
     // Outside any git repository there is no git to describe, but the
     // complexity is still `info`'s answer.
     let in_repository = cache::worktree_root_for(path).is_some();
-    let mut front_matter = facts
+    let shown_facts = facts.as_ref().map(|facts| Facts::of(facts, graph.as_ref()));
+    let mut front_matter = shown_facts
         .as_ref()
-        .map(|facts| {
-            let mut map = Facts::of(facts, graph.as_ref()).to_map();
+        .map(|shown_facts| {
+            let mut map = shown_facts.to_map();
             if !in_repository {
                 map.remove("git");
             }
@@ -76,13 +80,8 @@ fn file_info(path: &Path) -> Value {
     if let Some(doc) = crate::digest::nearest_doc(path, &repo_root) {
         front_matter.insert("nearest_doc".into(), doc.into());
     }
-    if let Some(directory) =
-        path.parent().and_then(|directory| super::context::directory_facts(directory, true))
-    {
-        front_matter.insert("directory".into(), Value::Object(directory));
-    }
 
-    json!({
+    let info = json!({
         "file": path.to_string_lossy(),
         "facts": front_matter,
         "function_count": function_count,
@@ -91,7 +90,8 @@ fn file_info(path: &Path) -> Value {
         "top_callers": callers,
         "dependencies": deps,
         "surface": facts.as_ref().map(|facts| surface::rows(facts, None)).unwrap_or_default(),
-    })
+    });
+    (info, shown_facts)
 }
 
 fn dir_info(path: &Path) -> Value {
@@ -208,21 +208,23 @@ pub fn run(paths: &[PathBuf], as_json: bool, brief: bool) -> Result<Value> {
 
 fn one(path: &Path, as_json: bool, brief: bool, budget: Option<usize>) -> Result<Value> {
     let p = cache::absolutize(path);
-    let (mut info, repo_ctx) = rayon::join(
-        || {
-            if p.is_file() {
-                file_info(&p)
-            } else {
-                dir_info(&p)
-            }
-        },
+    let ((mut info, shown_facts), repo_ctx) = rayon::join(
+        || if p.is_file() { file_info(&p) } else { (dir_info(&p), None) },
         || repo_context::repo_context(&p),
     );
     info["repo_context"] = repo_ctx;
 
+    let mut shown = ShownRecord::default();
+    if let Some(directory) = p
+        .parent()
+        .filter(|_| p.is_file())
+        .and_then(|directory| super::context::directory_facts(directory, &mut shown, !as_json))
+    {
+        info["facts"]["directory"] = Value::Object(directory);
+    }
     if !as_json {
         if p.is_file() {
-            emit_file_human(&info, !brief, budget);
+            emit_file_human(&info, shown_facts.as_ref(), &p, !brief, budget, &mut shown);
         } else {
             emit_dir_human(&info);
         }
@@ -234,6 +236,8 @@ fn one(path: &Path, as_json: bool, brief: bool, budget: Option<usize>) -> Result
         });
         println!();
         println!("repo_context: {}", crate::yamlfmt::flow(&facts, false));
+        std::io::stdout().flush()?;
+        shown.save();
     }
     Ok(enveloped(info, p.is_file()))
 }
@@ -275,8 +279,20 @@ fn enveloped(info: Value, is_file: bool) -> Value {
     )
 }
 
-fn emit_file_human(info: &Value, full: bool, budget: Option<usize>) {
-    let front_matter = info["facts"].as_object().map(summary::front_matter).unwrap_or_default();
+/// Prints a file's info, its front matter through `record`, which the caller
+/// saves once the text is flushed.
+fn emit_file_human(
+    info: &Value,
+    shown_facts: Option<&Facts>,
+    path: &Path,
+    full: bool,
+    budget: Option<usize>,
+    record: &mut ShownRecord,
+) {
+    let front_matter = info["facts"]
+        .as_object()
+        .map(|map| summary::front_matter_once(None, path, shown_facts, map, record, true))
+        .unwrap_or_default();
     print!("{front_matter}");
     let surface: Vec<surface::Row> =
         serde_json::from_value(info["surface"].clone()).unwrap_or_default();
