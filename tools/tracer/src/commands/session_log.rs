@@ -275,15 +275,26 @@ fn agent_id() -> String {
         .unwrap_or_else(|| AGENT_ID_DEFAULT.to_string())
 }
 
-/// Worktree root resolved from the process cwd. `None` when cwd is not
-/// inside any git worktree (or git is unavailable) — the second no-op
-/// trigger that keeps standalone tracer use valid outside any repo. The
-/// `worktree_root_for` resolver returns the linked worktree's own root
-/// for paths inside a `git worktree add` checkout, so per-worktree caches
-/// stay isolated from the main repo's cache.
+static SESSION_HOME: OnceLock<PathBuf> = OnceLock::new();
+
+/// Keep the session record where the session's own shell started, before
+/// `-C` moves the working directory: the Hooks reset and archive it there.
+pub fn set_session_home(dir: PathBuf) {
+    let _ = SESSION_HOME.set(dir);
+}
+
+/// Worktree root of the session's directory: the one `-C` left behind, else
+/// the process cwd. `None` when it is not inside any git worktree (or git is
+/// unavailable) — the second no-op trigger that keeps standalone tracer use
+/// valid outside any repo. The `worktree_root_for` resolver returns the
+/// linked worktree's own root for paths inside a `git worktree add`
+/// checkout, so per-worktree caches stay isolated from the main repo's cache.
 fn repo_root() -> Option<PathBuf> {
-    let cwd = std::env::current_dir().ok()?;
-    cache::worktree_root_for(&cwd)
+    let home = match SESSION_HOME.get() {
+        Some(dir) => dir.clone(),
+        None => std::env::current_dir().ok()?,
+    };
+    cache::worktree_root_for(&home)
 }
 
 /// Active log directory for the current (session, agent).
@@ -303,9 +314,10 @@ fn log_dir() -> Option<PathBuf> {
 /// What a directory's imports were when this session first surfaced it, only
 /// where they differ from `current`: the counts then, and the directories it
 /// now imports from or no longer does. `None` when nothing changed. The first
-/// call for a directory records its baseline.
-pub fn at_session_start(dir: &str, current: &DirectoryMetrics) -> Option<Map<String, Value>> {
-    let baseline = directory_baseline(dir, current);
+/// call for a directory records its baseline, keyed by its absolute path so
+/// two repositories' `src/` never share one.
+pub fn at_session_start(repo_root: &Path, dir: &str, current: &DirectoryMetrics) -> Option<Map<String, Value>> {
+    let baseline = directory_baseline(&repo_root.join(dir).to_string_lossy(), current);
     let mut since = Map::new();
     if baseline.imported_by != current.imported_by {
         since.insert("imported_by".into(), baseline.imported_by.into());

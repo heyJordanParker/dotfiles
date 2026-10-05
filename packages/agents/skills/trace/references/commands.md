@@ -5,7 +5,7 @@ Use this Reference when selecting an exact `trace` command, flag, JSON shape, do
 ## 1. Use the command catalog
 
 ### Start with the narrowest command that answers the question
-Do not run a broad command and filter it outside trace. Every command takes the global `--budget <chars>` (30,000 by default, 0 unbounded) and, with `--json`, the global `--filter '<jq expression>'`.
+Do not run a broad command and filter it outside trace. Every command takes the global `--budget <chars>` (30,000 by default, 0 unbounded) and, with `--json`, the global `--filter '<jq expression>'`. `trace -C <dir>` before the subcommand runs it in another repository, and every follow-up command the output names carries the same `-C`.
 
 Template:
   ```bash

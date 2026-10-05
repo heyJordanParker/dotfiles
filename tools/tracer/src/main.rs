@@ -37,6 +37,12 @@ struct Cli {
     #[command(subcommand)]
     command: Command,
 
+    /// Run as if trace started in DIR, the way `git -C` does: every command
+    /// answers for DIR's repository and relative paths resolve from DIR.
+    /// Goes before the subcommand, because `grep -C` is ripgrep's context.
+    #[arg(short = 'C', value_name = "DIR")]
+    directory: Option<PathBuf>,
+
     /// Run a jq program over this command's JSON output, in-process.
     /// Requires --json. Replaces piping `trace ... --json | jq`.
     #[arg(long, global = true, value_name = "JQ")]
@@ -466,6 +472,14 @@ fn main() -> Result<()> {
 
 fn run() -> Result<()> {
     let cli = Cli::parse();
+    if let Some(dir) = &cli.directory {
+        commands::session_log::set_session_home(std::env::current_dir()?);
+        if let Err(error) = std::env::set_current_dir(dir) {
+            eprintln!("-C {}: {error}", dir.display());
+            std::process::exit(2);
+        }
+        output::set_directory(dir.to_string_lossy().into_owned());
+    }
     output::set_budget(cli.budget);
     if let Some(agent) = cli.agent {
         commands::session_log::set_agent(agent);

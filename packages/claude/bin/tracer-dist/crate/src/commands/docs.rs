@@ -95,7 +95,7 @@ pub fn run(
     // records exactly the lines that printed. JSON sends every new doc whole
     // and records them all. Each records only once its output is flushed.
     if !as_json {
-        let again = shell_command("trace docs", targets_raw);
+        let again = shell_command(&format!("{} docs", crate::output::trace_command()), targets_raw);
         let fitted = fit(unread(new_docs), crate::output::budget(), &again);
         print!("{}", fitted.text);
         std::io::stdout().flush()?;

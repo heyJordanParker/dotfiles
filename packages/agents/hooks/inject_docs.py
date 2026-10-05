@@ -34,6 +34,8 @@ PATH_TAKING = {
     "read", "info", "list", "tree", "structure", "grep",
     "pattern", "find", "blame", "history", "diff",
 }
+# trace's options that sit before the subcommand and take a value.
+LEADING = {"-C", "--budget", "--agent", "--filter"}
 
 # `trace` in command position: at the start, or after a separator that ends the
 # previous command.
@@ -43,13 +45,21 @@ _TRACE = re.compile(r"(?:(?<=^)|(?<=[;&|(\n]))(\s*(?:\S*/)?trace)(?=\s|$)(?!\s+-
 def _targets(line, cwd):
     """(subcommand, paths) of the path-taking `trace` call on the line: every
     argument that exists on disk — `grep` and `pattern` take the pattern before
-    their paths — or the working directory. ("", []) when there is none."""
+    their paths — or the directory it runs in, `-C`'s when it names one.
+    ("", []) when there is none."""
     for head, args in command.invocations(line) or []:
-        if head != "trace" or not args or args[0] not in PATH_TAKING:
+        if head != "trace":
             continue
-        resolved = (tracer.resolve(arg, cwd) for arg in args[1:] if not arg.startswith("-"))
+        base, i = cwd, 0
+        while i < len(args) and args[i].startswith("-"):
+            if args[i] == "-C" and i + 1 < len(args):
+                base = tracer.resolve(args[i + 1], base)
+            i += 2 if args[i] in LEADING else 1
+        if i >= len(args) or args[i] not in PATH_TAKING:
+            continue
+        resolved = (tracer.resolve(arg, base) for arg in args[i + 1:] if not arg.startswith("-"))
         paths = [path for path in resolved if path and os.path.exists(path)]
-        return args[0], list(dict.fromkeys(paths)) or [cwd]
+        return args[i], list(dict.fromkeys(paths)) or [base]
     return "", []
 
 

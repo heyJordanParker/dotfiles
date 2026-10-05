@@ -387,7 +387,7 @@ fn declaration_rows_for_change(
 
 /// The directories holding `paths`, each with its graph counts and, when the
 /// session has seen the directory before, what changed since that first look.
-pub(crate) fn directory_context(index: &relations::Relations, paths: &[&str]) -> Value {
+pub(crate) fn directory_context(index: &relations::Relations, repo_root: &Path, paths: &[&str]) -> Value {
     let mut directories = serde_json::Map::new();
     for path in paths {
         let key = Path::new(path)
@@ -405,7 +405,7 @@ pub(crate) fn directory_context(index: &relations::Relations, paths: &[&str]) ->
         entry.insert("files".into(), metrics.files.into());
         entry.insert("imported_by".into(), metrics.imported_by.into());
         entry.insert("imports".into(), metrics.imports.into());
-        if let Some(since) = session_log::at_session_start(&key, &metrics) {
+        if let Some(since) = session_log::at_session_start(repo_root, &key, &metrics) {
             entry.insert("at_session_start".into(), Value::Object(since));
         }
         directories.insert(key, Value::Object(entry));
@@ -524,7 +524,7 @@ fn emit_file_mode(
         .flat_map(|row| [row["path"].as_str(), row["rename_from"].as_str()])
         .flatten()
         .collect();
-    let directories = directory_context(&index, &paths);
+    let directories = directory_context(&index, repo_root, &paths);
 
     let payload = crate::output::document(
         json!({"base": scope.label(), "granularity": "file"}),

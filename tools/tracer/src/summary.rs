@@ -515,6 +515,7 @@ impl<'a> CallEntry<'a> {
         let first = calls[0];
         let lines: Vec<String> = calls.iter().map(|call| format!("L{}", call.line)).collect();
         let (lines, method) = (lines.join(", "), &first.method);
+        let trace = crate::output::trace_command();
         let (head, source, sites) = match &first.target {
             Target::Resolved { file, declared_at, callers, source, also_called_from } => (
                 format!("  {lines} {method}  {file}:{declared_at}  {{callers: {callers}}}\n"),
@@ -522,12 +523,12 @@ impl<'a> CallEntry<'a> {
                 also_called_from.as_slice(),
             ),
             Target::CallSitesPastBudget { file, declared_at, source } => (
-                format!("  {lines} {method}  {file}:{declared_at} \u{2192} trace callers {method}\n"),
+                format!("  {lines} {method}  {file}:{declared_at} \u{2192} {trace} callers {method}\n"),
                 source.as_str(),
                 &[][..],
             ),
             Target::PastBudget { defined_in } => (
-                format!("  {lines} {method}  {{defined_in: {defined_in}}} \u{2192} trace callers {method}\n"),
+                format!("  {lines} {method}  {{defined_in: {defined_in}}} \u{2192} {trace} callers {method}\n"),
                 "",
                 &[][..],
             ),

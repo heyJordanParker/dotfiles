@@ -11,7 +11,7 @@ Black-box behavior contract for the `trace` binary, pinning the observable surfa
 - The suite asserts exit codes, stdout, stderr, JavaScript Object Notation shape, and wall-clock latency.
 - `src/lib.rs` is the shared test harness.
 - Each test fixture owns a hermetic on-disk git repository.
-- `tests/worktree_anchoring.rs` pins the worktree-anchored `.tracer-cache/` contract.
+- `tests/worktree_anchoring.rs` pins the worktree-anchored `.tracer-cache/` contract, and `-C`: it answers for the repository it names, keeps the session record home, carries into every follow-up command, and exits 2 for a missing directory.
 - `tests/cache_and_backend.rs` pins the cache lifecycle and the single AST complexity backend.
 - `tests/freshness.rs` pins that every call reflects the bytes on disk when it runs.
 - `tests/concurrency.rs` pins that concurrent calls serialize index maintenance onto one update and all answer cleanly, and that an index update never waits on another schema's lock.

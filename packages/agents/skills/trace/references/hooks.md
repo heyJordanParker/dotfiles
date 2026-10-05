@@ -37,7 +37,7 @@ PreToolUse matcher `Bash` blocks trace output piped to shell filters or redirect
 
 ### `inject_docs.py` blocks trace without docs Context
 - PreToolUse matcher `Bash` runs `trace docs <paths> --source inject_docs --triggering-tool Bash --triggering-command <cmd>` before a trace subcommand.
-- The paths are every argument of the command that exists as a path, else the working directory; a `trace read` passes its files as `--skip`, because the read prints them.
+- The paths are every argument of the command that exists as a path, else the working directory; a `trace read` passes its files as `--skip`, because the read prints them. A `trace -C <dir>` call resolves its paths from `<dir>`.
 - It injects the docs not yet loaded as Markdown, a doc too long for the message cut at a whole line and continued on the next trace command.
 - Inside a Subagent it writes `--agent <agent_id>` into each `trace` call through `updatedInput`, because the Subagent's shell carries no agent id.
 - It blocks the trace command with exit code 2 if docs loading fails.
@@ -56,7 +56,7 @@ UserPromptSubmit parses Subagent completion notifications and moves `<repo>/.tra
 
 ### Hooks pass identity on a local environment copy
 - Every tracer Hook calls `trace` through `lib/tracer.py`, which sets `AGENT_SESSION_ID` and `TRACER_AGENT_ID` on the subprocess environment copy.
-- `lib/tracer.py` runs `trace` from the event's `cwd`, so the session log lands in the event's repository.
+- `lib/tracer.py` runs `trace` from the event's `cwd`, so the session log lands in the event's repository. An agent's `trace -C <dir>` call writes the same log, because `-C` keeps the session log in the directory the call started in.
 - No Hook mutates `os.environ`.
 
 ### `AGENT_SESSION_ID` is the Harness-neutral carrier

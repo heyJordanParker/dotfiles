@@ -84,7 +84,7 @@ pub fn run(as_json: bool, state_filter: Option<&str>) -> Result<Value> {
     let mut entries = entries(&repo_root, &states, &index);
     entries.sort_by(|a, b| a.sort_key().cmp(&b.sort_key()));
     let paths: Vec<&str> = entries.iter().map(|entry| entry.path.as_str()).collect();
-    let directories = diff::directory_context(&index, &paths);
+    let directories = diff::directory_context(&index, &repo_root, &paths);
 
     let mut files = Map::new();
     let rows: Vec<Value> = entries

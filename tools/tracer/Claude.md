@@ -122,7 +122,7 @@ Local code-intelligence command-line interface for Agents working in a repositor
 - `session_log::record_context_reset` clears `shown.json` and the view's `emitted`, `coverage`, and `whole` whatever else is on disk; `trace docs reset` runs it.
 - The first write of a resumed Subagent renames its archived log back to the active directory, so its record carries on whole.
 - `entries` leave out what git ignores, judged by `repo_files::unignored` against the memoized repository listing, and only when they print; a directory git ignores whole keeps every entry. A directory named on the command line always lists its entries.
-- `session_log::directory_baseline` stores the session's first-touch metrics in `sessions/<session_id>/directories.json`, written under the session `.lock` on a miss only and read once per process into a memo.
+- `session_log::directory_baseline` stores the session's first-touch metrics in `sessions/<session_id>/directories.json`, keyed by absolute directory so two repositories' `src/` never share one, written under the session `.lock` on a miss only and read once per process into a memo.
 - `summary.rs` owns `Facts`, the one structure every command shows about a file: YAML front matter through `summary::front_matter_once`, the same keys under `context.files[<path>]` in `--json`, and `Facts::headline` as the one-line flow mapping a list of many files and a repeated front matter show.
 - `yamlfmt` owns the YAML byte format.
 - `surface.rs` renders the cached declarations as rows: `surface::rows` selects them, whole-file or the window's rows plus their parents, and `surface::render_within` prints `L<line>` and the header, indented two spaces per parent depth.
@@ -201,6 +201,9 @@ Local code-intelligence command-line interface for Agents working in a repositor
 - `trace docs` and `read` record a doc as sent only after their output is flushed, and record nothing under `--filter`, whose projection may drop it.
 - `trace docs --skip <path>` leaves out a doc the triggering command prints itself.
 - The global `--agent <id>` names the agent whose session record a call uses, in place of `TRACER_AGENT_ID`.
+- `trace -C <dir>` sets the working directory to `<dir>` once at the start of `run()`, so every command answers for `<dir>`'s repository and its `.tracer-cache/`; `-C` is declared on `Cli` without `global`, because `grep -C` is ripgrep's context.
+- `-C` keeps the session record in the repository the call started in, through `session_log::set_session_home`, because the Hooks reset and archive it there.
+- `output::trace_command` is the head of every follow-up command an output names, `trace -C <dir>` after a `-C` call, so the agent's next call reaches the same repository.
 - `commands::logs` reads log files directly, so a gitignored or untracked log is searchable.
 - `commands::logs` frames one entry per line and attaches an untimestamped line to the entry above it.
 - `read` fits each file's rendered content to its share of `--budget`, after the front matter and the rows.

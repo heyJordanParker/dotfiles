@@ -182,6 +182,19 @@ def test_docs_takes_the_searched_path_for_grep():
     assert "packages/agents/Claude.md" in _context(out), _context(out)[:500]
 
 
+def test_docs_reads_the_paths_from_the_directory_dash_c_names():
+    """`trace -C <dir> grep <pattern> <path>` resolves the path from <dir>, the
+    way trace does, so the docs come from the repository it reads."""
+    agents_dir = os.path.join(REPO, "packages", "agents")
+    rc, out, _ = _run(DOCS, {
+        "tool_name": "Bash",
+        "tool_input": {"command": f"trace -C {agents_dir} grep needle hooks"},
+        "cwd": REPO, "session_id": _sid("docs-dash-c"), "agent_id": "a",
+    })
+    assert rc == 0
+    assert "packages/agents/Claude.md" in _context(out), _context(out)[:500]
+
+
 def test_docs_leaves_the_doc_a_read_prints_to_the_read():
     """`trace read <doc>` prints the doc itself, so the hook does not send it too."""
     doc = os.path.join(REPO, "packages", "agents", "Claude.md")

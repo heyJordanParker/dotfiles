@@ -231,7 +231,8 @@ fn concurrent_agents_share_one_parseable_directory_baseline() {
         1,
         "all agents must share the one directory entry: {directories}"
     );
-    assert!(directories.get("src/").is_some(), "{directories}");
+    let key = format!("{}/src/", f.root.canonicalize().unwrap().display());
+    assert!(directories.get(&key).is_some(), "{directories}");
 }
 
 /// Calls surfacing one directory at the same moment show its listing to the

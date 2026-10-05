@@ -325,9 +325,10 @@ pub(crate) fn directory_facts(directory: &Path, record: &mut ShownRecord, once: 
         .and_then(|root| relations::get(root).directory_metrics_for(&key));
     // The first time a session is shown a directory is its baseline; later
     // looks name the imports it gained or lost since.
-    let since = metrics
+    let since = repo_root
         .as_ref()
-        .and_then(|metrics| session_log::at_session_start(&key, metrics));
+        .zip(metrics.as_ref())
+        .and_then(|(root, metrics)| session_log::at_session_start(root, &key, metrics));
     map.insert("path".into(), key.clone().into());
     if let Some(metrics) = metrics {
         map.insert("imported_by".into(), metrics.imported_by.into());

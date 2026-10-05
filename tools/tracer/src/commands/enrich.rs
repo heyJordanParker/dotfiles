@@ -488,9 +488,10 @@ pub fn signpost(word: Option<&str>, repo_root: &Path) -> Option<String> {
         format!(" ({})", kinds.join(", "))
     };
     Some(format!(
-        "{word}: {}{kinds} \u{00b7} mentioned in {} \u{2192} trace callers {word}",
+        "{word}: {}{kinds} \u{00b7} mentioned in {} \u{2192} {} callers {word}",
         counted(declarations.len(), "definition", "definitions"),
         counted(mentioning_files, "file", "files"),
+        crate::output::trace_command(),
     ))
 }
 

@@ -367,14 +367,15 @@ pub(crate) fn trim_marker(
     } else {
         file.to_string()
     };
+    let trace = crate::output::trace_command();
     // The selection's last line was reached, so the trim cut that line.
     if last_line >= selection_end {
         return format!(
-            "\n[trimmed at L{last_line} of {total_lines} — whole: trace read {quoted} --all{flags}]\n"
+            "\n[trimmed at L{last_line} of {total_lines} — whole: {trace} read {quoted} --all{flags}]\n"
         );
     }
     format!(
-        "\n[trimmed at L{last_line} of {total_lines} — continue: trace read {quoted} --lines {}:{}{flags}]\n",
+        "\n[trimmed at L{last_line} of {total_lines} — continue: {trace} read {quoted} --lines {}:{}{flags}]\n",
         last_line + 1,
         selection_end
     )
@@ -781,8 +782,9 @@ fn render_one(
                     bail!("no function '{m}' in {relative}, and the word does not appear in it");
                 }
                 bail!(
-                    "no function '{m}' in {relative}; the word appears on lines {} → trace read {relative} --lines {}:{}",
+                    "no function '{m}' in {relative}; the word appears on lines {} → {} read {relative} --lines {}:{}",
                     lines.join(", "),
+                    crate::output::trace_command(),
                     lines[0],
                     lines[lines.len() - 1],
                 );
@@ -908,7 +910,10 @@ fn render_one(
     let budget = if all { None } else { budget };
     let front_matter_size = head.len().saturating_sub(header.len() + 1);
     let reserved = relative.len() + file_arg.len() + 100;
-    let docs_command = super::docs::shell_command("trace docs", std::slice::from_ref(&file_path));
+    let docs_command = super::docs::shell_command(
+        &format!("{} docs", crate::output::trace_command()),
+        std::slice::from_ref(&file_path),
+    );
     let mut surface_text = surface::render_within(
         &surface_rows,
         &relative,

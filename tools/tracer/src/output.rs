@@ -54,11 +54,27 @@ pub fn clip(text: &str, room: usize) -> &str {
 }
 
 static BUDGET: OnceLock<Option<usize>> = OnceLock::new();
+static DIRECTORY: OnceLock<String> = OnceLock::new();
 
 /// Set the characters text output fits in, once, from `--budget`; 0 means
 /// unbounded.
 pub fn set_budget(chars: usize) {
     let _ = BUDGET.set((chars > 0).then_some(chars));
+}
+
+/// Record `-C <dir>` as typed, so every command this output names for the
+/// agent to run next runs in the same repository from the agent's shell.
+pub fn set_directory(dir: String) {
+    let _ = DIRECTORY.set(dir);
+}
+
+/// `trace`, or `trace -C <dir>` when this call ran with `-C`: the head of
+/// every follow-up command an output names.
+pub fn trace_command() -> String {
+    match DIRECTORY.get() {
+        Some(dir) => format!("trace -C {}", shell_word(dir)),
+        None => "trace".to_string(),
+    }
 }
 
 thread_local! {
@@ -194,17 +210,23 @@ fn this_command() -> String {
         if argument.starts_with("--budget=") {
             continue;
         }
-        let plain = !argument.is_empty()
-            && argument
-                .chars()
-                .all(|c| c.is_ascii_alphanumeric() || "-_./:=@,+%".contains(c));
-        words.push(if plain {
-            argument
-        } else {
-            format!("'{}'", argument.replace('\'', r"'\''"))
-        });
+        words.push(shell_word(&argument));
     }
     words.join(" ")
+}
+
+/// `word` as one shell word: bare when it holds only safe characters, else
+/// single-quoted.
+fn shell_word(word: &str) -> String {
+    let plain = !word.is_empty()
+        && word
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "-_./:=@,+%".contains(c));
+    if plain {
+        word.to_string()
+    } else {
+        format!("'{}'", word.replace('\'', r"'\''"))
+    }
 }
 
 /// The one document shape. Every `--json` result carries the same four

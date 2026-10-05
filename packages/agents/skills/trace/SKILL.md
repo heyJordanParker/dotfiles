@@ -8,6 +8,7 @@ description: Code intelligence for the local codebase — search, callers, defin
 - `trace` returns code intelligence: matches plus each file's facts — size, complexity, importers, git history, deploy branches, and the project docs not yet loaded.
 - Text output is for Agents. `--json` output is for scripts and hooks: every `--json` result is one document, `{query, context, results, counts}`, with rows in `results`, each file's facts in `context.files`, and totals in `counts`.
 - Every path argument takes several paths, and a directory names the files under it.
+- `trace -C <dir> <command>` runs as if trace started in `<dir>`, the way `git -C` does: the commands answer for that repository, and relative paths resolve from `<dir>`. `-C` goes before the subcommand, because `trace grep -C <n>` is ripgrep's context.
 
 ## 1. Respect the execution Rules
 

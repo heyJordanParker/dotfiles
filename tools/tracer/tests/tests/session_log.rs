@@ -483,7 +483,8 @@ fn directory_baseline_is_shared_across_agents_and_survives_context_reset() {
         &std::fs::read_to_string(&directories).expect("directories.json readable"),
     )
     .expect("directories.json is valid JSON");
-    assert_eq!(first_json["inside/"]["imports"], 0, "{first_json}");
+    let inside_key = format!("{}/inside/", f.root.canonicalize().unwrap().display());
+    assert_eq!(first_json[&inside_key]["imports"], 0, "{first_json}");
 
     // The same directory now imports two outside files. A second agent must
     // retain Agent A's session-level first touch, not establish its own.

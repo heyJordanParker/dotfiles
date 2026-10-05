@@ -390,3 +390,57 @@ fn no_repo_root_means_reads_work_but_no_cache_is_written() {
 
     let _ = std::fs::remove_dir_all(&scratch);
 }
+
+fn two_repositories() -> (Fixture, Fixture) {
+    let target = Fixture::new();
+    target.write("lib.py", "def recount():\n    return 1\n");
+    target.write("use.py", "from lib import recount\n\n\ndef run():\n    return recount()\n");
+    target.commit("target");
+    let home = Fixture::new();
+    home.write("own.py", "X = 1\n");
+    home.commit("home");
+    (target, home)
+}
+
+#[test]
+fn dash_c_answers_for_the_repository_it_names() {
+    let (target, home) = two_repositories();
+
+    let dir = target.root.to_string_lossy().into_owned();
+    let r = home.trace(&["-C", &dir, "callers", "recount", "--json"]);
+    r.ok();
+    let callers = &r.view()["results"][0]["callers"];
+    assert_eq!(callers[0]["source_file"], "use.py", "{}", r.stdout);
+
+    home.trace(&["-C", &home.path("missing"), "callers", "recount"]).code_is(2);
+}
+
+#[test]
+fn dash_c_keeps_the_session_record_in_the_sessions_own_repository() {
+    let (target, home) = two_repositories();
+    let sid = format!("dash-c-{}", SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos());
+
+    let dir = target.root.to_string_lossy().into_owned();
+    home.trace_env(&["-C", &dir, "read", "use.py"], &[("CLAUDE_CODE_SESSION_ID", sid.as_str())])
+        .ok();
+
+    assert!(home.root.join(".tracer-cache/sessions").join(&sid).join("root").is_dir());
+    assert!(!target.root.join(".tracer-cache/sessions").join(&sid).exists());
+}
+
+#[test]
+fn dash_c_carries_into_every_command_an_output_names() {
+    let (target, home) = two_repositories();
+    let body: String = (0..400).map(|n| format!("V{n} = {n}\n")).collect();
+    target.write("long.py", &body);
+    target.commit("long");
+    let dir = target.root.to_string_lossy().into_owned();
+
+    let r = home.trace(&["-C", &dir, "read", "long.py", "--budget", "600"]);
+    r.ok();
+    assert!(
+        r.stdout.contains(&format!("continue: trace -C {dir} read long.py --lines")),
+        "{}",
+        r.stdout
+    );
+}
