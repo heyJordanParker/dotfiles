@@ -108,8 +108,8 @@ Template:
   trace blame <file> [<symbol>] [--lines L1:L2]
   ```
 
-### Find where a string entered with `trace history --contains`
-It lists the newest 29 commits that added or removed the string, then the oldest one, where it entered. `--all` lists every commit between them.
+### Find when code entered or left with `trace history --contains`
+It lists the newest 29 commits that added or removed the string, then the oldest one, where it entered; `--all` lists every commit between them. Each file shows `+` for the lines a commit added and `-` for the lines it removed, with the first line and its declaration. `trace history --commit <sha>` then gives that commit's reason.
 
 ### Read a commit's full body with `trace history --commit`
 The subject says what changed and the body says why. `--commit <ref>` returns the message, author, parents, changed files, and changed lines in one call.

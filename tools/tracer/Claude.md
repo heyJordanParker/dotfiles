@@ -252,7 +252,7 @@ Local code-intelligence command-line interface for Agents working in a repositor
 - A blob with a zero byte in its first 8,000 bytes is binary, the way git reads it: it is never counted, and the commit index records it.
 - `history --contains --regex` keeps the changes where either side matches and the blobs differ, then confirms them through `git log -G --no-walk=unsorted --stdin`.
 - `history --contains` shows the newest 29 commits, a line naming how many fall between, and the oldest; `--all` shows every one.
-- `history --contains` names each shown change's line and enclosing declaration from the side that holds more of the string, the old file for a removal, within `ANNOTATED_FILES`, 200 files of whole commits, the oldest commit first.
+- `history --contains` gives each matched file an `added` row and a `removed` row for the changed lines that hold the string, read from git's own `-U0` diff of the shown commits in one `git log -p`, each with its count, its first line, and that line's enclosing declaration from its own side of the change. It reads them within `ANNOTATED_FILES`, 200 files of whole commits, the oldest commit first; a file past it takes its direction from the counts alone.
 - `history --commit` fits each file's changed lines to `--budget`.
 - `status` rows carry a staging word: `staged`, `unstaged`, or `partly staged`.
 - `status` text prints one heading per state, the files most others import first under it.

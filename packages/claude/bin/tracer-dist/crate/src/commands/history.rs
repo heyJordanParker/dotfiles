@@ -500,66 +500,204 @@ fn annotated(shown: &[&Found]) -> Vec<bool> {
     annotated
 }
 
-/// Each shown match's line and enclosing declaration, read from the side of
-/// the change that holds more of the pattern: the new file where the pattern
-/// was added, the old one where it was removed.
+/// The lines a commit's change added and removed in one file, each numbered
+/// on its own side.
+#[derive(Default)]
+struct Hunks {
+    added: Vec<(i64, Vec<u8>)>,
+    removed: Vec<(i64, Vec<u8>)>,
+}
+
+/// Each commit's changed lines in the files it matched, keyed by the commit
+/// and the file's path after the change, read from git's own diff in one
+/// `git log -p -U0`, so a line names what `git show` names.
+fn hunks(commits: &[&Found], repo_root: &Path) -> HashMap<(String, String), Hunks> {
+    let mut hunks: HashMap<(String, String), Hunks> = HashMap::new();
+    if commits.is_empty() {
+        return hunks;
+    }
+    let request = commits.iter().map(|found| found.id).collect::<Vec<_>>().join("\n").into_bytes();
+    let paths: BTreeSet<&str> = commits
+        .iter()
+        .flat_map(|found| &found.files)
+        .flat_map(|change| [change.path.as_str(), change.old_path()])
+        .collect();
+    let mut args = vec![
+        "-c",
+        "core.quotePath=false",
+        "log",
+        "--no-walk=unsorted",
+        "--stdin",
+        "-p",
+        "-U0",
+        "-M",
+        "--diff-merges=first-parent",
+        "--no-color",
+        "--no-ext-diff",
+        "--no-textconv",
+        "--format=COMMIT|%H",
+        "--",
+    ];
+    args.extend(paths);
+    let Ok((patch, _)) = git_activity::piped(
+        repo_root,
+        &args,
+        request,
+        |command| {
+            command.env("GIT_LITERAL_PATHSPECS", "1");
+        },
+        |mut stdout| {
+            let mut read = Vec::new();
+            std::io::Read::read_to_end(&mut stdout, &mut read)?;
+            Ok(read)
+        },
+    ) else {
+        return hunks;
+    };
+    let text = |bytes: &[u8]| String::from_utf8_lossy(bytes).into_owned();
+    let (mut commit, mut path, mut old_path) = (String::new(), None::<String>, None::<String>);
+    let (mut old, mut new, mut in_hunk) = (0_i64, 0_i64, false);
+    for line in patch.split(|byte| *byte == b'\n') {
+        if let Some(id) = line.strip_prefix(b"COMMIT|") {
+            (commit, path, in_hunk) = (text(id), None, false);
+        } else if line.starts_with(b"diff --git ") {
+            (path, old_path, in_hunk) = (None, None, false);
+        } else if let Some(range) = line.strip_prefix(b"@@ ") {
+            let starts: Vec<i64> = text(range)
+                .split_whitespace()
+                .take(2)
+                .filter_map(|side| side[1..].split(',').next()?.parse().ok())
+                .collect();
+            if let [from, to] = starts[..] {
+                (old, new, in_hunk) = (from, to, true);
+            }
+        } else if !in_hunk {
+            if let Some(name) = line.strip_prefix(b"--- a/") {
+                old_path = Some(text(name));
+            } else if let Some(name) = line.strip_prefix(b"+++ b/") {
+                path = Some(text(name));
+            } else if line == b"+++ /dev/null" {
+                path = old_path.clone();
+            }
+        } else if let Some(file) = &path {
+            let entry = hunks.entry((commit.clone(), file.clone())).or_default();
+            match line.first() {
+                Some(b'-') => {
+                    entry.removed.push((old, line[1..].to_vec()));
+                    old += 1;
+                }
+                Some(b'+') => {
+                    entry.added.push((new, line[1..].to_vec()));
+                    new += 1;
+                }
+                _ => {}
+            }
+        }
+    }
+    hunks
+}
+
+/// One direction of a file's change: what it did to the pattern, the file as
+/// that side names it, and the first changed line with its declaration.
+fn row(change: &str, path: &str, lines: &[i64], bytes: Option<&[u8]>, repo_root: &Path) -> Value {
+    let line = lines.first().copied();
+    let symbol = bytes.zip(line).and_then(|(bytes, line)| {
+        let extraction = crate::file_facts::extraction_of(bytes, path, repo_root)?;
+        let declarations = &extraction.declarations;
+        crate::surface::innermost(declarations.iter().map(|d| (d.header_line, d.end_line)), line)
+            .map(|index| declarations[index].name.clone())
+    });
+    json!({
+        "change": change,
+        "path": path,
+        "line": line,
+        "lines": (!lines.is_empty()).then_some(lines.len()),
+        "enclosing_symbol": symbol,
+    })
+}
+
+/// A file's rows: the lines its change added, then the lines it removed. A
+/// file past `ANNOTATED_FILES`, or a pattern only git reads, takes its
+/// direction from the counts alone.
+fn file_rows(
+    change: &FileChange,
+    hunks: Option<&Hunks>,
+    matcher: Option<&Regex>,
+    counts: Option<&Counts>,
+    contents: &HashMap<String, Vec<u8>>,
+    repo_root: &Path,
+) -> Vec<Value> {
+    if let (Some(hunks), Some(matcher)) = (hunks, matcher) {
+        let matching = |lines: &[(i64, Vec<u8>)]| -> Vec<i64> {
+            lines.iter().filter(|(_, text)| matcher.is_match(text)).map(|(line, _)| *line).collect()
+        };
+        let read = |blob: &Option<String>| blob.as_ref().and_then(|blob| contents.get(blob)).map(Vec::as_slice);
+        let (added, removed) = (matching(&hunks.added), matching(&hunks.removed));
+        let (added, removed) = rayon::join(
+            || (!added.is_empty()).then(|| row("added", &change.path, &added, read(&change.new), repo_root)),
+            || (!removed.is_empty()).then(|| row("removed", change.old_path(), &removed, read(&change.old), repo_root)),
+        );
+        let rows: Vec<Value> = added.into_iter().chain(removed).collect();
+        if !rows.is_empty() {
+            return rows;
+        }
+    }
+    let (old, new) = counts.map_or((None, None), |counts| (counts.of(&change.old), counts.of(&change.new)));
+    match (old, new) {
+        (Some(old), Some(new)) if old > new => vec![row("removed", change.old_path(), &[], None, repo_root)],
+        (Some(old), Some(new)) if new > old => vec![row("added", &change.path, &[], None, repo_root)],
+        _ => vec![row("changed", &change.path, &[], None, repo_root)],
+    }
+}
+
+/// Each shown commit with its files' rows: the lines the change added and
+/// removed, each first line with its enclosing declaration.
 fn annotate(shown: &[&Found], matcher: Option<&Regex>, counts: Option<&Counts>, repo_root: &Path) -> Vec<Value> {
     let annotated = annotated(shown);
-    let sides: Vec<(Option<String>, String)> = shown
+    let names: Vec<String> = shown
         .iter()
         .zip(&annotated)
-        .flat_map(|(found, annotated)| found.files.iter().map(move |change| (change, *annotated)))
-        .map(|(change, annotated)| {
-            if !annotated {
-                return (None, change.path.clone());
-            }
-            let removed = counts.is_some_and(|counts| counts.of(&change.old) > counts.of(&change.new));
-            if change.new.is_none() || removed {
-                (change.old.clone(), change.old_path().to_string())
-            } else {
-                (change.new.clone(), change.path.clone())
-            }
-        })
+        .filter(|(_, annotated)| **annotated)
+        .flat_map(|(found, _)| &found.files)
+        .flat_map(|change| change.old.iter().chain(&change.new))
+        .cloned()
+        .collect::<BTreeSet<_>>()
+        .into_iter()
         .collect();
-    let read: Vec<usize> = (0..sides.len()).filter(|index| sides[*index].0.is_some()).collect();
-    let names: Vec<String> = read.iter().filter_map(|index| sides[*index].0.clone()).collect();
-    let mut contents: Vec<Option<Vec<u8>>> = vec![None; sides.len()];
+    let mut contents: HashMap<String, Vec<u8>> = HashMap::with_capacity(names.len());
     git_activity::blobs(repo_root, &names, |index, bytes| {
-        contents[read[index]] = bytes.map(<[u8]>::to_vec);
+        if let Some(bytes) = bytes {
+            contents.insert(names[index].clone(), bytes.to_vec());
+        }
     });
-    let matches: Vec<Value> = sides
+    let read: Vec<&Found> = shown.iter().zip(&annotated).filter(|(_, annotated)| **annotated).map(|(found, _)| *found).collect();
+    let hunks = hunks(&read, repo_root);
+    let files: Vec<(usize, &str, &FileChange)> = shown
+        .iter()
+        .enumerate()
+        .flat_map(|(index, found)| found.files.iter().map(move |change| (index, found.id, *change)))
+        .collect();
+    let rows: Vec<(usize, Vec<Value>)> = files
         .par_iter()
-        .zip(contents.par_iter())
-        .map(|((_, path), bytes)| {
-            let line = bytes.as_deref().zip(matcher).and_then(|(bytes, matcher)| {
-                bytes
-                    .split(|byte| *byte == b'\n')
-                    .position(|line| matcher.is_match(line))
-                    .map(|index| index as i64 + 1)
-            });
-            let symbol = bytes.as_deref().zip(line).and_then(|(bytes, line)| {
-                let extraction = crate::file_facts::extraction_of(bytes, path, repo_root)?;
-                let declarations = &extraction.declarations;
-                crate::surface::innermost(declarations.iter().map(|d| (d.header_line, d.end_line)), line)
-                    .map(|index| declarations[index].name.clone())
-            });
-            json!({
-                "path": path,
-                "line": line,
-                "enclosing_symbol": symbol,
-            })
+        .map(|(index, id, change)| {
+            let hunks = hunks.get(&(id.to_string(), change.path.clone()));
+            (*index, file_rows(change, hunks, matcher, counts, &contents, repo_root))
         })
         .collect();
-    let mut matches = matches.into_iter();
+    let mut matches: Vec<Vec<Value>> = vec![Vec::new(); shown.len()];
+    for (index, file) in rows {
+        matches[index].extend(file);
+    }
     shown
         .iter()
-        .map(|found| {
+        .zip(matches)
+        .map(|(found, matches)| {
             json!({
                 "sha": found.id.chars().take(12).collect::<String>(),
                 "date": found.commit.date,
                 "author": found.commit.author,
                 "subject": found.commit.subject,
-                "matches": matches.by_ref().take(found.files.len()).collect::<Vec<_>>(),
+                "matches": matches,
             })
         })
         .collect()
@@ -613,15 +751,21 @@ fn render_pickaxe(p: &Value) {
             );
             let mut whole = header.clone();
             for m in commit["matches"].as_array().cloned().unwrap_or_default() {
-                let line_part = match m["line"].as_i64() {
-                    Some(l) => format!("L{l}"),
-                    None => "L?".to_string(),
+                let sign = match m["change"].as_str() {
+                    Some("added") => "+",
+                    Some("removed") => "-",
+                    _ => "~",
                 };
+                let count = match m["lines"].as_u64() {
+                    Some(lines) if lines > 1 => format!("{sign}{lines}"),
+                    _ => sign.to_string(),
+                };
+                let line_part = m["line"].as_i64().map(|l| format!("L{l}")).unwrap_or_default();
                 let symbol_part = match m["enclosing_symbol"].as_str() {
                     Some(s) => format!(" [in {s}]"),
                     None => String::new(),
                 };
-                whole.push_str(&format!("\n  {:<7} {}{}", line_part, m["path"].as_str().unwrap_or(""), symbol_part));
+                whole.push_str(&format!("\n  {count:<4} {line_part:<7} {}{symbol_part}", m["path"].as_str().unwrap_or("")));
             }
             crate::output::Entry {
                 rank: if index + 1 == commits.len() { 1 } else { -(index as i64) },

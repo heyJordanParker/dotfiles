@@ -1805,8 +1805,57 @@ fn history_contains_reads_a_removal_from_the_file_before_it() {
     let v = r.view();
     assert_eq!(subjects(&v), vec!["remove doomed", "add doomed"], "{}", r.stdout);
     let removal = &v["results"][0]["matches"][0];
+    assert_eq!(removal["change"], "removed", "{}", r.stdout);
     assert_eq!(removal["line"], 6, "{}", r.stdout);
     assert_eq!(removal["enclosing_symbol"], "doomed", "{}", r.stdout);
+}
+
+/// A change names the lines it added and the lines it removed, each with its
+/// declaration, never a line the commit left as it was.
+#[test]
+fn history_contains_names_the_lines_a_change_added_and_removed() {
+    let f = Fixture::new();
+    f.write(
+        "m.py",
+        "def foo():\n    return 'MOVED_MARKER'\n\n\ndef keep():\n    return 'MOVED_MARKER'\n\n\ndef bar():\n    return 0\n",
+    );
+    f.commit("foo holds it");
+    f.write(
+        "m.py",
+        "def foo():\n    return 0\n\n\ndef keep():\n    return 'MOVED_MARKER'\n\n\ndef bar():\n    a = 'MOVED_MARKER'\n    return 'MOVED_MARKER'\n",
+    );
+    f.commit("bar holds it twice");
+
+    let r = f.trace(&["history", "--contains", "MOVED_MARKER", "--json"]);
+    r.ok();
+    let v = r.view();
+    let rows: Vec<(String, i64, i64, String)> = v["results"][0]["matches"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|m| {
+            (
+                m["change"].as_str().unwrap().to_string(),
+                m["line"].as_i64().unwrap(),
+                m["lines"].as_i64().unwrap(),
+                m["enclosing_symbol"].as_str().unwrap().to_string(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        rows,
+        vec![
+            ("added".to_string(), 10, 2, "bar".to_string()),
+            ("removed".to_string(), 2, 1, "foo".to_string()),
+        ],
+        "{}",
+        r.stdout
+    );
+
+    let text = f.trace(&["history", "--contains", "MOVED_MARKER"]);
+    text.ok();
+    assert!(text.stdout.contains("+2   L10     m.py [in bar]"), "{}", text.stdout);
+    assert!(text.stdout.contains("-    L2      m.py [in foo]"), "{}", text.stdout);
 }
 
 /// A commit larger than the budget prints its message whole and fits its
