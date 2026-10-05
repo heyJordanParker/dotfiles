@@ -15,7 +15,7 @@ pub fn run(symbol: &str, as_json: bool) -> Result<Value> {
     let matches = relations::declarations(symbol, &repo_root);
 
     if matches.is_empty() {
-        eprintln!("Symbol '{symbol}' not declared anywhere in this repository.");
+        eprintln!("{}", crate::output::not_declared(symbol, &repo_root));
         std::process::exit(2);
     }
 

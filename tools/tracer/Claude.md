@@ -47,6 +47,7 @@ Local code-intelligence command-line interface for Agents working in a repositor
 - `TRACE_TIMING=1` prints one line per phase to stderr on any command, in microseconds. No flag changes output without it.
 - `file_facts::with_git` joins the git facts onto per-file facts on every resolve.
 - `relations.rs` owns the two inversions and the on-demand resolver.
+- The relations index names each file by the listing's spelling, git's, never the disk's, so a file whose name on a case-insensitive disk differs from git's only in case settles instead of being absorbed again on every call.
 - The inversions are `name -> {defined_in, used_in}` and `file -> [importer]`.
 - `file/schema<N>/relations_edges_v1.json` holds the file table, provenance, and importer inversion; `file/schema<N>/relations_symbols_v1.json` holds the name inversion and is parsed only for a symbol query; `file/schema<N>/relations_imports_v1.json` holds every file's import rows beside the inline `mod`s it declares, each `mod` with a body, with its name and the lines from its header to its end, and the Rust types it declares, each with its innermost inline `mod`, and is parsed only for an update, for a Rust type path, whose type and whose candidates' `Self` types it reads, for a Rust path with segments past the file it reaches, for a Rust reference that follows a `use` out of a position other than its bare-name start that declares no target it can reach, or for a Rust reference whose bare-name start declares its name while a `use` in force at the call binds that name, or is a `*`, from inside a block.
 - `file/schema<N>/relations_directories_v1.json` holds the per-directory metrics; it is written on an index update and read by `directory_metrics`, memoized once per process.
@@ -234,6 +235,9 @@ Local code-intelligence command-line interface for Agents working in a repositor
 - A jq runtime error is cut at `DIAGNOSTIC_BUDGET_CHARS` with a trim marker, because jaq interpolates the whole offending value into its message.
 - `output::keeping_context` wraps the caller's jq program, so `context` survives every filter.
 - `output::narrow_context` keeps `context.files` for the files the filtered result names and `context.directories` for the directories that hold them.
+- `grep` and `pattern` read hidden folders git does not ignore, such as `.claude/` and `.github/`, and never `.git/` or `.tracer-cache/`, through `lang::RIPGREP_SCOPE` and `lang::AST_GREP_SCOPE`.
+- `callers`, `defines`, `usages`, and `dependencies` name the repository they searched for a symbol it does not declare, through `output::not_declared`.
+- `structure` over many files prints every file at the most detailed level they all fit at, then raises the most imported one level above it: a file's block becomes its one-line headline before any declaration goes.
 - `lang.rs` is the one language table for `grep`, `pattern`, and `grep --at`; `lang::ripgrep_types` resolves `-t` as a table name or any `rg --type-list` type through ripgrep's own type matcher.
 - A type none of the three search backends knows exits 2 and names the accepted set.
 - `find` lists paths by glob; the command was named `glob`.

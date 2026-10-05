@@ -1505,6 +1505,35 @@ fn git_facts(f: &Fixture, rel: &str) -> serde_json::Value {
     file_facts(&v)["git"].clone()
 }
 
+/// A file whose on-disk name differs from git's only in case, as after a
+/// rename git never recorded on a case-insensitive disk, settles in the
+/// relations index: a warm call takes no lock, so it never queues the other
+/// agents behind a rewrite of the whole index.
+#[test]
+fn a_file_spelled_differently_on_disk_settles_in_the_index() {
+    let f = Fixture::new();
+    f.write(".gitignore", ".tracer-cache/\n");
+    f.write("brands/paypal.ts", "export const paypal = 1;\n");
+    f.write("app.ts", "import { paypal } from './brands/paypal';\nexport const app = paypal;\n");
+    f.commit("brands");
+    fs::rename(f.root.join("brands/paypal.ts"), f.root.join("brands/payPal.ts")).unwrap();
+    let status = Command::new("git")
+        .args(["status", "--porcelain"])
+        .current_dir(&f.root)
+        .output()
+        .unwrap();
+    if !status.stdout.is_empty() {
+        return;
+    }
+    f.trace(&["grep", "zzqq_nomatch", "."]).ok();
+    std::thread::sleep(Duration::from_millis(2500));
+    f.trace(&["grep", "zzqq_nomatch", "."]).ok();
+
+    let warm = f.trace_env(&["grep", "zzqq_nomatch", "."], &[("TRACE_TIMING", "1")]);
+    warm.ok();
+    assert!(!warm.stderr.contains("timing lock maintain"), "a settled call took the lock:\n{}", warm.stderr);
+}
+
 /// The current schema's cache entries whose key starts with `prefix`.
 fn entries_with_prefix(f: &Fixture, prefix: &str) -> usize {
     fs::read_dir(schema_directory(&f.root, PUBLISHED_SCHEMA_VERSION))

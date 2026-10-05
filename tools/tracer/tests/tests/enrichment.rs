@@ -4279,7 +4279,12 @@ fn structure_shows_whole_facts_again_for_a_file_the_budget_cut_to_its_path() {
     let cut = f.trace_env(&["structure", "alpha.py", "beta.py", "--budget", "650"], &env);
     cut.ok();
     assert!(cut.stdout.contains("---\nfile: alpha.py\nlines: 6\n"), "alpha keeps its facts:\n{}", cut.stdout);
-    assert!(cut.stdout.contains("---\nfile: beta.py\n---\n"), "beta is cut to its path:\n{}", cut.stdout);
+    assert!(
+        cut.stdout.contains("beta.py  {imported_by: 0") && cut.stdout.contains("def third()"),
+        "beta is cut to its headline and keeps its declaration:\n{}",
+        cut.stdout
+    );
+    assert!(!cut.stdout.contains("file: beta.py"), "beta's block was printed:\n{}", cut.stdout);
 
     let whole = f.trace_env(&["structure", "alpha.py", "beta.py", "--budget", "0"], &env);
     whole.ok();

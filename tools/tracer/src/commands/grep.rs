@@ -176,6 +176,7 @@ fn keep_lines(lines: &mut Lines, file: &str, first: i64, text: &str) {
 fn ripgrep(pattern: &str, paths: &[String], options: &Options, types: &[String]) -> Result<(Vec<Match>, Lines)> {
     let mut cmd = Command::new("rg");
     cmd.args(["--json", "--threads", &rayon::current_num_threads().to_string()]);
+    cmd.args(crate::lang::RIPGREP_SCOPE);
     if options.ignore_case {
         cmd.arg("--ignore-case");
     }

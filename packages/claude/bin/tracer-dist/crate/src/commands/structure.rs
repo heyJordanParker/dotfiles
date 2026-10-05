@@ -109,9 +109,11 @@ pub fn run(paths: &[PathBuf], as_json: bool) -> Result<Value> {
         return Ok(document);
     }
 
-    // One front-matter document per file, each still naming every
-    // declaration; together they share the budget, and the files the fewest
-    // others import give up their detail first.
+    // One front-matter document per file, each naming every declaration;
+    // together they share the budget, and the files the fewest others import
+    // give up their detail first: the block becomes the one-line headline
+    // before any declaration goes, because the declarations are what this
+    // command is for.
     let closing = crate::output::closing_room(structures.len(), "files");
     let share = crate::output::budget()
         .map(|budget| budget.saturating_sub(closing) / structures.len().max(1));
@@ -128,32 +130,57 @@ pub fn run(paths: &[PathBuf], as_json: bool) -> Result<Value> {
         })
         .collect();
     let blocks: Vec<String> = front_matters.iter().map(crate::summary::front_matter).collect();
-    let surfaces: Vec<[String; 3]> = structures
+    let wholes: Vec<String> = structures
         .iter()
-        .zip(&blocks)
-        .map(|(structure, block)| {
-            let render = |within| surface::render_within(&structure.rows, &structure.relative, None, within);
-            [render(None), render(share.map(|share| share.saturating_sub(block.len()))), String::new()]
-        })
+        .map(|structure| surface::render_within(&structure.rows, &structure.relative, None, None))
         .collect();
     let entries: Vec<crate::output::Entry> = structures
         .iter()
         .zip(&blocks)
-        .zip(&surfaces)
-        .map(|((structure, block), surfaces)| crate::output::Entry {
-            rank: structure.facts.get("imported_by").and_then(Value::as_i64).unwrap_or(0),
-            levels: surfaces
-                .iter()
-                .map(|surface| format!("{block}{surface}"))
-                .chain([format!("---\nfile: {}\n---\n", structure.relative)])
-                .collect(),
+        .zip(&wholes)
+        .map(|((structure, block), whole)| {
+            let headline = structure.shown_facts.as_ref().map(|facts| facts.headline()).unwrap_or_default();
+            let line = format!("{}  {headline}\n", structure.relative);
+            let within = share.map(|share| share.saturating_sub(line.len()));
+            let cut = surface::render_within(&structure.rows, &structure.relative, None, within);
+            crate::output::Entry {
+                rank: structure.facts.get("imported_by").and_then(Value::as_i64).unwrap_or(0),
+                levels: vec![
+                    format!("{block}{whole}"),
+                    format!("{line}{whole}"),
+                    format!("{line}{cut}"),
+                    line,
+                    format!("{}\n", structure.relative),
+                ],
+            }
         })
         .collect();
-    let (chosen, shortened) = crate::output::fit(&entries, closing);
+    // Every file shares one level, the most detailed one they all fit at, so
+    // a directory never prints one file whole beside bare paths; `fit` then
+    // lifts the most imported files one level above it.
+    let shared = crate::output::budget().map_or(0, |budget| {
+        (0..4)
+            .find(|&level| {
+                closing + entries.iter().map(|entry| crate::output::width(&entry.levels[level]) + 1).sum::<usize>()
+                    <= budget
+            })
+            .unwrap_or(4)
+    });
+    let start = shared.saturating_sub(1);
+    let offered: Vec<crate::output::Entry> = entries
+        .iter()
+        .map(|entry| crate::output::Entry {
+            rank: entry.rank,
+            levels: entry.levels[start..].to_vec(),
+        })
+        .collect();
+    let (chosen, _) = crate::output::fit(&offered, closing);
+    let shortened = chosen.iter().filter(|(level, _)| start + level > 0).count();
     for (index, (level, text)) in chosen.into_iter().enumerate() {
         let structure = &structures[index];
-        match surfaces[index].get(level) {
-            Some(surface) => {
+        match start + level {
+            0 => {
+                let surface = &wholes[index];
                 let mut record = ShownRecord::default();
                 let front_matter = crate::summary::front_matter_once(
                     None,
@@ -167,7 +194,7 @@ pub fn run(paths: &[PathBuf], as_json: bool) -> Result<Value> {
                 std::io::stdout().flush()?;
                 record.save();
             }
-            None => print!("{text}"),
+            _ => print!("{text}"),
         }
     }
     if shortened > 0 {

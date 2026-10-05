@@ -346,12 +346,13 @@ fn callers_unknown_symbol_exits_2() {
     f.trace(&["cache", "build", "."]).ok();
     let r = f.trace(&["callers", "NoSuchSymbol_zzz"]);
     r.code_is(2);
+    let said = r.combined();
+    let root = f.root.canonicalize().unwrap();
     assert!(
-        r.combined()
-            .contains("not declared anywhere in this repository"),
-        "a miss must name the symbol and say it is not declared here: {}",
-        r.combined()
+        said.contains(&format!("Symbol 'NoSuchSymbol_zzz' not declared anywhere in {}.", root.display())),
+        "a miss must name the symbol and the repository it searched: {said}"
     );
+    assert!(said.contains("trace -C <repository>"), "a miss must name how to search another repository: {said}");
 }
 
 // ---------------------------------------------------------------------------

@@ -163,7 +163,7 @@ fn symbol_mode(direction: Direction, symbol: &str, depth: i64, as_json: bool) ->
         Vec::new()
     };
     if declarations.is_empty() && modules.is_empty() {
-        eprintln!("Symbol '{symbol}' not declared anywhere in this repository.");
+        eprintln!("{}", crate::output::not_declared(symbol, &repo_root));
         std::process::exit(2);
     }
     if !declarations.is_empty()

@@ -9,6 +9,13 @@
 //! now means the same thing on every search, and a name nothing knows is
 //! refused by name instead of answered with silence.
 
+/// The files every search reads: the repository's own, hidden folders such as
+/// `.claude/` and `.github/` included, and never git's directory or tracer's
+/// cache. Both backends skip hidden files by default, so a search from the
+/// root answered "no matches" for a string a tracked dot-folder held.
+pub const RIPGREP_SCOPE: [&str; 5] = ["--hidden", "--glob", "!.git/", "--glob", "!.tracer-cache/"];
+pub const AST_GREP_SCOPE: [&str; 6] = ["--no-ignore", "hidden", "--globs", "!.git/", "--globs", "!.tracer-cache/"];
+
 /// One row: what the caller writes, what ripgrep filters on, and what
 /// ast-grep parses with. A row whose `sg` is empty is a language ast-grep has
 /// no grammar for, so `pattern` refuses it while `grep` still filters on it.

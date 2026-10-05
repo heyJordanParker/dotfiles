@@ -144,6 +144,7 @@ fn run_prefilter(literal: &str, rg_type: &str, paths: &[String]) -> Result<Vec<S
     let mut cmd = Command::new("rg");
     cmd.args(["--files-with-matches", "--fixed-strings", "--null"]);
     cmd.args(["--threads", &rayon::current_num_threads().to_string()]);
+    cmd.args(crate::lang::RIPGREP_SCOPE);
     if !rg_type.is_empty() {
         cmd.args(["--type", rg_type]);
     }
@@ -226,6 +227,7 @@ fn ast_grep(
     let mut cmd = Command::new("sg");
     cmd.args(["run", "-p", pattern, "-l", lang, "--json=stream"]);
     cmd.args(["--threads", &rayon::current_num_threads().to_string()]);
+    cmd.args(crate::lang::AST_GREP_SCOPE);
     if paths.is_empty() {
         cmd.arg("--stdin").stdin(Stdio::null());
     } else {

@@ -41,6 +41,8 @@ Black-box behavior contract for the `trace` binary, pinning the observable surfa
 - `tests/git.rs` pins that `history --contains` names the enclosing declaration `grep` names and spawns no ctags.
 - `tests/git.rs` pins `history --contains` showing the newest 29 commits, the line naming the commits between, and the oldest, and every commit under `--all`; leaving out merge commits, binary files, and the commits a rewrite removed; walking only a new commit; naming a removal's line from the file before it; and naming the lines a change added and removed, each with its declaration. It pins `history --commit` fitting `--budget`.
 - `tests/concurrency.rs` pins that eight concurrent `history --contains` calls walk the commits once.
+- `tests/search.rs` pins `grep` and `pattern` reading hidden folders from the root, and never `.git/`.
+- `tests/cache_and_backend.rs` pins that a file spelled differently on a case-insensitive disk settles in the relations index, so a warm call takes no lock.
 - `tests/architecture_commands.rs` pins the surface row on a `defines`, `usages`, and `dependencies` result and the unfabricated module row.
 - `tests/session_log.rs` and `tests/concurrency.rs` pin the session directory baseline and the `status` and `diff` directory block.
 - `tests/session_log.rs` pins the session-log event set and read coverage.

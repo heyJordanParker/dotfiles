@@ -912,8 +912,8 @@ impl Relations {
     /// Every file's declarations must land before any file's imports are
     /// resolved, because an import that misses on module path falls back to
     /// the symbol map — so the two passes cannot be merged.
-    fn absorb_symbols(&mut self, facts: &FileFacts, key: &str) {
-        let (path, index) = self.intern(&facts.path);
+    fn absorb_symbols(&mut self, file: &str, facts: &FileFacts, key: &str) {
+        let (path, index) = self.intern(file);
         let annotations = facts
             .extraction
             .as_ref()
@@ -931,7 +931,7 @@ impl Relations {
                 module_files: facts
                     .extraction
                     .as_ref()
-                    .map(|extraction| module_files(&facts.path, extraction))
+                    .map(|extraction| module_files(file, extraction))
                     .unwrap_or_default(),
                 inherits: facts.extraction.as_ref().map(inherits).unwrap_or_default(),
             },
@@ -2320,7 +2320,7 @@ fn update(mut relations: Relations, change: RelationsChange, repo_root: &Path) -
             let (Some(f), Some(key)) = (facts.get(path), keys.get(path)) else {
                 continue;
             };
-            relations.absorb_symbols(f, key);
+            relations.absorb_symbols(path, f, key);
         }
     }
 

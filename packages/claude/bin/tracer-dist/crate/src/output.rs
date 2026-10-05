@@ -198,6 +198,16 @@ pub fn closing_room(of: usize, unit: &str) -> usize {
     width(&shortened_line(of, of, unit)) + 1
 }
 
+/// What a symbol command says when the repository it searched declares no
+/// such symbol: which repository that was, and how to name another, because
+/// a call started outside the target repository reads as "this does not exist".
+pub fn not_declared(symbol: &str, repo_root: &std::path::Path) -> String {
+    format!(
+        "Symbol '{symbol}' not declared anywhere in {}. Name another repository with trace -C <repository>.",
+        repo_root.display()
+    )
+}
+
 /// This invocation as a shell command, without its own `--budget`.
 pub fn this_command() -> String {
     let mut words = vec!["trace".to_string()];

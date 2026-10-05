@@ -159,7 +159,7 @@ pub fn run(symbol: &str, limit: usize, as_json: bool) -> Result<Value> {
     };
 
     if declarations.is_empty() && modules.is_empty() {
-        eprintln!("Symbol '{symbol}' not declared anywhere in this repository.");
+        eprintln!("{}", crate::output::not_declared(symbol, &repo_root));
         std::process::exit(2);
     }
     if !declarations.is_empty()

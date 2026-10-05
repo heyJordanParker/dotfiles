@@ -1028,6 +1028,45 @@ fn grep_no_matches_is_clean_exit() {
     assert!(r.stdout.contains("(no matches)"), "{}", r.stdout);
 }
 
+/// A search from the root reads the repository's hidden folders, such as
+/// `.claude/` and `.github/`, so "no matches" never hides a file git tracks.
+/// Git's own directory and tracer's cache stay out.
+#[test]
+fn searches_from_the_root_read_hidden_folders_but_not_git_or_the_cache() {
+    let f = Fixture::new();
+    f.write(".claude/skills/guide.md", "DOTFOLDER_MARKER in a skill\n");
+    f.write(".github/scripts/check.py", "def check():\n    print(DOTFOLDER_MARKER)\n");
+    f.write("app.py", "VALUE = 1\n");
+    f.commit("hidden folders");
+    f.git(&["config", "tracer.probe", "DOTFOLDER_MARKER"]);
+
+    let grep = f.trace(&["grep", "DOTFOLDER_MARKER", ".", "--json"]);
+    grep.ok();
+    let files: std::collections::BTreeSet<String> = grep.view()["results"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| row["file"].as_str().unwrap().trim_start_matches("./").to_string())
+        .collect();
+    assert_eq!(
+        files,
+        [".claude/skills/guide.md", ".github/scripts/check.py"].map(String::from).into(),
+        "{}",
+        grep.stdout
+    );
+
+    let pattern = f.trace(&["pattern", "print(DOTFOLDER_MARKER)", ".", "-t", "python", "--json"]);
+    pattern.ok();
+    let view = pattern.view();
+    let found: Vec<&str> = view["results"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| row["file"].as_str().unwrap().trim_start_matches("./"))
+        .collect();
+    assert_eq!(found, vec![".github/scripts/check.py"], "{}", pattern.stdout);
+}
+
 #[test]
 fn search_failures_are_not_successful_empty_documents() {
     let f = standard_repo();
