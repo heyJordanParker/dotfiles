@@ -734,14 +734,14 @@ fn cache_build_populates_the_file_namespace() {
     let stats = f.trace(&["cache", "stats", "--json"]);
     stats.ok();
     let v = stats.view();
-    // `cache build .` over standard_repo() populates exactly 15 file/
+    // `cache build .` over standard_repo() populates exactly 16 file/
     // entries for this fixed tree: seven per-file entries, the mtime index,
-    // the tracked-files listing, the git-activity map, the cached ctags map,
-    // and the four relations-index entries.
+    // the tracked-files listing, the commit index, the git-activity map built
+    // from it, the cached ctags map, and the four relations-index entries.
     assert_eq!(
         v["file"]["entries"].as_i64().unwrap(),
-        15,
-        "file namespace must hold exactly 15 entries after build: {}",
+        16,
+        "file namespace must hold exactly 16 entries after build: {}",
         stats.stdout
     );
     assert_eq!(

@@ -28,7 +28,7 @@ pub fn rows(facts: &FileFacts, window: Option<(i64, i64)>) -> Vec<Row> {
 
 pub fn rows_at(repo_root: &Path, revision: &str, path: &str) -> Vec<Row> {
     crate::git_activity::blob(repo_root, revision, path)
-        .and_then(|bytes| crate::extraction::extract(&bytes, path))
+        .and_then(|bytes| crate::file_facts::extraction_of(&bytes, path, repo_root))
         .map(|extraction| rows_from(&extraction, &[], None))
         .unwrap_or_default()
 }

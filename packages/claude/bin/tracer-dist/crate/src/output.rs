@@ -199,7 +199,7 @@ pub fn closing_room(of: usize, unit: &str) -> usize {
 }
 
 /// This invocation as a shell command, without its own `--budget`.
-fn this_command() -> String {
+pub fn this_command() -> String {
     let mut words = vec!["trace".to_string()];
     let mut arguments = std::env::args().skip(1);
     while let Some(argument) = arguments.next() {

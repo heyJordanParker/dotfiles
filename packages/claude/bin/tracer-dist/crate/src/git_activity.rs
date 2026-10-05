@@ -1,14 +1,13 @@
-//! Bulk git activity: single-pass log parser + per-file lifecycle facts.
+//! Bulk git activity: the commit index + per-file lifecycle facts.
 //!
-//! One `git log` subprocess for the whole repo's lifecycle facts instead of
-//! N*2 per-file:
-//!   1. `git log -n <cap> -M --diff-merges=first-parent --name-status
-//!       --pretty=format:COMMIT|%H|%ad|%an|%s --date=short`
-//! The 30-day commit counts are derived from the dated commits this same
-//! walk parses — no second `git log`. The walk is bounded to `HISTORY_CAP`
-//! recent commits; on a history deeper than the cap, `commit_count` becomes
-//! a floor (commits within the cap, not the full-history total) and
-//! `commit_count_is_floor` is set so consumers can see the count is partial.
+//! The commit index `commits_v1` holds the newest `HISTORY_CAP` commits, each
+//! with its changed paths and their old and new blob ids. A HEAD move walks
+//! only the commits the index lacks, through one
+//!   `git log --no-walk=unsorted --stdin -M --diff-merges=first-parent --raw`
+//! and the lifecycle facts, 30-day counts included, are aggregated from it.
+//! On a history deeper than the cap, `commit_count` becomes a floor (commits
+//! within the cap, not the full-history total) and `commit_count_is_floor` is
+//! set so consumers can see the count is partial.
 //! Plus live working state, `git rev-parse HEAD`, one
 //! `git for-each-ref` observation of every deploy tip, and one `git ls-tree
 //! -r --name-only <ref>` per present deploy branch (the latter disk-cached,
@@ -17,12 +16,12 @@
 use crate::{cache, memo};
 use serde::ser::SerializeStruct;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use serde_json::json;
 use sha2::{Digest, Sha256};
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::ffi::OsString;
+use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::{ChildStdout, Command, Output, Stdio};
 use std::sync::{Arc, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -222,14 +221,73 @@ pub fn git_str(repo_root: &Path, args: &[&str]) -> Option<String> {
 }
 
 pub fn blob(repo_root: &Path, revision: &str, path: &str) -> Option<Vec<u8>> {
-    git_output(repo_root, ["show", &format!("{revision}:{path}")])
-        .ok()
-        .filter(|output| output.status.success())
-        .map(|output| output.stdout)
+    let mut found = None;
+    blobs(repo_root, &[format!("{revision}:{path}")], |_, bytes| {
+        found = bytes.map(<[u8]>::to_vec);
+    });
+    found
+}
+
+pub fn blobs(repo_root: &Path, names: &[String], mut visit: impl FnMut(usize, Option<&[u8]>)) {
+    let request: Vec<u8> = names
+        .iter()
+        .flat_map(|name| name.bytes().chain(std::iter::once(b'\n')))
+        .collect();
+    let mut visited = 0;
+    let _ = piped(repo_root, &["cat-file", "--batch"], request, |_| {}, |stdout| {
+        let mut stdout = BufReader::new(stdout);
+        let mut header = Vec::new();
+        let mut body = Vec::new();
+        while visited < names.len() {
+            header.clear();
+            if stdout.read_until(b'\n', &mut header)? == 0 {
+                break;
+            }
+            let header = String::from_utf8_lossy(&header);
+            match header.trim_end().split(' ').collect::<Vec<_>>().as_slice() {
+                [_, kind, size] => {
+                    body.resize(size.parse().map_err(std::io::Error::other)?, 0);
+                    stdout.read_exact(&mut body)?;
+                    stdout.read_exact(&mut [0u8; 1])?;
+                    visit(visited, (*kind == "blob").then_some(&body[..]));
+                }
+                _ => visit(visited, None),
+            }
+            visited += 1;
+        }
+        Ok(())
+    });
+    for index in visited..names.len() {
+        visit(index, None);
+    }
+}
+
+pub(crate) fn piped<T>(
+    repo_root: &Path,
+    args: &[&str],
+    request: Vec<u8>,
+    configure: impl FnOnce(&mut Command),
+    read: impl FnOnce(ChildStdout) -> std::io::Result<T>,
+) -> std::io::Result<(T, bool)> {
+    git_command(repo_root, args.iter().copied(), |command| {
+        configure(command);
+        let mut child = command
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()?;
+        let mut stdin = child.stdin.take().expect("git stdin is piped");
+        let writer = std::thread::spawn(move || stdin.write_all(&request));
+        let read = read(child.stdout.take().expect("git stdout is piped"));
+        let _ = writer.join();
+        let finished = child.wait()?.success();
+        Ok((read?, finished))
+    })
 }
 
 pub fn head_sha(repo_root: &Path) -> Option<String> {
-    git_str(repo_root, &["rev-parse", "HEAD"])
+    static HEAD_MEMO: memo::Memo<Option<String>> = OnceLock::new();
+    memo::get_or_build(&HEAD_MEMO, repo_root, || git_str(repo_root, &["rev-parse", "HEAD"])).as_ref().clone()
 }
 
 /// The commits a shallow clone grafted its history onto, read from
@@ -265,8 +323,8 @@ fn grafts(repo_root: &Path) -> HashSet<String> {
     }
 }
 
-fn historical(repo_root: &Path) -> (HashMap<String, GitActivity>, bool) {
-    let history = walk_history(repo_root);
+fn historical(commits: &Commits, cutoff_30d: &str) -> (HashMap<String, GitActivity>, bool) {
+    let history = walk_history(commits, cutoff_30d);
     let mut out: HashMap<String, GitActivity> = HashMap::new();
     for (path, info) in &history.entries {
         out.insert(
@@ -408,29 +466,279 @@ fn cached_history(repo_root: &Path) -> Arc<HashMap<String, GitActivity>> {
 }
 
 fn cached_history_uncached(repo_root: &Path) -> HashMap<String, GitActivity> {
-    let head = match head_sha(repo_root) {
-        Some(h) => h,
-        None => return historical(repo_root).0,
+    let Some(head) = head_sha(repo_root) else {
+        return HashMap::new();
     };
-    let key = format!("git_activity_v2__{head}__{}", cutoff_30d());
-    if let Some(history) = cache::load_bytes(cache::NAMESPACE_FILE, &key, repo_root)
-        .and_then(|b| serde_json::from_slice::<HashMap<String, GitActivity>>(&b).ok())
-    {
-        return history;
+    let index = ActivityIndex {
+        repo_root,
+        head,
+        cutoff: cutoff_30d(),
+    };
+    cache::index(&index, repo_root)
+        .map(|activity| activity.map)
+        .unwrap_or_default()
+}
+
+struct ActivityIndex<'a> {
+    repo_root: &'a Path,
+    head: String,
+    cutoff: String,
+}
+
+#[derive(Default, Serialize, Deserialize)]
+#[serde(transparent)]
+struct Activity {
+    map: HashMap<String, GitActivity>,
+    #[serde(skip)]
+    incomplete: bool,
+}
+
+impl cache::Index for ActivityIndex<'_> {
+    type Stored = Activity;
+    type Change = ();
+
+    fn key(&self) -> String {
+        format!("git_activity_v2__{}__{}", self.head, self.cutoff)
     }
-    let (history, finished) = historical(repo_root);
-    if !finished {
-        return history;
+
+    fn read(&self, bytes: &[u8]) -> Option<Activity> {
+        serde_json::from_slice(bytes).ok()
     }
-    // `working_state` is `skip_serializing`, so the entry holds only the
-    // HEAD-keyed facts the key actually determines.
-    if let Some(true) = serde_json::to_value(&history)
-        .ok()
-        .and_then(|payload| cache::save(cache::NAMESPACE_FILE, &key, &payload, repo_root).ok())
-    {
-        cache::evict_prefixed(cache::NAMESPACE_FILE, "git_activity", &key, repo_root);
+
+    fn change(&self, stored: Option<&Activity>) -> Option<()> {
+        stored.is_none().then_some(())
     }
-    history
+
+    fn apply(&self, _stored: Option<Activity>, _change: ()) -> Activity {
+        let (map, finished) = historical(&commits(self.repo_root), &self.cutoff);
+        Activity {
+            map,
+            incomplete: !finished,
+        }
+    }
+
+    fn complete(&self, stored: &Activity) -> bool {
+        !stored.incomplete
+    }
+}
+
+#[derive(Default, Serialize, Deserialize)]
+pub struct Commits {
+    head: String,
+    pub order: Vec<String>,
+    pub commits: HashMap<String, Commit>,
+    grafts: Vec<String>,
+    pub binary: BTreeSet<String>,
+    #[serde(skip)]
+    incomplete: bool,
+}
+
+impl Commits {
+    pub fn truncated(&self) -> bool {
+        self.order.len() >= HISTORY_CAP || self.incomplete
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct Commit {
+    pub date: String,
+    pub author: String,
+    pub subject: String,
+    pub merge: bool,
+    pub changes: Vec<FileChange>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct FileChange {
+    pub status: String,
+    pub path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub old: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub new: Option<String>,
+}
+
+impl FileChange {
+    pub fn old_path(&self) -> &str {
+        self.from.as_deref().unwrap_or(&self.path)
+    }
+}
+
+pub enum CommitsChange {
+    Walk,
+    Binary(Vec<String>),
+}
+
+pub struct CommitIndex<'a> {
+    pub repo_root: &'a Path,
+}
+
+pub fn commits(repo_root: &Path) -> Arc<Commits> {
+    static COMMITS_MEMO: memo::Memo<Commits> = OnceLock::new();
+    memo::get_or_build(&COMMITS_MEMO, repo_root, || {
+        cache::index(&CommitIndex { repo_root }, repo_root).unwrap_or_default()
+    })
+}
+
+impl cache::Index for CommitIndex<'_> {
+    type Stored = Commits;
+    type Change = CommitsChange;
+
+    fn key(&self) -> String {
+        "commits_v1".to_string()
+    }
+
+    fn read(&self, bytes: &[u8]) -> Option<Commits> {
+        serde_json::from_slice(bytes).ok()
+    }
+
+    fn change(&self, stored: Option<&Commits>) -> Option<CommitsChange> {
+        let head = head_sha(self.repo_root).unwrap_or_default();
+        (stored.map(|commits| commits.head.as_str()) != Some(head.as_str())).then_some(CommitsChange::Walk)
+    }
+
+    fn apply(&self, stored: Option<Commits>, change: CommitsChange) -> Commits {
+        let mut commits = stored.unwrap_or_default();
+        match change {
+            CommitsChange::Binary(blobs) => commits.binary.extend(blobs),
+            CommitsChange::Walk => self.walk(&mut commits),
+        }
+        commits
+    }
+
+    fn complete(&self, stored: &Commits) -> bool {
+        !stored.incomplete
+    }
+}
+
+impl CommitIndex<'_> {
+    fn walk(&self, commits: &mut Commits) {
+        let order: Vec<String> = git_str(self.repo_root, &["rev-list", &format!("-n{HISTORY_CAP}"), "HEAD"])
+            .map(|listed| listed.lines().map(str::to_string).collect())
+            .unwrap_or_default();
+        let mut grafts: Vec<String> = grafts(self.repo_root).into_iter().collect();
+        grafts.sort();
+        if grafts != commits.grafts {
+            for regrafted in grafts.iter().chain(&commits.grafts) {
+                commits.commits.remove(regrafted);
+            }
+            commits.grafts = grafts;
+        }
+        let reachable: HashSet<&str> = order.iter().map(String::as_str).collect();
+        commits.commits.retain(|id, _| reachable.contains(id.as_str()));
+        let missing: Vec<&str> = order
+            .iter()
+            .map(String::as_str)
+            .filter(|id| !commits.commits.contains_key(*id))
+            .collect();
+        if !missing.is_empty() {
+            let grafted: HashSet<&str> = commits.grafts.iter().map(String::as_str).collect();
+            let (walked, finished) = walk_commits(self.repo_root, &missing, &grafted);
+            commits.commits.extend(walked);
+            commits.incomplete = !finished;
+        }
+        let held: HashSet<&str> = commits
+            .commits
+            .values()
+            .flat_map(|commit| &commit.changes)
+            .flat_map(|change| change.old.iter().chain(&change.new))
+            .map(String::as_str)
+            .collect();
+        commits.binary.retain(|blob| held.contains(blob.as_str()));
+        commits.head = head_sha(self.repo_root).unwrap_or_default();
+        commits.order = order;
+    }
+}
+
+fn walk_commits(repo_root: &Path, ids: &[&str], grafted: &HashSet<&str>) -> (HashMap<String, Commit>, bool) {
+    let request = ids.join("\n").into_bytes();
+    let walked = piped(
+        repo_root,
+        &[
+            "log",
+            "--no-walk=unsorted",
+            "--stdin",
+            "-M",
+            "--diff-merges=first-parent",
+            "--raw",
+            "--no-abbrev",
+            "-z",
+            "--pretty=format:COMMIT|%H|%P|%ad|%an|%s%x00",
+            "--date=short",
+        ],
+        request,
+        |command| {
+            command.env("GIT_NO_LAZY_FETCH", "1");
+        },
+        |mut stdout| {
+            let mut read = Vec::new();
+            stdout.read_to_end(&mut read)?;
+            Ok(read)
+        },
+    );
+    let Ok((stdout, finished)) = walked else {
+        return (HashMap::new(), false);
+    };
+    let mut commits: HashMap<String, Commit> = HashMap::new();
+    let mut current: Option<String> = None;
+    let fields: Vec<&[u8]> = stdout.split(|byte| *byte == 0).collect();
+    let mut index = 0;
+    while index < fields.len() {
+        let field = String::from_utf8_lossy(fields[index]);
+        let field = field.trim_start_matches('\n');
+        index += 1;
+        if let Some(rest) = field.strip_prefix("COMMIT|") {
+            let parts: Vec<&str> = rest.splitn(5, '|').collect();
+            let [id, parents, date, author, subject] = parts.as_slice() else {
+                current = None;
+                continue;
+            };
+            commits.insert(
+                id.to_string(),
+                Commit {
+                    date: date.to_string(),
+                    author: author.to_string(),
+                    subject: subject.to_string(),
+                    merge: parents.split_whitespace().count() > 1,
+                    changes: Vec::new(),
+                },
+            );
+            current = (!grafted.contains(id)).then(|| id.to_string());
+            continue;
+        }
+        let Some(raw) = field.strip_prefix(':') else {
+            continue;
+        };
+        let columns: Vec<&str> = raw.split(' ').collect();
+        let [_, _, old, new, status] = columns.as_slice() else {
+            continue;
+        };
+        let renamed = status.starts_with('R') || status.starts_with('C');
+        let paths = if renamed { 2 } else { 1 };
+        if index + paths > fields.len() {
+            break;
+        }
+        let first = String::from_utf8_lossy(fields[index]).into_owned();
+        let (from, path) = if renamed {
+            (Some(first), String::from_utf8_lossy(fields[index + 1]).into_owned())
+        } else {
+            (None, first)
+        };
+        index += paths;
+        let blob = |id: &str| (!id.bytes().all(|byte| byte == b'0')).then(|| id.to_string());
+        if let Some(commit) = current.as_ref().and_then(|id| commits.get_mut(id)) {
+            commit.changes.push(FileChange {
+                status: status.to_string(),
+                path,
+                from,
+                old: blob(old),
+                new: blob(new),
+            });
+        }
+    }
+    (commits, finished)
 }
 
 #[derive(Default, Clone)]
@@ -456,47 +764,11 @@ struct History {
     finished: bool,
 }
 
-/// Single git log pass with rename detection, producing
-/// last/first/count/commits_30d/rename/top_author/co_changed per file. The
-/// 30-day counts are derived here from each commit's date — no second log
-/// invocation. Bounded to `HISTORY_CAP` commits and to the objects already
-/// on disk; `truncated` reports whether either bound ended the walk.
-fn walk_history(repo_root: &Path) -> History {
-    let cap_arg = format!("-n{HISTORY_CAP}");
-    // `%H` leads the record so a graft commit can be recognized and dropped.
-    let output = match git_command(
-        repo_root,
-        [
-            "log",
-            &cap_arg,
-            "-M",
-            "--diff-merges=first-parent",
-            "--name-status",
-            "-z",
-            "--pretty=format:COMMIT|%H|%ad|%an|%s%x00",
-            "--date=short",
-        ],
-        |command| command.env("GIT_NO_LAZY_FETCH", "1").output(),
-    ) {
-        Ok(output) => output,
-        Err(_) => return History::default(),
-    };
-    let finished = output.status.success();
-    let stdout = output.stdout;
-    let graft_shas = grafts(repo_root);
-    let cutoff_30d = cutoff_30d();
-
-    // Count distinct COMMIT records to detect whether the cap truncated the
-    // walk: a full history emits fewer than `HISTORY_CAP` commits.
-    let mut commit_seen = 0usize;
-
+fn walk_history(commits: &Commits, cutoff_30d: &str) -> History {
     let mut out: BTreeMap<String, HistoryEntry> = BTreeMap::new();
     let mut aliases: HashMap<String, String> = HashMap::new();
     let mut authors_by_path: HashMap<String, OrderedCounter> = HashMap::new();
     let mut co_by_path: HashMap<String, OrderedCounter> = HashMap::new();
-    let mut current_date: Option<String> = None;
-    let mut current_author: Option<String> = None;
-    let mut current_subject: Option<String> = None;
     let mut current_paths: Vec<String> = Vec::new();
     // The commit's true file count. `current_paths` stops growing at the cap,
     // because its `contains` scan is linear and an unbounded list makes the
@@ -505,9 +777,6 @@ fn walk_history(repo_root: &Path) -> History {
     let mut current_files = 0usize;
     // Distinct pairs retained so far, weighed against `CO_CHANGE_PAIR_CAP`.
     let mut pairs_held = 0usize;
-    // Set for a graft commit, whose diff is the whole working tree rather than
-    // a change: it contributes no count, no author, and no co-change.
-    let mut skip_commit = false;
 
     let flush_co = |co_by_path: &mut HashMap<String, OrderedCounter>,
                     pairs_held: &mut usize,
@@ -549,68 +818,42 @@ fn walk_history(repo_root: &Path) -> History {
         });
     };
 
-    let mut current_recent = false;
-    let fields: Vec<&[u8]> = stdout.split(|byte| *byte == 0).collect();
-    let mut index = 0;
-    while index < fields.len() {
-        let field = String::from_utf8_lossy(fields[index]);
-        let field = field.trim_start_matches('\n');
-        if let Some(rest) = field.strip_prefix("COMMIT|") {
-            flush_co(
-                &mut co_by_path,
-                &mut pairs_held,
-                &current_paths,
-                current_files,
-            );
-            current_paths.clear();
-            current_files = 0;
-            commit_seen += 1;
-            let parts: Vec<&str> = rest.splitn(4, '|').collect();
-            skip_commit = graft_shas.contains(parts.first().copied().unwrap_or(""));
-            if parts.len() == 4 {
-                current_date = Some(parts[1].to_string());
-                current_author = Some(parts[2].to_string());
-                current_subject = Some(parts[3].to_string());
-            } else if parts.len() == 3 {
-                current_date = Some(parts[1].to_string());
-                current_author = Some(parts[2].to_string());
-                current_subject = None;
+    for commit in commits.order.iter().filter_map(|id| commits.commits.get(id)) {
+        flush_co(
+            &mut co_by_path,
+            &mut pairs_held,
+            &current_paths,
+            current_files,
+        );
+        current_paths.clear();
+        current_files = 0;
+        let date = commit.date.clone();
+        let current_author = Some(commit.author.clone());
+        let current_subject = Some(commit.subject.clone());
+        // `--date=short` dates are zero-padded YYYY-MM-DD, so a lexical
+        // `>=` against the cutoff is a correct chronological compare.
+        let current_recent = date.as_str() >= cutoff_30d;
+        for change in &commit.changes {
+            if change.from.is_none() {
+                let target = aliases.get(&change.path).cloned().unwrap_or_else(|| change.path.clone());
+                ensure(&mut out, &target, &date, &current_author, &current_subject);
+                let e = out.get_mut(&target).unwrap();
+                e.commit_count += 1;
+                if current_recent {
+                    e.commits_30d += 1;
+                }
+                e.first_seen = Some(date.clone());
+                if let Some(a) = &current_author {
+                    authors_by_path.entry(target.clone()).or_default().add(a);
+                }
+                current_files += 1;
+                if current_files <= CO_CHANGE_COMMIT_CAP && !current_paths.contains(&target) {
+                    current_paths.push(target);
+                }
+                continue;
             }
-            // `--date=short` dates are zero-padded YYYY-MM-DD, so a lexical
-            // `>=` against the cutoff is a correct chronological compare.
-            current_recent = current_date
-                .as_deref()
-                .map(|d| d >= cutoff_30d.as_str())
-                .unwrap_or(false);
-            index += 1;
-            continue;
-        }
-        if field.is_empty() || current_date.is_none() {
-            index += 1;
-            continue;
-        }
-        let date = current_date.clone().unwrap();
-        let status = field;
-        let path_fields = if status.starts_with('R') || status.starts_with('C') {
-            2
-        } else {
-            1
-        };
-        if index + path_fields >= fields.len() {
-            break;
-        }
-        if skip_commit {
-            index += path_fields + 1;
-            continue;
-        }
-        let first_path = String::from_utf8_lossy(fields[index + 1]).into_owned();
-        if first_path.is_empty() {
-            index += 1;
-            continue;
-        }
-        if status.starts_with('R') || status.starts_with('C') {
-            let old_path = first_path;
-            let path = String::from_utf8_lossy(fields[index + 2]).into_owned();
+            let old_path = change.old_path().to_string();
+            let path = change.path.clone();
             ensure(&mut out, &path, &date, &current_author, &current_subject);
             let e = out.get_mut(&path).unwrap();
             e.commit_count += 1;
@@ -629,25 +872,6 @@ fn walk_history(repo_root: &Path) -> History {
                 current_paths.push(path.clone());
             }
             aliases.entry(old_path).or_insert(path);
-            index += 3;
-        } else {
-            let path = first_path;
-            let target = aliases.get(&path).cloned().unwrap_or(path);
-            ensure(&mut out, &target, &date, &current_author, &current_subject);
-            let e = out.get_mut(&target).unwrap();
-            e.commit_count += 1;
-            if current_recent {
-                e.commits_30d += 1;
-            }
-            e.first_seen = Some(date.clone());
-            if let Some(a) = &current_author {
-                authors_by_path.entry(target.clone()).or_default().add(a);
-            }
-            current_files += 1;
-            if current_files <= CO_CHANGE_COMMIT_CAP && !current_paths.contains(&target) {
-                current_paths.push(target);
-            }
-            index += 2;
         }
     }
     flush_co(
@@ -667,8 +891,8 @@ fn walk_history(repo_root: &Path) -> History {
     }
     History {
         entries: out,
-        truncated: commit_seen >= HISTORY_CAP || !finished,
-        finished,
+        truncated: commits.truncated(),
+        finished: !commits.incomplete,
     }
 }
 
@@ -943,9 +1167,37 @@ fn presence_by_path(repo_root: &Path) -> HashMap<String, Vec<&'static str>> {
         return HashMap::new();
     }
 
-    let key = {
+    cache::index(&PresenceIndex { repo_root, present }, repo_root)
+        .map(|presence| {
+            presence
+                .labels
+                .into_iter()
+                .map(|(path, labels)| (path, labels.iter().map(|label| deploy_label(label)).collect()))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+struct PresenceIndex<'a> {
+    repo_root: &'a Path,
+    present: Vec<(&'static str, &'static str, String)>,
+}
+
+#[derive(Default, Serialize, Deserialize)]
+#[serde(transparent)]
+struct Presence {
+    labels: HashMap<String, Vec<String>>,
+    #[serde(skip)]
+    incomplete: bool,
+}
+
+impl cache::Index for PresenceIndex<'_> {
+    type Stored = Presence;
+    type Change = ();
+
+    fn key(&self) -> String {
         let mut hasher = Sha256::new();
-        for (label, r#ref, tip) in &present {
+        for (label, r#ref, tip) in &self.present {
             hasher.update(label.as_bytes());
             hasher.update(b"\0");
             hasher.update(r#ref.as_bytes());
@@ -954,34 +1206,30 @@ fn presence_by_path(repo_root: &Path) -> HashMap<String, Vec<&'static str>> {
             hasher.update(b"\n");
         }
         format!("git_presence_v2__{}", hex::encode(hasher.finalize()))
-    };
-
-    if let Some(cached) = cache::load_bytes(cache::NAMESPACE_FILE, &key, repo_root)
-        .and_then(|b| serde_json::from_slice::<HashMap<String, Vec<String>>>(&b).ok())
-    {
-        return cached
-            .into_iter()
-            .map(|(path, labels)| {
-                (
-                    path,
-                    labels
-                        .into_iter()
-                        .map(|label| deploy_label(&label))
-                        .collect(),
-                )
-            })
-            .collect();
     }
 
-    let (computed, complete) = compute_presence(repo_root, &present);
-    if !complete {
-        return computed;
+    fn read(&self, bytes: &[u8]) -> Option<Presence> {
+        serde_json::from_slice(bytes).ok()
     }
-    let payload = json!(computed);
-    if let Ok(true) = cache::save(cache::NAMESPACE_FILE, &key, &payload, repo_root) {
-        cache::evict_prefixed(cache::NAMESPACE_FILE, "git_presence", &key, repo_root);
+
+    fn change(&self, stored: Option<&Presence>) -> Option<()> {
+        stored.is_none().then_some(())
     }
-    computed
+
+    fn apply(&self, _stored: Option<Presence>, _change: ()) -> Presence {
+        let (labels, complete) = compute_presence(self.repo_root, &self.present);
+        Presence {
+            labels: labels
+                .into_iter()
+                .map(|(path, labels)| (path, labels.into_iter().map(str::to_string).collect()))
+                .collect(),
+            incomplete: !complete,
+        }
+    }
+
+    fn complete(&self, stored: &Presence) -> bool {
+        !stored.incomplete
+    }
 }
 
 /// Run the `ls-tree` walks over the resolved present deploy branches, and

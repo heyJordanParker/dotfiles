@@ -384,6 +384,9 @@ enum Command {
         /// Read `--contains` as a regular expression instead of literal text.
         #[arg(long)]
         regex: bool,
+        /// Every commit `--contains` finds, not the newest 29 and the oldest.
+        #[arg(long)]
+        all: bool,
         /// One commit in full: message, author, parents, changed files and
         /// the changed lines.
         #[arg(long = "commit")]
@@ -755,6 +758,7 @@ fn run() -> Result<()> {
             symbol,
             contains,
             regex,
+            all,
             commit,
             json,
         } => output::run_value(json, filter, || {
@@ -763,6 +767,7 @@ fn run() -> Result<()> {
                 symbol.as_deref(),
                 contains.as_deref(),
                 regex,
+                all,
                 commit.as_deref(),
                 json,
             )

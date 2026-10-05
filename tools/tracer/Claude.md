@@ -14,14 +14,14 @@ Local code-intelligence command-line interface for Agents working in a repositor
 - Per-function complexity is computed by the in-process tree-sitter decision-node walker.
 - `.tracer-cache/` lives at the target repository root.
 - The cache namespaces are `file/`, `sessions/<session_id>/` for the directory baseline, and `sessions/<session_id>/<agent_id>/` for that Agent's own session-context state.
-- The `file/` namespace stores per-file facts, the bulk git-activity map, the deploy-presence map, the mtime index, and the four relations entries: edges, symbols, imports, and directories.
+- The `file/` namespace stores per-file facts, the commit index, the bulk git-activity map, the deploy-presence map, the mtime index, and the four relations entries: edges, symbols, imports, and directories.
 - A cache entry holds only what its key's inputs determine.
 - Every entry a schema writes, content and repo-wide alike, lives in its directory `file/schema<N>/`, and a key carries no schema.
-- A repo-wide index reads through `cache::load_bytes` and deserializes straight into its own type, never into a `serde_json::Value` first.
+- Every repo-wide index implements `cache::Index`: its key, how it reads its bytes into its own type, the change it needs against what is stored, how it applies a change, and whether the result is complete enough to store. `cache::index` returns the stored index when it needs no change, else takes `cache::maintain`, reads it again, and applies what is left; `cache::update` applies a change the caller names under the same lock. An incomplete result is returned and never stored.
 - `memo.rs` owns every per-repo memo, so an index or map is read and parsed at most once per invocation.
 - `repo_context::metrics` hands every caller one shared handle to the scc payload.
 - `cache clear` empties the `file/` namespace, every schema's directory included, and `--all` removes the whole tree.
-- A repo-wide index whose key moves with repo state, the git-activity and deploy-presence maps, the mtime index, and the scc snapshot, sweeps its superseded keys in its own schema's directory with `cache::evict_prefixed` on the write that creates its key.
+- The write that creates an index's key removes every other key of its family in its schema's directory, the keys that share its name up to a trailing `_v<N>` version, so a key that moves with repo state or a version leaves no superseded entry behind.
 - `cache::maintain` is the cross-process lock `file/schema<N>/.maintain.lock` every repo-wide index update of its schema holds, so concurrent calls serialize onto one update and read its result, and a build at another schema never waits on it.
 - The process that takes the lock removes every other schema's directory whose modification time is older than `stale_schema_age`, seven days, because another installed build may still run at a younger one. A directory's modification time is its newest write, because `cache::save` renames every entry into it.
 - The loose entries directly under `file/` from before schema directories are one group, removed together once none of them was written for `stale_schema_age`.
@@ -29,10 +29,13 @@ Local code-intelligence command-line interface for Agents working in a repositor
 - The scc snapshot `file/schema<N>/repo_context_v6.json` keeps per-file rows beside the stamps they were counted at, recounts a changed or new file alone, and walks the whole tree only when an ignore file or the scc binary changes.
 - A new path is tested against the tracked `.sccignore`, `.gitignore`, and `.ignore` files through the `ignore` crate, so a path the walk would skip stays uncounted.
 - The per-file entry is keyed by contents and path, so it holds no git facts.
-- `git_activity` owns every git fact; its disk-cached bulk map keys only history-derived facts by HEAD and the 30-day cutoff date.
+- `git_activity` owns every git fact; its disk-cached bulk map keys only history-derived facts by HEAD and the 30-day cutoff date, and is built from the commit index.
+- `file/schema<N>/commits_v1.json` is the commit index: the newest `HISTORY_CAP`, 4,000, commits HEAD reaches, in `rev-list` order, each with its date, author, subject, whether it is a merge, and every file it changed with its old and new blob ids, read through `git log --raw -M --diff-merges=first-parent`, beside the blob ids known to be binary.
+- A call after HEAD moves walks only the commits the index lacks, through `git log --no-walk=unsorted --stdin`, and drops every commit HEAD no longer reaches, so a rebase or reset leaves none behind.
 - Working-tree state is always recomputed fresh, and deploy-branch presence is cached separately, keyed by the present deploy branches' tip commit ids.
 - `git_activity::git_command` is the one git spawn in the crate; under `TRACE_TIMING` it emits `timing git <first two args>`, so a test can assert which subprocesses a call ran.
-- `git_activity::blob` is the one reader of a file at a revision, and `surface::rows_at` builds that file's rows from it.
+- `git_activity::blobs` is the one object reader: it streams `git cat-file --batch` and hands each object to its caller as it arrives. `git_activity::blob` reads one file at a revision through it, and `surface::rows_at` builds that file's rows from it.
+- `file_facts::extraction_of` reads the declarations of a file's bytes from the per-file entry that the bytes and path key, else extracts them, so `surface::rows_at`, `diff`'s base side, and `history --contains` reuse what an earlier call extracted.
 - `git_activity::activity_for` composes one path's git facts for both `for_paths` and the bulk map, so a staged rename carries the old path's history everywhere.
 - The history walk and the deploy-branch `ls-tree` run with `GIT_NO_LAZY_FETCH=1`, so a partial clone never fetches from its remote for them; `blob` and every revision a command names still fetch.
 - A history walk git ends early is a floor, and it and a presence map with a failed listing are never stored.
@@ -245,7 +248,12 @@ Local code-intelligence command-line interface for Agents working in a repositor
 - `diff` runs in the repository that holds its paths; paths from more than one repository exit 2.
 - `diff` rows carry their changed lines, fitted to `--budget`.
 - `history --commit <ref>` returns one commit's full body.
-- `history --contains` and `history --regex` find the commits that changed a string through `git log -G`.
+- `history --contains` finds the commits, merges left out, that changed how often a string occurs in a file, the rule of `git log -S`. It counts the string once per distinct blob of the commit index, in parallel through `git_activity::blobs`.
+- A blob with a zero byte in its first 8,000 bytes is binary, the way git reads it: it is never counted, and the commit index records it.
+- `history --contains --regex` keeps the changes where either side matches and the blobs differ, then confirms them through `git log -G --no-walk=unsorted --stdin`.
+- `history --contains` shows the newest 29 commits, a line naming how many fall between, and the oldest; `--all` shows every one.
+- `history --contains` names each shown change's line and enclosing declaration from the side that holds more of the string, the old file for a removal, within `ANNOTATED_FILES`, 200 files of whole commits, the oldest commit first.
+- `history --commit` fits each file's changed lines to `--budget`.
 - `status` rows carry a staging word: `staged`, `unstaged`, or `partly staged`.
 - `status` text prints one heading per state, the files most others import first under it.
 - `list --recent` orders directories and files newest first, and `--limit N` keeps the first N of both, the way `ls -t | head` does.

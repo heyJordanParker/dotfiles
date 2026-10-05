@@ -1648,6 +1648,190 @@ fn history_regex_searches_past_changes_by_pattern() {
     );
 }
 
+fn subjects(v: &serde_json::Value) -> Vec<String> {
+    v["results"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|commit| commit["subject"].as_str().unwrap().to_string())
+        .collect()
+}
+
+/// A string changed in more commits than one screen holds shows the newest
+/// 29, a line naming how many fall between, and the oldest, where it entered.
+#[test]
+fn history_contains_shows_the_newest_and_the_oldest_with_the_gap_between() {
+    let f = Fixture::new();
+    let mut body = String::new();
+    for n in 0..40 {
+        body.push_str("MARKER\n");
+        f.write("log.txt", &body);
+        f.commit(&format!("marker {n}"));
+    }
+
+    let r = f.trace(&["history", "--contains", "MARKER", "--json"]);
+    r.ok();
+    let v = r.view();
+    assert_eq!(v["commits"], 40, "{}", r.stdout);
+    assert_eq!(v["shown"], 30, "{}", r.stdout);
+    assert_eq!(v["between"], 10, "{}", r.stdout);
+    let expected: Vec<String> = (11..40)
+        .rev()
+        .map(|n| format!("marker {n}"))
+        .chain(["marker 0".to_string()])
+        .collect();
+    assert_eq!(subjects(&v), expected);
+
+    let text = f.trace(&["history", "--contains", "MARKER"]);
+    text.ok();
+    let gap = text
+        .stdout
+        .find("… 10 commits between: trace history --contains MARKER --all")
+        .unwrap_or_else(|| panic!("no gap line: {}", text.stdout));
+    let oldest = text.stdout.find("marker 0").unwrap();
+    let eleventh = text.stdout.find("marker 11").unwrap();
+    assert!(eleventh < gap && gap < oldest, "{}", text.stdout);
+
+    let all = f.trace(&["history", "--contains", "MARKER", "--all", "--json"]);
+    all.ok();
+    let v = all.view();
+    assert_eq!(v["shown"], 40, "{}", all.stdout);
+    assert_eq!(v["between"], 0, "{}", all.stdout);
+    assert_eq!(subjects(&v), (0..40).rev().map(|n| format!("marker {n}")).collect::<Vec<_>>());
+}
+
+/// A merge commit only repeats what its branch's own commits changed, so
+/// `--contains` names the branch commit, the way `git log -S` does.
+#[test]
+fn history_contains_skips_merge_commits() {
+    let f = Fixture::new();
+    f.write("base.txt", "base\n");
+    f.commit("base");
+    f.git(&["checkout", "-q", "-b", "side"]);
+    f.write("side.txt", "MERGED_MARKER\n");
+    f.commit("side adds marker");
+    f.git(&["checkout", "-q", "-"]);
+    f.write("main.txt", "main\n");
+    f.commit("main moves");
+    f.git(&["merge", "-q", "--no-ff", "-m", "merge side", "side"]);
+
+    let r = f.trace(&["history", "--contains", "MERGED_MARKER", "--json"]);
+    r.ok();
+    assert_eq!(subjects(&r.view()), vec!["side adds marker"], "{}", r.stdout);
+}
+
+/// A commit that a reset or rebase removed from the branch leaves the answer
+/// with it, even after the commit index stored it.
+#[test]
+fn history_contains_drops_commits_a_rewrite_removed() {
+    let f = Fixture::new();
+    f.write("a.txt", "one\n");
+    f.commit("base");
+    f.write("a.txt", "one\nREWRITTEN_MARKER\n");
+    f.commit("adds marker");
+    let before = f.trace(&["history", "--contains", "REWRITTEN_MARKER", "--json"]);
+    before.ok();
+    assert_eq!(subjects(&before.view()), vec!["adds marker"], "{}", before.stdout);
+
+    f.git(&["reset", "-q", "--hard", "HEAD~1"]);
+    f.write("a.txt", "one\ntwo\n");
+    f.commit("replaces it");
+    let after = f.trace(&["history", "--contains", "REWRITTEN_MARKER", "--json"]);
+    after.ok();
+    let v = after.view();
+    assert_eq!(v["commits"], 0, "{}", after.stdout);
+    assert_eq!(v["searched_commits"], 2, "{}", after.stdout);
+}
+
+/// A binary file is read the way git reads it, as a file with a zero byte in
+/// its first 8,000, and its bytes are never searched.
+#[test]
+fn history_contains_skips_binary_files() {
+    let f = Fixture::new();
+    f.write_bytes("blob.bin", b"\0BINARY_MARKER\n");
+    f.write("text.txt", "BINARY_MARKER\n");
+    f.commit("both");
+
+    let r = f.trace(&["history", "--contains", "BINARY_MARKER", "--json"]);
+    r.ok();
+    let v = r.view();
+    let paths: Vec<&str> = v["results"][0]["matches"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|m| m["path"].as_str().unwrap())
+        .collect();
+    assert_eq!(paths, vec!["text.txt"], "{}", r.stdout);
+}
+
+/// The commit index reads each commit once: a new commit is walked alone,
+/// and every commit the index already holds is served from it.
+#[test]
+fn history_contains_walks_only_the_new_commit() {
+    let f = Fixture::new();
+    f.write("a.txt", "INDEXED_MARKER\n");
+    f.commit("adds marker");
+    f.trace(&["history", "--contains", "INDEXED_MARKER", "--json"]).ok();
+
+    let index = schema_directory(&f.root, PUBLISHED_SCHEMA_VERSION).join("commits_v1.json");
+    let stored = std::fs::read_to_string(&index).unwrap();
+    assert!(stored.contains("\"adds marker\""), "{stored}");
+    std::fs::write(&index, stored.replace("\"adds marker\"", "\"served from the index\"")).unwrap();
+
+    f.write("b.txt", "other\n");
+    f.commit("unrelated");
+    let r = f.trace(&["history", "--contains", "INDEXED_MARKER", "--json"]);
+    r.ok();
+    let v = r.view();
+    assert_eq!(v["searched_commits"], 2, "{}", r.stdout);
+    assert_eq!(subjects(&v), vec!["served from the index"], "{}", r.stdout);
+}
+
+/// A removal names the line the pattern held and the declaration that held
+/// it, read from the file before the commit.
+#[test]
+fn history_contains_reads_a_removal_from_the_file_before_it() {
+    let f = Fixture::new();
+    f.write(
+        "mod.py",
+        "def keep():\n    return 1\n\n\ndef doomed():\n    return 'REMOVED_MARKER'\n",
+    );
+    f.commit("add doomed");
+    f.write("mod.py", "def keep():\n    return 1\n");
+    f.commit("remove doomed");
+
+    let r = f.trace(&["history", "--contains", "REMOVED_MARKER", "--json"]);
+    r.ok();
+    let v = r.view();
+    assert_eq!(subjects(&v), vec!["remove doomed", "add doomed"], "{}", r.stdout);
+    let removal = &v["results"][0]["matches"][0];
+    assert_eq!(removal["line"], 6, "{}", r.stdout);
+    assert_eq!(removal["enclosing_symbol"], "doomed", "{}", r.stdout);
+}
+
+/// A commit larger than the budget prints its message whole and fits its
+/// files' changes into what is left, naming the command that returns all.
+#[test]
+fn history_commit_fits_the_budget() {
+    let f = Fixture::new();
+    f.write("seed.txt", "seed\n");
+    f.commit("seed");
+    for n in 0..20 {
+        f.write(&format!("f{n}.py"), &"value = 1\n".repeat(200));
+    }
+    f.commit("many files");
+
+    let r = f.trace(&["history", "--commit", "HEAD", "--budget", "3000"]);
+    r.ok();
+    assert!(r.stdout.encode_utf16().count() <= 3000, "{} chars", r.stdout.len());
+    assert!(r.stdout.contains("many files"), "{}", r.stdout);
+    assert!(
+        r.stdout.contains("shortened to fit --budget 3000 — whole: trace history --commit HEAD --budget 0"),
+        "{}",
+        r.stdout
+    );
+}
+
 /// `grep --at <ref>` searches a commit. ripgrep reads the disk, so the past
 /// was reachable only by `git show <ref>:<path>` — 40,433 times in the
 /// census.

@@ -665,7 +665,7 @@ fn base_exports(
     let Some(source) = crate::git_activity::blob(repo_root, merge_base, relative_path) else {
         return vec![];
     };
-    match crate::extraction::extract(&source, relative_path) {
+    match crate::file_facts::extraction_of(&source, relative_path, repo_root) {
         Some(e) => e
             .exports
             .iter()

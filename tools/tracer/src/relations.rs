@@ -701,16 +701,7 @@ impl Relations {
     }
 
     fn load_or_build_directory_metrics(&self) -> DirectoryIndex {
-        if let Some(index) = load_directory_metrics(&self.repo_root) {
-            return index;
-        }
-        let _lock = cache::maintain(&self.repo_root);
-        if let Some(index) = load_directory_metrics(&self.repo_root) {
-            return index;
-        }
-        let index = self.build_directory_metrics();
-        save_directory_metrics(&index, &self.repo_root);
-        index
+        cache::index(&DirectoriesIndex { relations: self }, &self.repo_root).unwrap_or_default()
     }
 
     fn build_directory_metrics(&self) -> DirectoryIndex {
@@ -2068,14 +2059,29 @@ fn directories_key() -> &'static str {
     "relations_directories_v1"
 }
 
-fn load_directory_metrics(repo_root: &Path) -> Option<DirectoryIndex> {
-    cache::load_bytes(cache::NAMESPACE_FILE, directories_key(), repo_root)
-        .as_deref()
-        .and_then(|bytes| serde_json::from_slice(bytes).ok())
+struct DirectoriesIndex<'a> {
+    relations: &'a Relations,
 }
 
-fn save_directory_metrics(index: &DirectoryIndex, repo_root: &Path) {
-    let _ = cache::save(cache::NAMESPACE_FILE, directories_key(), index, repo_root);
+impl cache::Index for DirectoriesIndex<'_> {
+    type Stored = DirectoryIndex;
+    type Change = ();
+
+    fn key(&self) -> String {
+        directories_key().to_string()
+    }
+
+    fn read(&self, bytes: &[u8]) -> Option<DirectoryIndex> {
+        serde_json::from_slice(bytes).ok()
+    }
+
+    fn change(&self, stored: Option<&DirectoryIndex>) -> Option<()> {
+        stored.is_none().then_some(())
+    }
+
+    fn apply(&self, _stored: Option<DirectoryIndex>, _change: ()) -> DirectoryIndex {
+        self.relations.build_directory_metrics()
+    }
 }
 
 fn table_hash<'a>(paths: impl IntoIterator<Item = &'a str>) -> String {
@@ -2099,17 +2105,13 @@ static DIRECTORY_METRICS_MEMO: memo::Memo<DirectoryIndex> = OnceLock::new();
 /// call on a cold cache absorbs everything, which is the same work the graph
 /// build did minus reference resolution.
 pub fn get(repo_root: &Path) -> Arc<Relations> {
-    memo::get_or_build(&MEMO, repo_root, || load_and_update(repo_root))
-}
-
-fn stored(repo_root: &Path) -> Relations {
-    cache::load_bytes(cache::NAMESPACE_FILE, edges_key(), repo_root)
-        .as_deref()
-        .and_then(|bytes| Relations::from_bytes(bytes, repo_root))
-        .unwrap_or_else(|| Relations {
-            repo_root: repo_root.to_path_buf(),
-            ..Default::default()
-        })
+    memo::get_or_build(&MEMO, repo_root, || {
+        let index = RelationsIndex {
+            repo_root,
+            hashes: OnceLock::new(),
+        };
+        cache::index(&index, repo_root).unwrap_or_else(|| index.empty())
+    })
 }
 
 /// The files the index no longer covers and the files whose content key
@@ -2133,50 +2135,112 @@ fn stale(
     (!gone.is_empty() || !moved.is_empty()).then_some((gone, moved))
 }
 
-fn load_and_update(repo_root: &Path) -> Relations {
-    let relations = stored(repo_root);
-    let known_extensions: HashSet<String> = relations
-        .built_from
-        .keys()
-        .filter_map(|path| {
-            Path::new(&**path)
-                .extension()
-                .and_then(|extension| extension.to_str())
-        })
-        .map(str::to_lowercase)
-        .collect();
-    let Some((files, stamps)) = discover_files_stamped(repo_root, &known_extensions) else {
-        return stored(repo_root);
-    };
-    let hashes = file_facts::file_hashes_for_stamped(&files, &stamps, repo_root);
-    let (roots, manifests) = Roots::read(repo_root, &relations.cargo_manifests);
-    if stale(&relations, &hashes).is_none()
-        && relations.roots == roots
-        && relations.cargo_manifests == manifests
-    {
-        return relations;
+struct RelationsIndex<'a> {
+    repo_root: &'a Path,
+    hashes: OnceLock<Option<BTreeMap<String, String>>>,
+}
+
+struct RelationsChange {
+    gone: Vec<String>,
+    moved: Vec<String>,
+    keys: HashMap<String, String>,
+    roots: Roots,
+    manifests: CargoManifests,
+}
+
+impl cache::Index for RelationsIndex<'_> {
+    type Stored = Relations;
+    type Change = RelationsChange;
+
+    fn key(&self) -> String {
+        edges_key().to_string()
     }
 
-    // One maintainer at a time. The holder may have absorbed exactly this
-    // change while we waited, so the index is read again under the lock and
-    // compared afresh: what it left is what remains. A file that moves
-    // between the hash sweep and here is absorbed under its earlier key,
-    // which the next call sees as moved again and corrects.
-    let _lock = cache::maintain(repo_root);
-    let mut relations = stored(repo_root);
-    let (roots, manifests) = Roots::read(repo_root, &relations.cargo_manifests);
-    let manifests_changed = relations.cargo_manifests != manifests;
+    fn read(&self, bytes: &[u8]) -> Option<Relations> {
+        Relations::from_bytes(bytes, self.repo_root)
+    }
+
+    /// The per-file content hashes are swept once, against the extensions the
+    /// first index read knows; the holder of the lock may have absorbed this
+    /// very change while another call waited, so the change is computed again
+    /// under the lock and only what it left remains. A file that moves
+    /// between the hash sweep and the update is absorbed under its earlier
+    /// key, which the next call sees as moved again and corrects.
+    fn change(&self, stored: Option<&Relations>) -> Option<RelationsChange> {
+        let empty;
+        let relations = match stored {
+            Some(relations) => relations,
+            None => {
+                empty = self.empty();
+                &empty
+            }
+        };
+        let hashes = self
+            .hashes
+            .get_or_init(|| {
+                let known_extensions: HashSet<String> = relations
+                    .built_from
+                    .keys()
+                    .filter_map(|path| Path::new(&**path).extension().and_then(|extension| extension.to_str()))
+                    .map(str::to_lowercase)
+                    .collect();
+                let (files, stamps) = discover_files_stamped(self.repo_root, &known_extensions)?;
+                Some(file_facts::file_hashes_for_stamped(&files, &stamps, self.repo_root))
+            })
+            .as_ref()?;
+        let (roots, manifests) = Roots::read(self.repo_root, &relations.cargo_manifests);
+        let stale = stale(relations, hashes);
+        if stale.is_none() && relations.roots == roots && relations.cargo_manifests == manifests {
+            return None;
+        }
+        let (gone, moved) = stale.unwrap_or_default();
+        let keys = moved
+            .iter()
+            .filter_map(|path| Some((path.clone(), hashes.get(path)?.clone())))
+            .collect();
+        Some(RelationsChange {
+            gone,
+            moved,
+            keys,
+            roots,
+            manifests,
+        })
+    }
+
+    fn apply(&self, stored: Option<Relations>, change: RelationsChange) -> Relations {
+        update(stored.unwrap_or_else(|| self.empty()), change, self.repo_root)
+    }
+}
+
+impl RelationsIndex<'_> {
+    fn empty(&self) -> Relations {
+        Relations {
+            repo_root: self.repo_root.to_path_buf(),
+            ..Default::default()
+        }
+    }
+}
+
+impl serde::Serialize for Relations {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        self.edges_entry().serialize(serializer)
+    }
+}
+
+fn update(mut relations: Relations, change: RelationsChange, repo_root: &Path) -> Relations {
+    let RelationsChange {
+        gone,
+        moved,
+        keys,
+        roots,
+        manifests,
+    } = change;
     relations.cargo_manifests = manifests;
     let roots_changed = ["php", "typescript", "rust"]
         .into_iter()
         .any(|language| !relations.roots.has_same_mapping(&roots, Some(language)));
-    let (gone, moved) = stale(&relations, &hashes).unwrap_or_default();
     if gone.is_empty() && moved.is_empty() && !roots_changed {
-        let roots_moved = relations.roots != roots;
         relations.roots = roots;
-        if manifests_changed || roots_moved {
-            let _ = cache::save(cache::NAMESPACE_FILE, edges_key(), &relations.edges_entry(), repo_root);
-        }
         return relations;
     }
 
@@ -2253,7 +2317,7 @@ fn load_and_update(repo_root: &Path) -> Relations {
         let needed: Vec<PathBuf> = chunk.iter().map(|rel| repo_root.join(rel)).collect();
         let facts = file_facts::get_batch(&needed, repo_root);
         for path in chunk {
-            let (Some(f), Some(key)) = (facts.get(path), hashes.get(path)) else {
+            let (Some(f), Some(key)) = (facts.get(path), keys.get(path)) else {
                 continue;
             };
             relations.absorb_symbols(f, key);
@@ -2350,11 +2414,10 @@ fn load_and_update(repo_root: &Path) -> Relations {
     // The table is hashed in stored order, which `from_bytes` reproduces;
     // `files` itself appends each newly interned path at the end.
     relations.file_table_hash = table_hash(relations.built_from.keys().map(|path| &**path));
-    let (edges, symbols, imports) = relations.stored_forms();
+    let (_, symbols, imports) = relations.stored_forms();
     let _ = cache::save(cache::NAMESPACE_FILE, symbols_key(), &symbols, repo_root);
     let _ = cache::save(cache::NAMESPACE_FILE, imports_key(), &imports, repo_root);
-    let _ = cache::save(cache::NAMESPACE_FILE, edges_key(), &edges, repo_root);
-    save_directory_metrics(&relations.build_directory_metrics(), repo_root);
+    cache::update(&DirectoriesIndex { relations: &relations }, repo_root, ());
     relations
 }
 

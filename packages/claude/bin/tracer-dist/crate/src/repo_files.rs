@@ -6,6 +6,7 @@
 //! (the same set as absolute paths) plus `walk_files` (SKIP_DIRS-bounded
 //! walk) for the non-git fallback.
 
+use std::cell::{Cell, RefCell};
 use std::collections::HashSet;
 use std::fs;
 use std::ops::Deref;
@@ -32,7 +33,7 @@ pub(crate) struct TrackedFiles {
     pub symlinks: Vec<bool>,
 }
 
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Default, serde::Serialize, serde::Deserialize)]
 struct StoredTrackedFiles {
     paths: Vec<String>,
     tracked: Vec<bool>,
@@ -209,25 +210,62 @@ fn fresh_listing(repo_root: &Path) -> Option<StoredTrackedFiles> {
 }
 
 pub(crate) fn stamped_files_uncached(repo_root: &Path) -> Option<TrackedFiles> {
-    if let Some(cached) = fresh_listing(repo_root) {
-        return Some(stamp_paths(repo_root, &cached.paths, &cached.tracked));
-    }
-    let _lock = crate::cache::maintain(repo_root)?;
-    if let Some(cached) = fresh_listing(repo_root) {
-        return Some(stamp_paths(repo_root, &cached.paths, &cached.tracked));
-    }
-    let listed = discover_files(repo_root)?;
-    let (directories, ignored) = watched_paths(repo_root, &listed.paths);
-    let index = crate::cache::git_dir(repo_root).and_then(|git_dir| stamp(&git_dir.join("index")));
-    let stored = StoredTrackedFiles {
-        paths: listed.paths.clone(),
-        tracked: listed.tracked.clone(),
-        directories,
-        ignored,
-        index,
+    let index = ListingIndex {
+        repo_root,
+        discovered: RefCell::new(None),
+        failed: Cell::new(false),
     };
-    let _ = crate::cache::save(crate::cache::NAMESPACE_FILE, LISTING, &stored, repo_root);
-    Some(listed)
+    let stored = crate::cache::index(&index, repo_root).filter(|_| !index.failed.get())?;
+    Some(
+        index
+            .discovered
+            .take()
+            .unwrap_or_else(|| stamp_paths(repo_root, &stored.paths, &stored.tracked)),
+    )
+}
+
+struct ListingIndex<'a> {
+    repo_root: &'a Path,
+    discovered: RefCell<Option<TrackedFiles>>,
+    failed: Cell<bool>,
+}
+
+impl crate::cache::Index for ListingIndex<'_> {
+    type Stored = StoredTrackedFiles;
+    type Change = ();
+
+    fn key(&self) -> String {
+        LISTING.to_string()
+    }
+
+    fn read(&self, bytes: &[u8]) -> Option<StoredTrackedFiles> {
+        serde_json::from_slice(bytes).ok()
+    }
+
+    fn change(&self, stored: Option<&StoredTrackedFiles>) -> Option<()> {
+        (!stored.is_some_and(|stored| listing_is_fresh(stored, self.repo_root))).then_some(())
+    }
+
+    fn apply(&self, _stored: Option<StoredTrackedFiles>, _change: ()) -> StoredTrackedFiles {
+        let Some(listed) = discover_files(self.repo_root) else {
+            self.failed.set(true);
+            return StoredTrackedFiles::default();
+        };
+        let (directories, ignored) = watched_paths(self.repo_root, &listed.paths);
+        let stored = StoredTrackedFiles {
+            paths: listed.paths.clone(),
+            tracked: listed.tracked.clone(),
+            directories,
+            ignored,
+            index: crate::cache::git_dir(self.repo_root).and_then(|git_dir| stamp(&git_dir.join("index"))),
+        };
+        self.discovered.replace(Some(listed));
+        stored
+    }
+
+    fn complete(&self, _stored: &StoredTrackedFiles) -> bool {
+        !self.failed.get()
+    }
 }
 
 fn listing_is_fresh(stored: &StoredTrackedFiles, repo_root: &Path) -> bool {

@@ -42,12 +42,12 @@ pub const NAMESPACE_FILE: &str = "file";
 /// stores the mtime index, which takes this lock again. `flock` on a second
 /// descriptor in the same process would block forever, so the depth counter
 /// hands a nested caller the lock the process already holds.
-pub struct Maintenance;
+struct Maintenance;
 
 #[allow(non_upper_case_globals)]
 static maintenance: std::sync::Mutex<(usize, Option<fs::File>)> = std::sync::Mutex::new((0, None));
 
-pub fn maintain(repo_root: &Path) -> Option<Maintenance> {
+fn maintain(repo_root: &Path) -> Option<Maintenance> {
     let mut held = maintenance.lock().unwrap();
     if held.0 == 0 {
         let dir = schema_directory(NAMESPACE_FILE, repo_root).ok()?;
@@ -308,7 +308,7 @@ pub fn remove(namespace: &str, key: &str, repo_root: &Path) {
 /// `git_activity__*` entries totalling 52 MB had accumulated in this repo.
 /// Runs after the rename, so a crash mid-write never removes the only good
 /// entry. A content entry's name is its hex hash, which no prefix matches.
-pub fn evict_prefixed(namespace: &str, prefix: &str, keep: &str, repo_root: &Path) {
+fn evict_prefixed(namespace: &str, prefix: &str, keep: &str, repo_root: &Path) {
     let Ok(dir) = schema_directory(namespace, repo_root) else {
         return;
     };
@@ -326,6 +326,58 @@ pub fn evict_prefixed(namespace: &str, prefix: &str, keep: &str, repo_root: &Pat
             let _ = fs::remove_file(&path);
         }
     }
+}
+
+pub trait Index {
+    type Stored: serde::Serialize;
+    type Change;
+    fn key(&self) -> String;
+    fn read(&self, bytes: &[u8]) -> Option<Self::Stored>;
+    fn change(&self, stored: Option<&Self::Stored>) -> Option<Self::Change>;
+    fn apply(&self, stored: Option<Self::Stored>, change: Self::Change) -> Self::Stored;
+    fn complete(&self, _stored: &Self::Stored) -> bool {
+        true
+    }
+}
+
+pub fn index<I: Index>(index: &I, repo_root: &Path) -> Option<I::Stored> {
+    let key = index.key();
+    let stored = read_entry(index, &key, repo_root);
+    if index.change(stored.as_ref()).is_none() {
+        return stored;
+    }
+    let _lock = maintain(repo_root);
+    let stored = read_entry(index, &key, repo_root);
+    match index.change(stored.as_ref()) {
+        None => stored,
+        Some(change) => Some(store(index, &key, index.apply(stored, change), repo_root)),
+    }
+}
+
+pub fn update<I: Index>(index: &I, repo_root: &Path, change: I::Change) -> I::Stored {
+    let _lock = maintain(repo_root);
+    let key = index.key();
+    let stored = read_entry(index, &key, repo_root);
+    store(index, &key, index.apply(stored, change), repo_root)
+}
+
+fn read_entry<I: Index>(index: &I, key: &str, repo_root: &Path) -> Option<I::Stored> {
+    load_bytes(NAMESPACE_FILE, key, repo_root).and_then(|bytes| index.read(&bytes))
+}
+
+fn store<I: Index>(index: &I, key: &str, stored: I::Stored, repo_root: &Path) -> I::Stored {
+    if index.complete(&stored) {
+        if let Ok(true) = save(NAMESPACE_FILE, key, &stored, repo_root) {
+            evict_prefixed(NAMESPACE_FILE, family(key), key, repo_root);
+        }
+    }
+    stored
+}
+
+fn family(key: &str) -> &str {
+    let name = key.split("__").next().unwrap_or(key);
+    let unversioned = name.trim_end_matches(|character: char| character.is_ascii_digit());
+    unversioned.strip_suffix("_v").unwrap_or(name)
 }
 
 /// Delete every other schema's directory beside `current` once nothing was

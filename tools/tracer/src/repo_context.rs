@@ -23,6 +23,7 @@ use std::fs;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
+use std::cell::Cell;
 use std::process::Command;
 use std::sync::{Arc, OnceLock};
 
@@ -359,10 +360,6 @@ fn refresh_for(
     Refresh::Paths { changed, removed }
 }
 
-fn load_stored(repo_root: &Path) -> Option<Stored> {
-    cache::load_bytes(cache::NAMESPACE_FILE, CACHE_KEY, repo_root)
-        .and_then(|bytes| serde_json::from_slice::<Stored>(&bytes).ok())
-}
 
 fn load_or_compute_uncached(repo_root: &Path) -> Payload {
     if !repo_root.join(".git").exists() {
@@ -386,59 +383,81 @@ fn load_or_compute_uncached(repo_root: &Path) -> Payload {
         eprintln!("Error: repo context input scan failed: git file discovery unavailable");
         return empty_payload();
     };
-    let current = current_stamps(&files);
-    let skips = WalkSkips::new(repo_root, &files);
-    let plan = |stored: &Option<Stored>| match stored {
-        Some(stored) => refresh_for(stored, &identity, &current, |path| {
-            skips.skips(repo_root, path)
-        }),
-        None => Refresh::Whole,
+    let index = ContextIndex {
+        repo_root,
+        skips: WalkSkips::new(repo_root, &files),
+        current: current_stamps(&files),
+        executable,
+        identity,
+        failed: Cell::new(false),
     };
-    let stored = load_stored(repo_root);
-    if let (Refresh::Nothing, Some(stored)) = (plan(&stored), stored) {
-        return payload_from(stored.per_file);
+    match cache::index(&index, repo_root) {
+        Some(stored) if !index.failed.get() => payload_from(stored.per_file),
+        _ => empty_payload(),
     }
-    // One maintainer at a time; the holder may have counted this change
-    // while we waited, so the entry is read again under the lock.
-    let _lock = cache::maintain(repo_root);
-    let stored = load_stored(repo_root);
-    let per_file = match (plan(&stored), stored) {
-        (Refresh::Nothing, Some(stored)) => return payload_from(stored.per_file),
-        (Refresh::Paths { changed, removed }, Some(stored)) => {
-            let mut per_file = stored.per_file;
-            for path in changed.iter().chain(removed.iter()) {
-                per_file.remove(path);
-            }
-            let targets: Vec<&str> = changed.iter().map(String::as_str).collect();
-            match scc_rows(repo_root, &executable, Some(&targets)) {
-                Ok(rows) => per_file.extend(rows),
-                Err(error) => {
-                    eprintln!("Error: repo context unavailable: {error:#}");
-                    return empty_payload();
+}
+
+struct ContextIndex<'a> {
+    repo_root: &'a Path,
+    executable: PathBuf,
+    identity: String,
+    current: BTreeMap<String, repo_files::Stamp>,
+    skips: WalkSkips,
+    failed: Cell<bool>,
+}
+
+impl cache::Index for ContextIndex<'_> {
+    type Stored = Stored;
+    type Change = Refresh;
+
+    fn key(&self) -> String {
+        CACHE_KEY.to_string()
+    }
+
+    fn read(&self, bytes: &[u8]) -> Option<Stored> {
+        serde_json::from_slice(bytes).ok()
+    }
+
+    fn change(&self, stored: Option<&Stored>) -> Option<Refresh> {
+        let refresh = match stored {
+            Some(stored) => refresh_for(stored, &self.identity, &self.current, |path| {
+                self.skips.skips(self.repo_root, path)
+            }),
+            None => Refresh::Whole,
+        };
+        (!matches!(refresh, Refresh::Nothing)).then_some(refresh)
+    }
+
+    fn apply(&self, stored: Option<Stored>, change: Refresh) -> Stored {
+        let counted = match (change, stored) {
+            (Refresh::Paths { changed, removed }, Some(stored)) => {
+                let mut per_file = stored.per_file;
+                for path in changed.iter().chain(removed.iter()) {
+                    per_file.remove(path);
                 }
+                let targets: Vec<&str> = changed.iter().map(String::as_str).collect();
+                scc_rows(self.repo_root, &self.executable, Some(&targets)).map(|rows| {
+                    per_file.extend(rows);
+                    per_file
+                })
             }
-            per_file
+            _ => scc_rows(self.repo_root, &self.executable, None),
+        };
+        let per_file = counted.unwrap_or_else(|error| {
+            eprintln!("Error: repo context unavailable: {error:#}");
+            self.failed.set(true);
+            BTreeMap::new()
+        });
+        Stored {
+            executable: self.identity.clone(),
+            per_file,
+            stamps: self.current.clone(),
         }
-        _ => match scc_rows(repo_root, &executable, None) {
-            Ok(rows) => rows,
-            Err(error) => {
-                eprintln!("Error: repo context unavailable: {error:#}");
-                return empty_payload();
-            }
-        },
-    };
-    let entry = Stored {
-        executable: identity,
-        per_file,
-        stamps: current,
-    };
-    if let Some(true) = serde_json::to_value(&entry)
-        .ok()
-        .and_then(|value| cache::save(cache::NAMESPACE_FILE, CACHE_KEY, &value, repo_root).ok())
-    {
-        cache::evict_prefixed(cache::NAMESPACE_FILE, "repo_context_v", CACHE_KEY, repo_root);
     }
-    payload_from(entry.per_file)
+
+    fn complete(&self, _stored: &Stored) -> bool {
+        !self.failed.get()
+    }
 }
 
 pub fn repo_context(path: &Path) -> Value {

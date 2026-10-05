@@ -5,20 +5,27 @@
 //!   trace history --contains <pattern>  pickaxe (git log -S)
 //!
 //! Whole-file mode reuses the cached bulk git pipeline (`git_activity`) for
-//! the settled-history fields. The function and pickaxe modes shell out to
-//! git's native function-range and pickaxe history — command-local git calls
-//! outside the cached pipeline. A pickaxe match names the declaration
-//! `surface::innermost` picks from the file's extraction at that commit.
+//! the settled-history fields. The function mode shells out to git's native
+//! function-range history. The pickaxe reads the commit index: each distinct
+//! blob the indexed commits changed is read once and the pattern counted in
+//! it, and a commit matches where a file's old and new counts differ, the rule
+//! `git log -S` applies. A match names the declaration `surface::innermost`
+//! picks from the file's extraction at that commit.
 
+use crate::git_activity::{Commit, CommitIndex, Commits, CommitsChange, FileChange};
 use crate::{cache, git_activity};
 use anyhow::{bail, Result};
 use rayon::prelude::*;
+use regex::bytes::{Regex, RegexBuilder};
 use serde_json::{json, Value};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::Path;
 
 const RECENT_COMMITS: i64 = 10;
 const FUNCTION_COMMITS: i64 = 20;
-const PICKAXE_COMMITS: i64 = 30;
+const NEWEST_SHOWN: usize = 29;
+const BINARY_PROBE: usize = 8000;
+const ANNOTATED_FILES: usize = 200;
 
 // ---------- mode 1: whole-file ----------
 
@@ -334,173 +341,307 @@ fn render_function(p: &Value) {
 
 // ---------- mode 3: pickaxe ----------
 
-struct PickaxeCommit {
-    sha: String,
-    short_sha: String,
-    author: String,
-    date: String,
-    subject: String,
-    files: Vec<String>,
+struct Found<'a> {
+    id: &'a str,
+    commit: &'a Commit,
+    files: Vec<&'a FileChange>,
 }
 
-fn pickaxe_commits(
-    pattern: &str,
-    regex: bool,
-    repo_root: &Path,
-    n: i64,
-) -> Result<Vec<PickaxeCommit>> {
-    // `-S` counts occurrences of a literal string; `-G` matches the diff text
-    // against a regular expression. A pattern with a `\d` or a `.*` in it
-    // finds nothing under `-S`, which reads as "this never changed".
-    let needle = if regex {
-        format!("-G{pattern}")
-    } else {
-        format!("-S{pattern}")
-    };
-    let out = crate::git_activity::git_output(
-        repo_root,
-        [
-            "log",
-            &format!("-{n}"),
-            &needle,
-            "--name-only",
-            "--pretty=format:%x00COMMIT%x00%H%x00%an%x00%ad%x00%s",
-            "--date=short",
-        ],
-    )?;
-    if !out.status.success() {
-        let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
-        bail!("git log -S failed: {stderr}");
+/// Each blob's count of the pattern, and the blobs found to be binary, which
+/// git's own test calls a blob with a zero byte in its first 8,000 bytes.
+struct Counts {
+    of: HashMap<String, usize>,
+    binary: Vec<String>,
+}
+
+impl Counts {
+    fn of(&self, blob: &Option<String>) -> Option<usize> {
+        match blob {
+            None => Some(0),
+            Some(id) => self.of.get(id).copied(),
+        }
     }
-    let stdout = String::from_utf8_lossy(&out.stdout);
-    let mut commits: Vec<PickaxeCommit> = Vec::new();
-    let mut current: Option<PickaxeCommit> = None;
-    for line in stdout.split('\n') {
-        if let Some(rest) = line.strip_prefix("\u{0}COMMIT\u{0}") {
-            if let Some(c) = current.take() {
-                commits.push(c);
-            }
-            let parts: Vec<&str> = rest.split('\u{0}').collect();
-            let sha = parts.first().unwrap_or(&"").to_string();
-            current = Some(PickaxeCommit {
-                short_sha: sha.chars().take(12).collect(),
-                sha,
-                author: parts.get(1).unwrap_or(&"").to_string(),
-                date: parts.get(2).unwrap_or(&"").to_string(),
-                subject: parts.get(3).unwrap_or(&"").to_string(),
-                files: Vec::new(),
+}
+
+fn matcher(pattern: &str, regex: bool) -> Option<Regex> {
+    let source = if regex { pattern.to_string() } else { regex::escape(pattern) };
+    RegexBuilder::new(&source).multi_line(true).build().ok()
+}
+
+fn counts(searched: &[(&str, &Commit)], known_binary: &BTreeSet<String>, matcher: &Regex, repo_root: &Path) -> Counts {
+    let blobs: Vec<String> = searched
+        .iter()
+        .flat_map(|(_, commit)| &commit.changes)
+        .flat_map(|change| change.old.iter().chain(&change.new))
+        .filter(|blob| !known_binary.contains(*blob))
+        .cloned()
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    let share = blobs.len().div_ceil(rayon::current_num_threads().max(1)).max(1);
+    let read: Vec<(String, Option<usize>)> = blobs
+        .par_chunks(share)
+        .flat_map_iter(|chunk| {
+            let mut read = Vec::with_capacity(chunk.len());
+            git_activity::blobs(repo_root, chunk, |index, bytes| {
+                if let Some(bytes) = bytes {
+                    let binary = bytes[..bytes.len().min(BINARY_PROBE)].contains(&0);
+                    read.push((chunk[index].clone(), (!binary).then(|| matcher.find_iter(bytes).count())));
+                }
             });
-            continue;
-        }
-        let stripped = line.trim();
-        if !stripped.is_empty() {
-            if let Some(c) = current.as_mut() {
-                c.files.push(stripped.to_string());
+            read
+        })
+        .collect();
+    let mut counts = Counts {
+        of: HashMap::with_capacity(read.len()),
+        binary: Vec::new(),
+    };
+    for (blob, count) in read {
+        match count {
+            Some(count) => {
+                counts.of.insert(blob, count);
             }
+            None => counts.binary.push(blob),
         }
     }
-    if let Some(c) = current.take() {
-        commits.push(c);
+    counts
+}
+
+fn pickaxe<'a>(pattern: &str, regex: bool, commits: &'a Commits, repo_root: &Path) -> Result<(Vec<Found<'a>>, Option<Counts>)> {
+    let searched: Vec<(&str, &Commit)> = commits
+        .order
+        .iter()
+        .filter_map(|id| Some((id.as_str(), commits.commits.get(id)?)))
+        .filter(|(_, commit)| !commit.merge)
+        .collect();
+    let Some(matcher) = matcher(pattern, regex) else {
+        return Ok((confirmed(pattern, &searched, repo_root)?, None));
+    };
+    let counts = crate::timing::phase("count blobs", || counts(&searched, &commits.binary, &matcher, repo_root));
+    if !counts.binary.is_empty() {
+        cache::update(&CommitIndex { repo_root }, repo_root, CommitsChange::Binary(counts.binary.clone()));
     }
-    Ok(commits)
+    let changed = |change: &FileChange| match (counts.of(&change.old), counts.of(&change.new)) {
+        (Some(old), Some(new)) if regex => (old > 0 || new > 0) && change.old != change.new,
+        (Some(old), Some(new)) => old != new,
+        _ => false,
+    };
+    let found: Vec<Found> = searched
+        .iter()
+        .filter_map(|(id, commit)| {
+            let files: Vec<&FileChange> = commit.changes.iter().filter(|change| changed(change)).collect();
+            (!files.is_empty()).then_some(Found { id, commit, files })
+        })
+        .collect();
+    if !regex {
+        return Ok((found, Some(counts)));
+    }
+    let candidates: Vec<(&str, &Commit)> = found.iter().map(|found| (found.id, found.commit)).collect();
+    Ok((confirmed(pattern, &candidates, repo_root)?, Some(counts)))
 }
 
-/// The file's bytes at a commit. One `git show` serves both the line lookup
-/// and the enclosing-symbol walk; asking twice doubled the process count of
-/// every pickaxe query.
-fn blob(commit_sha: &str, path: &str, repo_root: &Path) -> Option<Vec<u8>> {
-    crate::git_activity::blob(repo_root, commit_sha, path).filter(|bytes| !bytes.is_empty())
-}
-
-fn commit_line_for_pattern(blob: &[u8], pattern: &str) -> Option<i64> {
-    let text = String::from_utf8_lossy(blob);
-    for (idx, line) in text.split('\n').enumerate() {
-        if line.contains(pattern) {
-            return Some(idx as i64 + 1);
+/// The candidates `git log -G` confirms, each with the files it names: a
+/// regular expression's meaning is git's, so git makes the final call.
+fn confirmed<'a>(pattern: &str, candidates: &[(&'a str, &'a Commit)], repo_root: &Path) -> Result<Vec<Found<'a>>> {
+    if candidates.is_empty() {
+        return Ok(Vec::new());
+    }
+    let request = candidates.iter().map(|(id, _)| *id).collect::<Vec<_>>().join("\n").into_bytes();
+    let needle = format!("-G{pattern}");
+    let (stdout, finished) = git_activity::piped(
+        repo_root,
+        &["log", "--no-walk=unsorted", "--stdin", &needle, "-M", "--name-only", "-z", "--format=COMMIT|%H"],
+        request,
+        |_| {},
+        |mut stdout| {
+            let mut read = Vec::new();
+            std::io::Read::read_to_end(&mut stdout, &mut read)?;
+            Ok(read)
+        },
+    )?;
+    if !finished {
+        bail!("git log {needle} failed: the pattern is not a regular expression git reads");
+    }
+    let mut named: HashMap<String, Vec<String>> = HashMap::new();
+    let mut current: Option<String> = None;
+    for field in stdout.split(|byte| *byte == 0) {
+        let field = String::from_utf8_lossy(field);
+        let field = field.trim_matches('\n');
+        if let Some(id) = field.strip_prefix("COMMIT|") {
+            current = Some(id.to_string());
+            named.entry(id.to_string()).or_default();
+        } else if let (Some(id), false) = (&current, field.is_empty()) {
+            named.entry(id.clone()).or_default().push(field.to_string());
         }
     }
-    None
+    Ok(candidates
+        .iter()
+        .filter_map(|(id, commit)| {
+            let paths: HashSet<&str> = named.get(*id)?.iter().map(String::as_str).collect();
+            let files: Vec<&FileChange> = commit.changes.iter().filter(|change| paths.contains(change.path.as_str())).collect();
+            (!files.is_empty()).then_some(Found { id, commit, files })
+        })
+        .collect())
 }
 
-fn pickaxe_payload(pattern: &str, regex: bool, repo_root: &Path) -> Result<Value> {
-    let commits = pickaxe_commits(pattern, regex, repo_root, PICKAXE_COMMITS)?;
-    let mut annotated: Vec<Value> = Vec::new();
-    for commit in &commits {
-        // Every touched path in a commit is an independent `git show`.
-        // Serially, a pickaxe over a wide commit spent its whole wall clock
-        // waiting on processes.
-        let entries: Vec<Value> = commit
-            .files
-            .par_iter()
-            .map(|path| {
-                let blob = blob(&commit.sha, path, repo_root);
-                let line = blob
-                    .as_deref()
-                    .and_then(|b| commit_line_for_pattern(b, pattern));
-                let symbol = blob
-                    .as_deref()
-                    .zip(line)
-                    .and_then(|(b, l)| {
-                        let extraction = crate::extraction::extract(b, path)?;
-                        let declarations = &extraction.declarations;
-                        crate::surface::innermost(declarations.iter().map(|d| (d.header_line, d.end_line)), l)
-                            .map(|index| declarations[index].name.clone())
-                    });
-                json!({
-                    "path": path,
-                    "line": line,
-                    "enclosing_symbol": symbol,
-                })
+/// Which shown commits get each file's line and declaration: whole commits,
+/// the oldest first and then newest to oldest, while their files fit
+/// `ANNOTATED_FILES`. A commit past it still names its files.
+fn annotated(shown: &[&Found]) -> Vec<bool> {
+    let mut annotated = vec![false; shown.len()];
+    let mut left = ANNOTATED_FILES;
+    let oldest = shown.len().saturating_sub(1);
+    for index in std::iter::once(oldest).chain(0..oldest) {
+        if let Some(found) = shown.get(index).filter(|found| found.files.len() <= left) {
+            left -= found.files.len();
+            annotated[index] = true;
+        }
+    }
+    annotated
+}
+
+/// Each shown match's line and enclosing declaration, read from the side of
+/// the change that holds more of the pattern: the new file where the pattern
+/// was added, the old one where it was removed.
+fn annotate(shown: &[&Found], matcher: Option<&Regex>, counts: Option<&Counts>, repo_root: &Path) -> Vec<Value> {
+    let annotated = annotated(shown);
+    let sides: Vec<(Option<String>, String)> = shown
+        .iter()
+        .zip(&annotated)
+        .flat_map(|(found, annotated)| found.files.iter().map(move |change| (change, *annotated)))
+        .map(|(change, annotated)| {
+            if !annotated {
+                return (None, change.path.clone());
+            }
+            let removed = counts.is_some_and(|counts| counts.of(&change.old) > counts.of(&change.new));
+            if change.new.is_none() || removed {
+                (change.old.clone(), change.old_path().to_string())
+            } else {
+                (change.new.clone(), change.path.clone())
+            }
+        })
+        .collect();
+    let read: Vec<usize> = (0..sides.len()).filter(|index| sides[*index].0.is_some()).collect();
+    let names: Vec<String> = read.iter().filter_map(|index| sides[*index].0.clone()).collect();
+    let mut contents: Vec<Option<Vec<u8>>> = vec![None; sides.len()];
+    git_activity::blobs(repo_root, &names, |index, bytes| {
+        contents[read[index]] = bytes.map(<[u8]>::to_vec);
+    });
+    let matches: Vec<Value> = sides
+        .par_iter()
+        .zip(contents.par_iter())
+        .map(|((_, path), bytes)| {
+            let line = bytes.as_deref().zip(matcher).and_then(|(bytes, matcher)| {
+                bytes
+                    .split(|byte| *byte == b'\n')
+                    .position(|line| matcher.is_match(line))
+                    .map(|index| index as i64 + 1)
+            });
+            let symbol = bytes.as_deref().zip(line).and_then(|(bytes, line)| {
+                let extraction = crate::file_facts::extraction_of(bytes, path, repo_root)?;
+                let declarations = &extraction.declarations;
+                crate::surface::innermost(declarations.iter().map(|d| (d.header_line, d.end_line)), line)
+                    .map(|index| declarations[index].name.clone())
+            });
+            json!({
+                "path": path,
+                "line": line,
+                "enclosing_symbol": symbol,
             })
-            .collect();
-        annotated.push(json!({
-            "sha": commit.short_sha,
-            "date": commit.date,
-            "author": commit.author,
-            "subject": commit.subject,
-            "matches": entries,
-        }));
-    }
+        })
+        .collect();
+    let mut matches = matches.into_iter();
+    shown
+        .iter()
+        .map(|found| {
+            json!({
+                "sha": found.id.chars().take(12).collect::<String>(),
+                "date": found.commit.date,
+                "author": found.commit.author,
+                "subject": found.commit.subject,
+                "matches": matches.by_ref().take(found.files.len()).collect::<Vec<_>>(),
+            })
+        })
+        .collect()
+}
+
+fn pickaxe_payload(pattern: &str, regex: bool, all: bool, repo_root: &Path) -> Result<Value> {
+    let commits = git_activity::commits(repo_root);
+    let (found, counts) = pickaxe(pattern, regex, &commits, repo_root)?;
+    let shown: Vec<&Found> = if all || found.len() <= NEWEST_SHOWN + 1 {
+        found.iter().collect()
+    } else {
+        found[..NEWEST_SHOWN].iter().chain(found.last()).collect()
+    };
+    let matcher = matcher(pattern, regex);
     Ok(json!({
         "mode": "contains",
         "pattern": pattern,
-        "commit_count": annotated.len(),
-        "commits": annotated,
+        "commit_count": found.len(),
+        "between": found.len() - shown.len(),
+        "searched": commits.order.len(),
+        "floor": commits.truncated(),
+        "commits": crate::timing::phase("annotate", || annotate(&shown, matcher.as_ref(), counts.as_ref(), repo_root)),
     }))
 }
 
 fn render_pickaxe(p: &Value) {
-    println!("Pattern: {}", p["pattern"].as_str().unwrap_or(""));
-    println!(
-        "Commits introducing or removing the pattern: {}",
-        p["commit_count"].as_i64().unwrap_or(0)
+    let total = p["commit_count"].as_u64().unwrap_or(0);
+    let between = p["between"].as_u64().unwrap_or(0);
+    let mut head = format!(
+        "Pattern: {}\nCommits introducing or removing the pattern: {total}",
+        p["pattern"].as_str().unwrap_or("")
     );
-    println!();
-    for commit in p["commits"].as_array().cloned().unwrap_or_default() {
-        println!(
-            "{} {} {}: {}",
-            commit["sha"].as_str().unwrap_or(""),
-            commit["date"].as_str().unwrap_or(""),
-            commit["author"].as_str().unwrap_or(""),
-            commit["subject"].as_str().unwrap_or("")
-        );
-        for m in commit["matches"].as_array().cloned().unwrap_or_default() {
-            let line_part = match m["line"].as_i64() {
-                Some(l) => format!("L{l}"),
-                None => "L?".to_string(),
-            };
-            let symbol_part = match m["enclosing_symbol"].as_str() {
-                Some(s) => format!(" [in {s}]"),
-                None => String::new(),
-            };
-            println!(
-                "  {:<7} {}{}",
-                line_part,
-                m["path"].as_str().unwrap_or(""),
-                symbol_part
+    if between > 0 {
+        head.push_str(&format!(", the newest {NEWEST_SHOWN} and the oldest shown"));
+    }
+    if p["floor"].as_bool().unwrap_or(false) {
+        head.push_str(&format!(", within the newest {} commits", p["searched"].as_u64().unwrap_or(0)));
+    }
+    head.push_str("\n\n");
+    let commits = p["commits"].as_array().cloned().unwrap_or_default();
+    let entries: Vec<crate::output::Entry> = commits
+        .iter()
+        .enumerate()
+        .map(|(index, commit)| {
+            let header = format!(
+                "{} {} {}: {}",
+                commit["sha"].as_str().unwrap_or(""),
+                commit["date"].as_str().unwrap_or(""),
+                commit["author"].as_str().unwrap_or(""),
+                commit["subject"].as_str().unwrap_or("")
             );
+            let mut whole = header.clone();
+            for m in commit["matches"].as_array().cloned().unwrap_or_default() {
+                let line_part = match m["line"].as_i64() {
+                    Some(l) => format!("L{l}"),
+                    None => "L?".to_string(),
+                };
+                let symbol_part = match m["enclosing_symbol"].as_str() {
+                    Some(s) => format!(" [in {s}]"),
+                    None => String::new(),
+                };
+                whole.push_str(&format!("\n  {:<7} {}{}", line_part, m["path"].as_str().unwrap_or(""), symbol_part));
+            }
+            crate::output::Entry {
+                rank: if index + 1 == commits.len() { 1 } else { -(index as i64) },
+                levels: vec![format!("{whole}\n"), header],
+            }
+        })
+        .collect();
+    let gap = (between > 0).then(|| format!("… {between} commits between: {} --all\n", crate::output::this_command()));
+    let fixed = head.len() + gap.as_ref().map_or(0, |gap| gap.len() + 1) + crate::output::closing_room(entries.len(), "commits");
+    let (chosen, shortened) = crate::output::fit(&entries, fixed);
+    print!("{head}");
+    let oldest = chosen.len().saturating_sub(1);
+    for (index, (_, text)) in chosen.iter().enumerate() {
+        if let (Some(gap), true) = (&gap, index == oldest) {
+            println!("{gap}");
         }
-        println!();
+        println!("{text}");
+    }
+    if shortened > 0 {
+        println!("{}", crate::output::shortened_line(shortened, entries.len(), "commits"));
     }
 }
 
@@ -553,6 +694,7 @@ fn commit_payload(reference: &str, repo_root: &Path) -> Result<Value> {
             "show",
             "--unified=3",
             "--no-color",
+            "-M",
             "--pretty=format:",
             reference,
         ],
@@ -579,6 +721,23 @@ fn status_label(kind: char) -> String {
     crate::commands::diff::status_label(kind)
 }
 
+/// Each file of the patch under the path its `diff --git` line names last.
+fn patch_by_path(lines: &str) -> HashMap<String, String> {
+    let mut sections: HashMap<String, String> = HashMap::new();
+    let mut current: Option<String> = None;
+    for line in lines.split('\n') {
+        if let Some(header) = line.strip_prefix("diff --git ") {
+            let path = header.rfind(" b/").map_or(header, |at| &header[at + 3..]).to_string();
+            sections.insert(path.clone(), line.to_string());
+            current = Some(path);
+        } else if let Some(section) = current.as_ref().and_then(|path| sections.get_mut(path)) {
+            section.push('\n');
+            section.push_str(line);
+        }
+    }
+    sections
+}
+
 fn render_commit(p: &Value) {
     let mut head = format!(
         "{} {}  {}  {}\n",
@@ -599,39 +758,26 @@ fn render_commit(p: &Value) {
         head.push_str(&format!("\n{body}\n"));
     }
     head.push('\n');
-    for file in p["files"].as_array().cloned().unwrap_or_default() {
-        head.push_str(&format!(
-            "  {:<12} {}\n",
-            file["status"].as_str().unwrap_or(""),
-            file["path"].as_str().unwrap_or("")
-        ));
-    }
     print!("{head}");
-    let lines = p["lines"].as_str().unwrap_or("");
-    if lines.is_empty() {
-        return;
-    }
-    println!();
-    let mut files: Vec<String> = Vec::new();
-    for line in lines.split('\n') {
-        if line.starts_with("diff --git ") || files.is_empty() {
-            files.push(line.to_string());
-        } else if let Some(file) = files.last_mut() {
-            file.push('\n');
-            file.push_str(line);
-        }
-    }
+    let sections = patch_by_path(p["lines"].as_str().unwrap_or(""));
+    let files = p["files"].as_array().cloned().unwrap_or_default();
+    let paths: Vec<&str> = files.iter().map(|file| file["path"].as_str().unwrap_or("")).collect();
     let entries: Vec<crate::output::Entry> = files
         .iter()
+        .zip(&paths)
         .enumerate()
-        .map(|(index, file)| crate::output::Entry {
-            rank: -(index as i64),
-            levels: vec![file.clone(), file.lines().next().unwrap_or("").to_string()],
+        .map(|(index, (file, path))| {
+            let line = format!("  {:<12} {path}", file["status"].as_str().unwrap_or(""));
+            let levels = match sections.get(*path) {
+                Some(section) => vec![format!("{line}\n{section}\n"), line],
+                None => vec![line],
+            };
+            crate::output::Entry { rank: -(index as i64), levels }
         })
         .collect();
-    let fixed = head.len() + 1 + crate::output::closing_room(entries.len(), "files");
-    let (chosen, shortened) = crate::output::fit(&entries, fixed);
-    for (_, text) in chosen {
+    let fixed = head.len() + crate::output::closing_room(entries.len(), "files");
+    let (texts, shortened) = crate::output::fit_listing(&entries, &paths, fixed);
+    for text in texts {
         println!("{text}");
     }
     if shortened > 0 {
@@ -646,6 +792,7 @@ pub fn run(
     symbol: Option<&str>,
     contains: Option<&str>,
     regex: bool,
+    all: bool,
     commit: Option<&str>,
     as_json: bool,
 ) -> Result<Value> {
@@ -681,15 +828,23 @@ pub fn run(
         }
         let here = Path::new(".");
         let repo_root = cache::worktree_root_for(here).unwrap_or_else(|| cache::display_root(here));
-        let payload = pickaxe_payload(pattern, regex, &repo_root)?;
+        let payload = pickaxe_payload(pattern, regex, all, &repo_root)?;
         if !as_json {
             render_pickaxe(&payload);
         }
         return Ok(crate::output::document(
-            json!({"mode": "contains", "pattern": pattern}),
-            json!({"repo_root": repo_root.to_string_lossy()}),
+            json!({"mode": "contains", "pattern": pattern, "regex": regex, "all": all}),
+            json!({
+                "repo_root": repo_root.to_string_lossy(),
+                "searched_commits": payload["searched"],
+                "floor": payload["floor"],
+            }),
             payload["commits"].clone(),
-            json!({"commits": payload["commit_count"]}),
+            json!({
+                "commits": payload["commit_count"],
+                "shown": payload["commits"].as_array().map(|a| a.len()).unwrap_or(0),
+                "between": payload["between"],
+            }),
         ));
     }
 

@@ -120,6 +120,14 @@ impl FileFacts {
     }
 }
 
+pub fn extraction_of(bytes: &[u8], path: &str, repo_root: &Path) -> Option<crate::extraction::ExtractionResult> {
+    let key = cache::file_hash_from_bytes(bytes, &repo_root.join(path), repo_root);
+    cache::load_bytes(cache::NAMESPACE_FILE, &key, repo_root)
+        .and_then(|stored| FileFacts::from_bytes(&stored))
+        .and_then(|facts| facts.extraction)
+        .or_else(|| crate::extraction::extract(bytes, path))
+}
+
 /// Join the git facts onto code facts. `git_activity` owns every one of them
 /// and keys its cache by HEAD, so this runs on the cache-hit paths and on
 /// fresh extraction alike. A path the map does not carry — no history, no
@@ -430,9 +438,7 @@ static MTIME_MEMO: memo::Memo<MtimeIndex> = OnceLock::new();
 fn mtime_index_load(repo_root: &Path) -> Arc<MtimeIndex> {
     crate::timing::phase("freshness", || {
         memo::get_or_build(&MTIME_MEMO, repo_root, || {
-            cache::load_bytes(cache::NAMESPACE_FILE, &mtime_index_key(), repo_root)
-                .and_then(|b| serde_json::from_slice::<MtimeIndex>(&b).ok())
-                .unwrap_or_default()
+            cache::index(&MtimeIndexEntry { repo_root }, repo_root).unwrap_or_default()
         })
     })
 }
@@ -443,31 +449,44 @@ fn mtime_index_load(repo_root: &Path) -> Arc<MtimeIndex> {
 /// The merge base is re-read from disk under the lock, never the memo: two
 /// processes that each merged into the index they loaded at start overwrote
 /// each other, and the loser's files read as moved again on the next call.
-/// The per-file entry a path's previous key named is removed, so the
-/// namespace holds one entry per file rather than one per version written.
 fn mtime_index_store(repo_root: &Path, updates: Vec<(String, Stamp, String)>) {
-    let _lock = cache::maintain(repo_root);
-    let key = mtime_index_key();
-    let mut index: MtimeIndex = cache::load_bytes(cache::NAMESPACE_FILE, &key, repo_root)
-        .and_then(|b| serde_json::from_slice::<MtimeIndex>(&b).ok())
-        .unwrap_or_default();
-    for (rel, stamp, content_key) in updates {
-        if let Some(previous) = index.insert(rel, stamp_entry(&stamp, &content_key)) {
-            if previous.key != content_key && !previous.key.is_empty() {
-                cache::remove(cache::NAMESPACE_FILE, &previous.key, repo_root);
+    let index = cache::update(&MtimeIndexEntry { repo_root }, repo_root, updates);
+    memo::replace(&MTIME_MEMO, repo_root, index);
+}
+
+struct MtimeIndexEntry<'a> {
+    repo_root: &'a Path,
+}
+
+impl cache::Index for MtimeIndexEntry<'_> {
+    type Stored = MtimeIndex;
+    type Change = Vec<(String, Stamp, String)>;
+
+    fn key(&self) -> String {
+        mtime_index_key()
+    }
+
+    fn read(&self, bytes: &[u8]) -> Option<MtimeIndex> {
+        serde_json::from_slice(bytes).ok()
+    }
+
+    fn change(&self, _stored: Option<&MtimeIndex>) -> Option<Self::Change> {
+        None
+    }
+
+    /// The per-file entry a path's previous key named is removed, so the
+    /// namespace holds one entry per file rather than one per version written.
+    fn apply(&self, stored: Option<MtimeIndex>, updates: Self::Change) -> MtimeIndex {
+        let mut index = stored.unwrap_or_default();
+        for (rel, stamp, content_key) in updates {
+            if let Some(previous) = index.insert(rel, stamp_entry(&stamp, &content_key)) {
+                if previous.key != content_key && !previous.key.is_empty() {
+                    cache::remove(cache::NAMESPACE_FILE, &previous.key, self.repo_root);
+                }
             }
         }
+        index
     }
-    if let Ok(document) = serde_json::to_value(&index) {
-        // The key carries a version and a backend, so a change to either
-        // rotates it and would leave the superseded index in the schema's
-        // directory forever: next.js was carrying a 4.4 MB orphan beside its
-        // live 5.7 MB index.
-        if let Ok(true) = cache::save(cache::NAMESPACE_FILE, &key, &document, repo_root) {
-            cache::evict_prefixed(cache::NAMESPACE_FILE, "mtime_index_", &key, repo_root);
-        }
-    }
-    memo::replace(&MTIME_MEMO, repo_root, index);
 }
 
 /// Facts for one file — a batch of one.

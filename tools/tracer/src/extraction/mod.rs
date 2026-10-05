@@ -174,7 +174,7 @@ struct CtagsMap {
     extensions: HashMap<String, String>,
 }
 
-#[derive(Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Clone, Deserialize, Serialize, PartialEq, Eq)]
 struct CtagsBinary {
     path: String,
     size: u64,
@@ -225,23 +225,38 @@ fn ctags_languages(path: &Path) -> &'static HashMap<String, String> {
         let Some(root) = crate::cache::worktree_root_for(path) else {
             return HashMap::new();
         };
-        let binary = ctags_binary();
-        if let Some(map) = load_ctags_map(&root, &binary) {
-            return map.extensions;
-        }
-
-        let _maintenance = crate::cache::maintain(&root);
-        if let Some(map) = load_ctags_map(&root, &binary) {
-            return map.extensions;
-        }
-
-        let map = CtagsMap {
-            binary,
-            extensions: list_ctags_maps(),
-        };
-        let _ = crate::cache::save(crate::cache::NAMESPACE_FILE, "ctags_maps_v1", &map, &root);
-        map.extensions
+        crate::cache::index(&CtagsIndex { binary: ctags_binary() }, &root)
+            .map(|map| map.extensions)
+            .unwrap_or_default()
     })
+}
+
+struct CtagsIndex {
+    binary: CtagsBinary,
+}
+
+impl crate::cache::Index for CtagsIndex {
+    type Stored = CtagsMap;
+    type Change = ();
+
+    fn key(&self) -> String {
+        "ctags_maps_v1".to_string()
+    }
+
+    fn read(&self, bytes: &[u8]) -> Option<CtagsMap> {
+        serde_json::from_slice(bytes).ok()
+    }
+
+    fn change(&self, stored: Option<&CtagsMap>) -> Option<()> {
+        (stored.map(|map| &map.binary) != Some(&self.binary)).then_some(())
+    }
+
+    fn apply(&self, _stored: Option<CtagsMap>, _change: ()) -> CtagsMap {
+        CtagsMap {
+            binary: self.binary.clone(),
+            extensions: list_ctags_maps(),
+        }
+    }
 }
 
 fn ctags_binary() -> CtagsBinary {
@@ -276,16 +291,6 @@ fn ctags_binary() -> CtagsBinary {
         size: metadata.len(),
         modified_nanos,
     }
-}
-
-fn load_ctags_map(root: &Path, binary: &CtagsBinary) -> Option<CtagsMap> {
-    let map: CtagsMap = serde_json::from_slice(&crate::cache::load_bytes(
-        crate::cache::NAMESPACE_FILE,
-        "ctags_maps_v1",
-        root,
-    )?)
-    .ok()?;
-    (map.binary == *binary).then_some(map)
 }
 
 fn list_ctags_maps() -> HashMap<String, String> {

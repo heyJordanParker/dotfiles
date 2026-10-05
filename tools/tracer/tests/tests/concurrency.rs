@@ -187,6 +187,28 @@ fn eight_concurrent_calls_after_an_added_file_cost_about_one_call() {
     );
 }
 
+/// Eight `history --contains` calls on a repository nobody indexed walk its
+/// commits once: the first holder walks them, and the rest read its index.
+#[test]
+fn eight_concurrent_history_searches_walk_the_commits_once() {
+    let f = standard_repo();
+    let handles: Vec<_> = (0..8)
+        .map(|_| {
+            let root = f.root.clone();
+            thread::spawn(move || {
+                trace_env(&root, ["history", "--contains", "def", "--json"], &[("TRACE_TIMING", "1")])
+            })
+        })
+        .collect();
+    let runs: Vec<_> = handles.into_iter().map(|h| h.join().unwrap()).collect();
+    let mut walks = 0;
+    for run in &runs {
+        run.ok();
+        walks += run.stderr.matches("timing git log --no-walk=unsorted ").count();
+    }
+    assert_eq!(walks, 1, "the commits were walked {walks} times");
+}
+
 #[test]
 fn concurrent_agents_share_one_parseable_directory_baseline() {
     let f = standard_repo();
