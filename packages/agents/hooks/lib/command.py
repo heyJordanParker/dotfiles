@@ -134,18 +134,53 @@ def segments(command):
     return None if split is None else [words for words, _ in split]
 
 
+def _getopt(spec):
+    """A prefix word's flags as getopt spells them: short letters, `:` after one that
+    takes a value, then the long names, `=` after one that takes a value."""
+    short, *long = spec.split() or [""]
+    valued = {c for c, nxt in zip(short, short[1:] + " ") if nxt == ":"}
+    return {
+        "short_valued": valued,
+        "short_bare": set(short.replace(":", "")) - valued,
+        "long_valued": {name[:-1] for name in long if name.endswith("=")},
+        "long_bare": {name for name in long if not name.endswith("=")},
+    }
+
+
 # Words whose own argument is another command. The real command follows, past
-# that word's flags. Arities differ (`sudo -u jordan ssh` takes a value, `nohup`
-# takes none), so a guard cannot know which token is the command — `invocations`
-# answers with every candidate instead of picking one.
-_PREFIX = frozenset((
-    "env", "sudo", "doas", "command", "exec", "nohup",
-    "time", "timeout", "nice", "ionice", "stdbuf", "xargs",
+# that word's flags, so each carries its flag spec: `sudo -u jordan ssh` resolves
+# to `ssh`. A flag its spec does not name may have taken the next word as its
+# value, so `invocations` answers with every later word for that one.
+_PREFIX = {
+    "env": _getopt("C:P:u:i0v --chdir= --unset= --ignore-environment --null --debug"),
+    "sudo": _getopt(
+        "C:D:g:h:p:R:r:T:t:U:u:ABbEeHiKklNnPSsVv --close-from= --chdir= --group= "
+        "--host= --prompt= --chroot= --role= --command-timeout= --type= "
+        "--other-user= --user= --askpass --bell --background --preserve-env --edit "
+        "--set-home --login --remove-timestamp --reset-timestamp --list --no-update "
+        "--non-interactive --preserve-groups --stdin --shell --version --validate"),
+    "doas": _getopt("a:C:u:Lns"),
+    "command": _getopt("pvV"),
+    "exec": _getopt("a:cl"),
+    "nohup": _getopt(""),
+    "time": _getopt("f:o:ahlpqv --format= --output= --append --portability "
+                    "--verbose --quiet"),
+    "timeout": _getopt("k:s:fpv --kill-after= --signal= --foreground "
+                       "--preserve-status --verbose"),
+    "nice": _getopt("n: --adjustment="),
+    "ionice": _getopt("c:n:p:P:u:t --class= --classdata= --pid= --pgid= --uid= "
+                      "--ignore"),
+    "stdbuf": _getopt("i:o:e: --input= --output= --error="),
+    "xargs": _getopt(
+        "a:d:E:I:J:L:n:P:R:S:s:0oprtx --arg-file= --delimiter= --max-args= "
+        "--max-procs= --max-chars= --max-lines= --process-slot-var= --null "
+        "--interactive --no-run-if-empty --verbose --exit --open-tty"),
     # Shell keywords sit in the same position and hide the command exactly as a
     # prefix word does: `for f in *; do claude @x y; done` tokenizes to a
     # segment whose first word is `do`, and every guard read `do` as the command.
-    "do", "then", "else", "elif", "if", "while", "until",
-))
+    **{keyword: _getopt("") for keyword in
+       ("do", "then", "else", "elif", "if", "while", "until")},
+}
 
 # Shells whose `-c` argument is a whole command line of its own.
 _SHELL = frozenset(("bash", "sh", "zsh", "dash", "ksh"))
@@ -232,7 +267,7 @@ def _runner_target(words):
     """
     i = _past_assignments(words, 0)
     while i < len(words) and _basename(words[i]) in _PREFIX:
-        i = _past_prefix_args(words, i + 1)
+        i, _ = _past_prefix_args(_basename(words[i]), words, i + 1)
     if i >= len(words) or _basename(words[i]) not in _RUNNERS:
         return None
     rest = [w for w in words[i + 1:] if not _ASSIGN.match(w)]
@@ -319,13 +354,39 @@ def _past_assignments(words, i):
     return i
 
 
-def _past_prefix_args(words, i):
-    """Past one prefix word's own arguments: assignments, flags, and bare numbers."""
-    while i < len(words) and (
-        _ASSIGN.match(words[i]) or words[i].startswith("-") or _NUMERIC.match(words[i])
-    ):
-        i += 1
-    return i
+def _flag_span(spec, word):
+    """The words one flag spans under its prefix word's spec: 1, 2 when its value
+    is the next word, or 0 when the spec does not name it."""
+    if word == "--":
+        return 1
+    if word.startswith("--"):
+        name, glued, _ = word.partition("=")
+        if name in spec["long_valued"]:
+            return 1 if glued else 2
+        return 1 if name in spec["long_bare"] and not glued else 0
+    for k, letter in enumerate(word[1:], 2):
+        if letter in spec["short_valued"]:
+            return 1 if word[k:] else 2
+        if letter not in spec["short_bare"]:
+            return 0
+    return 1
+
+
+def _past_prefix_args(prefix, words, i):
+    """Past one prefix word's own arguments, and whether its spec named every flag
+    among them. A flag it does not name may have taken the next word as a value."""
+    spec, sized = _PREFIX[prefix], True
+    while i < len(words):
+        word = words[i]
+        if _ASSIGN.match(word) or _NUMERIC.match(word) or is_separator(word):
+            i += 1
+        elif word.startswith("-"):
+            span = _flag_span(spec, word)
+            sized = sized and span > 0
+            i += span or 1
+        else:
+            break
+    return i, sized
 
 
 def head_and_args(words):
@@ -336,13 +397,13 @@ def head_and_args(words):
     `/path/to/claude …`, and `timeout 600 claude …` all reduce to
     `claude`. `("", [])` for an empty segment.
 
-    A prefix word whose flag takes a value (`sudo -u jordan ssh`) resolves to the
-    value, not the command — `invocations` is the reader for a guard that must not
+    A prefix flag its spec does not name may hide the command behind its value, so
+    this picks one reading — `invocations` is the reader for a guard that must not
     miss the command behind one.
     """
     i = _past_assignments(words, 0)
     while i < len(words) and _basename(words[i]) in _PREFIX:
-        i = _past_prefix_args(words, i + 1)
+        i, _ = _past_prefix_args(_basename(words[i]), words, i + 1)
     return (_basename(words[i]), words[i + 1:]) if i < len(words) else ("", [])
 
 
@@ -503,7 +564,7 @@ def _remote_scripts(words):
         return []
     i = _past_assignments(words, 0)
     while i < len(words) and _basename(words[i]) in _PREFIX:
-        i = _past_prefix_args(words, i + 1)
+        i, _ = _past_prefix_args(_basename(words[i]), words, i + 1)
     return [" ".join(words[j:]) for j in range(i + 2, len(words) + 1)
             if not words[j - 1].startswith("-")]
 
@@ -553,7 +614,7 @@ def _expand(words, depth):
         return []
     found = [(head, rest)]
     if head in _PREFIX and depth < _MAX_DEPTH:
-        return found + _prefix_candidates(rest, depth)
+        return found + _prefix_candidates(head, rest, depth)
     return found
 
 
@@ -839,26 +900,18 @@ def composition_refusal(command):
     return ""
 
 
-def _prefix_candidates(words, depth):
+def _prefix_candidates(prefix, words, depth):
     """Every command a prefix word might be running.
 
-    With no flag in front of it the command is unambiguous, so only it comes back.
-    A flag first (`sudo -u jordan ssh prod`) may or may not have eaten the next
-    word, so every later word comes back as a candidate as well.
+    When its spec names every flag in front of the command, the command is
+    unambiguous, so only it comes back. A flag the spec does not name may or may
+    not have eaten the next word, so every later word comes back as well.
     """
-    ambiguous, start = False, None
-    for i, word in enumerate(words):
-        if _ASSIGN.match(word) or _NUMERIC.match(word) or is_separator(word):
-            continue
-        if word.startswith("-"):
-            ambiguous = True
-            continue
-        start = i
-        break
-    if start is None:
+    start, sized = _past_prefix_args(prefix, words, 0)
+    if start >= len(words):
         return []
     found = _expand(words[start:], depth + 1) or []
-    if not ambiguous:
+    if sized:
         return found
     return found + [
         (_basename(word), words[i + 1:])

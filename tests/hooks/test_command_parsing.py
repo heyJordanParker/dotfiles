@@ -86,10 +86,10 @@ def test_a_prefix_with_no_flags_yields_one_command():
     assert heads("env FOO=1 ls file") == ["env", "ls"]
 
 
-def test_a_prefix_whose_flag_may_have_eaten_the_command_yields_candidates():
-    """`sudo -u jordan ssh prod`: nothing here knows that `-u` takes a value, so
+def test_a_prefix_flag_its_spec_does_not_name_yields_candidates():
+    """`sudo -Z jordan ssh prod`: nothing here knows whether `-Z` takes a value, so
     every word after it is a candidate and the real command is never missed."""
-    assert "ssh" in heads("sudo -u jordan ssh prod")
+    assert "ssh" in heads("sudo -Z jordan ssh prod")
 
 
 def test_a_shell_inside_a_shell_still_reaches_the_command():

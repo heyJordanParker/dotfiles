@@ -107,7 +107,10 @@ def test_an_agent_declaring_a_write_tool_keeps_it(tmp_path, declared):
 
 # --- readonly: the shell -----------------------------------------------------
 
-@pytest.mark.parametrize("command", ["trace grep foo"])
+@pytest.mark.parametrize("command", [
+    "trace grep foo",
+    "env -C /Users/jordan/Developer/app/worktrees/design trace docs app",
+])
 def test_readonly_keeps_the_commands_it_reads_with(tmp_path, command):
     code, err = _run(_readonly(tmp_path), _bash(command))
     assert code == 0, err
