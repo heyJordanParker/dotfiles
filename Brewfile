@@ -5,7 +5,6 @@ brew "gh"
 brew "mosh"
 brew "neovim"
 brew "tmux"
-brew "zellij"
 brew "herdr"
 brew "btop"
 
@@ -34,7 +33,7 @@ brew "oven-sh/bun/bun"
 brew "hcloud"
 brew "anomalyco/tap/opencode"
 brew "rust"
-brew "rustup"                   # needed for wasm32-wasip1 target (zellij plugin build)
+brew "rustup"                   # toolchain that carries the tracer linux cross targets
 brew "zig"                      # linux cross toolchain for the tracer plugin prebuilts
 brew "cmake"                    # needed to compile llama.cpp in the prompt-reviewer build
 brew "git-delta"

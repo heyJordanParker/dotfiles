@@ -31,7 +31,6 @@ TARGETS = {
 CONFIG = [
     "atuin", "bat", "borders", "btop", "bun", "delta", "ghostty", "herdr",
     "hunk", "karabiner", "lazygit", "nvim", "opencode", "superfile", "zed",
-    "zellij",
 ]
 
 # Entries stow must not lay down, per package. The claude package's `skills`,
