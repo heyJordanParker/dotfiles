@@ -608,6 +608,18 @@ fn usages_symbol_mode_returns_dependents() {
 }
 
 #[test]
+fn a_path_given_as_the_symbol_names_the_path_command() {
+    let f = standard_repo();
+    let r = f.trace(&["dependencies", "src/app.py"]);
+    r.code_is(2);
+    assert!(
+        r.combined().contains("'src/app.py' is a path, not a symbol. Run trace dependencies --path src/app.py."),
+        "a path names the --path command: {}",
+        r.combined()
+    );
+}
+
+#[test]
 fn usages_transitive_reach_is_exact_per_depth() {
     // d_fn ← pkg.c ← pkg.b ← pkg.a. Reverse edges resolve to module nodes.
     // This is the case that exposed the dead-end-after-one-hop defect:

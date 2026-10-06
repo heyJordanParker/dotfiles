@@ -4297,6 +4297,26 @@ fn structure_shows_whole_facts_again_for_a_file_the_budget_cut_to_its_path() {
 }
 
 #[test]
+fn structure_names_the_whole_command_once_for_every_file_it_cut() {
+    let f = Fixture::new();
+    for module in ["one", "two", "three", "four"] {
+        let source: String = (0..12)
+            .map(|index| format!("def {module}_function_{index}(argument, other=None):\n    return argument\n\n\n"))
+            .collect();
+        f.write(&format!("{module}.py"), &source);
+    }
+    f.commit("four modules");
+
+    let cut = f.trace(&["structure", ".", "--budget", "2000"]);
+    cut.ok();
+    assert_eq!(cut.stdout.matches("shortened to fit").count(), 1, "one closing line:\n{}", cut.stdout);
+    assert!(cut.stdout.trim_end().ends_with("--budget 0]"), "the closing line comes last:\n{}", cut.stdout);
+    for module in ["one", "two", "three", "four"] {
+        assert!(cut.stdout.contains(&format!("{module}_function_0")), "{module} keeps its declarations:\n{}", cut.stdout);
+    }
+}
+
+#[test]
 fn structure_reports_a_failing_ctags_instead_of_thinning_its_answer() {
     // `structure` takes its symbols from universal-ctags and backfills from the
     // tree-sitter cache when ctags returns none, which is what keeps .tsx

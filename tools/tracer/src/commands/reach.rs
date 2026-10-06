@@ -163,7 +163,18 @@ fn symbol_mode(direction: Direction, symbol: &str, depth: i64, as_json: bool) ->
         Vec::new()
     };
     if declarations.is_empty() && modules.is_empty() {
-        eprintln!("{}", crate::output::not_declared(symbol, &repo_root));
+        if Path::new(symbol).exists() {
+            let command = match direction {
+                Direction::Dependents => "usages",
+                Direction::Dependencies => "dependencies",
+            };
+            eprintln!(
+                "'{symbol}' is a path, not a symbol. Run {} {command} --path {symbol}.",
+                crate::output::trace_command()
+            );
+        } else {
+            eprintln!("{}", crate::output::not_declared(symbol, &repo_root));
+        }
         std::process::exit(2);
     }
     if !declarations.is_empty()

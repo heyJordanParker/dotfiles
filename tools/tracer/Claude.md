@@ -121,7 +121,7 @@ Local code-intelligence command-line interface for Agents working in a repositor
 - `summary::front_matter_once` is the one entry point for a file's front matter on `context <file>`, `read`, file `info`, and `structure`: each passes its map, its `Facts`, its `&mut ShownRecord`, and whether its output is text, and gets back the text; `context::directory_facts` takes the same record.
 - Text `read` prints, flushes, and saves each file before it renders the next, so a later file in the same call compares against what an earlier one showed.
 - The `Facts` gate compares `Facts::to_map`, so every command shares one record of a file's facts. The block prints whole for `--json`, for a file with no `Facts`, and on `New`; otherwise the heading line carries `Facts::headline`, `# <file>` for a command with no heading, and a block holds the `Changed` lines beside every key the `Facts` do not own: the command's own answer, `docs_not_loaded`, and whatever `directory` the `Listing` gate left.
-- `structure` gates after `output::fit`, and only the files whose printed level still holds their block, so a file cut to its path records nothing as shown.
+- `structure` gates after `output::fit`, and only the files whose printed level still holds their block, so a file cut to its headline records nothing as shown.
 - `--json` never passes through a gate, so `context.files[<path>]` is always whole.
 - `session_log::record_context_reset` clears `shown.json` and the view's `emitted`, `coverage`, and `whole` whatever else is on disk; `trace docs reset` runs it.
 - The first write of a resumed Subagent renames its archived log back to the active directory, so its record carries on whole.
@@ -223,7 +223,7 @@ Local code-intelligence command-line interface for Agents working in a repositor
 - `--budget <chars>` sizes every text output, 0 unbounded; `--json` is never cut except `read`'s content.
 - The default budget is 30,000, the longest Bash result Claude Code shows whole, and sizes are counted in UTF-16 units as Claude Code counts them.
 - `output::fit` gives every file its levels from whole to its path and cuts the least-imported file's detail first, so the budget cuts detail and never a file. It returns each file's chosen level beside its text, so a caller gates on the level and never parses the text.
-- `output::fit_listing` is `fit` for a listing of paths, where a path ending in `/` is a directory: when bare paths still overrun, it names the entries one line per directory, then each directory with its directory and file counts.
+- `output::fit_listing` is `fit` for a listing of paths, where a path ending in `/` is a directory: when bare paths still overrun, it names the entries one line per directory, then each directory with its directory and file counts, then the first of those the budget holds and `… N more directories`.
 - `grep`, `pattern`, `find`, `list`, `tree`, `status`, `diff`, `stats`, and the relations commands fit their text through `fit_listing`; `history` and `logs` through `fit`.
 - The `status` and `diff` directory block takes at most half the budget.
 - A cut output's last line names the same command with `--budget 0`; `output::closing_room` measures the room that line needs, so no command guesses it.
@@ -236,8 +236,9 @@ Local code-intelligence command-line interface for Agents working in a repositor
 - `output::keeping_context` wraps the caller's jq program, so `context` survives every filter.
 - `output::narrow_context` keeps `context.files` for the files the filtered result names and `context.directories` for the directories that hold them.
 - `grep` and `pattern` read hidden folders git does not ignore, such as `.claude/` and `.github/`, and never `.git/` or `.tracer-cache/`, through `lang::RIPGREP_SCOPE` and `lang::AST_GREP_SCOPE`.
-- `callers`, `defines`, `usages`, and `dependencies` name the repository they searched for a symbol it does not declare, through `output::not_declared`.
-- `structure` over many files prints every file at the most detailed level they all fit at, then raises the most imported one level above it: a file's block becomes its one-line headline before any declaration goes.
+- `callers`, `defines`, `usages`, and `dependencies` name the repository they searched for a symbol it does not declare, through `output::not_declared`; `usages` and `dependencies` given an existing path in place of a symbol name the `--path` command instead.
+- `structure` over many files prints every file at least at the most detailed level they all fit at, and the most imported one level above it: a file's block becomes its one-line headline before any declaration goes, and one closing line names the whole command for every file it cut.
+- `surface::render_rows` fits one file's rows to a budget without a closing line, for a listing of many files; `surface::render_within` adds the line for one file.
 - `lang.rs` is the one language table for `grep`, `pattern`, and `grep --at`; `lang::ripgrep_types` resolves `-t` as a table name or any `rg --type-list` type through ripgrep's own type matcher.
 - A type none of the three search backends knows exits 2 and names the accepted set.
 - `find` lists paths by glob; the command was named `glob`.

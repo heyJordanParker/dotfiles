@@ -137,9 +137,10 @@ pub fn fit(entries: &[Entry], fixed: usize) -> (Vec<(usize, &str)>, usize) {
 
 /// `fit` for a listing with one entry per path, in the same order; a path
 /// ending in `/` is a directory. When even every bare path overruns the
-/// budget, the names go one line per directory, `dir/: a.php, b.php`, and past
+/// budget, the names go one line per directory, `dir/: a.php, b.php`, past
 /// that each directory with its counts, so the listing still says where every
-/// entry is.
+/// entry is, and past that the first directories with their counts while the
+/// budget holds, then how many directories are left.
 pub fn fit_listing(entries: &[Entry], paths: &[&str], fixed: usize) -> (Vec<String>, usize) {
     let (chosen, shortened) = fit(entries, fixed);
     let size = |lines: &[String]| fixed + lines.iter().map(|line| width(line) + 1).sum::<usize>();
@@ -167,7 +168,7 @@ pub fn fit_listing(entries: &[Entry], paths: &[&str], fixed: usize) -> (Vec<Stri
     if size(&names) <= budget {
         return (names, entries.len());
     }
-    let counts = directories
+    let counts: Vec<String> = directories
         .iter()
         .map(|(directory, names)| {
             let folders = names.iter().filter(|name| name.ends_with('/')).count();
@@ -179,7 +180,21 @@ pub fn fit_listing(entries: &[Entry], paths: &[&str], fixed: usize) -> (Vec<Stri
             format!("{directory}/: {}", kinds.join(", "))
         })
         .collect();
-    (counts, entries.len())
+    if size(&counts) <= budget {
+        return (counts, entries.len());
+    }
+    let more = |left: usize| format!("… {left} more {}", if left == 1 { "directory" } else { "directories" });
+    let mut used = fixed + width(&more(counts.len())) + 1;
+    let mut kept: Vec<String> = counts
+        .iter()
+        .take_while(|line| {
+            used += width(line) + 1;
+            used <= budget
+        })
+        .cloned()
+        .collect();
+    kept.push(more(counts.len() - kept.len()));
+    (kept, entries.len())
 }
 
 /// `n` and its noun, singular for one.

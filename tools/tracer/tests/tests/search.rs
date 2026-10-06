@@ -2883,6 +2883,24 @@ fn listings_name_every_file_by_directory_when_paths_alone_overrun() {
     }
 }
 
+#[test]
+fn a_listing_of_more_directories_than_the_budget_holds_names_how_many_are_left() {
+    let f = Fixture::new();
+    for directory in 0..60 {
+        for index in 0..2 {
+            f.write(&format!("src/directory_{directory:02}/module_{index}.py"), "needle = 1\n");
+        }
+    }
+    f.commit("sixty directories");
+    for args in [["grep", "needle", "src"], ["find", "*.py", "src"]] {
+        let r = f.trace(&[args[0], args[1], args[2], "--budget", "500"]);
+        r.ok();
+        assert!(r.stdout.chars().count() <= 500, "{}: {} chars\n{}", args[0], r.stdout.chars().count(), r.stdout);
+        assert!(r.stdout.contains("src/directory_00/: 2 files"), "{}: the first directories stay\n{}", args[0], r.stdout);
+        assert!(r.stdout.contains(" more directories\n"), "{}: names how many are left\n{}", args[0], r.stdout);
+    }
+}
+
 /// Every path argument takes several paths; a missing one is named, the
 /// rest still answer, and the run exits 2 — ripgrep's contract.
 #[test]

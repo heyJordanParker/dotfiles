@@ -142,7 +142,7 @@ pub fn run(paths: &[PathBuf], as_json: bool) -> Result<Value> {
             let headline = structure.shown_facts.as_ref().map(|facts| facts.headline()).unwrap_or_default();
             let line = format!("{}  {headline}\n", structure.relative);
             let within = share.map(|share| share.saturating_sub(line.len()));
-            let cut = surface::render_within(&structure.rows, &structure.relative, None, within);
+            let cut = surface::render_rows(&structure.rows, &structure.relative, None, within).text;
             crate::output::Entry {
                 rank: structure.facts.get("imported_by").and_then(Value::as_i64).unwrap_or(0),
                 levels: vec![
@@ -155,10 +155,10 @@ pub fn run(paths: &[PathBuf], as_json: bool) -> Result<Value> {
             }
         })
         .collect();
-    // Every file shares one level, the most detailed one they all fit at, so
-    // a directory never prints one file whole beside bare paths; `fit` then
-    // lifts the most imported files one level above it.
-    let shared = crate::output::budget().map_or(0, |budget| {
+    // Every file prints at least at the floor, the most detailed level they
+    // all fit at, so a directory never prints one file whole beside bare
+    // paths; `fit` keeps the most imported files one level above it.
+    let floor = crate::output::budget().map_or(0, |budget| {
         (0..4)
             .find(|&level| {
                 closing + entries.iter().map(|entry| crate::output::width(&entry.levels[level]) + 1).sum::<usize>()
@@ -166,12 +166,12 @@ pub fn run(paths: &[PathBuf], as_json: bool) -> Result<Value> {
             })
             .unwrap_or(4)
     });
-    let start = shared.saturating_sub(1);
+    let start = floor.saturating_sub(1);
     let offered: Vec<crate::output::Entry> = entries
         .iter()
         .map(|entry| crate::output::Entry {
             rank: entry.rank,
-            levels: entry.levels[start..].to_vec(),
+            levels: entry.levels[start..=floor].to_vec(),
         })
         .collect();
     let (chosen, _) = crate::output::fit(&offered, closing);

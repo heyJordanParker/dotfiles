@@ -106,6 +106,28 @@ pub fn render_within(
     window: Option<(i64, i64)>,
     budget: Option<usize>,
 ) -> String {
+    let whole = render_rows(rows, file, window, None);
+    match budget {
+        Some(budget) if whole.text.len() > budget => {
+            let closing = crate::output::shortened_line(whole.of, whole.of, "declarations").len() + 1;
+            let fitted = render_rows(rows, file, window, Some(budget.saturating_sub(closing)));
+            format!("{}{}\n", fitted.text, crate::output::shortened_line(fitted.cut, fitted.of, "declarations"))
+        }
+        _ => whole.text,
+    }
+}
+
+/// Rows fitted to a budget: the text, and how many of its `of` declarations
+/// the budget cut.
+pub struct Fitted {
+    pub text: String,
+    pub cut: usize,
+    pub of: usize,
+}
+
+/// One file's rows fitted to `budget` the way `render_within` fits them, with
+/// no closing line, so a listing of many files closes once for all of them.
+pub fn render_rows(rows: &[Row], file: &str, window: Option<(i64, i64)>, budget: Option<usize>) -> Fitted {
     let shown: Vec<usize> = (0..rows.len())
         .filter(|&index| {
             index == 0
@@ -113,48 +135,48 @@ pub fn render_within(
                     && rows[index - 1].header == rows[index].header)
         })
         .collect();
+    let of = shown.len();
     let whole: Vec<String> = shown.iter().map(|&index| whole_row(rows, index, file)).collect();
-    let mut texts: Vec<String> = match budget {
-        None => whole.clone(),
-        Some(_) => shown.iter().map(|&index| short_row(rows, index)).collect(),
+    let Some(budget) = budget.filter(|&budget| whole.iter().map(String::len).sum::<usize>() > budget) else {
+        return Fitted {
+            text: whole.concat(),
+            cut: 0,
+            of,
+        };
     };
-    if let Some(budget) = budget {
-        if whole.iter().map(String::len).sum::<usize>() <= budget {
-            return whole.concat();
-        }
-        let shortened = format!("{}\n", crate::output::shortened_line(shown.len(), shown.len(), "declarations"));
-        let budget = budget.saturating_sub(shortened.len());
-        let mut size: usize = texts.iter().map(String::len).sum();
-        if size > budget {
-            return by_parent(rows, &shown, budget);
-        }
-        let mut order: Vec<usize> = (0..shown.len()).collect();
-        order.sort_by_key(|&at| {
-            let row = &rows[shown[at]];
-            let in_window = window.is_some_and(|(start, end)| row.header_line <= end && row.end_line >= start);
-            (!in_window, !is_public(row, file))
-        });
-        for at in order {
-            let grown = size - texts[at].len() + whole[at].len();
-            if grown <= budget {
-                size = grown;
-                texts[at] = whole[at].clone();
-            }
-        }
-        let cut = texts.iter().zip(&whole).filter(|(text, whole)| text != whole).count();
-        return format!(
-            "{}{}\n",
-            texts.concat(),
-            crate::output::shortened_line(cut, shown.len(), "declarations")
-        );
+    let mut texts: Vec<String> = shown.iter().map(|&index| short_row(rows, index)).collect();
+    let mut size: usize = texts.iter().map(String::len).sum();
+    if size > budget {
+        return Fitted {
+            text: by_parent(rows, &shown, budget),
+            cut: of,
+            of,
+        };
     }
-    texts.concat()
+    let mut order: Vec<usize> = (0..of).collect();
+    order.sort_by_key(|&at| {
+        let row = &rows[shown[at]];
+        let in_window = window.is_some_and(|(start, end)| row.header_line <= end && row.end_line >= start);
+        (!in_window, !is_public(row, file))
+    });
+    for at in order {
+        let grown = size - texts[at].len() + whole[at].len();
+        if grown <= budget {
+            size = grown;
+            texts[at] = whole[at].clone();
+        }
+    }
+    let cut = texts.iter().zip(&whole).filter(|(text, whole)| text != whole).count();
+    Fitted {
+        text: texts.concat(),
+        cut,
+        of,
+    }
 }
 
 /// Every shown row's name, one line per parent (`L39 Contact: a(), b()`),
 /// or, when that overruns `budget` too, each parent with its count per kind
-/// (`L39 Contact: 12 functions, 4 properties`); then the line naming the
-/// command that returns every row whole.
+/// (`L39 Contact: 12 functions, 4 properties`).
 fn by_parent(rows: &[Row], shown: &[usize], budget: usize) -> String {
     let mut parents: Vec<(Option<u32>, Vec<usize>)> = Vec::new();
     let mut at: HashMap<Option<u32>, usize> = HashMap::new();
@@ -180,7 +202,7 @@ fn by_parent(rows: &[Row], shown: &[usize], budget: usize) -> String {
             format!("{}: {}\n", label(*parent), listed.join(", "))
         })
         .collect();
-    let text = if names.len() <= budget {
+    if names.len() <= budget {
         names
     } else {
         parents
@@ -208,11 +230,7 @@ fn by_parent(rows: &[Row], shown: &[usize], budget: usize) -> String {
                 format!("{}: {}\n", label(*parent), counted.join(", "))
             })
             .collect()
-    };
-    format!(
-        "{text}{}\n",
-        crate::output::shortened_line(shown.len(), shown.len(), "declarations")
-    )
+    }
 }
 
 /// A row's header as rows print it: a data declaration's multi-line
