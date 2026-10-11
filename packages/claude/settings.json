@@ -83,16 +83,6 @@
         ]
       },
       {
-        "matcher": "*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash '/Users/jordan/.claude/hooks/herdr-agent-state.sh' blocked",
-            "timeout": 10
-          }
-        ]
-      },
-      {
         "matcher": "Read|Glob|Grep|Write|Edit|NotebookEdit|Bash",
         "hooks": [
           {
@@ -145,16 +135,6 @@
       }
     ],
     "PreToolUse": [
-      {
-        "matcher": "*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash '/Users/jordan/.claude/hooks/herdr-agent-state.sh' working",
-            "timeout": 10
-          }
-        ]
-      },
       {
         "matcher": "Read|Glob|Grep|Edit|Write",
         "hooks": [
@@ -270,16 +250,6 @@
             "command": "[ -n \"$SUPERSET_HOME_DIR\" ] && [ -x \"$SUPERSET_HOME_DIR/hooks/notify.sh\" ] && SUPERSET_AGENT_ID=claude \"$SUPERSET_HOME_DIR/hooks/notify.sh\" || true"
           }
         ]
-      },
-      {
-        "matcher": "*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash '/Users/jordan/.claude/hooks/herdr-agent-state.sh' release",
-            "timeout": 10
-          }
-        ]
       }
     ],
     "SessionStart": [
@@ -308,11 +278,11 @@
         ]
       },
       {
-        "matcher": "*",
+        "matcher": "^(startup|resume|clear|compact|fork)$",
         "hooks": [
           {
             "type": "command",
-            "command": "bash '/Users/jordan/.claude/hooks/herdr-agent-state.sh' idle",
+            "command": "bash '/Users/jordan/.claude/hooks/herdr-agent-state.sh' session",
             "timeout": 10
           }
         ]
@@ -373,16 +343,6 @@
         ]
       },
       {
-        "matcher": "*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash '/Users/jordan/.claude/hooks/herdr-agent-state.sh' idle",
-            "timeout": 10
-          }
-        ]
-      },
-      {
         "hooks": [
           {
             "type": "command",
@@ -431,16 +391,6 @@
           {
             "type": "command",
             "command": "[ -n \"$SUPERSET_HOME_DIR\" ] && [ -x \"$SUPERSET_HOME_DIR/hooks/notify.sh\" ] && SUPERSET_AGENT_ID=claude \"$SUPERSET_HOME_DIR/hooks/notify.sh\" || true"
-          }
-        ]
-      },
-      {
-        "matcher": "*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash '/Users/jordan/.claude/hooks/herdr-agent-state.sh' working",
-            "timeout": 10
           }
         ]
       },
