@@ -1,4 +1,4 @@
-"""Resolve the running event's mode and its allowed surfaces."""
+"""Resolve the running event's mode and whether it may start another agent."""
 
 from lib import agent_memory
 from lib.event import agent_name, field, owner_session
@@ -7,21 +7,13 @@ from lib.session_state import load_state
 MODES = ("orchestrate", "build", "interview")
 STATES = ("propose", "execute")
 
-# A dispatched agent is one thing or the other: it orchestrates, or it executes.
-POLICY = {
-    "orchestrate": {"write": False, "spawn": True},
-    "build": {"write": True, "spawn": False},
-    "interview": {"write": False, "spawn": False},
-}
-
 
 def declared_by(path):
     """The mode the definition at `path` declares, with build as the omission fallback.
 
-    The fallback is the strict answer on both surfaces: build writes and never
-    spawns, so an agent name with no readable definition behind it is refused the
-    spawn — for a dispatch and for a teammate alike. Every roster agent declares
-    `mode`, so the fallback only ever governs a name that is not ours.
+    The declaration is how the agent works in a session the architect starts on
+    it. An agent name with no readable definition behind it builds, so it is
+    refused the spawn.
     """
     if not path:
         return "build"
@@ -56,8 +48,6 @@ def resolve(event, session_id=None):
     it announces and the mode it stored are the same record.
     """
     declared = declared_mode(event)
-    if is_dispatched(event):
-        return declared
     session_id = session_id or owner_session(event)
     if not session_id:
         return declared
@@ -65,29 +55,23 @@ def resolve(event, session_id=None):
     return mode if mode in MODES else declared
 
 
-def permits(event, surface):
-    """Whether the mode governing this event permits one guarded surface.
+def may_spawn(event):
+    """Whether this event may start another agent.
 
-    A dispatched agent is gated on both surfaces by its own declaration, never by
-    the mode its dispatcher happens to be in.
+    A dispatched agent never does: every Subagent builds, whatever its definition
+    declares, so the work it is handed is done where its dispatcher reads the result.
 
-    Every other session is gated on the spawn surface alone, by the mode `resolve`
-    answers — the same mode the statusline shows and the same skill the agent was
-    told to work under. A session that names an agent is gated by that agent's
-    declaration, and a session the architect typed a mode into is gated by what he
-    typed, because the mode is his instruction and the gate is what makes it one.
-    A session that names no agent and typed no mode has no chosen mode to enforce,
-    so it spawns.
-
-    Writes outside a dispatch are left to the state axis alone, where the
-    architect's own sessions sit: proposing holds them back, executing lets them
-    through. A dispatch answers to that axis as well, through `state`.
+    A session is held to the mode `resolve` answers — the same mode the statusline
+    shows and the same skill the agent was told to work under. A session that names
+    an agent is held to that agent's declaration, and a session the architect typed
+    a mode into is held to what he typed, because the mode is his instruction and
+    the gate is what makes it one. A session that names no agent and typed no mode
+    has no chosen mode to enforce, so it spawns.
     """
     if is_dispatched(event):
-        return POLICY[declared_mode(event)][surface]
-    if surface == "spawn" and (agent_name(event)
-                               or load_state(owner_session(event)).get("mode_typed")):
-        return POLICY[resolve(event)][surface]
+        return False
+    if agent_name(event) or load_state(owner_session(event)).get("mode_typed"):
+        return resolve(event) == "orchestrate"
     return True
 
 

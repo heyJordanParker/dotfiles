@@ -1,13 +1,9 @@
 """Which agent each mode gates, and what the one-time session migration produces.
 
-Mode gates a DISPATCHED agent on both surfaces. Outside a dispatch it gates the spawn
-surface alone, so the architect's own writes stay on the state axis — proposing holds
-them back, executing lets him do whatever — while a build session there is refused a
-spawn like any other. That split is what these cases pin: the same seeded orchestrate
-session refuses a dispatched orchestrator's edit and permits the architect's.
-
-For a dispatched orchestrator the forbidden surface is MUTATIONS, not Bash: it has to
-be able to run the suite and read the tree to judge what its subagents built.
+Mode gates the spawn surface of a session the architect starts, and writes stay on the
+state axis — proposing holds them back, executing lets him do whatever. A dispatched
+agent builds whatever it declares: it writes under its launcher's state and never
+spawns.
 
 The retired spellings (state proposing/executing, approach solo/subagents) are not
 read anywhere any more. They are covered here as MIGRATION cases: an old file goes in,
@@ -108,44 +104,23 @@ def session(tmp_path, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# a dispatched orchestrator: spawns, validates, mutates nothing
+# a Subagent declaring orchestrate under an orchestrating launcher still builds
 # ---------------------------------------------------------------------------
 
-def test_dispatched_orchestrator_spawns(session):
-    """Spawned: the allowing exit code the harness reads off block_spawning."""
-    session(state="execute", mode="build", mode_typed=True)
+def test_a_subagent_declaring_orchestrate_does_not_spawn(session):
+    """Spawned: the blocking exit code the harness reads off block_spawning."""
+    session(state="execute", mode="orchestrate", mode_typed=True)
     assert session.run(SPAWNING, "Agent", {"subagent_type": "cto"},
-                       subagent_as="orchestrate", spawn=True) == ALLOW
-
-
-def test_dispatched_orchestrator_own_edit_is_blocked(session):
-    """Spawned: the blocking exit code the harness reads off block_writes."""
-    session(state="execute", mode="build", mode_typed=True)
-    assert session.run(WRITES, "Edit", {"file_path": os.path.join(REPO, "note.txt")},
                        subagent_as="orchestrate", spawn=True) == BLOCK
-
-
-
-
-
-
-# ---------------------------------------------------------------------------
-# a dispatched executor: writes, never spawns
-# ---------------------------------------------------------------------------
-
-def test_dispatched_executor_writes(session):
-    session(state="execute", mode="orchestrate", mode_typed=True)
-    assert session.run(WRITES, "Write", {"file_path": os.path.join(REPO, "note.txt")},
-                       subagent_as="build") == ALLOW
-
-
-def test_dispatched_executor_does_not_spawn(session):
-    session(state="execute", mode="orchestrate", mode_typed=True)
-    # Spawned: the blocking exit code the harness reads off block_spawning.
-    assert session.run(SPAWNING, "Agent", {"subagent_type": "cto"},
-                       subagent_as="build", spawn=True) == BLOCK
     assert session.run(SPAWNING, "Bash", {"command": 'claude -p "y"'},
-                       subagent_as="build") == BLOCK
+                       subagent_as="orchestrate") == BLOCK
+
+
+def test_a_subagent_declaring_orchestrate_edits(session):
+    """Spawned: the allowing exit code the harness reads off block_writes."""
+    session(state="execute", mode="orchestrate", mode_typed=True)
+    assert session.run(WRITES, "Edit", {"file_path": os.path.join(REPO, "note.txt")},
+                       subagent_as="orchestrate", spawn=True) == ALLOW
 
 
 

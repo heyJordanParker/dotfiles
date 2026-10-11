@@ -40,7 +40,7 @@ Use an agent when the Task recurs across sessions and the separate Frame or runt
 - `hooks` scopes Hook wiring to the agent.
 - `memory: none` is ours, not the Harness's: it denies the Agent Memory. The key is optional and has no other value — the Harness's `user`, `project`, and `local` are off in every root (step 6).
 - `readonly: true` is ours, not the Harness's: it takes writing away from the Agent on both Harnesses — the write tools, the shell commands that change the tree, and output redirection. The key is optional, has no other value, and omitting it leaves the Agent writing (step 7).
-- `mode: orchestrate|build|interview` is ours, not the Harness's: `orchestrate` spawns Subagents and mutates nothing, while read-only commands still run; `build` writes and spawns nothing; `interview` neither writes nor spawns. Every roster Agent declares it, so the `build` fallback an unreadable declaration falls to never decides a real dispatch. It gates a dispatched Agent alone; on a main session the mode only picks which Skill loads (step 8).
+- `mode: orchestrate|build` is ours, not the Harness's: it sets how the Agent works in a session the Architect starts on it. `orchestrate` spawns Subagents and `build` spawns none. A dispatched Agent always builds and never spawns, whatever it declares (step 8).
 - `ssh: enabled` is ours, not the Harness's: it lets the Agent reach another machine. It is the one opt-in declaration, so omitting it denies (step 7).
 - `background: true` always runs the agent in the background.
 - `isolation: worktree` runs the agent in a temporary git worktree.
@@ -218,9 +218,9 @@ The allowlist in `block_denied_access.py` is the one place that decides. A refus
 
 ## 8. Decide how the Agent works
 
-- Does the work itself: write `mode: build`, and name `build` in `skills:`.
-- Hands every Task to Subagents: write `mode: orchestrate`, and name `delegate` and `orchestrate` in `skills:`.
-- Interviews the Architect, neither writes nor spawns: write `mode: interview`.
+- Does the work itself when the Architect starts it: write `mode: build`.
+- Hands every Task to Subagents when the Architect starts it: write `mode: orchestrate`.
+- Edits when dispatched: name `build` in `skills:`, whatever its `mode`. `skills:` reaches only a dispatch, and a dispatch always builds.
 
 ### Declare `mode` on every Agent
 The key is written on every roster Agent, `orchestrate`, `build`, or `interview`, so the gate reads the author's intent rather than a fallback. `build` is what `session_mode.py` falls to when it cannot read a declaration at all, not an authoring shortcut.

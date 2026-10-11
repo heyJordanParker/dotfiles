@@ -89,7 +89,7 @@ Subagents are cheap and your Context is not. Keep your Context for the Decisions
 
 IF the change is small, fully specified, and already held in your Context:
 ### Build it inline
-Dispatching work your Context already holds pays spawn, re-research, and report cost for nothing. Where the mode gate refuses your edit — a dispatched orchestrator — send one builder the exact edits instead.
+Dispatching work your Context already holds pays spawn, re-research, and report cost for nothing.
 
 ### Never edit or implement yourself
 Never: Edit, Write, a build command, or a browser action that changes state.

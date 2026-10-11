@@ -8,9 +8,7 @@ isn't mistaken for a redirect into a repo file and false-blocked.
 
 A line whose real command is not in the line — inline runtime code, a script file
 that is not our own tooling, an unbalanced quote — comes back from the shared reader
-as None and is refused. It used to run: the interpreter check this hook owned
-privately was spelled `if proposing and …`, so a mode-banned orchestrator walked
-straight past it and wrote through `python3 -c`.
+as None and is refused.
 """
 
 import os
@@ -19,7 +17,7 @@ import sys
 from lib import feedback
 from lib.command import all_segments, git_subcommand, in_tmp, is_ours, mutation_targets
 from lib.event import canonical_tool, field, patch_target, read_event
-from lib.session_mode import permits, state
+from lib.session_mode import state
 
 BINDING = {
     "events": {
@@ -34,11 +32,6 @@ BLOCK_MSG = """BLOCKED: this session is proposing, so code edits wait.
 The Architect moves it to executing by typing /execute, /orchestrate, or /build.
 Plans, shaping docs, and Evidence stay writable in docs/plans/, docs/shaping/,
 docs/agents/, and /tmp/. Never write code in those directories to avoid this block."""
-
-MODE_MSG = """BLOCKED: this Agent's mode does not write files.
-
-In orchestrate mode, dispatch a subagent to make the edit. In interview mode,
-report the edit the work needs."""
 
 _DEVICES = {"/dev/null", "/dev/stdout", "/dev/stderr", "/dev/tty"}
 
@@ -104,26 +97,17 @@ def block(msg=BLOCK_MSG):
 
 def main():
     event = read_event()
-    # A dispatched orchestrator is forbidden MUTATIONS, not Bash: the same target
-    # parser the proposing arm uses decides, so `pytest`, `ls`, `echo`, and
-    # `git status` all run — an orchestrator has to be able to validate what its
-    # subagents built — and only a command that changes the tree is refused.
-    banned = not permits(event, "write")
     # The proposing arm governs every event, a dispatched agent's included: it
-    # answers to the stage of the session that launched it, so a codex run under a
+    # answers to the stage of the session that launched it, so a Subagent under a
     # proposing launcher writes nothing in the tree either.
-    proposing = state(event) == "propose"
-    if not proposing and not banned:
+    if state(event) != "propose":
         return 0
-    refusal = MODE_MSG if banned else BLOCK_MSG
 
     cwd = field(event, "cwd", "") or os.getcwd()
     file_path = patch_target(event)
     command = field(event, "tool_input.command", "")
 
     if canonical_tool(event) == "write":
-        if banned:
-            return block(MODE_MSG)
         # codex delivers an apply_patch as tool_input.command carrying the patch body,
         # so the shell parse below would read the diff's own text as commands — a `+`
         # line adding a redirect reads as a redirect. `patch_target` names the file
@@ -134,7 +118,7 @@ def main():
 
     if file_path:
         if not _allowed_target(file_path, cwd):
-            return block(refusal)
+            return block()
         if _is_script(file_path):
             warn(SCRIPT_WARNING)
         return 0
@@ -146,11 +130,11 @@ def main():
     if segs is None:
         return block(UNREADABLE_MSG)
     if any(_git_tree_mutation(seg) for seg in segs):
-        return block(refusal)
+        return block()
     for seg in segs:
         for target in mutation_targets(seg):
             if not _allowed_target(target, cwd):
-                return block(refusal)
+                return block()
     return 0
 
 

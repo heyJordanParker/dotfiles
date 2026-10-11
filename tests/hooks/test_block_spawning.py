@@ -1,18 +1,15 @@
 """Coverage for the spawn guard.
 
-block_spawning answers from lib.session_mode, the same policy the write gate reads,
-so the two gates cannot drift apart. This file pins both halves of that answer:
+block_spawning answers from lib.session_mode. This file pins both halves of that
+answer:
 
-- A DISPATCHED executor may not start another agent, whether the route is a spawn
-  tool or a shell command starting `codex` or `claude`, and a line whose
-  head cannot be read is blocked because hiding the head was the bypass.
+- A DISPATCHED agent may not start another agent, whatever mode it declares, whether
+  the route is a spawn tool or a shell command starting `codex` or `claude`, and a
+  line whose head cannot be read is blocked because hiding the head was the bypass.
 - A session outside a dispatch is gated by the mode governing it: the agent it was
-  started on, or the mode the architect typed into it. Build refuses the spawn there
-  exactly as it does inside a dispatch, because the mode is the instruction and this
-  gate is what makes it one.
-- An agent whose definition declares no mode falls back to build and is gated as an
-  executor; the roster carries an explicit declaration per agent so that fallback is
-  never what governs a real dispatch.
+  started on, or the mode the architect typed into it. Build refuses the spawn there,
+  because the mode is the instruction and this gate is what makes it one.
+- An agent whose definition declares no mode falls back to build.
 
 The shell shapes themselves — a leading space, a second line, `env FOO=1`, an
 absolute path, `bash -c '…'`, `sudo`, `timeout`, a command named in an argument —
@@ -91,7 +88,7 @@ def _bash(command):
 
 
 # ---------------------------------------------------------------------------
-# a dispatched executor: every route to another agent is closed
+# a dispatched agent: every route to another agent is closed
 # ---------------------------------------------------------------------------
 
 def test_executor_is_blocked_from_the_agent_tool(tmp_path, monkeypatch):
@@ -137,17 +134,6 @@ def test_executor_still_runs_ordinary_bash(tmp_path, monkeypatch):
     assert _run(_bash("echo codex"), tmp_path, monkeypatch) == ALLOW
 
 
-
-
-# ---------------------------------------------------------------------------
-# a dispatched orchestrator: spawning is its whole job
-# ---------------------------------------------------------------------------
-
-def test_orchestrator_spawns(tmp_path, monkeypatch):
-    assert _run({"tool_name": "Agent", "tool_input": {}}, tmp_path, monkeypatch,
-                mode="orchestrate") == ALLOW
-    assert _run(_bash('claude -p "y"'), tmp_path, monkeypatch,
-                mode="orchestrate") == ALLOW
 
 
 # ---------------------------------------------------------------------------
