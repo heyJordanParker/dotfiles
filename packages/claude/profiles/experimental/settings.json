@@ -7,71 +7,10 @@
     "CLAUDE_CODE_MAX_CONTEXT_TOKENS": "272000",
     "ENABLE_TOOL_SEARCH": "true",
     "EDITOR": "prompt-editor",
-    "HCOM": "hcom",
     "USER_TYPE": "ant"
   },
   "hooks": {
-    "Notification": [
-      {
-        "hooks": [
-          {
-            "command": "cmd=${HCOM:-hcom}; command -v \"${cmd%% *}\" >/dev/null 2>&1 && exec $cmd notify || exit 0",
-            "type": "command"
-          }
-        ]
-      }
-    ],
-    "PermissionDenied": [
-      {
-        "hooks": [
-          {
-            "command": "cmd=${HCOM:-hcom}; command -v \"${cmd%% *}\" >/dev/null 2>&1 && exec $cmd permission-denied || exit 0",
-            "type": "command"
-          }
-        ]
-      }
-    ],
-    "PermissionRequest": [
-      {
-        "hooks": [
-          {
-            "command": "cmd=${HCOM:-hcom}; command -v \"${cmd%% *}\" >/dev/null 2>&1 && exec $cmd permission-request || exit 0",
-            "type": "command"
-          }
-        ]
-      }
-    ],
-    "PostToolUse": [
-      {
-        "hooks": [
-          {
-            "command": "cmd=${HCOM:-hcom}; command -v \"${cmd%% *}\" >/dev/null 2>&1 && exec $cmd post || exit 0",
-            "timeout": 86400,
-            "type": "command"
-          }
-        ]
-      }
-    ],
-    "PostToolUseFailure": [
-      {
-        "hooks": [
-          {
-            "command": "cmd=${HCOM:-hcom}; command -v \"${cmd%% *}\" >/dev/null 2>&1 && exec $cmd post-failure || exit 0",
-            "type": "command"
-          }
-        ]
-      }
-    ],
     "PreToolUse": [
-      {
-        "hooks": [
-          {
-            "command": "cmd=${HCOM:-hcom}; command -v \"${cmd%% *}\" >/dev/null 2>&1 && exec $cmd pre || exit 0",
-            "type": "command"
-          }
-        ],
-        "matcher": "Bash|PowerShell|Agent|Task|Write|Edit"
-      },
       {
         "matcher": "Agent",
         "hooks": [
@@ -103,25 +42,7 @@
         ]
       }
     ],
-    "SessionEnd": [
-      {
-        "hooks": [
-          {
-            "command": "cmd=${HCOM:-hcom}; command -v \"${cmd%% *}\" >/dev/null 2>&1 && exec $cmd sessionend || exit 0",
-            "type": "command"
-          }
-        ]
-      }
-    ],
     "SessionStart": [
-      {
-        "hooks": [
-          {
-            "command": "cmd=${HCOM:-hcom}; command -v \"${cmd%% *}\" >/dev/null 2>&1 && exec $cmd sessionstart || exit 0",
-            "type": "command"
-          }
-        ]
-      },
       {
         "hooks": [
           {
@@ -133,15 +54,6 @@
       }
     ],
     "Stop": [
-      {
-        "hooks": [
-          {
-            "command": "cmd=${HCOM:-hcom}; command -v \"${cmd%% *}\" >/dev/null 2>&1 && exec $cmd poll || exit 0",
-            "timeout": 86400,
-            "type": "command"
-          }
-        ]
-      },
       {
         "hooks": [
           {
@@ -157,36 +69,7 @@
         ]
       }
     ],
-    "StopFailure": [
-      {
-        "hooks": [
-          {
-            "command": "cmd=${HCOM:-hcom}; command -v \"${cmd%% *}\" >/dev/null 2>&1 && exec $cmd stop-failure || exit 0",
-            "type": "command"
-          }
-        ]
-      }
-    ],
-    "SubagentStart": [
-      {
-        "hooks": [
-          {
-            "command": "cmd=${HCOM:-hcom}; command -v \"${cmd%% *}\" >/dev/null 2>&1 && exec $cmd subagent-start || exit 0",
-            "type": "command"
-          }
-        ]
-      }
-    ],
     "SubagentStop": [
-      {
-        "hooks": [
-          {
-            "command": "cmd=${HCOM:-hcom}; command -v \"${cmd%% *}\" >/dev/null 2>&1 && exec $cmd subagent-stop || exit 0",
-            "timeout": 86400,
-            "type": "command"
-          }
-        ]
-      },
       {
         "hooks": [
           {
@@ -203,14 +86,6 @@
       }
     ],
     "UserPromptSubmit": [
-      {
-        "hooks": [
-          {
-            "command": "cmd=${HCOM:-hcom}; command -v \"${cmd%% *}\" >/dev/null 2>&1 && exec $cmd userpromptsubmit || exit 0",
-            "type": "command"
-          }
-        ]
-      },
       {
         "hooks": [
           {

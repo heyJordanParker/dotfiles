@@ -23,7 +23,6 @@ TARGETS = {
     "ssh": f"{HOME}/.ssh",
     "bin": f"{HOME}/.local/bin",
     "starship": f"{HOME}/.config",
-    "hcom": f"{HOME}/.hcom",
     "honcho": f"{HOME}/.honcho",
 }
 

@@ -31,7 +31,7 @@ Add the tool to the Brewfile; config goes in its own package; a wrapper needing 
 IF a tool offers to install its own hooks, plugin, or config:
 ### Commit its entries instead of running its installer
 An installer writes by temp file and rename, which replaces the stow link with a plain file and aborts every later stow run. Run it once on a scratch copy, commit what it wrote into the package, and let stow lay it down.
-Never: `hcom hooks add`, or any `<tool> install` that writes under `~/.claude`, `~/.config`, or `~/.hcom`.
+Never: a `<tool> install` that writes under `~/.claude` or `~/.config`.
 
 ### Keep `scripts/stow.py` as the package target source
 Never break the per-package target mapping in `scripts/stow.py`. It is the single source; `setup.sh` and the pre-commit Hook restow through `scripts/sync.py`, which reads it.
