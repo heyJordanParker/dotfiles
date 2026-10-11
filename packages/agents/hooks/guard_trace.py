@@ -7,8 +7,8 @@ structure, and through `script_lines`/`all_segments` so a command carried inside
 `zsh -lc '…'`, an ssh line, or a `find -exec` runs the same gate as one typed
 directly:
   A. a real `trace` command piped into a text-trimmer or redirected into a repo file.
-  B. a raw cat/grep/find/sed/etc. command run against a path that exists in the repo,
-     or a raw ls/tree listing that reaches the repo (no path argument lists cwd).
+  B. a raw cat/grep/find/sed/etc. command run against a path inside any git repository,
+     or a raw ls/tree listing that reaches one (no path argument lists cwd).
   C. a git subcommand that reads repository code and has an exact trace replacement.
   D. an unbounded search piped into sort/uniq, which holds the whole stream in memory.
 A plain, unpiped, unredirected `trace` always passes.
@@ -24,8 +24,7 @@ import shlex
 import sys
 
 from lib import feedback
-from lib.command import (all_segments, command_head, git_subcommand,
-                         head_and_args, script_lines, tokenize)
+from lib.command import all_segments, command_head, git_subcommand, head_and_args, script_lines, tokenize
 from lib.event import command_str, field, read_event
 
 BINDING = {
@@ -117,7 +116,7 @@ def resolve_paths(token, cwd):
     return [os.path.normpath(token)]
 
 
-def inside_repo(p, cwd):
+def inside_repo(p):
     if p in _DEVICES:
         return False
     # The artifact homes are prose, not code: a report, a plan, a shaping doc, or
@@ -128,11 +127,16 @@ def inside_repo(p, cwd):
             or "/.claude/shaping/" in p or "/.claude/plans/" in p
             or "/.tracer-cache/" in p):
         return False
-    return p == cwd or p.startswith(cwd + "/")
+    while not os.path.exists(os.path.join(p, ".git")):
+        parent = os.path.dirname(p)
+        if parent == p:
+            return False
+        p = parent
+    return True
 
 
 def _reads_repo_file(token, cwd):
-    return any(os.path.exists(p) and inside_repo(p, cwd)
+    return any(os.path.exists(p) and inside_repo(p)
                for p in resolve_paths(token, cwd))
 
 
@@ -189,7 +193,7 @@ def _trace_piped_or_redirected(command, cwd):
                 continue
             for j, w in enumerate(words):
                 if _is_file_redirect(w) and j + 1 < len(words):
-                    if any(inside_repo(p, cwd)
+                    if any(inside_repo(p)
                            for p in resolve_paths(words[j + 1], cwd)):
                         return True
             if op == "pipe" and i + 1 < len(pieces):

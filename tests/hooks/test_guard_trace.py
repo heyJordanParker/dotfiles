@@ -1,10 +1,17 @@
-"""The trace-routing gate. Raw file reads and listings on repo paths are
-refused toward the matching trace subcommand; paths outside the repo pass."""
+"""The trace-routing gate. Raw file reads and listings on paths inside a git
+repository are refused toward the matching trace subcommand; other paths pass."""
 
 import importlib
 import io
 import json
 import sys
+
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def repo(tmp_path):
+    (tmp_path / ".git").mkdir()
 
 
 def _run(monkeypatch, command, cwd):

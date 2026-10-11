@@ -15,7 +15,7 @@ import os
 import sys
 
 from lib import feedback
-from lib.command import all_segments, git_subcommand, in_tmp, is_ours, mutation_targets
+from lib.command import all_segments, git_subcommand, in_tmp, mutation_targets
 from lib.event import canonical_tool, field, patch_target, read_event
 from lib.session_mode import state
 
@@ -47,7 +47,7 @@ def _git_tree_mutation(words):
 
 
 def _allowed_target(t, cwd):
-    """True = allowed, False = blocked (a mutation that lands in our tree)."""
+    """True = allowed, False = blocked (a mutation outside /tmp and the docs homes)."""
     t = t.strip().strip('"').strip("'")
     if t in _DEVICES:
         return True
@@ -63,11 +63,7 @@ def _allowed_target(t, cwd):
               "/.claude/shaping/", "/.claude/plans/"):
         if d in probe:
             return True
-    if in_tmp(t):
-        return True
-    if t == cwd or t.startswith(cwd + "/") or is_ours(t):
-        return False
-    return True
+    return in_tmp(t)
 
 
 UNREADABLE_MSG = """BLOCKED: this command line cannot be read by the write gate.
