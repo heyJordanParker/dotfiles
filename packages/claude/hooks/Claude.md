@@ -12,4 +12,3 @@ Plugin-distributed shell Hook surface for external Claude Code installs that hav
 - `herdr-agent-state.sh` is herdr's vendored Claude integration. It reports each session's identity to herdr at `SessionStart`, and herdr reads Claude's working, idle, and blocked state from the screen.
 - The Python Hook session state lives in `packages/agents/hooks/lib/session_state.py`.
 - `record_session_event.py` owns state-recording events for the Python Hook layer.
-- Plugin users get the tracer binary as a Command, not tracer Hooks.

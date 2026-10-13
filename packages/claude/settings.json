@@ -12,7 +12,8 @@
     "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH": "1",
     "ENABLE_TOOL_SEARCH": "true",
     "EDITOR": "prompt-editor",
-    "USER_TYPE": "ant"
+    "USER_TYPE": "ant",
+    "CLAUDE_CODE_PLUGIN_DIRS": "~/Developer/tracer"
   },
   "includeCoAuthoredBy": false,
   "permissions": {
@@ -136,31 +137,6 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "Read|Glob|Grep|Edit|Write",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 ~/.agents/hooks/enrich_on_read.py",
-            "timeout": 15
-          }
-        ]
-      },
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 ~/.agents/hooks/inject_docs.py",
-            "timeout": 15
-          },
-          {
-            "type": "command",
-            "command": "python3 ~/.agents/hooks/combine_hooks.py block_branch_change block_composed_commands block_denied_access block_git_revert block_invalid_browsers block_memory_access block_path_assignment block_spawning block_unauthorized_commits block_unsafe_delete block_writes guard_trace protect_session_state",
-            "timeout": 65
-          }
-        ]
-      },
-      {
         "matcher": "Agent",
         "hooks": [
           {
@@ -172,6 +148,16 @@
             "type": "command",
             "command": "python3 ~/.agents/hooks/combine_hooks.py block_builtin_subagents block_spawning block_worktree_isolation",
             "timeout": 15
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ~/.agents/hooks/combine_hooks.py block_branch_change block_composed_commands block_denied_access block_git_revert block_invalid_browsers block_memory_access block_path_assignment block_spawning block_unauthorized_commits block_unbounded_sort block_unsafe_delete block_writes protect_session_state",
+            "timeout": 65
           }
         ]
       },
@@ -296,22 +282,7 @@
           },
           {
             "type": "command",
-            "command": "python3 ~/.agents/hooks/reload_harness_context.py",
-            "timeout": 20
-          },
-          {
-            "type": "command",
             "command": "python3 ~/.agents/hooks/record_session_event.py"
-          }
-        ]
-      },
-      {
-        "matcher": "startup|resume|clear|compact",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 ~/.agents/hooks/load_trace_context.py",
-            "timeout": 20
           }
         ]
       },
@@ -422,28 +393,6 @@
           }
         ]
       }
-    ],
-    "InstructionsLoaded": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 ~/.agents/hooks/reload_harness_context.py",
-            "timeout": 20
-          }
-        ]
-      }
-    ],
-    "PreCompact": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 ~/.agents/hooks/reload_harness_context.py",
-            "timeout": 20
-          }
-        ]
-      }
     ]
   },
   "worktree": {
@@ -456,13 +405,27 @@
   "enabledPlugins": {
     "dev-browser@dev-browser-marketplace": false,
     "skill-creator@claude-plugins-official": true,
-    "dent@getdent": true
+    "dent@getdent": true,
+    "cmod@cmod": true
   },
   "extraKnownMarketplaces": {
     "getdent": {
       "source": {
         "source": "github",
         "repo": "getdent/skill"
+      }
+    },
+    "cmod": {
+      "source": {
+        "source": "github",
+        "repo": "heyJordanParker/cmod"
+      }
+    }
+  },
+  "pluginConfigs": {
+    "tracer@inline": {
+      "options": {
+        "tracerOnly": true
       }
     }
   },

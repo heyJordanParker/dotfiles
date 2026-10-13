@@ -3,13 +3,13 @@ event and records the matching session-state change through the store.
 
 It centralizes the session-state recording that settings.json wires for each
 Claude Code event. The tests feed real event payloads and assert the resulting
-on-disk state.json is exactly what the store produces today, plus the
-completed-task-notification archive path, and the never-block contract.
+on-disk state.json is exactly what the store produces today, and the
+never-block contract.
 
 The store is isolated under tmp_path via CLAUDE_DATA_ROOT (same as the
-session_state tests). The hook imports the store as `lib.session_state` and the
-archive as `archive_subagent_log`; we drive the hook through its `main()` by
-feeding the payload on stdin, and monkeypatch the store's clock for determinism.
+session_state tests). The hook imports the store as `lib.session_state`; we drive
+the hook through its `main()` by feeding the payload on stdin, and monkeypatch the
+store's clock for determinism.
 """
 
 import io
@@ -143,45 +143,6 @@ def test_session_start_rewrites_a_mode_nobody_typed(root, tmp_path, clock, monke
     st = _read(_state(root, "m4"))
     assert st["mode"] == "interview"
     assert st["mode_typed"] is False
-
-
-# ---------------------------------------------------------------------------
-# task-notification: completed -> tracer-log archive; else nothing
-# ---------------------------------------------------------------------------
-
-def _start_parent_and_subagent(root, monkeypatch, parent, agent_task):
-    """Establish a parent main session and a subagent under it via the store."""
-    _fire({"hook_event_name": "SessionStart", "session_id": parent,
-           "transcript_path": "/p/%s/%s.jsonl" % (parent, parent)}, monkeypatch)
-    session_state.cmd_start(["agent-%s" % agent_task, "--transcript-path",
-                             "/p/%s/subagents/agent-%s.jsonl" % (parent, agent_task)])
-
-
-def _notification(task_id, status):
-    return ("<task-notification><task-id>%s</task-id>"
-            "<status>%s</status></task-notification>") % (task_id, status)
-
-
-def _seed_tracer_log(monkeypatch, session_id, task_id):
-    """Create a fake repo with a live tracer-log dir for the subagent, so the
-    archive hook has something to move. Returns (active_dir, archived_dir)."""
-    import subprocess
-    import tempfile
-    repo = tempfile.mkdtemp()
-    subprocess.run(["git", "-C", repo, "init", "-q"], check=True)
-    monkeypatch.chdir(repo)
-    base = os.path.join(repo, ".tracer-cache", "sessions", session_id)
-    active = os.path.join(base, task_id)
-    os.makedirs(active)
-    with open(os.path.join(active, "events.jsonl"), "w") as fh:
-        fh.write("{}\n")
-    return active, os.path.join(base, "archived", task_id)
-
-
-
-
-
-
 
 
 # ---------------------------------------------------------------------------

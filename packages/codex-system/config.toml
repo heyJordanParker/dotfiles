@@ -116,32 +116,6 @@ type = "command"
 command = "python3 /Users/jordan/.agents/hooks/sync_shaping.py"
 timeout = 5
 
-[[hooks.PreCompact]]
-[[hooks.PreCompact.hooks]]
-type = "command"
-command = "python3 /Users/jordan/.agents/hooks/inject_rules.py"
-timeout = 15
-
-[[hooks.PreToolUse]]
-matcher = "Read|Glob|Grep|Edit|Write"
-[[hooks.PreToolUse.hooks]]
-type = "command"
-command = "python3 /Users/jordan/.agents/hooks/enrich_on_read.py"
-timeout = 15
-additionalContextLimit = 0
-
-[[hooks.PreToolUse]]
-matcher = "Bash"
-[[hooks.PreToolUse.hooks]]
-type = "command"
-command = "python3 /Users/jordan/.agents/hooks/inject_docs.py"
-timeout = 15
-additionalContextLimit = 0
-[[hooks.PreToolUse.hooks]]
-type = "command"
-command = "python3 /Users/jordan/.agents/hooks/combine_hooks.py block_branch_change block_composed_commands block_denied_access block_git_revert block_invalid_browsers block_memory_access block_path_assignment block_spawning block_unauthorized_commits block_unsafe_delete block_writes guard_trace protect_session_state"
-timeout = 65
-
 [[hooks.PreToolUse]]
 matcher = "Agent"
 [[hooks.PreToolUse.hooks]]
@@ -150,12 +124,11 @@ command = "python3 /Users/jordan/.agents/hooks/inject_honcho_memory.py"
 timeout = 20
 
 [[hooks.PreToolUse]]
-matcher = "Read|Write|Edit|apply_patch"
+matcher = "Bash"
 [[hooks.PreToolUse.hooks]]
 type = "command"
-command = "python3 /Users/jordan/.agents/hooks/inject_rules.py"
-timeout = 15
-additionalContextLimit = 0
+command = "python3 /Users/jordan/.agents/hooks/combine_hooks.py block_branch_change block_composed_commands block_denied_access block_git_revert block_invalid_browsers block_memory_access block_path_assignment block_spawning block_unauthorized_commits block_unbounded_sort block_unsafe_delete block_writes protect_session_state"
+timeout = 65
 
 [[hooks.PreToolUse]]
 matcher = "Write|Edit|MultiEdit"
@@ -185,11 +158,6 @@ command = "python3 /Users/jordan/.agents/hooks/inject_honcho_memory.py"
 timeout = 20
 [[hooks.SessionStart.hooks]]
 type = "command"
-command = "python3 /Users/jordan/.agents/hooks/inject_rules.py"
-timeout = 15
-additionalContextLimit = 0
-[[hooks.SessionStart.hooks]]
-type = "command"
 command = "python3 /Users/jordan/.agents/hooks/record_session_event.py"
 
 [[hooks.SessionStart]]
@@ -197,14 +165,6 @@ matcher = "compact"
 [[hooks.SessionStart.hooks]]
 type = "command"
 command = "python3 /Users/jordan/.agents/hooks/inject_mode_skills.py"
-
-[[hooks.SessionStart]]
-matcher = "startup|resume|clear|compact"
-[[hooks.SessionStart.hooks]]
-type = "command"
-command = "python3 /Users/jordan/.agents/hooks/load_trace_context.py"
-timeout = 20
-additionalContextLimit = 0
 
 [[hooks.Stop]]
 [[hooks.Stop.hooks]]

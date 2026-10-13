@@ -33,8 +33,8 @@ brew "oven-sh/bun/bun"
 brew "hcloud"
 brew "anomalyco/tap/opencode"
 brew "rust"
-brew "rustup"                   # toolchain that carries the tracer linux cross targets
-brew "zig"                      # linux cross toolchain for the tracer plugin prebuilts
+brew "rustup"                   # the toolchain tracer builds with, and its linux targets
+brew "zig"                      # linux cross toolchain for tracer's release builds
 brew "cmake"                    # needed to compile llama.cpp in the prompt-reviewer build
 brew "git-delta"
 brew "modem-dev/tap/hunk"

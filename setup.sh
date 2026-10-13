@@ -58,24 +58,22 @@ done < "$DOTFILES_DIR/packages/bun/globals"
 bun pm -g trust --all
 agent-browser install
 
-echo "==> Installing tracer (code intelligence CLI)..."
+echo "==> Installing the Rust toolchain tracer builds with..."
+# tracer builds through rustup's stable cargo, and its releases cross-compile the
+# Linux files with cargo-zigbuild (zig comes from the Brewfile).
 export PATH="/opt/homebrew/opt/rustup/bin:$HOME/.cargo/bin:$PATH"
 if [ ! -x "$HOME/.cargo/bin/rustup" ] && ! command -v rustc &>/dev/null; then
     rustup-init -y --no-modify-path --default-toolchain stable >/dev/null 2>&1
 fi
-(cd "$DOTFILES_DIR/tools/tracer" && cargo build --release)
-mkdir -p "$HOME/.local/bin"
-install -m 755 "$DOTFILES_DIR/tools/tracer/target/release/trace" "$HOME/.local/bin/.trace.new"
-mv -f "$HOME/.local/bin/.trace.new" "$HOME/.local/bin/trace"
-# The plugin ships prebuilts for Linux too, cross-compiled here by cargo-zigbuild
-# (zig comes from the Brewfile). rustup owns the toolchain that carries the Linux
-# targets; Homebrew's rust ships only the host one and wins on an interactive PATH.
-echo "==> Installing the tracer linux cross toolchain..."
 rustup target add x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu >/dev/null
 cargo install cargo-zigbuild --locked >/dev/null
-echo "==> Regenerating the tracer plugin payload..."
-(cd "$DOTFILES_DIR/tools/tracer" && cargo xtask sync-dist)
-(cd "$DOTFILES_DIR/tools/tracer" && cargo xtask build-bin)
+
+echo "==> Linking the tracer mod (code intelligence)..."
+npm install -g @cmodjs/cli
+if [ ! -d "$HOME/Developer/tracer" ]; then
+  git clone https://github.com/heyJordanParker/tracer.git "$HOME/Developer/tracer"
+fi
+cmod link "$HOME/Developer/tracer" --yes
 
 echo "==> Installing prompt-reviewer (local prompt-review CLI)..."
 # Compiles llama.cpp in-process (needs cmake, from the Brewfile). The model

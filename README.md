@@ -47,7 +47,6 @@ Invoked as `/talents:<name>`:
 - **build** — Build-mode contract: the agent does every edit itself, no subagents
 - **delegate** — Framework for dispatching one-shot subagents
 - **orchestrate** — Orchestrate-mode contract: subagents make every change
-- **trace** — Code intelligence CLI: search, callers, definitions, complexity, file/method reads with rich architectural context (requires the bundled `trace` binary; see Tracer Setup below)
 - **user-testing** — Trace real user flows through code changes, find gaps
 
 ### Commands
@@ -70,45 +69,9 @@ The plugin includes hooks that run automatically to keep Claude disciplined:
 - **sync-shaping** — Ripple-check reminders when editing shaping documents
 
 
-### Tracer Setup
+### Tracer
 
-The `/trace` skill needs the `trace` binary. The plugin ships a POSIX launcher that lands on `PATH` automatically when the plugin is enabled. tracer is a native Rust binary, so the launcher resolves a host-appropriate one: a committed prebuilt (macOS arm64 / Linux x86_64), a previously locally-built cached binary, or — on any other platform — `cargo build` from the crate source shipped in the plugin. If no Rust toolchain is present for that last path, `trace` prints an actionable "install Rust" error.
-
-All 23 commands work from whichever binary the launcher resolves — there is no reduced-feature tier. If you want `trace` outside the plugin too, build it from `tools/tracer` and put it on `PATH` (the dotfiles `setup.sh` does this into `~/.local/bin`):
-
-```bash
-cd tools/tracer
-cargo build --release
-install -m 755 target/release/trace ~/.local/bin/.trace.new
-mv -f ~/.local/bin/.trace.new ~/.local/bin/trace
-```
-
-Tracer wraps five external binaries: `ast-grep`, `scc`, `universal-ctags`, `ripgrep`, `git`. Install whichever your platform needs:
-
-**macOS (Homebrew):**
-
-```bash
-brew install ast-grep scc universal-ctags ripgrep
-xcode-select --install     # git
-```
-
-**Linux (Debian/Ubuntu):**
-
-```bash
-apt install universal-ctags ripgrep git
-# ast-grep:  https://ast-grep.github.io/guide/quick-start.html
-# scc:       https://github.com/boyter/scc#installation
-```
-
-**Windows (Scoop):**
-
-```bash
-scoop install ast-grep scc ripgrep
-# universal-ctags: https://github.com/universal-ctags/ctags
-# git:             https://git-scm.com/download/win
-```
-
-Verify with `trace doctor` — it lists missing binaries with the same install command for your platform.
+Code intelligence lives in its own repository, [tracer](https://github.com/heyJordanParker/tracer): the `trace` program and the mod that wires it into Claude Code. Its README covers installing both.
 
 ### Agents
 

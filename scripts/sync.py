@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """Repo maintenance entry point.
 
-Restows every package, regenerates the generated codex files, and rebuilds a
-tracer plugin payload that has fallen behind its source. Run by setup.sh and the
-pre-commit hook; idempotent.
+Restows every package and regenerates the generated codex files. Run by setup.sh
+and the pre-commit hook; idempotent.
 """
 
 import os
@@ -20,7 +19,6 @@ sys.path.insert(0, os.path.join(PACKAGES, "agents", "hooks"))
 import agents  # noqa: E402
 import hooks  # noqa: E402
 import stow  # noqa: E402
-import tracer  # noqa: E402
 from lib.session_state import clear_stale_locks, migrate_sessions  # noqa: E402
 
 
@@ -35,7 +33,6 @@ def main():
         os.path.join(PACKAGES, "codex-system", "config.toml"),
         os.path.join(PACKAGES, "claude", "profiles"),
     )
-    tracer.sync(ROOT)
 
 
 if __name__ == "__main__":
