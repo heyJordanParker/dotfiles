@@ -1,137 +1,52 @@
 ---
 name: naming
-description: MANDATORY for naming any code identifier — variable, function, file, folder, class, database column, route, CSS class. Always returns a 5-10 candidate slate; the caller picks. TRIGGER when proposing or choosing a name, on /naming, on "rename", "ideas", "options", "what should I call", or any new file/class/method/column/route. DO NOT TRIGGER when editing a body that does not introduce or change an identifier, when restructuring code (Architecture, not naming), or when labeling UI for end Users.
+description: Name a code identifier, or review the names code already has — variable, function, class, file, folder, database column, route, CSS class, enum case, attribute. TRIGGER when introducing or changing an identifier, on /naming, "rename", "what should I call", "naming ideas", or "review the naming". DO NOT TRIGGER when editing a body that introduces no identifier, when restructuring code (that is Architecture), or when writing UI copy for end Users.
 ---
 
 # Naming
 
-This Skill is mandatory whenever naming anything in code.
+The files, the Public API, the database, and the names in them form the application's language, and the Architect reviews them as Architecture. A name is right when its full callsite reads as a plain sentence, in the project's domain language, about the Capability it gives the caller. The Architect builds the final name from words across the candidates, so each word on the list is a separate option.
 
-## 1. Find the Precedent
+## 1. Follow the project's conventions and language
 
-### Copy the shape of the names around it
-Read the folder, file, class, or table the name lands in. The names already there set the shape: singular or plural, noun or verb, one word or two, prefixed or bare. Every candidate uses that shape.
+Read the names next to the new one, its current callers, and the project's `Domain.md`. Follow the conventions those names use over your own defaults, and the framework's and the language's conventions where the project has none. Use the words the domain and the Architect already use for this Capability, never a word the project stopped using.
+Example: Cashier's `Subscription` has `onTrial()` and `onGracePeriod()`, so its new state check is `onBillingPause()`, not `isPaused()`.
+Example: a TypeScript type for a PHP response keeps the PHP side's `snake_case` keys.
 
-### Follow the project's domain language
-Use the words this project already speaks. A word it spends on something else is taken. A word it retired stays retired. Read the project's `Domain.md` if it exists.
+## 2. Give each candidate a different angle
 
-## 2. Pick the angles
-
-### Give every candidate its own angle
-An angle is a different idea of what the thing is, not a different wording of one idea. Frame the thing several ways first: what the caller gets, the Domain event, the object that changes, the state after, the trigger before, the real-world act. Each candidate comes off a different framing and names it on its slate line. Two candidates share an angle when one sentence describes both, so replace one. The reply opens on the first candidate, never on a list of angles. The candidates below name a method on `Payment` that charges a failed payment on the backup card.
-
-Never:
-    $payment->chargeFallbackInstrument() / $payment->billAlternateSource()
-    $payment->captureDuesElsewhere() / $payment->collectViaSpareWallet()
-
+An angle is a different idea of what the thing is: what the caller gets, the domain event, the object that changes, the state after, the trigger before, or the real-world act. Two candidates have the same angle when one sentence describes both. These candidates name a method on `Payment` that charges a failed payment to the backup card.
+Never: `$payment->chargeFallbackInstrument()` / `$payment->billAlternateSource()`
 Example:
     $payment->retryCharge() — the same operation runs again
     $payment->recoverSubscription() — the subscription returns to active
     $payment->useBackupCard() — the stored second card is what changes
     $payment->settleBalance() — the debt reaches zero
-    $payment->rescueAccount() — the customer keeps their access
 
-## 3. Generate a slate
+### Use each word in one candidate only
+When every candidate needs the same word, such as the noun each sibling names, say once above the list that the word is fixed, and vary the other words.
+Never: `checkStatus` / `checkInfo` — three words for two candidates.
 
-### Every reply is a slate
-Return 5-10 candidates, then one recommendation and one runner-up. Never answer with a single name before the slate.
+## 3. Test each candidate as a sentence at its callsite
+
+Write each candidate into a full callsite: a current caller, or the call the change adds. A static member includes its class, and an instance member includes the project's usual variable name. For a name on a Module's Public API, use a callsite in another Module. Read the line as one plain sentence and put each word the reader has to add in parentheses. When every reader adds the same word, leave it out of the name. When readers would add different words, put the word in the name or remove the candidate.
+Example: `$order->total()` reads "the order's total (before or after tax)". Readers add different words, so the name has to say which.
+
+Remove a candidate whose sentence:
+- says how the code works instead of what the caller gets: `fetchAndCacheUser` for `getUser`
+- repeats what its container or type already says: `$user->isUserValid()`, `userList`
+- has a word the reader must translate: an abbreviation (`cfg`), an academic or metaphor word (`materialize`, `mint`, `prune`), or an empty verb (`process`, `handle`, `manage`)
+- uses a word that means something else in the project or its framework, unless a qualifier tells the two apart: `TrackingEvent` where domain events are `Event`. Search the code for each word.
+- needs "and" or "or": the code does two jobs, so report the split instead of a name
+
+Replace a removed candidate with another word for the same angle. Keep a candidate that is only long or close to a sibling, and state that downside.
+
+## 4. Reply with the candidates
+
+List 5 to 10 candidates, each in its callsite, then a recommendation and a runner-up, and stop. A review of existing names lists every name whose sentence fails, each with its sentence and its own candidates.
+Never: a name chosen before the list.
 
 Template:
-    - `candidate` — the angle in one clause; project Precedent it matches; the cost it carries if it has one
-    - `candidate` — the angle in one clause; project Precedent it matches; the cost it carries if it has one
-
-    Recommended: `name` — one-sentence reason.
-    Runner-up: `name` — one-sentence reason.
-
-Never: "Let's call it X", "I'd name it X", "The right name is X", "Recommended: X" without a slate above it, any single candidate before the slate.
-
-IF the name belongs to a class, module, or object — a method, property, constant, or field:
-### Write every candidate as the caller writes it
-A bare member name reads well alone and badly against its owner. Every slate line, the recommendation, and the runner-up carry the whole callsite. A static member carries the class name. A non-static member carries a typical instance name from the project. Judge the candidate on that whole line, so a word the owner already says is a repeat you cut.
-
-Never:
-    fromOrder / isValid / retryCharge
-
-Example:
-    Invoice::fromOrder($order) — the static member reads with its class
-    $invoice->isPaid() — the property reads with a typical instance
-
-### Change every fragment in every candidate
-A word that appears in one candidate appears in no other. The caller mixes words across candidates into a final name that was not on the slate, so a repeated word costs a slot and returns nothing.
-
-Never:
-    deleteFiles / deleteManyFiles / deleteData
-
-IF no alternative to a word survives the scrub:
-### Fix that word and spend the slate on the rest
-Say in one clause that the word is settled, then change every other word across the slate. Settling is rare. A word stays open unless you can name why each alternative fails. The `use` that opens a Hook name is one of the few words already settled elsewhere in this Skill.
-
-## 4. Scrub each candidate
-
-Replace dead candidates before they reach the slate.
-
-### Cut a candidate that fails a test, keep one that only costs something
-A word the project already uses for something else, or a word outside the project's language, fails. Cut it whatever its angle is worth. Length, a heavy compound, and a near miss with a sibling are costs. Those candidates stay, with the cost named.
-
-### Redraw a dead candidate on its own angle
-A candidate that fails a test leaves its angle open. Find another word for that angle. Drop the angle only when no word survives on it.
-
-### Pass the three candidate tests
-Every candidate says what the caller gets, not how it works inside; every word is in the project's vocabulary or in plain English a developer says out loud; the name does not already mean something else in this codebase.
-
-### Follow the authority order
-These Rules outrank project conventions, and project conventions outrank language or framework conventions. Check the project first; consistency within it trumps external standards.
-
-### Never use `ALL_CAPS` for names
-Express immutability with `const`, `final`, or `readonly`.
-
-### Spell every word out
-No abbreviations. Market acronyms are acceptable in code casing: `Url`, `Http`, `Api`, `Html`, `Css`, `Id`. Never invent project-specific acronyms.
-
-### Let the container supply surrounding words
-The class, folder, namespace, or module supplies surrounding words. Use `user.isValid()`, not `user.isUserValid()`; use `utils/dates.ts`, not `date-utils.ts`.
-
-### Remove redundant suffixes
-Use `users`, not `userList`; the type already says it.
-
-### Hide implementation details
-Name the interface, not the mechanism. Use `getUser`, not `fetchAndCacheUser`.
-
-### Avoid academic English
-Thesaurus verbs make code read like an Architecture doc. Use `create(data)`, not `materialize(data)`; use `loadSession()`, not `rehydrateSession()`.
-
-### Avoid metaphor verbs
-Verbs from unrelated fields force translation. Use `deleteRecords()`, not `pruneRecords()`; use `createToken()`, not `mintToken()`; use `showNotification()` when rendering, not `emitNotification()`.
-
-### Avoid vague verbs
-`process`, `handle`, `manage`, `do`, and `run` convey nothing specific. Name the actual operation: `shipOrder()`, `chargeOrder()`, `validateOrder()`, `updateSettings()`, `loadSettings()`.
-
-### Avoid overloaded terms
-When the name already means something specific in this codebase, add the qualifier that distinguishes the new thing. Use `TrackingEvent` for a new analytics record when domain events already use `Event`; use `PaymentGateway` for a payment provider when service providers already use `Provider`.
-
-### Avoid stutter
-Do not repeat the module's word in the type or file name. Use `users/Service`, not `users/UsersService`; use `models/User`, not `models/UserModel`.
-
-### Follow semantic naming patterns
-Booleans use `is`, `has`, `can`, or `should`: `isLoggedIn`, `hasPermission`, `canEdit`. Internal handlers use `handle` plus the event, like `handleSubmit`; prop callbacks use `on` plus the event, like `onSubmit`. Hooks use `use` plus what they provide, like `useProducts` or `useAuth`. Collections use simple plurals, like `users` or `orders`. Transformers live on the source object, like `user.toJson()` or `order.toResponse()`.
-
-IF Project Precedent does not settle the casing convention:
-### Follow ecosystem casing
-TypeScript and JavaScript variables, functions, and constants use `camelCase`; classes, components, and types use `PascalCase`. PHP classes use `PascalCase`; methods and variables use `camelCase`; database tables, database columns, and route parameters use `snake_case`. Python uses `snake_case` except classes, which use `PascalCase`. Custom stylesheets use block-element-modifier naming; Tailwind and utility classes use `kebab-case`. React attributes use `camelCase`; vanilla HyperText Markup Language attributes use lowercase. Uniform Resource Locators and routes use `kebab-case` or `snake_case`, choosing the User-facing name. Database tables use plural `snake_case`; database columns and constraints use `snake_case`.
-
-### Let the outer layer win when conventions conflict
-A TypeScript response from a PHP backend keeps `snake_case` keys; do not transform names just to match JavaScript convention.
-
-## 5. Run the split test
-
-If a function, service, or handler cannot be named with one idiomatic verb, it is doing too many things.
-
-### Name the direct step, not the downstream chain
-Ask who the caller is, what direct effect this function has, and which one idiomatic verb names that effect. Needing `or` to connect two verbs means two operations are bundled. Split a `resolveLocale` that pops from a list or creates a new object into `extractLocale` and `createLocale`.
-
-### Use the caller's perspective
-Name the external tool for what the caller wants, and name the internal handler for what it does. Use `placeLocale` for the tool and `handlePlaceLocale` for the handler.
-
-## 6. Recommend one and stop
-
-Name one recommendation and one runner-up, then stop. The caller picks.
+    - `$caller->candidate()` — its angle; its sentence; its downside, if it has one
+    Recommended: `candidate` — one-sentence reason.
+    Runner-up: `candidate` — one-sentence reason.
