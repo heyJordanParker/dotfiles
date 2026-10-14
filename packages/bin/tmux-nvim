@@ -15,7 +15,12 @@ if ! nvim --server "$SOCKET" --remote-send '' 2>/dev/null; then
     done
 fi
 
-# 2. Connect (Client Layer)
+# 2. Run the command v passed (open files, or cd and open the explorer), now that the server is up.
+if [ -n "$1" ]; then
+    nvim --server "$SOCKET" --remote-send "$1"
+fi
+
+# 3. Connect (Client Layer)
 # We simply exec the remote-ui.
 # We DO NOT create a tmux session here anymore. The toggle helper does that.
 exec nvim --server "$SOCKET" --remote-ui

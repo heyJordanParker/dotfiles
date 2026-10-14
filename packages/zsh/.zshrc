@@ -71,7 +71,6 @@ bun() { case "$1" in test|build|deploy|publish|login) local cmd="$1"; shift; com
 # --- THE FAST VIM POPUP ---
 
 v() {
-    local socket="$HOME/.cache/nvim/server.pipe"
     local cmd=""
 
     # 1. Build the command string
@@ -90,19 +89,12 @@ v() {
         done
     fi
 
-    # 2. Fire command to socket (Async/Background)
-    # We do this BEFORE opening tmux so it's ready when the window appears
-    if [ -n "$cmd" ]; then
-        # Only try to send if socket exists, otherwise script handles boot
-        if [ -S "$socket" ]; then
-            { nvim --server "$socket" --remote-send "$cmd" >/dev/null 2>&1 } &!
-        fi
-    fi
-
-    # 3. Open the Popup
+    # 2. Open nvim. tmux-nvim starts the server if needed, then runs the command.
     if [ -n "$TMUX" ]; then
         tmux display-popup -d '#{pane_current_path}' -xC -yC -w 80% -h 80% \
-            -E "$HOME/.local/bin/tmux-nvim"
+            -E "$HOME/.local/bin/tmux-nvim" "$cmd"
+    else
+        "$HOME/.local/bin/tmux-nvim" "$cmd"
     fi
 }
 
