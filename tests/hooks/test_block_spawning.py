@@ -154,6 +154,23 @@ def test_build_session_schedules_its_own_next_turn(tmp_path, monkeypatch):
                 tmp_path, monkeypatch, dispatched=False) == ALLOW
 
 
+def test_no_launch_runs_an_agent_on_fable(tmp_path, monkeypatch):
+    for payload in ({"tool_name": "Agent", "tool_input": {"model": "fable"}},
+                    {"tool_name": "Workflow", "tool_input": {"script": "agent('x', {model: 'fable'})"}},
+                    _bash('claude --model fable -p "x"')):
+        assert _run(payload, tmp_path, monkeypatch, mode="orchestrate",
+                    dispatched=False) == BLOCK, payload
+    assert _run({"tool_name": "Agent", "tool_input": {"model": "sonnet"}}, tmp_path, monkeypatch,
+                mode="orchestrate", dispatched=False) == ALLOW
+
+
+def test_a_launch_cannot_type_orchestrate_into_a_new_session(tmp_path, monkeypatch):
+    assert _run(_bash('claude -p "/orchestrate fix the bug"'), tmp_path, monkeypatch,
+                mode="orchestrate", dispatched=False) == BLOCK
+    assert _run(_bash('claude -p "fix the bug"'), tmp_path, monkeypatch,
+                mode="orchestrate", dispatched=False) == ALLOW
+
+
 def test_typed_orchestrate_session_spawns(tmp_path, monkeypatch):
     assert _run({"tool_name": "Agent", "tool_input": {}}, tmp_path, monkeypatch,
                 mode="orchestrate", dispatched=False) == ALLOW

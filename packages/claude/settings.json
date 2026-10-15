@@ -48,6 +48,7 @@
     ],
     "defaultMode": "bypassPermissions"
   },
+  "model": "opus",
   "modelPicker": {
     "options": [
       {
@@ -60,7 +61,6 @@
       }
     ]
   },
-  "model": "opus",
   "hooks": {
     "Notification": [
       {
@@ -146,8 +146,8 @@
           },
           {
             "type": "command",
-            "command": "python3 ~/.agents/hooks/combine_hooks.py block_builtin_subagents block_spawning block_worktree_isolation",
-            "timeout": 15
+            "command": "python3 ~/.agents/hooks/combine_hooks.py block_spawning block_worktree_isolation",
+            "timeout": 10
           }
         ]
       },
@@ -398,6 +398,7 @@
   "worktree": {
     "bgIsolation": "none"
   },
+  "bashEditDiffEnabled": false,
   "statusLine": {
     "type": "command",
     "command": "bash ~/.claude/statusline-command.sh"
@@ -439,6 +440,9 @@
       "effortLevel": "high"
     },
     "claude-opus-5": {
+      "effortLevel": "high"
+    },
+    "claude-opus-5-5": {
       "effortLevel": "high"
     }
   },
