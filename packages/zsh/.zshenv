@@ -12,6 +12,7 @@ export DEV_FOLDER="$HOME/Developer"
 # substitution, no output, no interactive shell setup.
 export ZSH="$HOME/.oh-my-zsh"
 export BUN_INSTALL="$HOME/.bun"
+export GOPATH="$HOME/go"
 export DEV_BROWSER="Helium"
 export BROWSER="/Applications/Helium.app/Contents/MacOS/Helium"
 export SSH_AUTH_SOCK="$HOME/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock"
@@ -23,7 +24,7 @@ export NPM_CONFIG_USERCONFIG="$HOME/.config/npm/npmrc"
 export NPM_CONFIG_FUND=false
 # The official honcho CLI takes its workspace from this variable
 export HONCHO_WORKSPACE_ID="parkerlabs"
-export PATH="$HOME/.local/bin:$HOME/.claude/local:$HOME/bin:$BUN_INSTALL/bin:$HOME/.antigravity/antigravity/bin:$HOME/.lando/bin:/opt/homebrew/opt/ruby/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:${PATH:-/usr/bin:/bin:/usr/sbin:/sbin}"
+export PATH="$HOME/.local/bin:$HOME/.claude/local:$HOME/bin:$BUN_INSTALL/bin:$GOPATH/bin:$HOME/.antigravity/antigravity/bin:$HOME/.lando/bin:/opt/homebrew/opt/ruby/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:${PATH:-/usr/bin:/bin:/usr/sbin:/sbin}"
 
 # Safe delete - moves to Trash instead of permanent deletion
 rm() {
