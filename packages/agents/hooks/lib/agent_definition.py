@@ -1,11 +1,9 @@
 """The declarations an agent's definition file carries in its frontmatter.
 
-Every declaration is read here: the restrictions (`memory: none`,
-`readonly: true`), the one grant (`ssh: enabled`), and the `mode` a dispatch
-works under. They all come off the same line shape in the same file from the
-same roster, and defining that parse a second time is how the memory syntax
-nearly drifted in the first place. Each gate locates the file through
-`definition_path`.
+Every declaration is read here: the restriction (`readonly: true`), the one
+grant (`ssh: enabled`), and the `mode` a dispatch works under. They all come off
+the same line shape in the same file from the same roster, so the parse is
+defined once. Each gate locates the file through `definition_path`.
 
 The failure directions are not symmetric, and each declaration names its own. A
 *missing* restriction must leave the capability reachable: that is the contract
@@ -27,7 +25,7 @@ from lib import frontmatter
 # The keys whose answer depends on what an unreadable definition means. Each has
 # its own reader below; `declaration` refuses them so no caller can reach one
 # through the reader that treats unreadable as undeclared.
-_PERMISSION = ("memory", "readonly", "ssh")
+_PERMISSION = ("readonly", "ssh")
 
 
 def definition_path(name):
@@ -42,24 +40,13 @@ def definition_path(name):
     return os.path.join(root, "agents", name + ".md")
 
 
-def denies_memory(path):
-    """Whether the definition at `path` denies its agent Memory.
-
-    True for an explicit `memory: none`, and for a definition that exists but
-    cannot be read — an unreadable declaration is not evidence of permission.
-    False when the file is absent or carries no `memory: none`, the undeclared
-    case the contract leaves Memory reachable for.
-    """
-    return _declares(path, "memory", "none", unreadable=True)
-
-
 def is_readonly(path):
     """Whether the definition at `path` declares `readonly: true`.
 
-    True for a definition that exists and cannot be read, the same direction as
-    `memory`: a restriction that was written must never lapse into permission
-    because a read failed. Absent key and absent file both mean the agent writes,
-    which is what every agent without the key relies on.
+    True for a definition that exists and cannot be read: a restriction that
+    was written must never lapse into permission because a read failed. Absent
+    key and absent file both mean the agent writes, which is what every agent
+    without the key relies on.
     """
     return _declares(path, "readonly", "true", unreadable=True)
 
@@ -109,9 +96,9 @@ def declaration(path, key):
 
     Never read a permission key through here. Their contract turns on what an
     unreadable definition means, and this returns None for one — the permissive
-    answer for every one of them. `denies_memory`, `is_readonly` and `allows_ssh`
-    are the only correct readers of those keys, so asking for one here is a
-    mistake rather than a request.
+    answer for every one of them. `is_readonly` and `allows_ssh` are the only
+    correct readers of those keys, so asking for one here is a mistake rather
+    than a request.
     """
     if key in _PERMISSION:
         raise ValueError(

@@ -2,7 +2,7 @@
 
 Every definition in this repository declares itself the same way: an agent file,
 a SKILL.md, a rules file. Reading that block was written four times over — once
-here as `parse` for the codex generator, once in `agent_memory` for the gates,
+here as `parse` for the codex generator, once in `agent_definition` for the gates,
 once in `classify_intent` for `disable-model-invocation`, once more for a Skill's
 own `reload-every` — because this module used to live in `scripts/`, which is a
 build-time path and is never stowed to ~/.agents where the hooks run from.
@@ -59,8 +59,8 @@ def declared(text, key):
     what its caller's values mean.
 
     A trailing `# comment` is stripped and a matching pair of quotes is removed,
-    so `memory: "none"` and `memory: none  # one-shot` are the same declaration.
-    Reading the second as anything but a denial is the failure `agent_memory`
+    so `readonly: "true"` and `readonly: true  # reviewer` are the same declaration.
+    Reading the second as anything but a restriction is the failure `agent_definition`
     exists to stop, and the same widening is harmless everywhere else.
     """
     lines = text.splitlines()

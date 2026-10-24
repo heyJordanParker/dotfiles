@@ -10,7 +10,7 @@ import os
 import re
 import sys
 
-from lib import agent_memory
+from lib import agent_definition
 
 
 def read_event():
@@ -149,8 +149,8 @@ def is_subagent(event):
 def agent_name(event):
     """Which agent this payload belongs to, or "" when none names one.
 
-    Memory is stored per agent, so every write and every read needs the running
-    agent's name. Claude puts it on the payload as `agent_type` — on a subagent
+    Every gate that reads an agent's definition needs the running agent's name.
+    Claude puts it on the payload as `agent_type` — on a subagent
     event, and on the main thread of a session started with `--agent`, correct
     for both. Codex names it the same way for an agent it spawned, as the role it
     spawned under.
@@ -176,7 +176,7 @@ def _started_as(event, named):
     that embeds it, `a<name>-<hash>`, and its record carries the agent it runs as
     in `customAgentType`. A Subagent started by type has no such field.
     """
-    if os.path.isfile(agent_memory.definition_path(named)):
+    if os.path.isfile(agent_definition.definition_path(named)):
         return ""
     record = field(event, "agent_transcript_path", "")
     if record.endswith(".jsonl"):

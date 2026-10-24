@@ -137,27 +137,12 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "Agent",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 ~/.agents/hooks/inject_honcho_memory.py",
-            "timeout": 20
-          },
-          {
-            "type": "command",
-            "command": "python3 ~/.agents/hooks/combine_hooks.py block_spawning block_worktree_isolation",
-            "timeout": 10
-          }
-        ]
-      },
-      {
         "matcher": "Bash",
         "hooks": [
           {
             "type": "command",
-            "command": "python3 ~/.agents/hooks/combine_hooks.py block_branch_change block_composed_commands block_denied_access block_git_revert block_invalid_browsers block_memory_access block_path_assignment block_spawning block_unauthorized_commits block_unbounded_sort block_unsafe_delete block_writes protect_session_state",
-            "timeout": 65
+            "command": "python3 ~/.agents/hooks/combine_hooks.py block_branch_change block_composed_commands block_denied_access block_git_revert block_invalid_browsers block_path_assignment block_spawning block_unauthorized_commits block_unbounded_sort block_unsafe_delete block_writes protect_session_state",
+            "timeout": 60
           }
         ]
       },
@@ -188,6 +173,16 @@
             "type": "command",
             "command": "python3 ~/.agents/hooks/block_research_web_tools.py",
             "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ~/.agents/hooks/combine_hooks.py block_spawning block_worktree_isolation",
+            "timeout": 10
           }
         ]
       },
@@ -277,11 +272,6 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 ~/.agents/hooks/inject_honcho_memory.py",
-            "timeout": 20
-          },
-          {
-            "type": "command",
             "command": "python3 ~/.agents/hooks/record_session_event.py"
           }
         ]
@@ -322,11 +312,6 @@
           },
           {
             "type": "command",
-            "command": "python3 ~/.agents/hooks/remember_turn.py",
-            "timeout": 10
-          },
-          {
-            "type": "command",
             "command": "python3 ~/.agents/hooks/block_silent_stop.py"
           }
         ]
@@ -339,11 +324,6 @@
             "type": "command",
             "command": "python3 ~/.agents/hooks/close_abandoned_browsers.py",
             "timeout": 60
-          },
-          {
-            "type": "command",
-            "command": "python3 ~/.agents/hooks/remember_turn.py",
-            "timeout": 10
           }
         ]
       }
@@ -371,11 +351,6 @@
             "type": "command",
             "command": "python3 ~/.agents/hooks/classify_intent.py",
             "timeout": 60
-          },
-          {
-            "type": "command",
-            "command": "python3 ~/.agents/hooks/inject_honcho_memory.py",
-            "timeout": 20
           },
           {
             "type": "command",

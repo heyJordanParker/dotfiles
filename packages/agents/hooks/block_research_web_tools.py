@@ -15,8 +15,8 @@ spot-check that quotes resolve verbatim in the outside world. Blocking its fetch
 would break citation verification, so it keeps them; only the researcher is routed
 through the browser.
 
-`agent_id` is the presence test for "inside a subagent" — matching block_memory_
-access.py, the field that means that and nothing else. `agent_type` names which
+`agent_id` is the presence test for "inside a subagent" — matching
+block_denied_access.py, the field that means that and nothing else. `agent_type` names which
 agent is running; the block fires only for `researcher`. WebFetch and WebSearch are
 Claude tool names, so this binds to the Claude harness; on codex the researcher has
 no such tools and reaches the web through agent-browser already.

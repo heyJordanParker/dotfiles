@@ -37,7 +37,7 @@ declares.
 
 import sys
 
-from lib import agent_memory, command, feedback
+from lib import agent_definition, command, feedback
 from lib.event import agent_name, canonical_tool, command_str, field, read_event
 
 BINDING = {
@@ -97,7 +97,7 @@ def governing_definition(event):
     if not field(event, "agent_id", ""):
         return "", ""
     name = agent_name(event)
-    return agent_memory.definition_path(name), name
+    return agent_definition.definition_path(name), name
 
 
 def declares_no_write_tool(path):
@@ -110,7 +110,7 @@ def declares_no_write_tool(path):
     the declaration that denies on an unreadable definition.
     """
     try:
-        declared = agent_memory.declaration(path, "tools")
+        declared = agent_definition.declaration(path, "tools")
     except (OSError, UnicodeDecodeError):
         return False
     if declared is None:
@@ -130,7 +130,7 @@ def main():
         return 0
 
     tool = canonical_tool(event)
-    readonly = agent_memory.is_readonly(path)
+    readonly = agent_definition.is_readonly(path)
 
     if tool == "write":
         if readonly:
@@ -146,7 +146,7 @@ def main():
     # `git -C <dir> status` puts a path where the subcommand belongs; the shared
     # normalizer is what the other git guards read through too.
     line = command.git_normalize(command_str(event))
-    ssh_allowed = agent_memory.allows_ssh(path)
+    ssh_allowed = agent_definition.allows_ssh(path)
     if ssh_allowed and not readonly:
         return 0
 

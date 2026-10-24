@@ -629,7 +629,7 @@ def _expand(words, depth):
 # Commands that inspect and leave the repository and the machine as they found them.
 READERS = frozenset((
     # this roster's own readers
-    "trace", "honcho", "agent-browser",
+    "trace", "agent-browser",
     # search and listing
     "rg", "grep", "egrep", "fgrep", "ag", "ack", "find", "fd", "ls", "tree",
     # file inspection

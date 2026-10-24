@@ -89,50 +89,11 @@ def text_of(record):
     return "\n\n".join(p for p in parts if p)
 
 
-# --- who spoke -----------------------------------------------------------------
-#
-# One vocabulary for the author of a message, in our words. Every record resolves
-# to exactly one of three, and this module is the single owner of the translation
-# — the way lib/event.py owns tool names. Nothing above it names a vendor field.
-#
-#   Architect — he typed it
-#   Agent     — the model wrote it
-#   Harness   — the tool put it on the wire: task notifications, injected context,
-#               environment and plugin blocks, skill loads, compaction notices
-#
-# Capitalized as Domain.md writes them, because they are those words, not new
-# ones. Screaming caps would read as configuration constants; these are the
-# project's nouns.
-#
-# The harnesses disagree about where authorship is recorded, never about what it
-# means. Claude Code multiplexes all three onto one user channel inside one
-# session, so it labels every record. Codex gives a thread one entry point for its
-# whole life, so it labels the thread once and leaves its own injected blocks
-# unlabelled — there, shape is the only evidence left.
-#
-# Unknown denies. A record that resolves to nothing is never the architect, so a
-# label either harness adds later stays out of his memory until it is admitted
-# here.
-
-Architect = "architect"
-Agent = "agent"
-Harness = "harness"
-
-# Claude's `promptSource`, keyed onto ours. `queued` is him typing while a turn
-# was still running.
-_CLAUDE_AUTHOR = {"typed": Architect, "queued": Architect, "system": Harness}
-
-# Codex names its thread's entry point instead. Only a person at the desktop app
-# is him: `codex_exec` is a script, and a `source` that is a dict carries a
-# subagent spawn.
-_ARCHITECT_ORIGINATORS = ("codex_work_desktop",)
-
 # What a harness-authored block looks like when nothing labels it: a whole message
 # that is one closed XML tag, one bracketed line, or a known machine preamble.
 # Codex needs this for its `<recommended_plugins>` and `<environment_context>`
-# injections, which arrive on the user role carrying no metadata at all. On Claude
-# it is a backstop behind the label, and the same test the intent classifier runs
-# on a raw prompt.
+# injections, which arrive on the user role carrying no metadata at all, and the
+# intent classifier runs the same test on a raw prompt.
 # The record a Skill's own arrival writes, named because two readers key on it:
 # the machine-authored test below, and `skill_arrivals`.
 SKILL_PREAMBLE = "Base directory for this skill:"
@@ -162,95 +123,6 @@ def harness_authored(text):
         if first.endswith("]") and text == first:
             return True
     return text.startswith(_MACHINE_PREAMBLES)
-
-
-def session_meta(recs):
-    """A codex rollout's opening `session_meta` payload; {} for a Claude one."""
-    for r in recs:
-        if r.get("type") == "session_meta":
-            return r.get("payload") or {}
-    return {}
-
-
-def _role(record):
-    """The record's role in either shape."""
-    kind = record.get("type")
-    if kind in ("user", "assistant"):
-        return kind
-    if _queued(record):
-        return "user"
-    return (record.get("payload") or {}).get("role", "")
-
-
-def speaker(record, meta=None):
-    """Who authored this record: Architect, Agent, Harness, or "" when unknown.
-
-    `meta` is the transcript's `session_meta`, which only codex writes; pass it so
-    a codex record can be resolved against its thread's entry point."""
-    role = _role(record)
-    if role == "assistant":
-        return Agent
-    if role != "user":
-        return ""
-    queued = _queued(record)
-    if queued:
-        human = (queued.get("origin") or {}).get("kind") == "human"
-        return Architect if human and queued.get("commandMode") == "prompt" else Harness
-    if record.get("isMeta"):
-        return Harness
-    if meta:
-        if not isinstance(meta.get("source"), str):
-            return Agent
-        if meta.get("originator") not in _ARCHITECT_ORIGINATORS:
-            return Agent
-        return Harness if harness_authored(text_of(record)) else Architect
-    author = _CLAUDE_AUTHOR.get(record.get("promptSource"), "")
-    if author == Architect and harness_authored(text_of(record)):
-        return Harness
-    return author
-
-
-def architect_messages(recs):
-    """The Architect's messages after this transcript's latest turn boundary."""
-    meta = session_meta(recs)
-    cut = 0
-    if meta:
-        for i, record in enumerate(recs):
-            payload = record.get("payload") or {}
-            if record.get("type") == "event_msg" and payload.get("type") == "task_started":
-                cut = i + 1
-    else:
-        for i, record in enumerate(recs):
-            if record.get("type") == "system" and record.get("subtype") == "stop_hook_summary":
-                cut = i + 1
-    return [text_of(record) for record in recs[cut:] if speaker(record, meta) == Architect]
-
-
-def agent_replies(recs):
-    """The agent's replies in the current turn, joined, for either transcript.
-
-    Codex has no user/assistant turn boundary this can key on the way Claude's
-    `current_turn` does, so a codex thread contributes its whole reply stream; the
-    hook fires once per turn either way."""
-    scope = recs if session_meta(recs) else current_turn(recs)
-    return "\n\n".join(t for t in (text_of(r) for r in scope
-                                   if speaker(r) == Agent) if t.strip())
-
-
-def model(recs):
-    """The model the newest record names, for either transcript, or "".
-
-    Claude names it on every reply's `message`; codex on each `turn_context`
-    payload. Claude writes `<synthetic>` for a reply the harness made up itself,
-    which no model wrote."""
-    for r in reversed(recs):
-        msg = r.get("message")
-        name = msg.get("model") if isinstance(msg, dict) else None
-        if not name and r.get("type") == "turn_context":
-            name = (r.get("payload") or {}).get("model")
-        if isinstance(name, str) and name and not name.startswith("<"):
-            return name
-    return ""
 
 
 def current_turn(recs):

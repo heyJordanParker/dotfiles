@@ -38,10 +38,10 @@ Use an agent when the Task recurs across sessions and the separate Frame or runt
 - `initialPrompt` auto-submits a first turn when the agent starts.
 - `mcpServers` scopes Model Context Protocol servers to the agent.
 - `hooks` scopes Hook wiring to the agent.
-- `memory: none` is ours, not the Harness's: it denies the Agent Memory. The key is optional and has no other value — the Harness's `user`, `project`, and `local` are off in every root (step 6).
-- `readonly: true` is ours, not the Harness's: it takes writing away from the Agent on both Harnesses — the write tools, the shell commands that change the tree, and output redirection. The key is optional, has no other value, and omitting it leaves the Agent writing (step 7).
-- `mode: orchestrate|build` is ours, not the Harness's: it sets how the Agent works in a session the Architect starts on it. `orchestrate` spawns Subagents and `build` spawns none. A dispatched Agent always builds and never spawns, whatever it declares (step 8).
-- `ssh: enabled` is ours, not the Harness's: it lets the Agent reach another machine. It is the one opt-in declaration, so omitting it denies (step 7).
+- `memory` is never written: the Harness's `user`, `project`, and `local` are off in every root.
+- `readonly: true` is ours, not the Harness's: it takes writing away from the Agent on both Harnesses — the write tools, the shell commands that change the tree, and output redirection. The key is optional, has no other value, and omitting it leaves the Agent writing (step 6).
+- `mode: orchestrate|build` is ours, not the Harness's: it sets how the Agent works in a session the Architect starts on it. `orchestrate` spawns Subagents and `build` spawns none. A dispatched Agent always builds and never spawns, whatever it declares (step 7).
+- `ssh: enabled` is ours, not the Harness's: it lets the Agent reach another machine. It is the one opt-in declaration, so omitting it denies (step 6).
 - `background: true` always runs the agent in the background.
 - `isolation: worktree` runs the agent in a temporary git worktree.
 - `isolation: remote` runs the agent in a remote Claude Code remote environment and always backgrounds it.
@@ -188,16 +188,7 @@ Example:
   ---
   ```
 
-## 6. Decide whether the Agent needs Memory
-
-- Needs it: write no `memory` key at all.
-- Does not need it: write `memory: none`, which denies the Agent Memory on both Harnesses. The value is ours, not the Harness's.
-
-IF the agent is a one-shot execution agent:
-### Declare `memory: none`
-A conclusion drawn weeks ago sidetracks a one-shot Task, and a write from one pollutes Memory for every Agent after it. Declare it and give the run everything it needs in the Prompt.
-
-## 7. Decide what the Agent may reach
+## 6. Decide what the Agent may reach
 
 - Writes code: write no `readonly` key.
 - Reads and reports: write `readonly: true`.
@@ -216,7 +207,7 @@ IF a read-only Agent needs a command the guard refuses:
 ### Add the command to `_READERS`, never a second declaration
 The allowlist in `block_denied_access.py` is the one place that decides. A refusal names the command it blocked, so the Agent's report says which word to add.
 
-## 8. Decide how the Agent works
+## 7. Decide how the Agent works
 
 - Does the work itself when the Architect starts it: write `mode: build`.
 - Hands every Task to Subagents when the Architect starts it: write `mode: orchestrate`.

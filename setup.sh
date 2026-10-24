@@ -48,9 +48,6 @@ if [ ! -x "$HOME/.local/bin/claude" ]; then
   curl -fsSL https://claude.ai/install.sh | bash
 fi
 
-echo "==> Installing Python tools..."
-pipx install honcho-cli
-
 echo "==> Installing bun global packages..."
 while read -r pkg; do
   [ -n "$pkg" ] && bun add -g "$pkg"

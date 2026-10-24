@@ -52,7 +52,6 @@ CODEX_CLI_PATH = "/Applications/ChatGPT.app/Contents/Resources/codex"
 [features]
 multi_agent = true
 goals = true
-memories = true
 hooks = true
 js_repl = false
 
@@ -117,18 +116,11 @@ command = "python3 /Users/jordan/.agents/hooks/sync_shaping.py"
 timeout = 5
 
 [[hooks.PreToolUse]]
-matcher = "Agent"
-[[hooks.PreToolUse.hooks]]
-type = "command"
-command = "python3 /Users/jordan/.agents/hooks/inject_honcho_memory.py"
-timeout = 20
-
-[[hooks.PreToolUse]]
 matcher = "Bash"
 [[hooks.PreToolUse.hooks]]
 type = "command"
-command = "python3 /Users/jordan/.agents/hooks/combine_hooks.py block_branch_change block_composed_commands block_denied_access block_git_revert block_invalid_browsers block_memory_access block_path_assignment block_spawning block_unauthorized_commits block_unbounded_sort block_unsafe_delete block_writes protect_session_state"
-timeout = 65
+command = "python3 /Users/jordan/.agents/hooks/combine_hooks.py block_branch_change block_composed_commands block_denied_access block_git_revert block_invalid_browsers block_path_assignment block_spawning block_unauthorized_commits block_unbounded_sort block_unsafe_delete block_writes protect_session_state"
+timeout = 60
 
 [[hooks.PreToolUse]]
 matcher = "Write|Edit|MultiEdit"
@@ -152,49 +144,33 @@ command = "python3 /Users/jordan/.agents/hooks/block_spawning.py"
 timeout = 5
 
 [[hooks.SessionStart]]
-[[hooks.SessionStart.hooks]]
-type = "command"
-command = "python3 /Users/jordan/.agents/hooks/inject_honcho_memory.py"
-timeout = 20
-[[hooks.SessionStart.hooks]]
-type = "command"
-command = "python3 /Users/jordan/.agents/hooks/record_session_event.py"
-
-[[hooks.SessionStart]]
 matcher = "compact"
 [[hooks.SessionStart.hooks]]
 type = "command"
 command = "python3 /Users/jordan/.agents/hooks/inject_mode_skills.py"
+
+[[hooks.SessionStart]]
+[[hooks.SessionStart.hooks]]
+type = "command"
+command = "python3 /Users/jordan/.agents/hooks/record_session_event.py"
 
 [[hooks.Stop]]
 [[hooks.Stop.hooks]]
 type = "command"
 command = "python3 /Users/jordan/.agents/hooks/close_abandoned_browsers.py"
 timeout = 60
-[[hooks.Stop.hooks]]
-type = "command"
-command = "python3 /Users/jordan/.agents/hooks/remember_turn.py"
-timeout = 10
 
 [[hooks.SubagentStop]]
 [[hooks.SubagentStop.hooks]]
 type = "command"
 command = "python3 /Users/jordan/.agents/hooks/close_abandoned_browsers.py"
 timeout = 60
-[[hooks.SubagentStop.hooks]]
-type = "command"
-command = "python3 /Users/jordan/.agents/hooks/remember_turn.py"
-timeout = 10
 
 [[hooks.UserPromptSubmit]]
 [[hooks.UserPromptSubmit.hooks]]
 type = "command"
 command = "python3 /Users/jordan/.agents/hooks/classify_intent.py"
 timeout = 60
-[[hooks.UserPromptSubmit.hooks]]
-type = "command"
-command = "python3 /Users/jordan/.agents/hooks/inject_honcho_memory.py"
-timeout = 20
 [[hooks.UserPromptSubmit.hooks]]
 type = "command"
 command = "python3 /Users/jordan/.agents/hooks/record_session_event.py"
@@ -210,10 +186,6 @@ source = "/Users/jordan/.cache/codex-runtimes/codex-primary-runtime/plugins/open
 [marketplaces.getdent]
 source_type = "git"
 source = "https://github.com/getdent/skill.git"
-
-[memories]
-generate_memories = true
-use_memories = true
 
 [shell_environment_policy.set]
 NODE_REPL_TRUSTED_BROWSER_CLIENT_SHA256S = "8e86beb821b9afc846211798e0113bd4b9e79312dfcd135eb447bdb154f64071"

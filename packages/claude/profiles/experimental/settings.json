@@ -12,22 +12,12 @@
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Agent",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 ~/.agents/hooks/inject_honcho_memory.py",
-            "timeout": 20
-          }
-        ]
-      },
-      {
         "matcher": "Bash",
         "hooks": [
           {
             "type": "command",
-            "command": "python3 ~/.agents/hooks/combine_hooks.py block_composed_commands block_denied_access block_invalid_browsers block_memory_access",
-            "timeout": 20
+            "command": "python3 ~/.agents/hooks/combine_hooks.py block_composed_commands block_denied_access block_invalid_browsers",
+            "timeout": 15
           }
         ]
       },
@@ -42,17 +32,6 @@
         ]
       }
     ],
-    "SessionStart": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 ~/.agents/hooks/inject_honcho_memory.py",
-            "timeout": 20
-          }
-        ]
-      }
-    ],
     "Stop": [
       {
         "hooks": [
@@ -60,11 +39,6 @@
             "type": "command",
             "command": "python3 ~/.agents/hooks/close_abandoned_browsers.py",
             "timeout": 60
-          },
-          {
-            "type": "command",
-            "command": "python3 ~/.agents/hooks/remember_turn.py",
-            "timeout": 10
           }
         ]
       }
@@ -76,22 +50,6 @@
             "type": "command",
             "command": "python3 ~/.agents/hooks/close_abandoned_browsers.py",
             "timeout": 60
-          },
-          {
-            "type": "command",
-            "command": "python3 ~/.agents/hooks/remember_turn.py",
-            "timeout": 10
-          }
-        ]
-      }
-    ],
-    "UserPromptSubmit": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 ~/.agents/hooks/inject_honcho_memory.py",
-            "timeout": 20
           }
         ]
       }

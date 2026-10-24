@@ -1,6 +1,6 @@
 """Resolve the running event's mode and whether it may start another agent."""
 
-from lib import agent_memory
+from lib import agent_definition
 from lib.event import agent_name, field, owner_session
 from lib.session_state import load_state
 
@@ -18,14 +18,14 @@ def declared_by(path):
     if not path:
         return "build"
     try:
-        value = agent_memory.declaration(path, "mode")
+        value = agent_definition.declaration(path, "mode")
     except OSError:
         return "build"
     return value if value in MODES else "build"
 
 
 def declared_mode(event):
-    return declared_by(agent_memory.definition_path(agent_name(event)))
+    return declared_by(agent_definition.definition_path(agent_name(event)))
 
 
 def is_dispatched(event):
