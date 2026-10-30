@@ -20,6 +20,7 @@ TARGETS = {
     "codex-system": "/etc/codex",
     "agents": f"{HOME}/.agents",
     "ssh": f"{HOME}/.ssh",
+    "aws": f"{HOME}/.aws",
     "bin": f"{HOME}/.local/bin",
     "starship": f"{HOME}/.config",
 }
