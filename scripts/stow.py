@@ -18,7 +18,6 @@ TARGETS = {
     "claude": f"{HOME}/.claude",
     "codex": f"{HOME}/.codex",
     "codex-system": "/etc/codex",
-    "cliproxyapi": "/opt/homebrew/etc",
     "agents": f"{HOME}/.agents",
     "ssh": f"{HOME}/.ssh",
     "bin": f"{HOME}/.local/bin",
@@ -38,6 +37,7 @@ CONFIG = [
 # stow run. restow points those targets at the real ~/.agents/<name> instead.
 SHARED = ("skills", "commands", "agents")
 IGNORE = {"claude": r"^(%s)$" % "|".join(SHARED)}
+IGNORE_ALL = r"(^|/)(\.gitignore|\.DS_Store)$"
 
 
 def _relink(link, target):
@@ -76,7 +76,7 @@ def restow(packages_dir):
                 os.makedirs(f"{HOME}/.claude/profiles/{name}", exist_ok=True)
     for pkg, target in plan.items():
         os.makedirs(target, exist_ok=True)
-        cmd = ["stow", "-R", "-t", target, pkg]
+        cmd = ["stow", "-R", "-t", target, "--ignore=" + IGNORE_ALL, pkg]
         if pkg in IGNORE:
             cmd.append("--ignore=" + IGNORE[pkg])
         subprocess.run(cmd, cwd=packages_dir, check=True)

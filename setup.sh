@@ -48,6 +48,11 @@ if [ ! -x "$HOME/.local/bin/claude" ]; then
   curl -fsSL https://claude.ai/install.sh | bash
 fi
 
+if [ ! -x "$HOME/.local/bin/herdr" ]; then
+  echo "==> Installing herdr..."
+  curl -fsSL https://herdr.dev/install.sh | sh
+fi
+
 echo "==> Installing bun global packages..."
 while read -r pkg; do
   [ -n "$pkg" ] && bun add -g "$pkg"
@@ -71,12 +76,6 @@ if [ ! -d "$HOME/Developer/tracer" ]; then
   git clone https://github.com/heyJordanParker/tracer.git "$HOME/Developer/tracer"
 fi
 cmod link "$HOME/Developer/tracer" --yes
-
-echo "==> Installing prompt-reviewer (local prompt-review CLI)..."
-# Compiles llama.cpp in-process (needs cmake, from the Brewfile). The model
-# is downloaded on demand by `review-prompt download`, never here.
-(cd "$DOTFILES_DIR/tools/prompt-reviewer" && cargo build --release)
-install -m 755 "$DOTFILES_DIR/tools/prompt-reviewer/target/release/review-prompt" "$HOME/.local/bin/review-prompt"
 
 echo "==> Setting up moshi (mobile terminal for agent sessions)..."
 # `moshi-hook service install` is systemd-only; macOS goes through brew services
@@ -132,10 +131,7 @@ if ! command -v python3 >/dev/null 2>&1; then
 fi
 # codex reads its system config from /etc/codex, the one stow target outside $HOME
 sudo install -d -o "$USER" -g staff /etc/codex
-# brew bundle lays down cliproxyapi's example config, which would block the stow link
-[ -L /opt/homebrew/etc/cliproxyapi.conf ] || rm -f /opt/homebrew/etc/cliproxyapi.conf
 python3 "$DOTFILES_DIR/scripts/sync.py"
-brew services start cliproxyapi
 git -C "$DOTFILES_DIR" config core.hooksPath scripts/git-hooks
 cd "$DOTFILES_DIR"
 
@@ -145,4 +141,5 @@ bat cache --build 2>/dev/null || true
 echo ""
 echo "Done. Restart terminal, enable 1Password SSH agent, then run:"
 echo "  gh auth login"
+echo "  cf auth login"
 echo "  ./setup-secrets.sh"

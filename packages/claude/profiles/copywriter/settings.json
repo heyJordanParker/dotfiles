@@ -6,7 +6,7 @@
   "cleanupPeriodDays": 100000000,
   "skillListingBudgetFraction": 0.02,
   "env": {
-    "ANTHROPIC_BASE_URL": "http://127.0.0.1:8317",
+    "ANTHROPIC_BASE_URL": "http://devbox:8317",
     "ANTHROPIC_SMALL_FAST_MODEL": "gpt-6-luna",
     "CLAUDE_CODE_ENABLE_FINE_GRAINED_TOOL_STREAMING": "1",
     "CLAUDE_CODE_MAX_CONTEXT_TOKENS": "272000",
@@ -23,6 +23,7 @@
     ],
     "defaultMode": "bypassPermissions"
   },
+  "bashEditDiffEnabled": false,
   "model": "opus",
   "hooks": {
     "PreToolUse": [

@@ -2,7 +2,7 @@
   "autoMemoryEnabled": false,
   "cleanupPeriodDays": 100000000,
   "env": {
-    "ANTHROPIC_BASE_URL": "http://127.0.0.1:8317",
+    "ANTHROPIC_BASE_URL": "http://devbox:8317",
     "CLAUDE_CODE_ENABLE_FINE_GRAINED_TOOL_STREAMING": "1",
     "CLAUDE_CODE_MAX_CONTEXT_TOKENS": "272000",
     "ENABLE_TOOL_SEARCH": "true",
@@ -61,6 +61,7 @@
     ],
     "defaultMode": "bypassPermissions"
   },
+  "bashEditDiffEnabled": false,
   "skipDangerousModePermissionPrompt": true,
   "theme": "dark",
   "tui": "fullscreen"
