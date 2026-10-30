@@ -11,6 +11,7 @@ Reproducible macOS environment setup and Claude Code plugin distribution from a 
 - `packages/agents` is the source of truth for shared Skills, Agents, Commands, and Hooks.
 - The `claude` package stows to `~/.claude/`, where its `Claude.md` becomes the user-global Claude.md.
 - `packages/claude`'s `agents`, `commands`, and `skills` are symlinks into `packages/agents`.
+- The `plint` package stows to `~/.config/plint/`: the global plint config, the rules it checks every Prompt with, and their probes.
 - `scripts/sync.py` restows packages, generates Codex Agent artifacts, and generates Hook wiring.
 - Plugin packaging dereferences `packages/claude` symlinks into real files in the plugin cache.
 - Plugin consumers get Skills, Commands, and the three shell Hooks, not Rules, settings, or Agents.

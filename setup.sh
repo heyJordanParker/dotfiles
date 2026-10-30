@@ -70,12 +70,14 @@ fi
 rustup target add x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu >/dev/null
 cargo install cargo-zigbuild --locked >/dev/null
 
-echo "==> Linking the tracer mod (code intelligence)..."
+echo "==> Linking the tracer (code intelligence) and plint (Prompt lint) mods..."
 npm install -g @cmodjs/cli
-if [ ! -d "$HOME/Developer/tracer" ]; then
-  git clone https://github.com/heyJordanParker/tracer.git "$HOME/Developer/tracer"
-fi
-cmod link "$HOME/Developer/tracer" --yes
+for mod in tracer plint; do
+  if [ ! -d "$HOME/Developer/$mod" ]; then
+    git clone "https://github.com/heyJordanParker/$mod.git" "$HOME/Developer/$mod"
+  fi
+  cmod link "$HOME/Developer/$mod"
+done
 
 echo "==> Setting up moshi (mobile terminal for agent sessions)..."
 # `moshi-hook service install` is systemd-only; macOS goes through brew services
