@@ -5,7 +5,6 @@ brew "gh"
 brew "mosh"
 brew "neovim"
 brew "tmux"
-brew "herdr"
 brew "btop"
 
 # Shell
