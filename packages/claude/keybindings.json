@@ -7,7 +7,9 @@
       "bindings": {
         "ctrl+x p": "command:copy-plan-path",
         "ctrl+x s": "command:copy-shaping-dir",
-        "ctrl+x t": "command:copy-transcript-path"
+        "ctrl+x t": "command:copy-transcript-path",
+        "meta+0": "command:cmod--sidebar",
+        "meta+m": "command:cmod--settings"
       }
     }
   ]
