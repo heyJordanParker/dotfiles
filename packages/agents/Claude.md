@@ -6,7 +6,7 @@ Prompt building-block workspace where each file type owns exactly one kind of Pr
 
 - `agents/<agent>.md` carries frontmatter, one Frame, and Principles.
 - One `agents/<agent>.md` is the whole Agent, dispatched as a Claude Subagent by that name. This holds for a profile's own Agents under `packages/claude/profiles/<name>/agents/` too.
-- Interactive codex runs as the CTO: `config.toml`'s `model_instructions_file` points at `cto.prompt.md`, which `scripts/agents.py` generates from `agents/cto.md`.
+- Interactive codex runs as the CTO: `config.toml`'s `model_instructions_file` points at `agents/cto.md`, and codex finds the Skills it names in `~/.agents/skills`.
 - The Harness's own per-Agent memory (`memory: user|project|local`, `~/.claude/agent-memory/<name>/`) is switched off by `autoMemoryEnabled: false` in every root, the default one and each profile.
 - `lib/agent_definition.py` reads every declaration in an Agent's frontmatter. It honours quoted and commented spellings, and its `definition_path` resolves an agent codex spawns and a Claude Agent by name in the project's `.claude/agents/` first, then under the active config root, as Claude Code does. `lib/event.py`'s `agent_name` names the running agent from `agent_type` on both Harnesses.
 - `readonly: true` in an Agent's frontmatter takes writing away from it on both Harnesses: the write tools, every shell command that changes the tree, and output redirection. Omitting the key leaves it writing. `block_denied_access.py` enforces it, reading the declaration through `lib/agent_definition.py`, where an unreadable definition denies.
@@ -21,13 +21,12 @@ Prompt building-block workspace where each file type owns exactly one kind of Pr
 - A line whose program is not in the line reads as unparseable, so one rule closes every guard at once: inline runtime code (`python3 -c`, `node -e`, `-m`), a program piped into a runtime, a script file that is not our own tooling, `source`/`eval`, a head the shell expands (`$SHELL`, backticks), and `alias`/`function` all answer None. `hides_execution` decides it and `OUR_TREE` is the trust boundary — a script under `/dotfiles/`, `/.agents/` or `/.claude/` is ours and runs, so `python3 scripts/sync.py` works and `sh /tmp/x.sh` does not. A runtime running its own flags names no program, so `python3 --version` reads normally.
 - A command carried inside another one is read rather than refused: a shell's `-c` string, an `ssh` line, a `find -exec` command, and a command behind `do`/`then`/`if` all resolve by name, so `for f in *; do claude -p y; done` reaches the spawn gate as `claude`.
 - A script named in a manifest stays trusted, so `make test`, `npm run lint` and `bun run build` are read as the runner, never as the recipe behind it. A recipe can carry anything, and refusing them would refuse ordinary work in every repository.
-- `tools:` is the Harness's own field, honoured natively by Claude and dropped from the codex artifacts, so `block_denied_access.py` also refuses the write tools on codex to an Agent whose `tools:` names none — the same answer Claude reaches by never offering them. An Agent with no `tools:` line has every tool on both Harnesses.
+- `tools:` is the Harness's own field, honoured natively by Claude and not by codex, so `block_denied_access.py` also refuses the write tools on codex to an Agent whose `tools:` names none — the same answer Claude reaches by never offering them. An Agent with no `tools:` line has every tool on both Harnesses.
 - An agent codex spawns is gated by the role codex names on the payload as `agent_type`, and a role with no definition, such as codex's own `default` and `worker`, runs as `build`. An interactive codex session names no Agent and is never gated by a declaration. Our roster is not published as codex roles: a role backed by a `config_file` fails to apply in codex 0.153.4, so a role file would govern nothing and would shadow codex's own.
 - Commands live in `commands/<command>.md`.
 - `skills/<skill>/SKILL.md` is a Skill manifest and its Process.
 - References live in `skills/<skill>/references/<process>.md`.
 - `hooks/<module>.py` is the shared Python Hook source.
-- `scripts/agents.py` generates Codex Agent artifacts from `agents/<agent>.md`.
 - `scripts/hooks.py` generates Hook wiring from each Hook's `BINDING`.
 - A `BINDING` declaring `roots: "all"` is generated into every profile's `settings.json` as well as the default root's.
 - The Hooks bound to one event and tool run in one `hooks/combine_hooks.py` process, which feeds each the event and merges their refusals, context, and one input rewrite into one answer.

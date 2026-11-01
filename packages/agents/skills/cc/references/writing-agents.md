@@ -7,7 +7,6 @@ The Process for writing `agents/<agent>.md`: frontmatter config, one Frame, and 
 - An agent file owns the frontmatter description, config frontmatter, one Frame, and the Frame's Principles.
 - Rules live in Rule Files.
 - A Process lives in a Skill, and an agent names that Skill with `skills:`.
-- `scripts/agents.py` inlines named Skills into generated Codex artifacts.
 - The body becomes the Agent's system Prompt; the Agent does not receive the full Claude Code Prompt.
 
 IF the Prompt needs ordered steps:

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Repo maintenance entry point.
 
-Restows every package and regenerates the generated codex files. Run by setup.sh
-and the pre-commit hook; idempotent.
+Restows every package and regenerates the Hook wiring. Run by setup.sh and the
+pre-commit hook; idempotent.
 """
 
 import os
@@ -11,12 +11,8 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PACKAGES = os.path.join(ROOT, "packages")
 
-# Before the local imports: `agents` reads definition frontmatter through
-# `lib.frontmatter`, which lives with the hooks so both the generator here and the
-# gates running from ~/.agents read one definition of a declaration.
 sys.path.insert(0, os.path.join(PACKAGES, "agents", "hooks"))
 
-import agents  # noqa: E402
 import hooks  # noqa: E402
 import stow  # noqa: E402
 from lib.session_state import clear_stale_locks, migrate_sessions  # noqa: E402
@@ -26,7 +22,6 @@ def main():
     stow.restow(PACKAGES)
     migrate_sessions()
     clear_stale_locks()
-    agents.generate(os.path.join(PACKAGES, "agents", "agents"))
     hooks.generate(
         os.path.join(PACKAGES, "agents", "hooks"),
         os.path.join(PACKAGES, "claude", "settings.json"),

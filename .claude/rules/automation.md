@@ -9,7 +9,7 @@ paths:
 The automation runtime is Python stdlib-only under the system `python3`. Dev tooling such as pytest and ruff lives in the uv-managed `.venv` and is never imported at runtime.
 
 ### Use `scripts/sync.py` as the maintenance entry point
-`scripts/sync.py` is the one maintenance entry point: restow every package, regenerate the Codex Agent artifacts, and regenerate the Hook wiring. It is idempotent. Never duplicate its steps elsewhere.
+`scripts/sync.py` is the one maintenance entry point: restow every package and regenerate the Hook wiring. It is idempotent. Never duplicate its steps elsewhere.
 
 ### Make a sync step rebuild, never report
 Every step in `scripts/sync.py` rewrites its artifact from source. A step that prints that an artifact is stale leaves the work to a human who will not see the line.

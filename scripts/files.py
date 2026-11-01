@@ -1,6 +1,6 @@
 """Write a generated file only when its content changed.
 
-The sync generators (agents.py, hooks.py) rebuild their output on every run.
+The Hook wiring generator (hooks.py) rebuilds its output on every run.
 Overwriting with identical bytes bumps the mtime and, for the stowed codex
 config.toml, makes the app re-read it for nothing. write_if_changed compares the
 new text against what is on disk and writes only on a difference.

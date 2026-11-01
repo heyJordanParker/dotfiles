@@ -14,8 +14,7 @@ and the turns in between are task notifications, SendMessage deliveries and tool
 batches. A compaction gets its own order, because the harness restores a used Skill
 only as background text, cut at 5,000 tokens: every Skill in use is named again so
 its next use is a live invocation. Claude only: PostToolBatch is Claude's event and
-the transcript shape is Claude's; inject_mode_skills keeps the compaction order on
-codex.
+the transcript shape is Claude's.
 
 Nothing here reads a list of what governs, because two libraries already answer it.
 `transcript.skill_arrivals` says which Skills reached the conversation and where,

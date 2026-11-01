@@ -4,7 +4,7 @@ The Architect-approved architecture for the prompt system: agents, skills, hooks
 
 ## The allowance per Prompt file
 
-- **`packages/agents/agents/<name>.md`** — description gate, config frontmatter, one Frame, its Principles. No Process — every Process is a Skill the agent names; the generator (`scripts/agents.py`) inlines the named Skill into the codex artifacts, deterministic composition in code.
+- **`packages/agents/agents/<name>.md`** — description gate, config frontmatter, one Frame, its Principles. No Process — every Process is a Skill the agent names.
 - **`packages/agents/skills/<name>/SKILL.md`** — three-slot description, one Process as ordered steps, each step its Rules (with Conditions as needed), Examples, and Templates. Steps stay in SKILL.md; anything a step consults — a table, catalog, Template, subprocess — is a Reference behind a pointer, and a Process another Skill owns is named, never restated. A `disable-model-invocation` Skill can name others but cannot be named: the Architect fires it, Agents cannot use it.
 - **`packages/agents/skills/<name>/references/<problem>.md`** — what one pointer names. Unreached References are deleted.
 - **`packages/agents/commands/<name>.md`** — a Skill's shape; the Architect fires it.

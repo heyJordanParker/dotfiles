@@ -38,7 +38,7 @@ Read `Architecture.md` beside this file. It tells you which Prompt file your cha
 A block in the wrong file type invalidates every later step.
 
 ### Agents never carry Rules or a Process
-A Process is a Skill the agent names via `skills:`; `scripts/agents.py` inlines named Skills into the codex artifacts. Rules load from rules files by glob.
+A Process is a Skill the agent names via `skills:`. Rules load from rules files by glob.
 
 ### The frontmatter description is the only trigger
 The body never carries a trigger section.
