@@ -58,8 +58,10 @@ def resolve(event, session_id=None):
 def may_spawn(event):
     """Whether this event may start another agent.
 
-    A dispatched agent never does: every Subagent builds, whatever its definition
-    declares, so the work it is handed is done where its dispatcher reads the result.
+    A dispatched agent spawns only when its own definition declares orchestrate,
+    such as a project manager that runs its team. Every other Subagent builds, so
+    the work it is handed is done where its dispatcher reads the result, and
+    `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH` caps how deep any of it nests.
 
     A session is held to the mode `resolve` answers — the same mode the statusline
     shows and the same skill the agent was told to work under. A session that names
@@ -69,7 +71,7 @@ def may_spawn(event):
     has no chosen mode to enforce, so it spawns.
     """
     if is_dispatched(event):
-        return False
+        return declared_mode(event) == "orchestrate"
     if agent_name(event) or load_state(owner_session(event)).get("mode_typed"):
         return resolve(event) == "orchestrate"
     return True

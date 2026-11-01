@@ -104,16 +104,23 @@ def session(tmp_path, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# a Subagent declaring orchestrate under an orchestrating launcher still builds
+# a Subagent spawns only when its own definition declares orchestrate
 # ---------------------------------------------------------------------------
 
-def test_a_subagent_declaring_orchestrate_does_not_spawn(session):
+def test_a_subagent_declaring_orchestrate_spawns(session):
+    """Spawned: a project manager dispatched as a Subagent runs its team."""
+    session(state="execute", mode="orchestrate", mode_typed=True)
+    assert session.run(SPAWNING, "Agent", {"subagent_type": "tester"},
+                       subagent_as="orchestrate", spawn=True) == ALLOW
+
+
+def test_a_subagent_declaring_build_does_not_spawn(session):
     """Spawned: the blocking exit code the harness reads off block_spawning."""
     session(state="execute", mode="orchestrate", mode_typed=True)
     assert session.run(SPAWNING, "Agent", {"subagent_type": "cto"},
-                       subagent_as="orchestrate", spawn=True) == BLOCK
+                       subagent_as="build", spawn=True) == BLOCK
     assert session.run(SPAWNING, "Bash", {"command": 'claude -p "y"'},
-                       subagent_as="orchestrate") == BLOCK
+                       subagent_as="build") == BLOCK
 
 
 def test_a_subagent_declaring_orchestrate_edits(session):

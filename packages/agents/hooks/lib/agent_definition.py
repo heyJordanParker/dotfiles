@@ -31,11 +31,18 @@ _PERMISSION = ("readonly", "ssh")
 def definition_path(name):
     """The definition file governing the running agent, or "" when none does.
 
-    A name resolves under the *active* config root, because a profile carries its
-    own agents/ directory and a name means whichever file that root holds.
+    A name resolves the way Claude Code resolves it: the project's own
+    .claude/agents/ first, then the *active* config root, because a profile
+    carries its own agents/ directory and a name means whichever file that root
+    holds.
     """
     if not name:
         return ""
+    project = os.environ.get("CLAUDE_PROJECT_DIR")
+    if project:
+        local = os.path.join(project, ".claude", "agents", name + ".md")
+        if os.path.isfile(local):
+            return local
     root = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude")
     return os.path.join(root, "agents", name + ".md")
 

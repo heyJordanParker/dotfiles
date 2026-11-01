@@ -32,6 +32,7 @@ import sys
 
 import block_spawning
 from conftest import PY_HOOKS
+from lib import session_mode
 
 HOOK = os.path.join(PY_HOOKS, "block_spawning.py")
 SID = "test_block_spawning"
@@ -185,6 +186,21 @@ def test_a_session_with_no_agent_and_no_typed_mode_spawns(tmp_path, monkeypatch)
     instruction to enforce and the architect keeps his own dispatches."""
     assert _run({"tool_name": "Agent", "tool_input": {}}, tmp_path, monkeypatch,
                 dispatched=False, typed=False) == ALLOW
+
+
+def test_session_started_on_a_project_agent_takes_its_mode(tmp_path, monkeypatch):
+    """A project's own .claude/agents/ outranks the config root, as Claude Code
+    resolves it, so the mode session start records for a project manager the repo
+    defines is the one it declares."""
+    for root, mode in (("project/.claude", "orchestrate"), ("config", "build")):
+        definition = tmp_path / root / "agents" / "teammate.md"
+        definition.parent.mkdir(parents=True)
+        definition.write_text("---\nname: teammate\nmode: %s\n---\n\nFrame.\n" % mode)
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(tmp_path / "project"))
+    assert session_mode.declared_mode({"agent_type": "teammate"}) == "orchestrate"
+    monkeypatch.delenv("CLAUDE_PROJECT_DIR")
+    assert session_mode.declared_mode({"agent_type": "teammate"}) == "build"
 
 
 def test_session_started_on_a_build_agent_does_not_spawn(tmp_path, monkeypatch):

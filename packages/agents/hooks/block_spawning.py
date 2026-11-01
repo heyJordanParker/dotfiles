@@ -26,7 +26,7 @@ _MANAGEMENT = {
 
 MSG = "BLOCKED: %s mode does not spawn subagents.\n\nIn build mode, do the work yourself."
 
-SUBAGENT_MSG = ("BLOCKED: a Subagent never starts another agent.\n\n"
+SUBAGENT_MSG = ("BLOCKED: a Subagent whose definition declares build never starts another agent.\n\n"
                 "Do the work yourself, or return what needs another agent to your dispatcher.")
 
 FABLE_MSG = ("BLOCKED: this launch runs an agent on Fable, and only the architect uses Fable.\n\n"
