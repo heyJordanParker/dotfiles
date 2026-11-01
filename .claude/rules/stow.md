@@ -22,7 +22,7 @@ Put files at the package root, add the package → target entry in `scripts/stow
 
 IF removing a package:
 ### Unstow before deleting the package
-Run `stow -D -t <target> <pkg>` first, then delete the directory under `packages/`, then remove its line from `setup.sh`.
+Run `stow -D -t <target> <pkg>` first, then delete the directory under `packages/`, then remove its entry from `TARGETS` or `CONFIG` in `scripts/stow.py`.
 
 IF installing a command-line tool:
 ### Put the tool and config in their package homes
