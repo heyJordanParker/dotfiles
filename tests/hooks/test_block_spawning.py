@@ -15,7 +15,8 @@ The shell shapes themselves — a leading space, a second line, `env FOO=1`, an
 absolute path, `bash -c '…'`, `sudo`, `timeout`, a command named in an argument —
 are lib.command's contract and are asserted string by string in
 test_command_parsing. The hook's own contribution is `_spawns`, which tells a
-launch from a version check, so only the cases that reach a decision of its own live here.
+launch from a version check or a subcommand that only manages the Harness, so only
+the cases that reach a decision of its own live here.
 
 Each case calls the guard's main() against an isolated CLAUDE_DATA_ROOT; the guard
 resolves its session and its dispatch marker from os.environ at call time. Two
@@ -104,7 +105,10 @@ def test_executor_is_blocked_from_codex_namespaced_spawn_tool(tmp_path, monkeypa
 
 
 def test_executor_checks_versions_but_never_launches(tmp_path, monkeypatch):
-    for command in ("codex --version", "claude --version"):
+    """A build session removed an MCP server by hand-editing ~/.claude.json, because
+    `claude mcp remove` was refused as a launch."""
+    for command in ("codex --version", "claude --version", "claude mcp remove context7",
+                    "codex login status"):
         assert _run(_bash(command), tmp_path, monkeypatch) == ALLOW, command
     for command in ('claude -p "m"', "codex exec x", "codex"):
         assert _run(_bash(command), tmp_path, monkeypatch) == BLOCK, command

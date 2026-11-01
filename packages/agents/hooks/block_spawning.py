@@ -13,8 +13,16 @@ BINDING = {
     "harness": "all",
     "timeout": 5,
 }
-# `codex` and `claude` start a session with anything but a lone version or help flag.
+# `codex` and `claude` start a session with anything but a lone version or help flag,
+# or a subcommand that only manages the Harness.
 _INFO_FLAGS = frozenset(("--version", "-V", "-v", "--help", "-h"))
+_MANAGEMENT = {
+    "claude": frozenset(("mcp", "plugin", "plugins", "auth", "doctor", "install", "update",
+                         "upgrade", "setup-token", "auto-mode", "import", "purge", "logs",
+                         "stop", "kill", "rm")),
+    "codex": frozenset(("mcp", "plugin", "login", "logout", "completion", "update", "doctor",
+                        "features", "help", "apply", "archive", "unarchive", "delete")),
+}
 
 MSG = "BLOCKED: %s mode does not spawn subagents.\n\nIn build mode, do the work yourself."
 
@@ -70,6 +78,8 @@ def _types_orchestrate(event):
 
 def _spawns(head, args):
     if head in ("codex", "claude"):
+        if args and args[0] in _MANAGEMENT[head]:
+            return False
         return not (len(args) == 1 and args[0] in _INFO_FLAGS)
     return False
 
