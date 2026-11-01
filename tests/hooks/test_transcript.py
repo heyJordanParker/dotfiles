@@ -15,6 +15,26 @@ def test_records_parses_and_skips_bad_lines(tmp_path):
     assert [r["type"] for r in recs] == ["user", "assistant"]
 
 
+def test_records_start_after_the_newest_compaction(tmp_path):
+    p = tmp_path / "t.jsonl"
+    p.write_text(
+        '{"type":"user","message":{"content":"first window"}}\n'
+        '{"type":"user","message":{"content":"This session is being continued from a"}}\n'
+        '{"type":"user","message":{"content":"second window"}}\n'
+        '{"type":"user","message":{"content":"This session is being continued from b"}}\n'
+        '{"type":"user","message":{"content":"live"}}\n'
+        '{"type":"assistant","message":{"content":"answer"}}\n')
+    assert [transcript.text_of(r) for r in transcript.records(str(p))] == ["live", "answer"]
+
+
+def test_records_keep_lines_whole_across_chunks(tmp_path, monkeypatch):
+    monkeypatch.setattr(transcript, "_CHUNK", 5)
+    p = tmp_path / "t.jsonl"
+    p.write_text('{"type":"user","message":{"content":"héllo wörld"}}\n'
+                 '{"type":"assistant","message":{"content":"ünïcode"}}', encoding="utf-8")
+    assert [transcript.text_of(r) for r in transcript.records(str(p))] == ["héllo wörld", "ünïcode"]
+
+
 def test_records_missing_path_is_empty():
     assert transcript.records("") == []
     assert transcript.records("/no/such/file.jsonl") == []

@@ -10,24 +10,59 @@ import os
 import re
 
 
+_CHUNK = 1 << 20
+
+
 def records(path):
-    """Parsed JSONL records in file (chronological) order; bad lines skipped."""
+    """The parsed records still in the conversation, chronological; bad lines skipped.
+
+    A compaction leaves the old records in the file while dropping them from the
+    conversation, so a long session's file holds every window it ever had. The
+    file is read from its end back to the newest compaction summary, and the
+    cost follows the live conversation, never the session's whole history. At
+    `SessionStart: compact` the new summary is not in the file yet, so this
+    returns the whole window that just closed.
+    """
     if not path or not os.path.isfile(path):
         return []
     out = []
     try:
-        with open(path, encoding="utf-8", errors="replace") as fh:
-            for line in fh:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    out.append(json.loads(line))
-                except Exception:
-                    continue
-    except Exception:
+        for line in _lines_from_end(path):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                record = json.loads(line)
+            except ValueError:
+                continue
+            if text_of(record).startswith(COMPACT_MARKER):
+                break
+            out.append(record)
+    except OSError:
         return []
+    out.reverse()
     return out
+
+
+def _lines_from_end(path):
+    """The file's lines as text, last line first.
+
+    The file is read backward one chunk at a time, and a line cut by a chunk's
+    start waits for the next chunk. A newline byte never occurs inside a UTF-8
+    character, so no character is split either.
+    """
+    with open(path, "rb") as fh:
+        end = fh.seek(0, os.SEEK_END)
+        head = b""
+        while end > 0:
+            start = max(0, end - _CHUNK)
+            fh.seek(start)
+            lines = (fh.read(end - start) + head).split(b"\n")
+            head = lines.pop(0)
+            end = start
+            for line in reversed(lines):
+                yield line.decode("utf-8", errors="replace")
+        yield head.decode("utf-8", errors="replace")
 
 
 def _content(record):
@@ -193,20 +228,6 @@ def skill_arrivals(recs, orders=True):
                 if isinstance(name, str) and name:
                     out[name] = i
     return out
-
-
-def live_records(recs):
-    """The records still in the conversation: everything after the last compaction.
-
-    A compaction leaves the old records in the transcript file while dropping them
-    from the conversation. At `SessionStart: compact` the new boundary is not in
-    the file yet, so this returns the whole window that just closed.
-    """
-    cut = 0
-    for i, record in enumerate(recs):
-        if text_of(record).startswith(COMPACT_MARKER):
-            cut = i + 1
-    return recs[cut:]
 
 
 def user_rules_loaded(recs):

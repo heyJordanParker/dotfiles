@@ -147,7 +147,7 @@ def compact_order(event, session_id, recs):
     mode = resolve(event, session_id)
     governing_state = state(event)
     body = directive(governing_state, mode, mode)
-    rest = [name for name in in_use(transcript.live_records(recs))
+    rest = [name for name in in_use(recs)
             if name not in (governing_state, mode)]
     parts = [part for part in (body, skills_directive(["/" + n for n in rest]) if rest else "")
              if part]
@@ -177,7 +177,7 @@ def main():
     # No readable transcript is no measurement, and unmeasured is not overdue.
     if not recs:
         return 0
-    due = overdue(transcript.live_records(recs), named_this_turn(field(event, "prompt", "")),
+    due = overdue(recs, named_this_turn(field(event, "prompt", "")),
                   {resolve(event, session_id), state(event)})
     if due:
         feedback.context("reload_stale_skills", hook, skills_directive(due))
