@@ -200,31 +200,6 @@ def _started_as(event, named):
     return ""
 
 
-def _is_codex_rollout(path):
-    return os.path.basename(path).startswith("rollout-") or "/.codex/" in path
-
-
-def stopping_transcript(event):
-    """The stopping agent's own transcript, or "" when this stop is not an end.
-
-    Claude's main-session Stop fires after every assistant turn, so acting there
-    hits the architect's live session between his instructions. The two real
-    ends are a SubagentStop — a one-shot subagent finishing, whose payload
-    carries its own transcript — and a codex Stop, which ends the whole run and
-    is told apart by its `turn_id` and its `.codex` rollout transcript.
-
-    A SubagentStop never falls back to `transcript_path`: that is the parent's
-    transcript, and acting on it treats the parent's live work as the stopping
-    agent's.
-    """
-    path = field(event, "transcript_path", "")
-    if field(event, "hook_event_name", "") == "SubagentStop":
-        return field(event, "agent_transcript_path", "")
-    if field(event, "turn_id", "") or _is_codex_rollout(path):
-        return path
-    return ""
-
-
 def owner_session(event):
     """The id of the session whose proposing/executing mode governs this run.
 

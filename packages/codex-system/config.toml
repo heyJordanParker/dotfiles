@@ -147,18 +147,6 @@ timeout = 5
 type = "command"
 command = "python3 /Users/jordan/.agents/hooks/record_session_event.py"
 
-[[hooks.Stop]]
-[[hooks.Stop.hooks]]
-type = "command"
-command = "python3 /Users/jordan/.agents/hooks/close_abandoned_browsers.py"
-timeout = 60
-
-[[hooks.SubagentStop]]
-[[hooks.SubagentStop.hooks]]
-type = "command"
-command = "python3 /Users/jordan/.agents/hooks/close_abandoned_browsers.py"
-timeout = 60
-
 [[hooks.UserPromptSubmit]]
 [[hooks.UserPromptSubmit.hooks]]
 type = "command"
