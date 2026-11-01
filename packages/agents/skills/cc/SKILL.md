@@ -56,8 +56,8 @@ Never name a `disable-model-invocation` Skill — the Architect fires those; an 
 ### A deterministic Hook IS its Rule
 Duplicate prose is cut. A model-backed Hook batches its event's Rules into one call and fails open, so the prose fallback stays.
 
-### A new file type is the Architect's Decision
-The Agent proposes Decisions; only the Architect makes them, typically through /interview.
+### Propose a new file type to the Architect
+Show the file and what it holds. The Architect accepts or corrects it.
 
 ## 4. Correct with the lightest delivery that holds
 

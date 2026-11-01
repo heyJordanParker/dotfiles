@@ -4,7 +4,7 @@ from lib import agent_definition
 from lib.event import agent_name, field, owner_session
 from lib.session_state import load_state
 
-MODES = ("orchestrate", "build", "interview")
+MODES = ("orchestrate", "build")
 STATES = ("propose", "execute")
 
 

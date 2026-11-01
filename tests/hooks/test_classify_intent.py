@@ -36,20 +36,13 @@ def test_a_harness_authored_prompt_is_skipped(monkeypatch, state_root):
 
 
 @pytest.mark.parametrize("command,mode", [("/orchestrate", "orchestrate"),
-                                          ("/build", "build"),
-                                          ("/interview", "interview")])
+                                          ("/build", "build")])
 def test_a_typed_mode_command_writes_the_mode_axis(monkeypatch, state_root, command, mode):
-    """Mode is the axis the architect types. Interview used to be a state written when
-    the interview SKILL was invoked; it is a mode set by typing the command now."""
+    """Mode is the axis the architect types."""
     _run(monkeypatch, {"session_id": "ci1", "prompt": "%s the parser" % command})
     state = load_state("ci1")
     assert state["mode"] == mode
     assert state["mode_typed"] is True
-
-
-def test_typed_interview_loads_the_interview_skill(monkeypatch, state_root):
-    _, text = _run(monkeypatch, {"session_id": "ci1", "prompt": "/interview the parser"})
-    assert "Use /interview now" in text
 
 
 def test_untyped_turn_loads_the_default_proposing_state_skill(monkeypatch, state_root):
@@ -68,16 +61,6 @@ def test_untyped_turn_loads_the_stored_executing_state_skill(monkeypatch, state_
                    {"session_id": "ci1", "prompt": "keep going"})
     assert "This is an executing-state turn. Use /execute now" in text
     assert "proposing-state" not in text
-
-
-def test_stored_interview_mode_loads_no_state_skill(monkeypatch, state_root):
-    """An interview session produces questions, not state work, so an untyped turn
-    there names no state Skill."""
-    from lib.session_state import merge_state
-    merge_state("ci1", {"mode": "interview", "mode_typed": True})
-    _, text = _run(monkeypatch,
-                   {"session_id": "ci1", "prompt": "next question"})
-    assert not text or "state turn" not in text
 
 
 def test_a_mentioned_skill_is_not_ordered(monkeypatch, state_root):

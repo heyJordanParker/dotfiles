@@ -120,13 +120,13 @@ def test_session_start_keeps_a_typed_mode(root, tmp_path, clock, monkeypatch):
     or a compact — must not put the declaration back over it."""
     _fire({"hook_event_name": "SessionStart", "session_id": "m3",
            "transcript_path": "/p/m3.jsonl"}, monkeypatch)
-    session_state.merge_state("m3", {"mode": "interview", "mode_typed": True})
+    session_state.merge_state("m3", {"mode": "build", "mode_typed": True})
     agent = _declare_agent(tmp_path, monkeypatch, "orchestrate")
     rc = _fire({"hook_event_name": "SessionStart", "session_id": "m3",
                 "transcript_path": "/p/m3.jsonl", "agent_type": agent}, monkeypatch)
     assert rc == 0
     st = _read(_state(root, "m3"))
-    assert st["mode"] == "interview"
+    assert st["mode"] == "build"
     assert st["mode_typed"] is True
 
 
@@ -136,12 +136,12 @@ def test_session_start_rewrites_a_mode_nobody_typed(root, tmp_path, clock, monke
     _fire({"hook_event_name": "SessionStart", "session_id": "m4",
            "transcript_path": "/p/m4.jsonl"}, monkeypatch)
     assert _read(_state(root, "m4"))["mode"] == "build"
-    agent = _declare_agent(tmp_path, monkeypatch, "interview")
+    agent = _declare_agent(tmp_path, monkeypatch, "orchestrate")
     rc = _fire({"hook_event_name": "SessionStart", "session_id": "m4",
                 "transcript_path": "/p/m4.jsonl", "agent_type": agent}, monkeypatch)
     assert rc == 0
     st = _read(_state(root, "m4"))
-    assert st["mode"] == "interview"
+    assert st["mode"] == "orchestrate"
     assert st["mode_typed"] is False
 
 

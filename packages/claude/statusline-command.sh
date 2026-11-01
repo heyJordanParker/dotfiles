@@ -63,11 +63,11 @@ if [ -n "$session_id" ]; then
     # over a session that is proposing. Reachable only from a state.json written
     # before the mode axis, which sync.py migrates.
     case "$raw_state" in propose|execute) ;; *) raw_state=propose ;; esac
-    case "$raw_mode" in orchestrate|build|interview) ;; *) raw_mode=build ;; esac
+    case "$raw_mode" in orchestrate|build) ;; *) raw_mode=build ;; esac
 
     # Capitalize first letter
     state_label=$([ "$raw_state" = propose ] && echo Proposing || echo Executing)
-    mode_label=$([ "$raw_mode" = orchestrate ] && echo Orchestrating || ([ "$raw_mode" = build ] && echo Building || echo Interviewing))
+    mode_label=$([ "$raw_mode" = orchestrate ] && echo Orchestrating || echo Building)
 
     # State colors: proposing=yellow, executing=green, auto=cyan
     case "$raw_state" in
@@ -80,7 +80,6 @@ if [ -n "$session_id" ]; then
     case "$raw_mode" in
       orchestrate) mode_color="\033[34m" ;;
       build)       mode_color="\033[35m" ;;
-      interview)   mode_color="\033[96m" ;;
       *)           mode_color="\033[90m" ;;
     esac
 

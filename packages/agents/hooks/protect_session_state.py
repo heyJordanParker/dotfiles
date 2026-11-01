@@ -21,8 +21,8 @@ PATTERN = (
 
 MSG = """BLOCKED: session hooks own the session state files.
 
-The Architect changes the mode by typing /orchestrate, /build, or /interview,
-and the state by typing /propose or /execute."""
+The Architect changes the mode by typing /orchestrate or /build, and the state
+by typing /propose or /execute."""
 
 
 def main():

@@ -193,6 +193,13 @@ def _migrated(session, **legacy):
     return json.loads(session.state_file.read_text())
 
 
+def test_a_retired_interview_mode_migrates_to_build(session):
+    state = _migrated(session, state="propose", mode="interview", mode_typed=True)
+    assert state["mode"] == "build"
+    assert state["mode_typed"] is False
+    assert migrate_sessions() == 0
+
+
 
 
 

@@ -44,9 +44,9 @@ Put replaced words under `_Avoid_`. Project-specific terms go in `Domain.md`; ge
 ### Keep implementation details out
 `Domain.md` holds the project's language, not implementation decisions.
 
-## 6. Propose Decisions, then record the Architect's choice
+## 6. Record a Decision once the Architect accepts its Solution
 
-Propose a Decision only when all three hold: it is hard to reverse, it is not self-evident from the code, and it is the result of a real trade-off. The Architect makes the Decision, typically through /interview.
+Record one only when all three hold: it is hard to reverse, it is not obvious from the code, and it came from a real trade-off.
 
 Template:
     docs/architecture/decisions/000N-<the-decision>.md

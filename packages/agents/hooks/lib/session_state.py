@@ -178,7 +178,7 @@ def _default_subagent_state(session_id, parent_id=""):
 
 
 _STATES = ("propose", "execute")
-_MODES = ("orchestrate", "build", "interview")
+_MODES = ("orchestrate", "build")
 _STATE_FIELD = re.compile(r'"state"\s*:\s*"([^"]+)"')
 _MODE_FIELD = re.compile(r'"mode"\s*:\s*"([^"]+)"')
 
@@ -226,11 +226,6 @@ def _migrate_axes(state):
     if stage in _RETIRED_STATES:
         state["state"] = _RETIRED_STATES[stage]
         changed = True
-    elif stage == "interview":
-        state["state"] = "propose"
-        state["mode"] = "interview"
-        state["mode_typed"] = True
-        changed = True
     elif stage is not None and stage not in _STATES:
         # A stage nobody recognizes (the retired `auto`) heals to the default rather
         # than staying on disk for every reader to fall back from.
@@ -241,6 +236,10 @@ def _migrate_axes(state):
         if state.get("mode") not in _MODES:
             state["mode"] = _RETIRED_APPROACHES.get(approach, "build")
             state["mode_typed"] = True
+        changed = True
+    if state.get("mode") not in (None,) + _MODES:
+        state["mode"] = "build"
+        state["mode_typed"] = False
         changed = True
     return state if changed else None
 

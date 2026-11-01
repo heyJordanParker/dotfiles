@@ -232,16 +232,6 @@ def test_a_compaction_never_orders_a_skill_the_agent_cannot_use(monkeypatch, wri
     assert "/handoff" not in text
 
 
-def test_a_compaction_in_interview_mode_names_the_interview_skill(monkeypatch, write_transcript):
-    """An interview session produces questions, not state work, so the state Skill
-    is not named there — the same answer classify_intent gives on a typed turn."""
-    path = write_transcript([_used("naming"), _assistant("x" * TURN)])
-    _, text, _ = _run(monkeypatch, _compact(path), {}, mode="interview", state="propose")
-    assert "Use /interview now" in text
-    assert "/propose" not in text
-    assert "Use /naming now" in text
-
-
 def test_a_compaction_with_no_transcript_still_names_the_mode_and_state(monkeypatch):
     """The gates keep enforcing both axes whether or not the file was flushed."""
     _, text, _ = _run(monkeypatch, _compact("/no/such/transcript.jsonl"), {},

@@ -60,7 +60,7 @@ COMPACT_PREAMBLE = ("### Use the Skills the compaction cut\n"
 
 _LEADING_COUNT = re.compile(r"\d+")
 
-GOVERNED = {"propose", "execute", "orchestrate", "build", "interview"}
+GOVERNED = {"propose", "execute", "orchestrate", "build"}
 
 
 def reload_every(name):

@@ -2,9 +2,8 @@
 """Apply typed commands to session state and inject their directives.
 
 On every UserPromptSubmit, typed mode-commands map straight to control state
-  (/propose /execute force STATE; /orchestrate /build /interview force MODE, with
-  /orchestrate and /build also entering the executing state; /commit forces a
-  commit), persisted to session state and echoed as the matching skill-load
+  (/propose /execute force STATE; /orchestrate /build force MODE and also enter
+  the executing state; /commit forces a commit), persisted to session state and echoed as the matching skill-load
   directive when the command was typed or the state or mode changed.
 
 State and mode stay manual. Any infrastructure failure returns 0 and never
@@ -43,7 +42,7 @@ is_system_prompt = transcript.harness_authored
 # --- typed mode-commands (deterministic) ---------------------------------------
 
 _FORCED_STATE = {"/propose": "propose", "/execute": "execute"}
-_FORCED_MODE = {"/orchestrate": "orchestrate", "/build": "build", "/interview": "interview"}
+_FORCED_MODE = {"/orchestrate": "orchestrate", "/build": "build"}
 
 # The architect types his commands anywhere, phrased naturally: "sure, /execute &
 # /commit after", or mid-sentence on a later line. So every slash token counts, on
@@ -110,9 +109,6 @@ def directive(forced_state, forced_mode, governing_mode=None):
     elif forced_state == "propose":
         out = ("This is a proposing-state turn. Use /propose now and produce the "
                "proposal under its contract.")
-    if forced_mode == "interview":
-        out = ("This is an interview turn. Use /interview now and interview the "
-               "architect under its contract.")
     mode_line = {
         "orchestrate": "Use /orchestrate now.",
         "build": "Use /build now.",
@@ -136,7 +132,7 @@ _COMMANDS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__f
 
 # The mode/commit commands above carry richer state/mode directives; the
 # general scan skips them so it never double-handles one.
-_SPECIAL_SKILLS = {"/propose", "/execute", "/interview", "/orchestrate", "/build", "/commit"}
+_SPECIAL_SKILLS = {"/propose", "/execute", "/orchestrate", "/build", "/commit"}
 
 # A skill token counts only when its slash follows start-or-whitespace, so a name
 # embedded in a path (.../skills/architecture) never matches.
@@ -269,9 +265,8 @@ def main():
     # /orchestrate and /build name how the architect wants the work done, which is
     # already the approval to do it — "orchestrate agents to do this /execute" was
     # him typing the second half every time. A /propose typed in the same message
-    # is him asking for the proposal instead, and it wins. /interview is left out:
-    # it is the mode that produces no work.
-    if forced_mode in ("orchestrate", "build") and not forced_state:
+    # is him asking for the proposal instead, and it wins.
+    if forced_mode and not forced_state:
         forced_state = "execute"
     if forced_state:
         update["state"] = forced_state
@@ -287,10 +282,6 @@ def main():
         governing_mode = resolve(event, session_id)
         state = load_state(session_id)
         governing_state = forced_state or state.get("state") or "propose"
-        # An interview session produces questions, not state work, so only a typed
-        # state command names a state Skill there.
-        if governing_mode == "interview" and not forced_state:
-            governing_state = ""
         announced = [governing_state, governing_mode]
         context = ""
         if forced_state or forced_mode or state.get("announced") != announced:
