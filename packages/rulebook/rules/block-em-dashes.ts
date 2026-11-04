@@ -4,7 +4,7 @@ const FENCE = /^\s*(```|~~~)/
 
 export default defineRule({
   description: "Don't write em dashes.",
-  paths: ['**', '@reply'],
+  paths: ['**', '@reply', '@inbox/**'],
   check: ({ lines }) => {
     let isCode = false
     return lines.flatMap((text, index) => {
