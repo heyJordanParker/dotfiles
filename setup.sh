@@ -70,9 +70,9 @@ fi
 rustup target add x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu >/dev/null
 cargo install cargo-zigbuild --locked >/dev/null
 
-echo "==> Linking the tracer (code intelligence) and plint (Prompt lint) mods..."
+echo "==> Linking the tracer (code intelligence) and rulebook (Prompt lint) mods..."
 npm install -g @cmodjs/cli
-for mod in tracer plint; do
+for mod in tracer rulebook; do
   if [ ! -d "$HOME/Developer/$mod" ]; then
     git clone "https://github.com/heyJordanParker/$mod.git" "$HOME/Developer/$mod"
   fi

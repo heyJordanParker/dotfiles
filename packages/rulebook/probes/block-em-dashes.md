@@ -1,4 +1,4 @@
-<!-- plint-expect global/block-em-dashes -->
+<!-- rulebook-expect global/block-em-dashes -->
 Run the sync script — it restows every package.
 
 Run the sync script. It restows every package.

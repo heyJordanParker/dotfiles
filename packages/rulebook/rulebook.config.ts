@@ -1,6 +1,7 @@
-import { defineConfig } from '@cmodjs/plint'
+import { defineConfig, recommended } from '@cmodjs/rulebook'
 
 export default defineConfig({
+  extends: [recommended],
   plugins: { global: './rules' },
   paths: [
     '**/CLAUDE.md',
@@ -9,10 +10,10 @@ export default defineConfig({
     '**/Agents.md',
     '**/Domain.md',
     '**/rules/**/*.md',
-    '**/agents/**/*.md',
+    '**/agents/*.md',
     '**/commands/**/*.md',
     '**/skills/**/*.md',
   ],
   probes: ['probes/*.md'],
-  editTimeout: 60_000,
+  timeout: 60_000,
 })
