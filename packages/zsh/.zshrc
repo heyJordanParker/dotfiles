@@ -11,6 +11,8 @@ zinit light Aloxaf/fzf-tab
 # --- OH-MY-ZSH ---
 ZSH_THEME="robbyrussell"
 plugins=(git)
+# updates without asking, so a shell an agent or anyhost starts never stops at "Would you like to update? [Y/n]"
+zstyle ':omz:update' mode auto
 
 source $ZSH/oh-my-zsh.sh
 unsetopt share_history
