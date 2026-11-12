@@ -1,1 +1,0 @@
-../../../../docs/architecture/Architecture.md
