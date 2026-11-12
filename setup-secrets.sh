@@ -28,5 +28,8 @@ aws_secret_access_key = $(op read "op://Development/Cloudflare R2/secret access 
 EOF
 echo "  ✓ Cloudflare R2 (AWS profile r2)"
 
+op read "op://Development/TypeSafe/apiKey" | cmod secret store rulebook jev
+echo "  ✓ TypeSafe Jev (rulebook)"
+
 echo ""
 echo "Done. All secrets configured."
