@@ -1,6 +1,9 @@
 # --- SYSTEM LIMITS ---
 ulimit -n 65536
 
+typeset -U fpath
+fpath=(${fpath:#($ZSH|$HOME/.cache/zinit|$HOME/.local/share/zinit)/*})
+
 # --- ZINIT (Plugin Manager) ---
 # Load BEFORE OMZ so completions are in fpath when OMZ runs compinit
 source /opt/homebrew/opt/zinit/zinit.zsh
