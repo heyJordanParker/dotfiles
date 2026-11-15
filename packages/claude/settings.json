@@ -36,7 +36,6 @@
       "Bash(git changes:*)",
       "Bash(brew install:*)",
       "Bash(ls:*)",
-      "mcp__pencil",
       "Bash(stow:*)",
       "Bash(codex:*)"
     ],
@@ -372,9 +371,17 @@
     "oneclaude@Developer-linked": true,
     "oneclaude@inline": false,
     "inbox@Developer-linked": true,
-    "inbox@inline": false
+    "inbox@inline": false,
+    "context7@context7-marketplace": true
   },
   "extraKnownMarketplaces": {
+    "context7-marketplace": {
+      "source": {
+        "source": "github",
+        "repo": "upstash/context7"
+      },
+      "autoUpdate": true
+    },
     "getdent": {
       "source": {
         "source": "github",

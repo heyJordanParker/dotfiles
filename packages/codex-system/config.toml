@@ -16,16 +16,6 @@ service_tier = "default"
 [agents]
 max_threads = 100
 
-[mcp_servers.pencil]
-command = "/Applications/Pencil.app/Contents/Resources/app.asar.unpacked/out/mcp-server-darwin-arm64"
-args = [ "--app", "desktop" ]
-
-# Library docs, over a bunx stdio bridge.
-[mcp_servers.context7]
-command = "/Users/jordan/.bun/bin/bunx"
-args = ["-y", "@upstash/context7-mcp"]
-startup_timeout_sec = 120
-
 [mcp_servers.node_repl]
 args = []
 command = "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node_repl"
@@ -94,6 +84,9 @@ enabled = true
 enabled = true
 
 [plugins."dent@getdent"]
+enabled = true
+
+[plugins."context7@context7-marketplace"]
 enabled = true
 
 # Codex draws from the shared Python hooks in packages/agents/hooks (stowed to
@@ -167,6 +160,10 @@ source = "/Users/jordan/.cache/codex-runtimes/codex-primary-runtime/plugins/open
 [marketplaces.getdent]
 source_type = "git"
 source = "https://github.com/getdent/skill.git"
+
+[marketplaces.context7-marketplace]
+source_type = "git"
+source = "https://github.com/upstash/context7.git"
 
 [shell_environment_policy.set]
 NODE_REPL_TRUSTED_BROWSER_CLIENT_SHA256S = "8e86beb821b9afc846211798e0113bd4b9e79312dfcd135eb447bdb154f64071"
