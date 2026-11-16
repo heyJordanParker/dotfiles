@@ -141,7 +141,7 @@ export function localLines(context: Context): readonly string[] {
     const script = shellScript(command)
     return script === undefined || remote.some((line) => line.includes(script)) ? [] : [script]
   })
-  return [context.text, ...scripts]
+  return [context.text, ...scripts].map((line) => line.trim())
 }
 
 export function shellScript({ program, args }: Command): string | undefined {
