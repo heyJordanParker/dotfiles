@@ -3,7 +3,7 @@ import { defineConfig, recommended } from '@cmodjs/rulebook'
 export default defineConfig({
   extends: [recommended],
   plugins: { global: './rules' },
-  paths: [
+  files: [
     '**/CLAUDE.md',
     '**/Claude.md',
     '**/AGENTS.md',
@@ -16,4 +16,5 @@ export default defineConfig({
   ],
   probes: ['probes/*.md'],
   timeout: 60_000,
+  messages: { spawn: { tools: ['Agent', 'Workflow', 'RemoteTrigger', '*spawn_agent'] } },
 })

@@ -17,23 +17,24 @@ def run(members, event):
 
 def test_every_member_refusal_reaches_the_agent():
     """Pins a refusal lost when one runner answers for several guards."""
-    event = {"hook_event_name": "PreToolUse", "tool_name": "Bash", "cwd": "/tmp",
-             "tool_input": {"command": "ls && git stash"}}
+    event = {"hook_event_name": "PreToolUse", "tool_name": "WebFetch", "cwd": "/tmp",
+             "agent_id": "a1", "agent_type": "researcher",
+             "tool_input": {"url": "https://example.com", "isolation": "worktree"}}
 
-    result = run(["block_composed_commands", "block_git_revert"], event)
+    result = run(["block_research_web_tools", "block_worktree_isolation"], event)
 
     assert result.returncode == 2
-    assert "block_composed_commands_agent" in result.stderr
-    assert "block_git_revert_agent" in result.stderr
+    assert "block_research_web_tools_agent" in result.stderr
+    assert "block_worktree_isolation_agent" in result.stderr
 
 
 def test_a_crashing_member_leaves_the_others_deciding(tmp_path):
     """Pins one broken hook disabling every other check in its group."""
-    event = {"hook_event_name": "PreToolUse", "tool_name": "Bash", "cwd": "/tmp",
-             "tool_input": {"command": "git stash"}}
+    event = {"hook_event_name": "PreToolUse", "tool_name": "EnterWorktree", "cwd": "/tmp",
+             "tool_input": {}}
 
-    result = run(["missing_module", "block_git_revert"], event)
+    result = run(["missing_module", "block_worktree_isolation"], event)
 
     assert result.returncode == 2
-    assert "block_git_revert_agent" in result.stderr
+    assert "block_worktree_isolation_agent" in result.stderr
     assert "missing_module" in result.stderr

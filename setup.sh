@@ -135,6 +135,8 @@ fi
 sudo install -d -o "$USER" -g staff /etc/codex
 python3 "$DOTFILES_DIR/scripts/sync.py"
 git -C "$DOTFILES_DIR" config core.hooksPath scripts/git-hooks
+git -C "$DOTFILES_DIR" config hook.rulebook.event pre-commit
+git -C "$DOTFILES_DIR" config hook.rulebook.command "rulebook check --staged"
 cd "$DOTFILES_DIR"
 
 # Build bat theme cache

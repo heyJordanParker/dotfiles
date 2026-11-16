@@ -32,7 +32,11 @@ This reads every hook's BINDING statically (ast.literal_eval — never imports o
 runs the hook, the way frontmatter.py reads agent files), then rewrites the
 managed entries of packages/claude/settings.json and packages/codex-system/config.toml.
 
-Managed = a `type: command` hook whose command invokes ~/.agents/hooks/<module>.py.
+`PROGRAMS` declares a hook that is a program rather than a Python module, keyed by
+its command and bound the same way. A program never joins the runner.
+
+Managed = a `type: command` hook whose command invokes ~/.agents/hooks/<module>.py,
+or a command `PROGRAMS` declares.
 Every other entry — inline `type: prompt` gates, third-party shell glue (tmux,
 herdr, superset) — is unmanaged and preserved byte-for-byte; non-hook sections
 (permissions, env, model, MCP servers, plugins) are never touched.
@@ -124,6 +128,19 @@ def _matcher_key(matchers):
 
 RUNNER = "combine_hooks"
 
+# Programs wired from a BINDING of their own, keyed by the command that runs them.
+# Codex checks its tool calls against the rulebook rules through `rulebook
+# claude-hook`; Claude Code reaches the same rules through the rulebook mod.
+PROGRAMS = {
+    "rulebook claude-hook": {
+        "events": {"PreToolUse": ["Bash", "Write", "Edit", "MultiEdit", "NotebookEdit",
+                                  "Agent", "Workflow", "RemoteTrigger"]},
+        "harness": "codex",
+        "standalone": True,
+        "timeout": 60,
+    },
+}
+
 # Events whose matcher names tools. A quick hook bound to one joins the runner of
 # every tool it names.
 TOOL_EVENTS = {"PreToolUse", "PostToolUse", "PostToolUseFailure", "PermissionRequest",
@@ -141,7 +158,8 @@ def _entry(hook_dir, modules, bindings):
     the sum of theirs, so no member loses the time it had alone."""
     if len(modules) == 1:
         binding = bindings[modules[0]]
-        return (f"python3 {hook_dir}/{modules[0]}.py", tuple(modules), binding.get("timeout"),
+        command = modules[0] if modules[0] in PROGRAMS else f"python3 {hook_dir}/{modules[0]}.py"
+        return (command, tuple(modules), binding.get("timeout"),
                 binding.get("asyncRewake"), binding.get("additionalContextLimit"))
     timeouts = [bindings[module].get("timeout") for module in modules]
     timeout = None if None in timeouts else sum(timeouts)
@@ -192,9 +210,10 @@ _MANAGED_RE = re.compile(r"~/\.agents/hooks/[\w\-]+\.py")
 
 
 def _is_managed_claude(entry):
+    command = entry.get("command", "")
     return (
         entry.get("type") == "command"
-        and _MANAGED_RE.search(entry.get("command", "")) is not None
+        and (_MANAGED_RE.search(command) is not None or command in PROGRAMS)
     )
 
 
@@ -373,7 +392,7 @@ def _replace_codex_hook_region(text, generated):
 # --- entry point -------------------------------------------------------------
 
 def generate(hooks_dir, claude_settings_path, codex_config_path, profiles_dir):
-    bindings = read_bindings(hooks_dir)
+    bindings = {**read_bindings(hooks_dir), **PROGRAMS}
 
     _write_claude(claude_settings_path, bindings)
     for path in _profile_settings(profiles_dir):

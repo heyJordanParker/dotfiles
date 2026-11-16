@@ -108,32 +108,11 @@ command = "python3 /Users/jordan/.agents/hooks/sync_shaping.py"
 timeout = 5
 
 [[hooks.PreToolUse]]
-matcher = "Bash"
+matcher = "Bash|Write|Edit|MultiEdit|NotebookEdit|Agent|Workflow|RemoteTrigger"
 [[hooks.PreToolUse.hooks]]
 type = "command"
-command = "python3 /Users/jordan/.agents/hooks/combine_hooks.py block_branch_change block_composed_commands block_denied_access block_git_revert block_invalid_browsers block_path_assignment block_spawning block_unauthorized_commits block_unbounded_sort block_unsafe_delete block_writes protect_session_state"
+command = "rulebook claude-hook"
 timeout = 60
-
-[[hooks.PreToolUse]]
-matcher = "Write|Edit|MultiEdit"
-[[hooks.PreToolUse.hooks]]
-type = "command"
-command = "python3 /Users/jordan/.agents/hooks/combine_hooks.py block_denied_access block_writes protect_session_state"
-timeout = 15
-
-[[hooks.PreToolUse]]
-matcher = "NotebookEdit"
-[[hooks.PreToolUse.hooks]]
-type = "command"
-command = "python3 /Users/jordan/.agents/hooks/combine_hooks.py block_denied_access block_writes"
-timeout = 10
-
-[[hooks.PreToolUse]]
-matcher = "Agent|Workflow|RemoteTrigger"
-[[hooks.PreToolUse.hooks]]
-type = "command"
-command = "python3 /Users/jordan/.agents/hooks/block_spawning.py"
-timeout = 5
 
 [[hooks.SessionStart]]
 [[hooks.SessionStart.hooks]]

@@ -513,3 +513,16 @@ def test_merge_state_non_dict_fragment_returns_false(root, clock):
     _run(["start", "ms3", "--transcript-path", "/foo/ms3.jsonl"])
     assert session_state.merge_state("ms3", "not a dict") is False
     assert session_state.merge_state("ms3", None) is False
+
+
+def test_a_retired_interview_mode_migrates_to_build(root):
+    path = _state(root, "retired")
+    os.makedirs(os.path.dirname(path))
+    with open(path, "w") as fh:
+        json.dump({"session_id": "retired", "role": "main", "state": "propose",
+                   "mode": "interview", "mode_typed": True}, fh)
+    assert session_state.migrate_sessions() == 1
+    st = _read(path)
+    assert st["mode"] == "build"
+    assert st["mode_typed"] is False
+    assert session_state.migrate_sessions() == 0

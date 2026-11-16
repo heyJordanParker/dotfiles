@@ -195,7 +195,7 @@ Example:
 
 IF the Agent's Frame says it reports findings and never writes:
 ### Declare `readonly: true`
-The Prompt claims it; the declaration keeps it. `block_denied_access.py` then refuses the write tools, the shell commands that change the tree, and output redirection, on both Harnesses.
+The Prompt claims it; the declaration keeps it. The rulebook rule `block-writes-by-readonly-agents` then refuses the write tools, the shell commands that change the tree, and output redirection, on both Harnesses.
 Never: relying on `tools:` alone, which Claude honours and codex drops, and which leaves the shell open on both.
 
 IF the Agent must run the suite, a build, or any package manager:
@@ -203,8 +203,8 @@ IF the Agent must run the suite, a build, or any package manager:
 A read-only Agent runs no runtime and no package manager, because each one runs whatever it is handed. An Agent that must execute code is not read-only, and forcing the key on it costs the Capability instead of protecting anything.
 
 IF a read-only Agent needs a command the guard refuses:
-### Add the command to `_READERS`, never a second declaration
-The allowlist in `block_denied_access.py` is the one place that decides. A refusal names the command it blocked, so the Agent's report says which word to add.
+### Add the command to `READERS`, never a second declaration
+The allowlist in the rulebook package's `lib/shell.ts` is the one place that decides. A refusal names the command it blocked, so the Agent's report says which word to add.
 
 ## 7. Decide how the Agent works
 

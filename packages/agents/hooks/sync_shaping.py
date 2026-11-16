@@ -1,8 +1,5 @@
 #!/usr/bin/env python3
-"""Shaping/modeling ripple-check reminder on .md writes.
-
-sync-shaping.sh is the plugin-distributed shell copy of this source.
-"""
+"""Shaping/modeling ripple-check reminder on .md writes."""
 
 import os
 import sys

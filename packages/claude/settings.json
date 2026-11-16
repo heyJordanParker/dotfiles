@@ -135,36 +135,6 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 ~/.agents/hooks/combine_hooks.py block_branch_change block_composed_commands block_denied_access block_git_revert block_invalid_browsers block_path_assignment block_spawning block_unauthorized_commits block_unbounded_sort block_unsafe_delete block_writes protect_session_state",
-            "timeout": 60
-          }
-        ]
-      },
-      {
-        "matcher": "Write|Edit|MultiEdit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 ~/.agents/hooks/combine_hooks.py block_denied_access block_writes protect_session_state",
-            "timeout": 15
-          }
-        ]
-      },
-      {
-        "matcher": "NotebookEdit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 ~/.agents/hooks/combine_hooks.py block_denied_access block_writes",
-            "timeout": 10
-          }
-        ]
-      },
-      {
         "matcher": "WebFetch|WebSearch",
         "hooks": [
           {
@@ -175,27 +145,7 @@
         ]
       },
       {
-        "matcher": "Agent",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 ~/.agents/hooks/combine_hooks.py block_spawning block_worktree_isolation",
-            "timeout": 10
-          }
-        ]
-      },
-      {
-        "matcher": "Workflow|RemoteTrigger",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 ~/.agents/hooks/block_spawning.py",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "EnterWorktree",
+        "matcher": "EnterWorktree|Agent",
         "hooks": [
           {
             "type": "command",

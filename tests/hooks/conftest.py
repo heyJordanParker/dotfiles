@@ -1,7 +1,7 @@
 """Shared fixtures for the hook tests.
 
 Runtime code is on sys.path via pyproject's `pythonpath = ["packages/agents/hooks", ...]`,
-so `from lib import transcript` and `import block_git_revert` resolve with no install.
+so `from lib import transcript` and `import classify_intent` resolve with no install.
 """
 
 import json

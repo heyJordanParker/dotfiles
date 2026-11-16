@@ -1,4 +1,4 @@
-"""Resolve the running event's mode and whether it may start another agent."""
+"""Resolve the running event's mode and stage."""
 
 from lib import agent_definition
 from lib.event import agent_name, field, owner_session
@@ -53,28 +53,6 @@ def resolve(event, session_id=None):
         return declared
     mode = load_state(session_id).get("mode")
     return mode if mode in MODES else declared
-
-
-def may_spawn(event):
-    """Whether this event may start another agent.
-
-    A dispatched agent spawns only when its own definition declares orchestrate,
-    such as a project manager that runs its team. Every other Subagent builds, so
-    the work it is handed is done where its dispatcher reads the result, and
-    `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH` caps how deep any of it nests.
-
-    A session is held to the mode `resolve` answers — the same mode the statusline
-    shows and the same skill the agent was told to work under. A session that names
-    an agent is held to that agent's declaration, and a session the architect typed
-    a mode into is held to what he typed, because the mode is his instruction and
-    the gate is what makes it one. A session that names no agent and typed no mode
-    has no chosen mode to enforce, so it spawns.
-    """
-    if is_dispatched(event):
-        return declared_mode(event) == "orchestrate"
-    if agent_name(event) or load_state(owner_session(event)).get("mode_typed"):
-        return resolve(event) == "orchestrate"
-    return True
 
 
 def state(event):

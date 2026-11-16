@@ -9,7 +9,7 @@ The Process for making the Harness react to an event with a Hook.
 - A model-backed Hook batches the Rules for one event into one call and fails open, so the prose fallback stays in an always-loaded Prompt.
 - This repository's local Hook source is `packages/agents/hooks/<module>.py`.
 - `scripts/hooks.py` reads each Python Hook's `BINDING` and writes the Claude Code and Codex hook wiring.
-- Plugin consumers get shell Hooks from `packages/claude/hooks/` through plugin packaging.
+- A check on a tool call that refuses it is a rulebook rule, not a Hook. Codex runs the rules through `rulebook claude-hook`, and Claude Code through the rulebook mod.
 
 ### Use a Hook when the behavior must hold at event time
 Always-loaded prose is forgotten after a few turns. A Hook runs when the event happens.

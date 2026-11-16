@@ -7,7 +7,6 @@ payload once and pull nested fields with a string default.
 import glob
 import json
 import os
-import re
 import sys
 
 from lib import agent_definition
@@ -28,122 +27,6 @@ def field(event, dotted, default=""):
         else:
             return default
     return default if cur is None else cur
-
-
-def command_str(event):
-    """The shell command as a string, or "" when the event is not a shell call.
-
-    Claude sends `tool_input.command` as a string. Codex's shell tool may send it
-    as a list (e.g. ["/bin/zsh", "-lc", "git reset --hard"]); a list is joined so
-    command-pattern matching works either way. Anything else yields "".
-
-    Codex puts a whole apply_patch body under the same `command` key
-    (`apply_patch.rs:508`). Every command guard parses what this returns as
-    shell, so a patch's own text was read as commands and a `+` line adding a
-    newline refused the write. A tool `_CANONICAL_TOOL` knows to be something
-    other than a shell therefore carries no command here.
-
-    A tool it does not know — an unmapped MCP or function tool, or a payload
-    with no `tool_name` at all — still answers with whatever `command` holds.
-    Reading nothing there would pass every command guard on a line they cannot
-    identify, and the standing treatment for a line a guard cannot identify is
-    to judge it, never to wave it through.
-    """
-    if canonical_tool(event) not in ("", "shell"):
-        return ""
-    c = field(event, "tool_input.command", "")
-    if isinstance(c, list):
-        return " ".join(str(x) for x in c)
-    return c if isinstance(c, str) else ""
-
-
-# The header naming the file a codex patch hunk touches. `*** Move to:` names a
-# rename's destination and is deliberately absent: the hunk's own file is what a
-# hook loads rules for, validates, or records.
-_PATCH_FILE = re.compile(r"^\*\*\* (?:Update|Add|Delete) File: (.+)$", re.M)
-
-
-def patch_text(event):
-    """The apply_patch body a write event carries, or "".
-
-    Codex serializes it under `command` (`apply_patch.rs:508`). The `input`,
-    `patch`, and `changes` spellings are read too: hooks here were written
-    against them, and no version is on record sending them, so they stay until
-    one is proven absent rather than being removed on this reading alone.
-    """
-    if canonical_tool(event) not in ("", "write"):
-        return ""
-    for key in ("command", "input", "patch", "changes"):
-        text = field(event, "tool_input." + key, "")
-        if isinstance(text, str) and "*** " in text:
-            return text
-    return ""
-
-
-def patch_target(event):
-    """The file a write event touches, however its harness names it.
-
-    Claude carries `file_path`; codex carries a patch whose first hunk header
-    names the file. A patch this cannot parse answers "", which every caller
-    treats as "no target known" rather than as "no file touched".
-    """
-    path = field(event, "tool_input.file_path", "")
-    if path:
-        return path
-    match = _PATCH_FILE.search(patch_text(event))
-    return match.group(1).strip() if match else ""
-
-
-# Our canonical tool names, keyed on the tool_name each harness emits on a tool
-# event. This table is the single owner of the translation — we never route
-# through a harness's own Claude-compat aliasing, so a harness renaming a tool is
-# corrected here and nowhere else. Claude emits the left names; codex emits its native names
-# (shell_command/apply_patch/request_user_input) plus, for the shell tool, the
-# compat-aliased "Bash" — all map here. codex's spawn tool is the one exception,
-# recognized by name in `canonical_tool`.
-_CANONICAL_TOOL = {
-    "Bash": "shell",
-    "shell_command": "shell",
-    "exec_command": "shell",
-    "Read": "read",
-    "Write": "write",
-    "Edit": "write",
-    "MultiEdit": "write",
-    "NotebookEdit": "write",
-    "apply_patch": "write",
-    "Agent": "agent",
-    # Claude's other routes to a new agent: a Workflow now, a cloud routine on
-    # another machine. CronCreate is absent: it re-prompts this same session.
-    "Workflow": "agent",
-    "RemoteTrigger": "agent",
-    "AskUserQuestion": "ask",
-    "request_user_input": "ask",
-}
-
-
-def canonical_tool(event):
-    """The canonical tool name for this event, or '' when the tool is unmapped."""
-    name = field(event, "tool_name", "")
-    # codex names a namespaced tool namespace+name with no separator, and the
-    # multi-agent namespace is configurable, so its spawn tool is known by the
-    # name it ends with.
-    if name.endswith("spawn_agent"):
-        return "agent"
-    return _CANONICAL_TOOL.get(name, "")
-
-
-def is_subagent(event):
-    """True when the payload belongs to a subagent turn.
-
-    A Claude subagent's payload carries the parent's UUID in session_id, so the id
-    can't tell them apart; the sidechain markers can. Both spellings are checked
-    because the harness snake-cases its own payload keys and passes the transcript
-    record's camelCase keys through unchanged.
-    """
-    for key in ("isSidechain", "is_sidechain", "agentId", "agent_id"):
-        if field(event, key, ""):
-            return True
-    return False
 
 
 def agent_name(event):

@@ -94,14 +94,7 @@ Template:
     }
   }
   ```
-Example: `packages/claude/hooks/hooks.json` calls `${CLAUDE_PLUGIN_ROOT}/hooks/block-git-revert.sh`.
-Never: call `~/.claude/hooks/block-git-revert.sh` from plugin Hook wiring.
-
-IF your plugin source is also your local Claude Code configuration:
-### Keep local Hook wiring and plugin Hook wiring separate
-The live Hooks are Python files in `packages/agents/hooks/`; their local wiring in settings.json and Codex config.toml is generated from each Hook's `BINDING`. Plugin consumers get maintained shell copies wired by `packages/claude/hooks/hooks.json`, so changing a plugin-distributed Hook means updating the Python source and its shell copy.
-Example: a change to unsafe delete blocking updates `packages/agents/hooks/block_unsafe_delete.py` and `packages/claude/hooks/block-unsafe-delete.sh`.
-Never: update the shell Hook only and leave the local Python Hook behavior behind.
+Never: call `~/.claude/hooks/my-script.sh` from plugin Hook wiring.
 
 ## 5. Manage versions and plugin state
 
