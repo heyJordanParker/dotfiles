@@ -37,7 +37,7 @@ mkdir -p "$HOME/Developer/references" "$SERVICES_DIR"
 # brew bundle passes no formula names, so a non-official tap it reads is untrusted
 echo "==> Trusting third-party taps..."
 brew trust --formula rjyo/moshi/moshi-hook zippoxer/tap/recall tobi/try/try \
-  tw93/tap/mole oven-sh/bun/bun modem-dev/tap/hunk roots/tap/trellis-cli \
+  tw93/tap/mole modem-dev/tap/hunk roots/tap/trellis-cli \
   felixkratz/formulae/borders cristianoliveira/tap/aerospace-scratchpad
 
 echo "==> Installing brew packages..."
@@ -51,6 +51,13 @@ fi
 if [ ! -x "$HOME/.local/bin/herdr" ]; then
   echo "==> Installing herdr..."
   curl -fsSL https://herdr.dev/install.sh | sh
+fi
+
+echo "==> Installing bun..."
+export BUN_INSTALL="$HOME/.bun"
+export PATH="$BUN_INSTALL/bin:$PATH"
+if [ ! -x "$BUN_INSTALL/bin/bun" ]; then
+  curl -fsSL https://bun.sh/install | SHELL=/bin/sh bash
 fi
 
 echo "==> Installing bun global packages..."

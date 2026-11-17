@@ -28,7 +28,6 @@ brew "tw93/tap/mole"
 brew "m-cli"
 
 # Dev
-brew "oven-sh/bun/bun"
 brew "hcloud"
 brew "anomalyco/tap/opencode"
 brew "go"
