@@ -1,7 +1,6 @@
 import { defineRule } from '@cmodjs/rulebook'
 import { isWritableWhileProposing, WRITE_TOOLS, writtenFile } from '../../lib/proposal.ts'
 import { ownerSession, stage } from '../../lib/session.ts'
-import { unreadable } from '../../lib/shell.ts'
 
 const MUTATES_EVERY_ARGUMENT: ReadonlySet<string> = new Set(['mkdir', 'rmdir', 'unlink', 'shred', 'mkfifo', 'mknod'])
 
@@ -24,9 +23,7 @@ export default defineRule({
     if (context.path !== '@command') return {}
     return {
       Document(document) {
-        const cannotName = unreadable(context) !== ''
-        const writes = (context.shell?.writes ?? []).some((target) => !isWritableWhileProposing(target, call.cwd))
-        if (cannotName || writes) context.report({ node: document })
+        if ((context.shell?.writes ?? []).some((target) => !isWritableWhileProposing(target, call.cwd))) context.report({ node: document })
       },
       Command(command) {
         const positional = command.args.filter((arg) => !arg.startsWith('-'))

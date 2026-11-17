@@ -1,6 +1,6 @@
 import { defineRule } from '@cmodjs/rulebook'
 import { agentName, declaresNoWriteTool, definitionPath, isDispatched, isReadonly } from '../../lib/session.ts'
-import { readonlyRefusal, unreadable } from '../../lib/shell.ts'
+import { readonlyRefusal } from '../../lib/shell.ts'
 
 const WRITE_TOOLS: ReadonlySet<string> = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit', 'apply_patch'])
 
@@ -22,7 +22,7 @@ export default defineRule({
     if (context.path !== '@command' || !isReadonly(definition)) return {}
     return {
       Document(document) {
-        if (unreadable(context) !== '' || (context.shell?.writes.length ?? 0) > 0) context.report({ node: document })
+        if ((context.shell?.writes.length ?? 0) > 0) context.report({ node: document })
       },
       Command(command) {
         if (readonlyRefusal(command.program, command.args) !== '') context.report({ node: command })

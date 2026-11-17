@@ -1,14 +1,14 @@
 import { defineRule } from '@cmodjs/rulebook'
-import { deleteRefusal } from '../../lib/delete.ts'
+import { deletesOutsideAllowedFolders, skipsTheTrash } from '../../lib/delete.ts'
 
 export default defineRule({
-  description: 'Delete only inside the dotfiles, ~/Developer, ~/Downloads, ~/Desktop, ~/conductor, ~/.claude, or /tmp.',
-  message: 'Delete anything else by hand.',
+  description: 'Delete only with an rm your shell runs, inside the dotfiles, ~/Developer, ~/Downloads, ~/Desktop, ~/conductor, ~/.claude, or /tmp.',
+  message: 'Run rm yourself on paths you name, or delete it by hand.',
   files: ['@command'],
   create(context) {
     return {
       Document(document) {
-        if (deleteRefusal(context.text, context.call?.cwd ?? '') === 'outside') context.report({ node: document })
+        if (skipsTheTrash(context) || deletesOutsideAllowedFolders(context)) context.report({ node: document })
       },
     }
   },

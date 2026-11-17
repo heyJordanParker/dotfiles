@@ -1,9 +1,8 @@
 import { realpathSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { join, normalize } from 'node:path'
+import { dirname, join, normalize, resolve } from 'node:path'
+import type { Command, Context } from '@cmodjs/rulebook'
 import { isInTmp } from './shell.ts'
-
-export type DeleteRefusal = 'unresolved' | 'outside' | ''
 
 const HOME = homedir()
 
@@ -16,26 +15,53 @@ const ALLOWED_PREFIXES: readonly string[] = [
   `${HOME}/.claude`,
 ]
 
-const RM = /(^|[;&|\s$(`])\\?(\S*\/)?rm(\s|$)/
+const ZSH_RUNNERS: ReadonlySet<string> = new Set(['exec', 'time', 'zsh'])
 
-const PIPED_RM = /\|.*rm(\s|$)/
+const NO_RCS: ReadonlySet<string> = new Set(['-f', '--no-rcs'])
 
-const SUBSTITUTED_RM = /(\$\(|`)\\?(\S*\/)?rm\s/
+const HOME_PREFIX = /^(~|\$HOME|\$\{HOME\})(?=\/|$)/
 
-const EXPANSION = /[$`]/
+const UNPROVABLE = /[$`]|^~/
 
 const GLOB = /[*?[]/
 
-export function deleteRefusal(command: string, cwd: string): DeleteRefusal {
-  if (!RM.test(command)) return ''
-  if (PIPED_RM.test(command) || SUBSTITUTED_RM.test(command)) return 'unresolved'
-  if (!/rm\s+/.test(command)) return ''
-  const operands = command.replace(/.*rm\s+/g, '').split(/\s+/).filter((word) => word !== '' && !word.startsWith('-'))
-  if (operands.some((word) => EXPANSION.test(word))) return 'unresolved'
-  if (operands.some((word) => GLOB.test(word))) return isAllowed(cwd) ? '' : 'outside'
-  return operands.every((word) => isAllowed(normalize(word.startsWith('~') ? `${HOME}${word.slice(1)}` : word.startsWith('/') ? word : `${cwd}/${word}`))) ? '' : 'outside'
+export function skipsTheTrash({ commands }: Context): boolean {
+  return commands.some((command) => (command.program === 'find' ? command.args.includes('-delete') : command.program === 'rm' && (command.argv[0] !== 'rm' || !runsInZsh(command, commands))))
 }
 
-function isAllowed(path: string): boolean {
-  return isInTmp(path) || ALLOWED_PREFIXES.some((prefix) => path.startsWith(prefix))
+export function deletesOutsideAllowedFolders(context: Context): boolean {
+  const cwd = context.call?.cwd ?? context.root
+  return context.commands.some((command) => command.program === 'rm' && operandsOf(command.args).some((operand) => !isAllowed(judgedPath(operand, command.folder, cwd))))
+}
+
+function runsInZsh({ runner }: Command, commands: readonly Command[]): boolean {
+  if (runner === undefined) return true
+  const command = commands[runner]
+  return command !== undefined && ZSH_RUNNERS.has(command.program) && !command.args.some((arg) => NO_RCS.has(arg)) && runsInZsh(command, commands)
+}
+
+function operandsOf(args: readonly string[]): readonly string[] {
+  const end = args.indexOf('--')
+  const options = end < 0 ? args : args.slice(0, end)
+  return [...options.filter((arg) => !arg.startsWith('-')), ...(end < 0 ? [] : args.slice(end + 1))]
+}
+
+function judgedPath(operand: string, folder: string, cwd: string): string | undefined {
+  const target = expanded(operand)
+  const where = expanded(folder)
+  if (UNPROVABLE.test(target) || UNPROVABLE.test(where)) return undefined
+  const glob = target.search(GLOB)
+  if (glob < 0) return resolve(cwd, where, target)
+  const literal = target.slice(0, glob)
+  if (target.slice(glob).split('/').includes('..')) return undefined
+  const path = resolve(cwd, where, literal)
+  return literal === '' || literal.endsWith('/') ? path : dirname(path)
+}
+
+function expanded(path: string): string {
+  return path.replace(HOME_PREFIX, HOME)
+}
+
+function isAllowed(path: string | undefined): boolean {
+  return path !== undefined && (isInTmp(path) || ALLOWED_PREFIXES.some((prefix) => `${path}/`.startsWith(`${prefix}/`)))
 }

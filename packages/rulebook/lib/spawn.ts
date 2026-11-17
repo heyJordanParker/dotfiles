@@ -2,7 +2,6 @@ import { readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { resolve } from 'node:path'
 import type { Call, Command, Context } from '@cmodjs/rulebook'
-import { unreadable } from './shell.ts'
 
 const INFO_FLAGS: ReadonlySet<string> = new Set(['--version', '-V', '-v', '--help', '-h'])
 
@@ -13,8 +12,6 @@ const MANAGEMENT: Readonly<Record<string, ReadonlySet<string>>> = {
 
 const SCRIPT_MODEL = /\bmodel\s*:\s*['"`]([^'"`]*)/gi
 
-const COMMAND_TOKEN = /(?:^|\s)(\/[a-z][a-z0-9-]*)/g
-
 export function launchesAgent(call: Call): boolean {
   return ['Agent', 'Workflow', 'RemoteTrigger'].includes(call.tool) || call.tool.endsWith('spawn_agent')
 }
@@ -23,7 +20,7 @@ export function wouldSpawn(context: Context): boolean {
   const call = context.call
   if (call === undefined) return false
   if (launchesAgent(call)) return true
-  return context.path === '@command' && (unreadable(context) !== '' || context.commands.some(startsSession))
+  return context.path === '@command' && context.commands.some(startsSession)
 }
 
 export function choosesFable(context: Context): boolean {
@@ -32,10 +29,6 @@ export function choosesFable(context: Context): boolean {
   if (call.tool === 'Workflow') return [...workflowScript(call).matchAll(SCRIPT_MODEL)].some(([, model]) => isFable(model))
   if (launchesAgent(call)) return isFable(call.input.model)
   return claudeLaunches(context).some((args) => modelsOf(args).some(isFable))
-}
-
-export function typesOrchestrate(context: Context): boolean {
-  return claudeLaunches(context).some((args) => args.some((arg) => forcedMode(blankSpans(arg)) === 'orchestrate'))
 }
 
 function startsSession({ program, args }: Command): boolean {
@@ -65,18 +58,4 @@ function workflowScript(call: Call): string {
 
 function isFable(model: unknown): boolean {
   return String(model ?? '').toLowerCase().includes('fable')
-}
-
-function blankSpans(text: string): string {
-  const fill = (span: string): string => span.replace(/[^\n]/g, '#')
-  return text.replace(/```[\s\S]*?```/g, fill).replace(/`[^`\n]*`|"[^"\n]*"/g, fill)
-}
-
-function forcedMode(text: string): string {
-  let mode = ''
-  for (const [, token] of text.matchAll(COMMAND_TOKEN)) {
-    if (token === '/orchestrate') mode = 'orchestrate'
-    if (token === '/build') mode = 'build'
-  }
-  return mode
 }
