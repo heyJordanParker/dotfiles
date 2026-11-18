@@ -34,12 +34,11 @@ arrival, which is what resets the distance.
 """
 
 import json
-import os
 import re
 import sys
 
-from classify_intent import (SKILLS_DIR, _skill_disables_model_invocation, blank_spans,
-                             directive, forced_commands, skills_directive, typed_skills)
+from classify_intent import (_skill_disables_model_invocation, blank_spans, directive,
+                             forced_commands, skill_file, skills_directive, typed_skills)
 from lib import feedback, frontmatter, transcript
 from lib.event import field, read_event
 from lib.session_mode import is_dispatched, resolve, state
@@ -69,7 +68,7 @@ def reload_every(name):
     `never` and a missing key answer the same 0.
     """
     try:
-        with open(os.path.join(SKILLS_DIR, name, "SKILL.md"), encoding="utf-8") as fh:
+        with open(skill_file(name), encoding="utf-8") as fh:
             declared = frontmatter.declared(fh.read(), "reload-every")
     except OSError:
         return 0

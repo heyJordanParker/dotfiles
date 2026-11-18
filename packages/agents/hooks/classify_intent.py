@@ -154,8 +154,22 @@ def _available_skills():
     return names
 
 
+def skill_file(name):
+    """The SKILL.md the harness loads for /<name>.
+
+    A personal Skill wins over a project's own one of the same name, as it does in
+    Claude Code, and a project ships its Skills under `.claude/skills` in the folder
+    the harness names as `CLAUDE_PROJECT_DIR`.
+    """
+    personal = os.path.join(SKILLS_DIR, name, "SKILL.md")
+    project = os.environ.get("CLAUDE_PROJECT_DIR", "")
+    if os.path.isfile(personal) or not project:
+        return personal
+    return os.path.join(project, ".claude", "skills", name, "SKILL.md")
+
+
 def _skill_disables_model_invocation(name):
-    """True when skills/<name>/SKILL.md sets `disable-model-invocation: true`.
+    """True when the Skill's SKILL.md sets `disable-model-invocation: true`.
 
     Such a skill reaches context only via the harness slash-dispatch when the user
     types `/<name>`; the Skill tool refuses it. The directive routes the model
@@ -163,7 +177,7 @@ def _skill_disables_model_invocation(name):
     skip it. Commands (no SKILL.md) never carry the flag, so they're unaffected.
     """
     try:
-        with open(os.path.join(SKILLS_DIR, name, "SKILL.md"), encoding="utf-8") as fh:
+        with open(skill_file(name), encoding="utf-8") as fh:
             declared = frontmatter.declared(fh.read(), "disable-model-invocation")
     except OSError:
         return False

@@ -294,3 +294,12 @@ def test_reload_every_reads_the_frontmatter(tmp_path, monkeypatch):
     assert hook.reload_every("cc") == 20
     assert hook.reload_every("show-me") == 0
     assert hook.reload_every("no-such-skill") == 0
+
+
+def test_reload_every_reads_a_project_skill(tmp_path, monkeypatch):
+    """A Skill the project ships in its own .claude/skills sets its own distance."""
+    skill = tmp_path / ".claude" / "skills" / "maintain"
+    skill.mkdir(parents=True)
+    (skill / "SKILL.md").write_text("---\nname: maintain\nreload-every: 10 turns\n---\n\n# Maintain\n")
+    monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(tmp_path))
+    assert hook.reload_every("maintain") == 10
