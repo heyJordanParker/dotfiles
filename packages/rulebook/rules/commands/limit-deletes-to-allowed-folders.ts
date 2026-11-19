@@ -6,10 +6,7 @@ export default defineRule({
   message: 'Run rm yourself on paths you name, or delete it by hand.',
   files: ['@command'],
   create(context) {
-    return {
-      Document(document) {
-        if (skipsTheTrash(context) || deletesOutsideAllowedFolders(context)) context.report({ node: document })
-      },
-    }
+    if (skipsTheTrash(context) || deletesOutsideAllowedFolders(context)) context.report({ node: context.sourceCode.ast })
+    return {}
   },
 })

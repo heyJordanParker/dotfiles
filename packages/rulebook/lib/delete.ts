@@ -2,7 +2,7 @@ import { realpathSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join, normalize, resolve } from 'node:path'
 import type { Command, Context } from '@cmodjs/rulebook'
-import { isInTmp } from './shell.ts'
+import { isInTmp, shellOf } from './shell.ts'
 
 const HOME = homedir()
 
@@ -25,13 +25,14 @@ const UNPROVABLE = /[$`]|^~/
 
 const GLOB = /[*?[]/
 
-export function skipsTheTrash({ commands }: Context): boolean {
+export function skipsTheTrash(context: Context): boolean {
+  const commands = shellOf(context)?.commands ?? []
   return commands.some((command) => (command.program === 'find' ? command.args.includes('-delete') : command.program === 'rm' && (command.argv[0] !== 'rm' || !runsInZsh(command, commands))))
 }
 
 export function deletesOutsideAllowedFolders(context: Context): boolean {
   const cwd = context.call?.cwd ?? context.root
-  return context.commands.some((command) => command.program === 'rm' && operandsOf(command.args).some((operand) => !isAllowed(judgedPath(operand, command.folder, cwd))))
+  return (shellOf(context)?.commands ?? []).some((command) => command.program === 'rm' && operandsOf(command.args).some((operand) => !isAllowed(judgedPath(operand, command.folder, cwd))))
 }
 
 function runsInZsh({ runner }: Command, commands: readonly Command[]): boolean {

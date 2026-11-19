@@ -1,5 +1,6 @@
 import { defineRule } from '@cmodjs/rulebook'
 import { isDispatched } from '../../lib/session.ts'
+import { shellOf } from '../../lib/shell.ts'
 
 const NAME = /^[A-Za-z0-9_@][A-Za-z0-9_@-]*$/
 
@@ -9,7 +10,7 @@ export default defineRule({
   files: ['@command'],
   create(context) {
     const call = context.call
-    if (call === undefined || !isDispatched(call) || context.commands.some(({ args }) => args.includes('--'))) return {}
+    if (call === undefined || !isDispatched(call) || shellOf(context)?.commands.some(({ args }) => args.includes('--'))) return {}
     return {
       Command(command) {
         if (command.program !== 'git') return

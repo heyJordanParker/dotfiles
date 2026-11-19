@@ -1,5 +1,4 @@
 import { defineRule } from '@cmodjs/rulebook'
-import { writtenFile } from '../../lib/proposal.ts'
 
 const STATE_FILE = /\/sessions\/[^ ]*state\.json/
 
@@ -11,11 +10,9 @@ export default defineRule({
   files: ['**/state.json', '@command'],
   create(context) {
     if (context.call === undefined || process.env.CLAUDE_SESSION_HOOK === 'true') return {}
-    return {
-      Document(document) {
-        const touches = context.path === '@command' ? TOUCHES_STATE_FILE.test(context.text) : STATE_FILE.test(writtenFile(context))
-        if (touches) context.report({ node: document })
-      },
-    }
+    const { filename, sourceCode } = context
+    const touches = filename === '@command' ? TOUCHES_STATE_FILE.test(sourceCode.text) : STATE_FILE.test(filename)
+    if (touches) context.report({ node: sourceCode.ast })
+    return {}
   },
 })

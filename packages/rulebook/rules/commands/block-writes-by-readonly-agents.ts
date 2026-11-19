@@ -1,6 +1,6 @@
 import { defineRule } from '@cmodjs/rulebook'
 import { agentName, declaresNoWriteTool, definitionPath, isDispatched, isReadonly } from '../../lib/session.ts'
-import { readonlyRefusal } from '../../lib/shell.ts'
+import { readonlyRefusal, shellOf } from '../../lib/shell.ts'
 
 const WRITE_TOOLS: ReadonlySet<string> = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit', 'apply_patch'])
 
@@ -13,17 +13,12 @@ export default defineRule({
     const definition = call === undefined || !isDispatched(call) ? '' : definitionPath(agentName(call))
     if (call === undefined || definition === '') return {}
     if (WRITE_TOOLS.has(call.tool)) {
-      return {
-        Document(document) {
-          if (isReadonly(definition) || declaresNoWriteTool(definition)) context.report({ node: document })
-        },
-      }
+      if (isReadonly(definition) || declaresNoWriteTool(definition)) context.report({ node: context.sourceCode.ast })
+      return {}
     }
-    if (context.path !== '@command' || !isReadonly(definition)) return {}
+    if (context.filename !== '@command' || !isReadonly(definition)) return {}
+    if ((shellOf(context)?.writes.length ?? 0) > 0) context.report({ node: context.sourceCode.ast })
     return {
-      Document(document) {
-        if ((context.shell?.writes.length ?? 0) > 0) context.report({ node: document })
-      },
       Command(command) {
         if (readonlyRefusal(command.program, command.args) !== '') context.report({ node: command })
       },

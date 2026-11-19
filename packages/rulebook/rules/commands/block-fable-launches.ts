@@ -6,10 +6,7 @@ export default defineRule({
   message: 'Only the Architect uses Fable. Drop the model override, or name another model.',
   files: ['@command', '@spawn'],
   create(context) {
-    return {
-      Document(document) {
-        if (choosesFable(context)) context.report({ node: document })
-      },
-    }
+    if (choosesFable(context)) context.report({ node: context.sourceCode.ast })
+    return {}
   },
 })

@@ -1,6 +1,7 @@
 import { defineRule } from '@cmodjs/rulebook'
-import { isWritableWhileProposing, WRITE_TOOLS, writtenFile } from '../../lib/proposal.ts'
+import { isWritableWhileProposing, WRITE_TOOLS } from '../../lib/proposal.ts'
 import { ownerSession, stage } from '../../lib/session.ts'
+import { shellOf } from '../../lib/shell.ts'
 
 const MUTATES_EVERY_ARGUMENT: ReadonlySet<string> = new Set(['mkdir', 'rmdir', 'unlink', 'shred', 'mkfifo', 'mknod'])
 
@@ -14,17 +15,12 @@ export default defineRule({
     const call = context.call
     if (call === undefined || ownerSession(call) === '' || stage(call) !== 'propose') return {}
     if (WRITE_TOOLS.has(call.tool)) {
-      return {
-        Document(document) {
-          if (!isWritableWhileProposing(writtenFile(context), call.cwd)) context.report({ node: document })
-        },
-      }
+      if (!isWritableWhileProposing(context.filename, call.cwd)) context.report({ node: context.sourceCode.ast })
+      return {}
     }
-    if (context.path !== '@command') return {}
+    if (context.filename !== '@command') return {}
+    if ((shellOf(context)?.writes ?? []).some((target) => !isWritableWhileProposing(target, call.cwd))) context.report({ node: context.sourceCode.ast })
     return {
-      Document(document) {
-        if ((context.shell?.writes ?? []).some((target) => !isWritableWhileProposing(target, call.cwd))) context.report({ node: document })
-      },
       Command(command) {
         const positional = command.args.filter((arg) => !arg.startsWith('-'))
         const targets = MUTATES_EVERY_ARGUMENT.has(command.program) ? positional : MUTATES_ITS_TARGET.has(command.program) ? positional.slice(1) : command.program === 'install' ? positional.slice(-1) : []

@@ -1,6 +1,7 @@
 import { realpathSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, dirname, isAbsolute, join, normalize, relative } from 'node:path'
+import type { Context, Shell } from '@cmodjs/rulebook'
 
 export type Token = { readonly text: string; readonly isOperator: boolean }
 
@@ -126,6 +127,11 @@ export function readonlyRefusal(head: string, args: readonly string[]): string {
     if (!GIT_READERS.has(subcommand)) return subcommand === '' ? '`git` needs a reporting subcommand here.' : `\`git ${subcommand}\` changes the repository.`
   }
   return ''
+}
+
+export function shellOf({ sourceCode }: Context): Shell | undefined {
+  const { ast } = sourceCode
+  return 'commands' in ast ? ast : undefined
 }
 
 export function isInTmp(path: string): boolean {

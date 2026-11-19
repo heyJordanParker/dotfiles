@@ -57,11 +57,9 @@ export default defineRule({
   message: 'Read the usage docs with agent-browser skills get core, then use its open, snapshot, click, fill, screenshot, and close. Never launch Chrome, Playwright, Puppeteer, or any other browser yourself, and never pass --headed.',
   files: ['@command'],
   create(context) {
-    return {
-      Document(document) {
-        if (launchesBrowser(context.text, 0)) context.report({ node: document })
-      },
-    }
+    const { sourceCode } = context
+    if (launchesBrowser(sourceCode.text, 0)) context.report({ node: sourceCode.ast })
+    return {}
   },
 })
 

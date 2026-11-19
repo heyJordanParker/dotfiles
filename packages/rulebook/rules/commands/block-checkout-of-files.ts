@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { defineRule } from '@cmodjs/rulebook'
+import { shellOf } from '../../lib/shell.ts'
 
 const FORCE_FLAGS: readonly string[] = ['-f', '--force', '--discard-changes']
 
@@ -11,10 +12,9 @@ export default defineRule({
   message: 'Undo specific lines with the Edit tool. To prove a failure is pre-existing, report the command and its red output instead.',
   files: ['@command'],
   create(context) {
+    const { sourceCode } = context
+    if (shellOf(context)?.commands.length === 0 && /git\s+checkout/.test(sourceCode.text)) context.report({ node: sourceCode.ast })
     return {
-      Document(document) {
-        if (context.commands.length === 0 && /git\s+checkout/.test(context.text)) context.report({ node: document })
-      },
       Command(command) {
         if (command.program !== 'git' || command.args[0] !== 'checkout') return
         const args = command.args.slice(1)

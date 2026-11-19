@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { resolve } from 'node:path'
 import type { Call, Command, Context } from '@cmodjs/rulebook'
+import { shellOf } from './shell.ts'
 
 const INFO_FLAGS: ReadonlySet<string> = new Set(['--version', '-V', '-v', '--help', '-h'])
 
@@ -20,7 +21,7 @@ export function wouldSpawn(context: Context): boolean {
   const call = context.call
   if (call === undefined) return false
   if (launchesAgent(call)) return true
-  return context.path === '@command' && context.commands.some(startsSession)
+  return (shellOf(context)?.commands ?? []).some(startsSession)
 }
 
 export function choosesFable(context: Context): boolean {
@@ -39,7 +40,7 @@ function startsSession({ program, args }: Command): boolean {
 }
 
 function claudeLaunches(context: Context): readonly (readonly string[])[] {
-  return context.path === '@command' ? context.commands.filter(({ program }) => program === 'claude').map(({ args }) => args) : []
+  return (shellOf(context)?.commands ?? []).filter(({ program }) => program === 'claude').map(({ args }) => args)
 }
 
 function modelsOf(args: readonly string[]): readonly string[] {

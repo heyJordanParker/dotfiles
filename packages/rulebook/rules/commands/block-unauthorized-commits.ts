@@ -1,6 +1,7 @@
 import { resolve, sep } from 'node:path'
 import { defineRule } from '@cmodjs/rulebook'
 import { ownerSession, sessionState } from '../../lib/session.ts'
+import { shellOf } from '../../lib/shell.ts'
 
 const FREE_COMMIT_ROOTS: readonly string[] = ['/Users/jordan/Developer/php-sharp', '/Users/jordan/Developer/mago-sharp', '/Users/jordan/Developer/sharp-worktrees']
 
@@ -15,10 +16,9 @@ export default defineRule({
       const session = ownerSession(call)
       return session === '' || sessionState(session).commit_requested === true
     }
+    const { sourceCode } = context
+    if (shellOf(context)?.commands.length === 0 && sourceCode.text.includes('commit') && !isAuthorized()) context.report({ node: sourceCode.ast })
     return {
-      Document(document) {
-        if (context.commands.length === 0 && context.text.includes('commit') && !isAuthorized()) context.report({ node: document })
-      },
       Command(command) {
         if (command.program !== 'git' || command.args[0] !== 'commit') return
         const repository = resolve(call.cwd, command.folder)

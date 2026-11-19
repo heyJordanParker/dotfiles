@@ -8,11 +8,7 @@ export default defineRule({
   files: ['@command', '@spawn'],
   create(context) {
     const call = context.call
-    if (call === undefined || !isDispatched(call) || maySpawn(call)) return {}
-    return {
-      Document(document) {
-        if (wouldSpawn(context)) context.report({ node: document })
-      },
-    }
+    if (call !== undefined && isDispatched(call) && !maySpawn(call) && wouldSpawn(context)) context.report({ node: context.sourceCode.ast })
+    return {}
   },
 })
