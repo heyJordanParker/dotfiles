@@ -419,7 +419,9 @@
     "inbox@inline": false,
     "context7@context7-marketplace": true,
     "impeccable@impeccable": true,
-    "agent-browser@agent-browser": true
+    "agent-browser@agent-browser": true,
+    "mattpocock-skills@claude-plugins-official": true,
+    "pstack@pstack-claude": true
   },
   "extraKnownMarketplaces": {
     "context7-marketplace": {
@@ -461,6 +463,13 @@
         "source": "directory",
         "path": "/Users/jordan/Developer"
       }
+    },
+    "pstack-claude": {
+      "source": {
+        "source": "github",
+        "repo": "michael-denyer/pstack-claude"
+      },
+      "autoUpdate": true
     }
   },
   "outputStyle": "Concise",
