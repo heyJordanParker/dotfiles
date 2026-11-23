@@ -15,7 +15,6 @@ Requires [Claude Code](https://docs.anthropic.com/en/docs/claude-code).
 
 Invoked as `/talents:<name>`:
 
-- **agent-browser** — Automate browser interactions, web testing, screenshots, data extraction (requires [agent-browser](https://www.npmjs.com/package/agent-browser))
 - **architecture** — Present architectural options with tradeoffs
 - **cc** — Work with Claude Code skills, hooks, settings
 - **code-first** — Autonomous async execution mode for AFK / overnight handoffs
@@ -28,7 +27,6 @@ Invoked as `/talents:<name>`:
 - **execute** — Contract for executing-state turns: implement approved work, escalate on architectural change
 - **execute-plan** — Orchestrate implementation plans with validation gates per slice
 - **gh-issue** — Create GitHub issues carrying the problem, the WHY, and the systems, so the executing agent owns the HOW
-- **impeccable** — Design, audit, and polish frontend interfaces
 - **independent-review** — N identical parallel agents for consensus through redundancy
 - **laravel** — Laravel PHP patterns for controllers, models, migrations, queries
 - **modeling** — Transform shaped parts into concrete models (DB schema, UX flows, architecture)

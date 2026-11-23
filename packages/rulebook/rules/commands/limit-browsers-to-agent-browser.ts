@@ -54,7 +54,7 @@ const BROWSER_WORDS = /chrom|firefox|safari|webkit|puppeteer|playwright|selenium
 
 export default defineRule({
   description: 'Drive browsers only through agent-browser, headless.',
-  message: 'Read the usage docs with agent-browser skills get core, then use its open, snapshot, click, fill, screenshot, and close. Never launch Chrome, Playwright, Puppeteer, or any other browser yourself, and never pass --headed.',
+  message: 'Read the usage docs with agent-browser skills get core, then use its open, snapshot, click, fill, and screenshot. Never launch Chrome, Playwright, Puppeteer, or any other browser yourself, and never pass --headed.',
   files: ['@command'],
   create(context) {
     const { sourceCode } = context
