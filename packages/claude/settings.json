@@ -417,13 +417,29 @@
     "oneclaude@inline": false,
     "inbox@Developer-linked": true,
     "inbox@inline": false,
-    "context7@context7-marketplace": true
+    "context7@context7-marketplace": true,
+    "impeccable@impeccable": true,
+    "agent-browser@agent-browser": true
   },
   "extraKnownMarketplaces": {
     "context7-marketplace": {
       "source": {
         "source": "github",
         "repo": "upstash/context7"
+      },
+      "autoUpdate": true
+    },
+    "impeccable": {
+      "source": {
+        "source": "github",
+        "repo": "pbakaus/impeccable"
+      },
+      "autoUpdate": true
+    },
+    "agent-browser": {
+      "source": {
+        "source": "github",
+        "repo": "vercel-labs/agent-browser"
       },
       "autoUpdate": true
     },
