@@ -29,10 +29,8 @@ if [ ! -d "$DOTFILES_DIR" ]; then
   git clone "https://github.com/$REPO.git" "$DOTFILES_DIR"
 fi
 
-SERVICES_DIR="$HOME/Developer/services"
-
 echo "==> Creating Developer directories..."
-mkdir -p "$HOME/Developer/references" "$SERVICES_DIR"
+mkdir -p "$HOME/Developer/references"
 
 # brew bundle passes no formula names, so a non-official tap it reads is untrusted
 echo "==> Trusting third-party taps..."
@@ -91,12 +89,6 @@ echo "==> Setting up moshi (mobile terminal for agent sessions)..."
 brew services start moshi-hook
 moshi-hook host enable-ssh
 
-echo "==> Setting up services..."
-if [ ! -d "$SERVICES_DIR/drawbridge" ]; then
-  git clone https://github.com/heyJordanParker/drawbridge.git "$SERVICES_DIR/drawbridge"
-fi
-(cd "$SERVICES_DIR/drawbridge" && npm install && npm run build)
-npx playwright install chromium
 # Lando 3 hardcodes /Applications/Docker.app — create a stub app bundle that
 # satisfies detection without symlinking to OrbStack (symlinks trigger macOS
 # LaunchServices to activate OrbStack's window on any path access)

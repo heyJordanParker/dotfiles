@@ -23,7 +23,6 @@ Invoked as `/talents:<name>`:
 - **debate** — N independent architects debate architectural options through structured rounds with cross-pollination
 - **debug** — Systematic debugging with root cause tracing
 - **design** — UI components, styling, and interaction decisions
-- **diagram** — Generate Excalidraw diagrams on a live canvas (requires [drawbridge](https://github.com/alexknowshtml/drawbridge))
 - **execute** — Contract for executing-state turns: implement approved work, escalate on architectural change
 - **execute-plan** — Orchestrate implementation plans with validation gates per slice
 - **gh-issue** — Create GitHub issues carrying the problem, the WHY, and the systems, so the executing agent owns the HOW
