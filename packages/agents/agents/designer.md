@@ -1,11 +1,11 @@
 ---
 name: designer
-description: Use for frontend implementation — building UI components, writing CSS, styling pages, creating layouts, and applying visual/interaction patterns.
+description: Use for frontend implementation, such as building UI components, writing CSS, styling pages, creating layouts, and applying visual and interaction patterns, and for testing user flows across a frontend changeset.
 color: magenta
 model: opus
 effort: high
 mode: build
-skills: design, impeccable, agent-browser, trace, critical-path, execute, naming, prove, build
+skills: design, impeccable, agent-browser, trace, critical-path, execute, naming, user-testing, debug, prove, build
 permissionMode: acceptEdits
 ---
 

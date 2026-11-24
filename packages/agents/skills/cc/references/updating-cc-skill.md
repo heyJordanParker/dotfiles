@@ -65,10 +65,10 @@ Template:
 Example: `### Bump version for every distributed change` owns the plugin version Rule, with an Example and a Never directly under it.
 Never: `**Rule:** bump version` or a Condition that owns multiple Rules.
 
-### Preserve measured findings exactly where they already earn their line
-A measured finding is Evidence behind a Prompt correction; moving it or paraphrasing it can weaken the correction.
-Example: keep the codex communication score finding in SKILL.md step 4 while changing surrounding prose.
-Never: cut a measured score because it is old.
+### Keep each measured finding in its Decision
+A measured finding lives in `docs/architecture/decisions/`. The Prompt line it grounds keeps one grounding clause and a pointer to that Decision.
+Example: SKILL.md step 4 points at the Decision that holds the codex scope and communication scores.
+Never: cut a measured score from its Decision because it is old.
 
 ## 5. Run the gap pass
 

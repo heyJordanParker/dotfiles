@@ -2,7 +2,7 @@
 
 - Surfaces are cards, modals, popovers, dropdowns, panels, sidebars, sticky headers, and any element that must read as separate from the page.
 - Light comes from the top. Top edges are lighter; bottom edges are darker.
-- Reference cards were traced from kargul.studio's Shadow Breakdown; every tier composes a `0 0 0 1px` ring as layer one.
+- Every tier composes a `0 0 0 1px` ring as layer one.
 
 ## 1. Compose elevation from three layers
 
@@ -90,7 +90,7 @@ Example:
     box-shadow: var(--shadow-subtle);
     transition: box-shadow 200ms var(--ease);
   }
-  @media (hover: hover) {
+  @media (hover: hover) and (pointer: fine) {
     .card:hover { box-shadow: var(--shadow-elevated); }
   }
   ```
@@ -138,8 +138,8 @@ Template:
   }
   ```
 
-### Use traced presets as proof of the mechanism
-Three preset variable blocks were traced from real designs: blue for software as a service admin, black for premium editorial, and orange for bold playful surfaces. Same recipe, different tokens, so the mechanism is parameterized.
+### Parameterize the recipe with preset tokens
+The recipe stays fixed; a preset changes only the `--btn-*` tokens.
 Example: `--btn-fill: #296FF0; --btn-rim: #1B5BD0; --btn-gloss: 0.24;`.
 Never: flat single-shadow primaries on hero, landing, or marketing surfaces.
 

@@ -72,8 +72,8 @@ Name the out-of-scope area, pattern, dependency, or public contract the Slice mu
 ### Verification states HOW each criterion is proven
 Name the Agent, test command, browser check, API call, or observable result for each acceptance criterion.
 
-### Implementation does not self-validate
-Dispatch independent testing Subagents through `/delegate`. Trace every code path touched, exercise real User scenarios end to end, and browser-test through tester Agent plus `/agent-browser` when User Interface is involved. Full suites and test categories run once, as the Orchestrator's end gate after every Slice lands — never per Slice or per Subagent.
+### Each Slice proves its own diff
+Trace every code path the Slice touches, exercise real User scenarios end to end, and browser-test through `/agent-browser` when User Interface is involved, with the narrowest run that reaches the diff. Full suites and test categories run once, as the end gate after every Slice lands, never per Slice or per Subagent.
 
 ### Fix tactical failures autonomously
 Fix issues that do not change the Architecture. Present Architectural issues to the Architect with options.

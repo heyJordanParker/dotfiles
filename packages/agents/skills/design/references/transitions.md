@@ -1,6 +1,6 @@
 # Transitions
 
-- State-change recipes replace older JavaScript-heavy patterns with CSS-first mechanisms.
+- State changes use CSS-first mechanisms.
 - Shared timing, `will-change`, reduced motion, transition-property, and open/close timing Rules live in `motion.md`.
 - Icon swap Rules live in `motion.md` and are not duplicated here.
 

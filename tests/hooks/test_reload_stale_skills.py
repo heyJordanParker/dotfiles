@@ -288,10 +288,7 @@ def test_an_unreadable_transcript_orders_nothing(monkeypatch):
 
 def test_reload_every_reads_the_frontmatter(tmp_path, monkeypatch):
     """The real reader, against the real corpus: the numbers the architect set."""
-    assert hook.reload_every("delegate") == 20
-    assert hook.reload_every("orchestrate") == 20
     assert hook.reload_every("execute") == 30
-    assert hook.reload_every("cc") == 20
     assert hook.reload_every("show-me") == 0
     assert hook.reload_every("no-such-skill") == 0
 

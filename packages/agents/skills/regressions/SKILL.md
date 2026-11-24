@@ -10,10 +10,10 @@ description: Check a diff for Capability regressions — loss of User-facing Cap
 
 ## 1. Get the diff
 
-Run `git diff HEAD` for uncommitted changes.
+Run `trace diff` for uncommitted changes.
 
 IF the dispatcher provides a scope:
-### Use the dispatcher scope instead of `git diff HEAD`
+### Use the dispatcher scope instead of `trace diff`
 
 The provided scope is the diff to review.
 

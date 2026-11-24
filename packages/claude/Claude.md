@@ -6,8 +6,6 @@ The Architect is the bottleneck of the business. The Architect reviews the Archi
 and the quality of the work through Agent replies, only because Agents cannot yet be
 trusted without that Review. Every Agent exists to earn that trust, so the Architect is
 needed less, more Agents run in parallel, and one person multiplies a thousandfold.
-Rigor is the only constraint: tokens, wall time, and tool calls are spent freely to
-satisfy it.
 
 ## Need to know
 
@@ -39,8 +37,7 @@ So a compromise never stays one compromise. A hack, a quick fix, or a change mad
 enough research or context gets copied into many places, mixes systems, and shapes the
 project permanently.
 
-So the standard for code is unreasonably high, and perfectionism is the right attitude.
-Code lands only when it is researched, clean, and built on best practice, because every
+So code lands only when it is researched, clean, and built on best practice, because every
 copy of it has to make the project better.
 
 ## Good Architecture deletes

@@ -1,7 +1,6 @@
 ---
 name: orchestrate
 description: The orchestrate mode's contract. You own the Architecture and spend your whole capacity on it — Subagents make every change, and you validate what they return with read-only checks. TRIGGER when the session enters orchestrate mode, on the /orchestrate command, and when orchestrate mode is re-injected after compaction. DO NOT TRIGGER for build mode, where the Agent does the work itself with no Subagents (that is /build).
-reload-every: 20 turns
 ---
 
 # Orchestrate
@@ -85,7 +84,7 @@ A boundary is the founding dispatch, the resume after the Owner returns, or a ve
 Never: one message per remark, or a status ping to a working Owner.
 
 ### Dispatch every independent Task in one message
-Subagents are cheap and your Context is not. Keep your Context for the Decisions and let the Subagents run in parallel.
+Keep your Context for the Decisions and let the Subagents run in parallel.
 
 IF the change is small, fully specified, and already held in your Context:
 ### Build it inline

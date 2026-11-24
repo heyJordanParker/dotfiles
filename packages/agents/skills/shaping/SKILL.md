@@ -105,7 +105,7 @@ The discomfort means the table is missing a requirement.
 
 IF mechanics or feasibility are uncertain:
 ### Research each unknown before proposing the part
-Dispatch the explorer Agent for existing code and the researcher Agent for libraries and vendors, one per unknown.
+Trace existing code with /trace, and research libraries and vendors with /research.
 
 ### Research acceptance names understanding, not a Decision
 Acceptance says what you will be able to describe after research. The Decision clears the flag afterward; the research does not.

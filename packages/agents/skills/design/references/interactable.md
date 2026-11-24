@@ -118,8 +118,8 @@ Example:
   ```css
   .checkbox {
     position: relative;
-    width: 20px;
-    height: 20px;
+    width: 1.25rem;
+    height: 1.25rem;
   }
   .checkbox::after {
     content: "";
@@ -127,8 +127,8 @@ Example:
     top: 50%;
     left: 50%;
     transform: translate(-50%, -50%);
-    width: 44px;
-    height: 44px;
+    width: 2.75rem;
+    height: 2.75rem;
   }
   ```
 Never: let extended hit areas overlap between adjacent elements.

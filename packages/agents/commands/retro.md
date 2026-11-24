@@ -119,11 +119,6 @@ Finding Template:
     - Behavior change starting now.
     - Automation: Skill, Command, or Hook.
     - Claude.md Fact if the finding is folder-wide Context.
-12. After recommendations complete, run:
-
-```bash
-touch ~/.claude/.retro-marker
-```
 
 Template:
   # /retro Results

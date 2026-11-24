@@ -1,7 +1,6 @@
 ---
 name: delegate
 description: Framework for dispatching one-shot Subagents that complete a Task and return. Covers Prompting (WHY -> WHAT -> HOW), the Story/Business/Goal/Verification/Process Prompt Template, and Evidence directories. TRIGGER when dispatching or resuming Subagents, when Orchestration needs the dispatch Prompt Template, or when the Architect says "/delegate this to ...". DO NOT TRIGGER for judging what a Subagent returned (that is /orchestrate), or for work the Agent does itself with no Subagents; use /build.
-reload-every: 20 turns
 ---
 
 # Delegate
@@ -103,9 +102,6 @@ Template:
 
 ## 4. Dispatch independent Subagents at once
 
-### Dispatch a roster Agent, never a Harness built-in
-`subagent_type` names an Agent from the roster. A Hook refuses `Explore`, `Plan`, and `general-purpose`, and the refusal kills the whole parallel batch: every dispatch in that message comes back as a failed row.
-
 ### Run independent Tasks in parallel
 One message, multiple Agent calls, each with its own task.md path as the prompt. Every
 dispatch is already async and parallel, so it returns its agentId at once and you keep
@@ -127,7 +123,7 @@ session dispatched, with its agentType and model. Read it when the id has left y
 Context — the agent is still resumable.
 
 ### Check on Agents; never put them on a timer
-On the coordination cadence, read a running agent's Evidence directory. Only when a resume
+The Harness notifies you when an agent returns, and its Evidence directory shows its progress meanwhile. Only when a resume
 fails, including an agent whose Context is exhausted and resumes into silence, dispatch a
 replacement implementing Subagent on the same task.md with the current diff.
 

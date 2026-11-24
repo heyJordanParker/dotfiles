@@ -70,8 +70,6 @@ Template:
 
   > Plan contract: This is an immutable contract. Architectural deviations require explicit approval. Tactical code-level adjustments are fine.
 
-  > For Claude: Use the /delegate Skill to dispatch implementation.
-
   WHY: [What User Problem this Slice solves]
 
   ## Requirements
@@ -112,7 +110,7 @@ Template:
 
   ## Task N: Verification (fulfills all Rs)
 
-  Dispatch independent testing Subagents via /delegate.
+  Prove the Plan once every Slice has landed:
   - Trace every code path touched.
   - Validate real User scenarios end to end.
   - Browser-test via tester Agent and /agent-browser when User Interface is involved.

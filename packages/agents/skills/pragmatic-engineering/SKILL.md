@@ -14,7 +14,7 @@ Prove the requested work serves the User before preserving it. Question Agent-ge
 
 ### Read before correcting the Architect
 
-Correct the Architect only after reading the code. Never say "You're absolutely right!" before Verification.
+Agree with or correct the Architect only after reading the code.
 
 IF you see assumed intent:
 ### Stop and research before proceeding

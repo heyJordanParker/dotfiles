@@ -14,12 +14,10 @@ digraph when_to_use {
     "Can trace backwards?" [shape=diamond];
     "Fix at symptom point" [shape=box];
     "Trace to original trigger" [shape=box];
-    "BETTER: Also add defense-in-depth" [shape=box];
 
     "Bug appears deep in stack?" -> "Can trace backwards?" [label="yes"];
     "Can trace backwards?" -> "Trace to original trigger" [label="yes"];
     "Can trace backwards?" -> "Fix at symptom point" [label="no - dead end"];
-    "Trace to original trigger" -> "BETTER: Also add defense-in-depth";
 }
 ```
 
@@ -121,12 +119,6 @@ Runs tests one-by-one, stops at first polluter. See script for usage.
 
 **Fix:** Made tempDir a getter that throws if accessed before beforeEach
 
-**Also added defense-in-depth:**
-- Layer 1: Project.create() validates directory
-- Layer 2: WorkspaceManager validates not empty
-- Layer 3: NODE_ENV guard refuses git init outside tmpdir
-- Layer 4: Stack trace logging before git init
-
 ## Key Principle
 
 ```dot
@@ -136,7 +128,6 @@ digraph principle {
     "Trace backwards" [shape=box];
     "Is this the source?" [shape=diamond];
     "Fix at source" [shape=box];
-    "Add validation at each layer" [shape=box];
     "Bug impossible" [shape=doublecircle];
     "NEVER fix just the symptom" [shape=octagon, style=filled, fillcolor=red, fontcolor=white];
 
@@ -146,8 +137,7 @@ digraph principle {
     "Trace backwards" -> "Is this the source?";
     "Is this the source?" -> "Trace backwards" [label="no - keeps going"];
     "Is this the source?" -> "Fix at source" [label="yes"];
-    "Fix at source" -> "Add validation at each layer";
-    "Add validation at each layer" -> "Bug impossible";
+    "Fix at source" -> "Bug impossible";
 }
 ```
 

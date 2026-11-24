@@ -39,8 +39,7 @@ Never: bold leads, unlabeled good/bad pairs, or a standalone Example detached fr
 ## 3. Prefer a positive recipe for output shape
 
 When the Agent produces the wrong shape, show what the output is. Do not name the shape to avoid.
-Measured twice: a banned-shape arm produced more of the banned shape, and a scope prohibition
-moved Codex scope from 0.88 to 0.75 by planting the act it named.
+A named shape plants the act it names (`docs/architecture/decisions/0003-positive-recipes-beat-banned-shapes.md`).
 
 ### Show the wanted shape, not the forbidden shape
 The Agent imitates the last concrete shape it sees. Put the wanted shape in the Example.

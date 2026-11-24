@@ -59,7 +59,7 @@ Template for the dispatch's Process block:
      - cause: <the hunk that stops it from taking effect, path:symbol>   (LOST and ALTERED only)
 
   3. When your Queue names the merge commit, fill the verdict lines from it. `trace read
-     <path> --at <merge-commit>` reads the merged code; never read the working tree, which
+     <path> --revision <merge-commit>` reads the merged code; never read the working tree, which
      other Agents edit while you work. Start with the hand-resolved files the Queue names.
      Read the level above and the level below each carrier, then check whether <other-tip>
      changed that level: a loading gate the other branch adds in the shell runs before this

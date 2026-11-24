@@ -12,8 +12,8 @@ description: |
 
 ## 1. Route every decision
 
-- Architecture — new or removed APIs, module boundaries, contracts, schema changes, files, packages, a convention replaced: find every option with /discover, propose the one you would ship, and say in one line why you rejected each of the others; the Architect decides.
-- Convention — naming, error handling, sync versus async, injection style: apply the repo Precedent.
+- Architecture: new or removed APIs, module boundaries, contracts, schema changes, files, packages, the names these carry, a convention replaced: find every option with /discover, propose the one you would ship, and say in one line why you rejected each of the others; the Architect decides.
+- Convention: naming style, error handling, sync versus async, injection style: apply the repo Precedent.
 - Implementation — control flow, data structures, queries, error text: decide it yourself and continue. Stop only when a wrong call would invalidate the work ahead.
 
 ## 2. Research until the Proposal is specific

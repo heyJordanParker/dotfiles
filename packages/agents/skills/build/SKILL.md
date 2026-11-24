@@ -10,8 +10,8 @@ Build mode means no Subagents and no delegation.
 ## 1. Confirm build is the right operating mode
 
 IF the Task has parallel independent work:
-### Use /orchestrate instead
-Build mode is for work where Context can absorb the full picture.
+### Do the work yourself
+The Architect switches a session to orchestrate by typing `/orchestrate`, and the spawn gate refuses every Agent launch a build session makes.
 
 ## 2. Read the whole call chain before deciding
 

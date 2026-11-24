@@ -1,7 +1,6 @@
 ---
 name: cc
 description: Write and fix Claude Code Prompts — skills, agents, commands, hooks, rules files, Claude.md, and plugin distribution. TRIGGER when the task says "cc"/"claude code"/"claude-code", or asks to build, edit, test, or share a skill/agent/hook/command, tune a description's triggering, write or prune a Claude.md, or cut prompt bloat. DO NOT TRIGGER to name a Claude.md's identifiers (that is /naming) or to record domain vocabulary (that is /domain-design).
-reload-every: 20 turns
 ---
 
 # Claude Code
@@ -69,11 +68,11 @@ Three axes pick the delivery: load guarantee (always-loaded, Condition-loaded, S
 The failure picks the form:
 
 - Violated under pressure: a prohibition plus the red-flag phrases that precede the violation.
-- Wrong output shape: a positive recipe of what the output IS. Measured twice: a banned-shape arm produced more of the banned shape, and a scope prohibition moved codex scope 0.88 to 0.75 by planting the act it named.
+- Wrong output shape: a positive recipe of what the output IS. A banned shape plants the act it names (`docs/architecture/decisions/0003-positive-recipes-beat-banned-shapes.md`).
 - Missing element: a required slot in a Template.
 - Situational: a Condition on an observable predicate, as one IF line owning exactly one Rule.
 
-Never: a nuance clause appended to a winning correction. Measured: one banned phrase plus one positive recipe moved codex communication 0.73 to 0.87, past the 11,000-word baseline; the 20-item banned-vocabulary list it replaced made replies worse.
+Never: a nuance clause appended to a winning correction. One banned phrase plus one positive recipe beat a 20-item banned-vocabulary list (`docs/architecture/decisions/0003-positive-recipes-beat-banned-shapes.md`).
 
 ## 5. Write every block in its shape
 

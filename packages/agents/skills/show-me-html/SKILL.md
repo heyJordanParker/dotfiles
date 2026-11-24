@@ -20,7 +20,7 @@ Example: a method added in one Slice and removed in a later one appears in neith
 Never: an intermediate state, a per-Slice snapshot, or a path the Proposal ruled out.
 
 ### Measure both states against HEAD
-The start state is what HEAD holds and the final state is what HEAD holds plus every change the source document proposes. Read each start state with `trace read <file> --at HEAD`.
+The start state is what HEAD holds and the final state is what HEAD holds plus every change the source document proposes. Read each start state with `trace read <file> --revision HEAD`.
 Never: reading the start state from the working tree, where landed edits already show as "before".
 
 ### Record the two states without narrating how the change got there

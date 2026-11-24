@@ -84,7 +84,7 @@ Example:
 Note: show every column in the table, changed or not.
 
 ### Show Architecture
-The Architect decides the Architecture. Prose about which class calls which leaves him agreeing to a shape he never saw, and a shape he never saw is one he cannot improve.
+The Architect reviews the Architecture. Prose about which class calls which leaves him agreeing to a shape he never saw, and a shape he never saw is one he cannot improve.
 Example:
   ```
   ┌───────────────────────┐

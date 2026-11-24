@@ -12,7 +12,7 @@ The Process for making the Harness react to an event with a Hook.
 - A check on a tool call that refuses it is a rulebook rule, not a Hook. Codex runs the rules through `rulebook claude-hook`, and Claude Code through the rulebook mod.
 
 ### Use a Hook when the behavior must hold at event time
-Always-loaded prose is forgotten after a few turns. A Hook runs when the event happens.
+A Hook runs when the event happens, whether or not the Agent applies the prose.
 
 ### Keep deterministic Hook prose out of Prompts
 When the command Hook blocks or rewrites the event deterministically, the Python file is the Rule. Keep only the Fact that the Hook exists if Agents need to know it.
@@ -183,7 +183,7 @@ Matchers are case-sensitive. Use `/hooks` to confirm the tool name Claude Code s
 - Every Hook event receives a JSON object on stdin.
 - All Hook events carry `effort.level`, which command Hooks and Bash tool commands also receive as `$CLAUDE_EFFORT` (v2.1.133+).
 - `session_id` is the session UUID.
-- In Claude Code 2.1.131, `session_id` is the parent session's UUID even when the tool runs inside a Subagent; this was verified by reading Hook payloads from `/tmp/payload-trace.log` during a controlled Subagent dispatch.
+- `session_id` is the parent session's UUID even when the tool runs inside a Subagent.
 - Subagent identity is carried by `agent_id` and `agent_type`, not by `session_id`.
 - `agent_id` appears only when the event fires inside a Subagent execution.
 - `agent_type` appears with `agent_id` and gives the dispatched Subagent type.
@@ -246,7 +246,7 @@ The transcript stores message shape; the Hook system independently decides when 
 - `SessionStart` can return `sessionTitle` and can set top-level `reloadSkills: true` to re-scan Skill directories so Skills installed by the Hook load in the same session (v2.1.152+).
 - `UserPromptSubmit` can return `sessionTitle` (v2.1.94+).
 - Top-level `terminalSequence` emits desktop notifications, window titles, and bells without a controlling terminal (v2.1.141+).
-- Hook output over 50K characters is saved to disk and replaced with a file path plus preview instead of being injected directly into Context (v2.1.89+).
+- Hook output over 10,000 characters is saved to a file, and the Agent sees its path and a 2,000-character preview instead of the text.
 - `permissions.additionalDirectories` in settings JSON is equivalent to `--add-dir` and accepts relative paths.
 
 ### Inject Context from `UserPromptSubmit` with JSON stdout

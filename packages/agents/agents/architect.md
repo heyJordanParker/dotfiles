@@ -1,9 +1,8 @@
 ---
 name: architect
 description: |
-  Use PROACTIVELY for architectural review, system design decisions, and encapsulation enforcement.
-  Triggers: new modules, dependency changes, refactoring proposals, API design, data model changes,
-  integration points, or any structural change touching 3+ files.
+  Use for architectural review, system design decisions, and encapsulation enforcement on new
+  modules, dependency changes, refactoring proposals, API design, data model changes, and integration points.
 color: blue
 model: opus
 effort: high

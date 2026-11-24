@@ -75,8 +75,8 @@ positive recipe. A missing element gets a Template slot. Under-triggering or ove
 a description change.
 
 ### Use a positive recipe for wrong output shape
-Never use a banned-shape prohibition for output shape. Measured: a banned-shape arm produced more
-of the shape than saying nothing.
+Never use a banned-shape prohibition for output shape. It produces more of the shape than saying
+nothing (`docs/architecture/decisions/0003-positive-recipes-beat-banned-shapes.md`).
 Example: `Report: Critical, Important, Minor. Each item names the broken behavior and the fix.`
 Never: `Do not write a per-file summary.`
 

@@ -16,7 +16,7 @@ The Process for shipping this setup to another repo through the Claude Code plug
 - A Skill declared with `"skills": ["./"]` uses the Skill frontmatter `name` for the invocation name since Claude Code v2.1.94.
 
 ### Keep Rule Files, settings, and Claude.md out of plugin distribution
-Claude Code plugins do not support Rule Files, settings, or Claude.md files as plugin components. This repository's plugin consumers get Skills, Commands, and the plugin-distributed shell Hooks; Rules, settings, and Claude.md stay local.
+Claude Code plugins do not support Rule Files, settings, or Claude.md files as plugin components. This repository's plugin consumers get Skills and Commands; Hooks, Rules, settings, and Claude.md stay local.
 Example: `packages/claude/rules/` stays local while `packages/claude/skills` ships through `"skills": ["./skills/"]`.
 Never: list `rules/`, `settings.json`, or `Claude.md` in `.claude-plugin/marketplace.json`.
 

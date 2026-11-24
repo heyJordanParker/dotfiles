@@ -7,19 +7,9 @@ description: Use when encountering any bug, test failure, or unexpected behavior
 
 ## Overview
 
-Random fixes waste time and create new bugs. Quick patches mask underlying issues.
+Random fixes waste time and create new bugs, and a quick patch hides the cause.
 
-**Core principle:** ALWAYS find root cause before attempting fixes. Symptom fixes are failure.
-
-**Violating the letter of this process is violating the spirit of debugging.**
-
-## The Iron Law
-
-```
-NO FIXES WITHOUT ROOT CAUSE INVESTIGATION FIRST
-```
-
-If you haven't completed Phase 1, you cannot propose fixes.
+Find the root cause before you change code. Propose a fix only after Phase 1 names the root cause.
 
 ## When to Use
 
@@ -248,7 +238,7 @@ If you catch yourself thinking:
 
 **If 3+ fixes failed:** Question the architecture (see Phase 4.5)
 
-## your human partner's Signals You're Doing It Wrong
+## The Architect's signals that you went wrong
 
 **Watch for these redirections:**
 - "Is that not happening?" - You assumed without verifying
@@ -297,5 +287,3 @@ If systematic investigation reveals issue is truly environmental, timing-depende
 These techniques are part of systematic debugging and available in this directory:
 
 - **`references/root-cause-tracing.md`** - Trace bugs backward through call stack to find original trigger
-- **`references/defense-in-depth.md`** - Add validation at multiple layers after finding root cause
-- **`references/condition-based-waiting.md`** - Replace arbitrary timeouts with condition polling

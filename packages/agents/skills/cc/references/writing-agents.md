@@ -126,7 +126,7 @@ Example:
 
 ## 4. Dispatch Subagents correctly
 
-- Built-in Task tool `subagent_type` values include `Explore`, `Plan`, `general-purpose`, and `Bash`.
+- Agent tool built-ins for `subagent_type` include `Explore`, `Plan`, `general-purpose`, and `Bash`.
 - `Explore` uses Haiku and is read-only.
 - `Plan` inherits the model and is read-only.
 - `general-purpose` inherits the model and has all tools.

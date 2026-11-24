@@ -37,7 +37,7 @@ Template:
   ```bash
   mkdir -p ~/Developer/references
   git -C ~/Developer/references/<repo> fetch --all --tags --prune
-  git -C ~/Developer/references/<repo> log -5 --oneline --decorate
+  trace -C ~/Developer/references/<repo> history --commit HEAD
   git -C ~/Developer/references/<repo> tag --sort=-creatordate | head
   ```
 
