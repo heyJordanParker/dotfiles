@@ -417,11 +417,17 @@
     "oneclaude@inline": false,
     "inbox@Developer-linked": true,
     "inbox@inline": false,
+    "rulebook@Developer-linked": true,
+    "totalrecall@Developer-linked": true,
+    "anyhost@anyhost": true,
+    "cmod@anyhost": true,
     "context7@context7-marketplace": true,
     "impeccable@impeccable": true,
     "agent-browser@agent-browser": true,
     "mattpocock-skills@claude-plugins-official": true,
-    "pstack@pstack-claude": true
+    "pstack@pstack-claude": true,
+    "modes@modes": true,
+    "cmod@modes": true
   },
   "extraKnownMarketplaces": {
     "context7-marketplace": {
@@ -458,16 +464,24 @@
       },
       "autoUpdate": true
     },
-    "Developer-linked": {
+    "anyhost": {
       "source": {
-        "source": "directory",
-        "path": "/Users/jordan/Developer"
-      }
+        "source": "github",
+        "repo": "heyJordanParker/anyhost"
+      },
+      "autoUpdate": true
     },
     "pstack-claude": {
       "source": {
         "source": "github",
         "repo": "michael-denyer/pstack-claude"
+      },
+      "autoUpdate": true
+    },
+    "modes": {
+      "source": {
+        "source": "github",
+        "repo": "heyJordanParker/claude-modes"
       },
       "autoUpdate": true
     }
@@ -492,7 +506,7 @@
   "promptSuggestionEnabled": false,
   "agent": "cto",
   "pluginConfigs": {
-    "tracer@inline": {
+    "tracer@Developer-linked": {
       "options": {
         "tracerOnly": true
       }
@@ -500,8 +514,8 @@
   },
   "autoUpdatesChannel": "latest",
   "tui": "fullscreen",
-  "autoMemoryEnabled": false,
   "skipDangerousModePermissionPrompt": true,
   "fileCheckpointingEnabled": false,
+  "remoteControlAtStartup": true,
   "voiceEnabled": true
 }

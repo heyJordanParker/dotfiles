@@ -30,7 +30,7 @@ def emit_context(text):
     feedback.context("classify_intent", "UserPromptSubmit", text)
 
 
-# Machine-authored text reaching UserPromptSubmit — a task notification, an
+# Machine-authored text reaching UserPromptSubmit: a task notification, an
 # injected block, a stop-gate's own feedback replayed back, a relayed message from
 # another session. Each carries whatever text it quotes, so a /propose inside one
 # must never write state. `transcript.harness_authored` owns the test; the
@@ -101,11 +101,7 @@ def directive(forced_state, forced_mode, governing_mode=None):
     if governing_mode is None:
         governing_mode = forced_mode
     out = ""
-    if forced_state == "execute":
-        out = ("This is an executing-state turn. Use /execute now and work under its "
-               "contract: implement the approved work, and the moment it needs an "
-               "architectural change, stop and escalate to the architect.")
-    elif forced_state == "propose":
+    if forced_state == "propose":
         out = ("This is a proposing-state turn. Use /propose now and produce the "
                "proposal under its contract.")
     mode_line = {
@@ -229,7 +225,7 @@ def draft_directive():
         return ""
     return ("### Write think.md before the reply\n"
             "Write this turn's findings and the decisions you have settled to "
-            "docs/agents/<NNN>-<task-slug>/think.md in the run's Evidence "
+            "docs/agents/<YYYYMMDD>-<task-slug>/think.md in the run's Evidence "
             "directory, then write the reply from that file. Replace the whole "
             "file so it holds this turn only, never appended to an earlier "
             "turn's. This file is your own working document, so writing it is "
@@ -258,7 +254,7 @@ def main():
     if not prompt:
         return 0
 
-    if is_system_prompt(prompt):
+    if is_system_prompt(prompt) or transcript.is_scheduled_fire(field(event, "transcript_path", "")):
         return 0
 
     # One blanking feeds both deterministic scans, so a quoted sentence can never
@@ -269,8 +265,8 @@ def main():
     # Ensure the session exists and apply any typed mode-commands. The commit
     # authorization is written on every human turn, not only when granted, so it
     # expires with the turn that typed /commit instead of latching for the session.
-    # A <task-notification> wake-up is a system prompt and returns above, so async
-    # work inside the granting turn keeps it; the next human turn revokes it.
+    # A <task-notification> wake-up and a scheduled task's fire return above, so async
+    # work and check-ins after the granting turn keep it; the next human turn revokes it.
     update = {"commit_requested": forced_commit}
     if forced_mode:
         update["mode"] = forced_mode

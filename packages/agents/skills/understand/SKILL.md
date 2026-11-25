@@ -76,7 +76,7 @@ With the history in hand, ask why each major part of the architecture exists at 
 
 ## 6. Report
 
-The report is written for a reader who has not read the code and will not read it. Write it to `docs/agents/<NNN>-<task-slug>/research.md`, then deliver it whole in the reply. Write it in the project's words: Domain.md, where it exists, is the vocabulary.
+The report is written for a reader who has not read the code and will not read it. Write it to `docs/agents/<YYYYMMDD>-<task-slug>/research.md`, then deliver it whole in the reply. Write it in the project's words: Domain.md, where it exists, is the vocabulary.
 
 Template:
   ```markdown

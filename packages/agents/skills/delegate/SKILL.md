@@ -29,18 +29,18 @@ Example: "add the endpoint" and "update its caller in the same service" is one d
 Never: a numbered Task list in one Prompt, or executing a Task list yourself instead of dispatching it.
 
 ### Size a building Task to one verifiable change
-The Verification block is the ruler: criteria on more than one surface mean more than one dispatch. Many surgical dispatches in one message beat one broad one — each builder stays fast, exact, and cheap to re-dispatch when wrong.
+The Verification block is the ruler: criteria on more than one surface mean more than one dispatch. Many surgical dispatches in one message beat one broad one. Each builder stays fast, exact, and cheap to redo when wrong.
 Never: "implement the feature", "migrate the module", or a dispatch whose Verification cannot run until a later dispatch lands.
 
 ### Dispatch one Owner per system, not one Subagent per symptom
-Symptoms cluster to the system that owns them. Two live Subagents touching the same file collide; give the owning system's Subagent the whole cluster in its founding dispatch. Ownership ends when the agent returns — the next cluster founds a fresh Owner.
+Symptoms cluster to the system that owns them. Two live Subagents editing one file collide, so the owning system's Subagent gets the whole cluster in its founding dispatch. Ownership ends when the agent returns. The next cluster founds a fresh Owner.
 
 ### Keep a dispatched Task singular and unchanging
 The Orchestrator corrects by resuming and re-scopes by dispatching anew; the Subagent never widens its own Task.
 
 ## 3. Write task.md
 
-docs/agents/<NNN>-<slug>/task.md is the whole dispatch. It has Story, Business, Goal, Verification, Architecture, Process, and Queue.
+docs/agents/<YYYYMMDD>-<task-slug>/task.md is the whole dispatch. It has Story, Business, Goal, Verification, Architecture, Process, and Queue.
 Story says what the User experiences and needs.
 Business says WHY it matters, the boundaries, and the limitations.
 Goal says what the Subagent delivers.

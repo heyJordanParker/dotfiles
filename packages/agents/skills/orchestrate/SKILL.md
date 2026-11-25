@@ -73,7 +73,7 @@ Make every Decision the change needs: the contract, the boundary, the data shape
 IF the work executes a Plan file:
 ### Check the Plan before any dispatch
 The Plan must exist, be Architect-approved, and have Slices with acceptance criteria and WHY. Stop and tell the Architect what is missing. The Plan's Architecture changes only with his approval, and an approved change is written into the Plan file so later Slices see it.
-Write the Architecture to docs/agents/<NNN>-<slug>/architecture.md, drawn with /show-me: the shape the system has once this change lands, stated as facts — the contracts, the boundaries, the data shapes, and which way each dependency runs. Nothing undecided reaches it, because an undecided thing holds the dispatch instead. Nothing the tree already states reaches it either, since a file list or a signature copied out of the tree goes stale while the tree moves.
+Write the Architecture to docs/agents/<YYYYMMDD>-<task-slug>/architecture.md, drawn with /show-me: the shape the system has once this change lands, stated as facts: the contracts, the boundaries, the data shapes, and which way each dependency runs. Nothing undecided reaches it, because an undecided thing holds the dispatch instead. Nothing the tree already states reaches it either, since a file list or a signature copied out of the tree goes stale while the tree moves.
 
 ## 3. Dispatch through /delegate
 
@@ -93,9 +93,9 @@ Dispatching work your Context already holds pays spawn, re-research, and report 
 ### Never edit or implement yourself
 Never: Edit, Write, a build command, or a browser action that changes state.
 
-## 4. Escalate the Decision only the product vision can make
+## 4. Propose one Solution even when the product vision could pick either
 
-Two Solutions that both hold Architecturally, where only the product vision picks, go to the Architect, each shown as the change it makes. Every other Decision is yours.
+When two Solutions both fit the Architecture and only the product vision separates them, propose the one you would ship, shown as the change it makes, and name the other in one line. The Architect corrects it when his vision differs.
 
 ## 5. Review through /review
 

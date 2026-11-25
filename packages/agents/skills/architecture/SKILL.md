@@ -7,11 +7,10 @@ description: TRIGGER when presenting Architectural options, Architecting systems
 
 - Architecture Decisions are expensive to reverse.
 - The Architect reviews Architecture: files, public APIs, database, ownership, dependency direction, and module boundaries.
-- You own HOW; the Architect owns Architecture.
 
-## 1. Start with WHY and the highest Decision
+## 1. Start with WHY and the biggest Problem
 
-State the Problem, what triggered it, and the Decision Hierarchy from the top.
+State the Problem, what triggered it, and the Problem Hierarchy from the top.
 
 ### Put the controlling Decision first
 Defaults, naming, edge cases, and implementation details wait until the data model, module boundary, public API, and dependency direction are approved.

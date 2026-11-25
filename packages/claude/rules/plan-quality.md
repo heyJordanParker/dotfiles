@@ -4,37 +4,37 @@ paths:
   - "**/docs/shaping/*/V*-plan.md"
 ---
 
-### Treat Plans as Decisions
-Plans are Decisions, not discussions. Validate before writing.
+A Plan turns Goals into Solutions an Agent can execute. It opens with a Frame written as a
+User Story: who the Plan serves, the experience they need, and the Capabilities they use.
+For an Architectural Goal, the developer working on the codebase is the User in the story.
 
-### Validate instead of hedging
-Validate first, or state "Unknown - need to verify X".
-Never: "might be", "probably", "should be", "likely", "I think", "I believe", "perhaps", or "could be".
+A Goal is a User Goal or an Architectural Goal. A User Goal is framed by the User's
+experience and the Capabilities it needs, and an Architectural Goal by the developer's
+experience and the Capabilities it needs. Each Goal holds the Problems in its way, and each
+Problem holds one specific Solution in the same terms.
 
-### Resolve decisions before writing the Plan
-Use AskUserQuestion before writing a Plan with unresolved decisions.
-Never: "should we", "shall we", "do we want", "question:", "TBD", "TODO", or "to be determined".
+### Solve every open Problem before writing the Plan
+Research it, find a Solution, and try to break it. Fix what breaks and try again until you can't break it, then propose that Solution. Write the Plan once the Architect accepts it.
 
-### Pick one path
-A Plan is the chosen path, not multiple options.
-Never: "Option 1:", "Option 2:", "Approach A:", "Alternatively,", or "we could either".
+### Write the Plan in this shape
+Template:
+  # <Plan name>
 
-### Include `## Definition of Done`
-Include a `## Definition of Done` section with a checklist of acceptance criteria.
+  <the User Story: who the Plan serves, the experience they need, and the Capabilities they use>
 
-### Include `## Verification`
-Include a `## Verification` section explaining how to test that changes work.
+  ## Goal: <a User Goal or an Architectural Goal>
+  ### Problem: <what stops the Goal, as a Capability or the Architecture>
+  Solution (approved | not approved): <the specific change, with its file paths>
 
-### Describe Architecture intent with file paths
-Describe intent and reference file paths.
+  ## Definition of Done
+  <a checklist of what is true when every Goal is reached>
 
-### Keep code blocks short
-Code blocks are snippets, not implementations. Keep them to ten lines or fewer.
+  ## Verification
+  <the commands and checks that prove it>
 
-### Focus on Plan-level content
-Focus on WHY, Rules, constraints, Definition of Done, and Verification.
+### Mark a Solution approved only when the Architect approved all of it
+A partial approval is not approved.
+
+### Keep code to snippets
+A code block holds ten lines or fewer.
 Never: full implementations or line-by-line instructions.
-
-IF writing a Plan:
-### Validate every guess by reading code
-Validate every guess by reading code before writing.

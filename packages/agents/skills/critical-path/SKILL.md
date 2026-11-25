@@ -1,6 +1,6 @@
 ---
 name: critical-path
-description: Process for changes with a large blast radius — files with many callers or repo-p95 complexity, and actions that are destructive, hard to reverse, or visible outside the repo. TRIGGER before editing a file whose enrichment context shows callers ≥ 20 or complexity at the repo p95, and before any delete, force-push, schema drop, process kill, push, pull-request operation, shared-infrastructure change, or third-party upload.
+description: Process for changes with a large blast radius: files many others import or with critical complexity, and actions that are destructive, hard to reverse, or visible outside the repo. TRIGGER before editing a file whose facts show `imported_by` of 20 or more or a `complexity_rank` of `critical`, and before any delete, force-push, schema drop, process kill, push, pull-request operation, shared-infrastructure change, or third-party upload.
 ---
 
 # Critical Path
@@ -12,9 +12,9 @@ description: Process for changes with a large blast radius — files with many c
 
 Use /trace to measure callers and complexity for what you are changing. Read the nearest Claude.md for the boundary it protects.
 
-### Treat high caller count and repo-p95 complexity as Critical Path
+### Treat a widely imported or critically complex file as Critical Path
 
-A file with at least 20 callers or repo-p95 complexity requires this Skill before editing.
+A file with `imported_by` of 20 or more or a `complexity_rank` of `critical` requires this Skill before editing.
 
 ## 2. Confirm with the Architect before dangerous actions
 

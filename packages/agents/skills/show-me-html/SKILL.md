@@ -73,11 +73,11 @@ One color carries one status across the whole page, and the status is legible wi
 Hovering a file reveals its public methods and hovering a table reveals its exact structure, in the state the toggle currently shows. Both states carry the same depth, and every value matches what /trace returned.
 Never: hover content authored for one state only, or a signature not read from the code.
 
-## 4. Carry the Decisions
+## 4. Show every Problem with its Solution
 
-### Give every Decision its options, the pick, and the reason
-Each Decision shows which option was picked, what it rejected, and why.
-Never: the picked option alone.
+### Show each Solution with the options it rejected
+For each Problem, show the Solution, the options it rejected, and why.
+Never: a Solution with no rejected options.
 
 ## 5. Design the page
 
@@ -97,5 +97,5 @@ Verification:
   - Every detail the source document specifies renders exactly; a detail it leaves out renders as an "unspecified" marker.
   - Every changed table appears with its columns in both states.
   - The global diagram and every section diagram both render in both toggle positions.
-  - Every Decision in the source document appears with its options, its pick, and its reason.
+  - Every Problem in the source document appears with its Solution, the options it rejected, and why.
   - Opening the published URL, flipping the dock toggle, and hovering one file and one table shows the swap and the depth.

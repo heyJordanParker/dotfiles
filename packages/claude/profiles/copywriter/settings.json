@@ -51,7 +51,6 @@
     "enabled": true,
     "mode": "hold"
   },
-  "autoMemoryEnabled": false,
   "skipDangerousModePermissionPrompt": true,
   "theme": "dark",
   "fileCheckpointingEnabled": false,

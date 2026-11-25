@@ -35,6 +35,35 @@ def test_a_harness_authored_prompt_is_skipped(monkeypatch, state_root):
     assert load_state("ci1") == {}
 
 
+SCHEDULED_FIRE = [
+    {"type": "assistant", "message": {"role": "assistant", "content": [{"type": "text", "text": "done"}]}},
+    {"type": "system", "subtype": "turn_duration", "durationMs": 1000},
+    {"type": "queue-operation", "operation": "enqueue"},
+    {"type": "system", "subtype": "scheduled_task_fire", "content": "Running scheduled task (Nov 21 12:05pm)",
+     "taskId": "f5aead05", "cron": "5 12 21 11 *", "prompt": "Cass tick /execute"},
+]
+
+
+def test_a_scheduled_fire_keeps_the_commit_authorization(monkeypatch, state_root, write_transcript):
+    _run(monkeypatch, {"session_id": "ci1", "prompt": "/commit as you need to"})
+    _run(monkeypatch, {"session_id": "ci1", "prompt": "Cass tick /execute",
+                       "transcript_path": write_transcript(SCHEDULED_FIRE)})
+    state = load_state("ci1")
+    assert state["commit_requested"] is True
+    assert state["state"] == "propose"
+
+
+def test_a_prompt_after_a_scheduled_turn_is_the_architects(monkeypatch, state_root, write_transcript):
+    after_fire = SCHEDULED_FIRE + [
+        {"type": "user", "message": {"role": "user", "content": "Cass tick /execute"}},
+        {"type": "assistant", "message": {"role": "assistant", "content": [{"type": "text", "text": "ticked"}]}},
+        {"type": "system", "subtype": "turn_duration", "durationMs": 1000},
+    ]
+    _run(monkeypatch, {"session_id": "ci1", "prompt": "/commit as you need to",
+                       "transcript_path": write_transcript(after_fire)})
+    assert load_state("ci1")["commit_requested"] is True
+
+
 @pytest.mark.parametrize("command,mode", [("/orchestrate", "orchestrate"),
                                           ("/build", "build")])
 def test_a_typed_mode_command_writes_the_mode_axis(monkeypatch, state_root, command, mode):
@@ -54,13 +83,13 @@ def test_untyped_turn_loads_the_default_proposing_state_skill(monkeypatch, state
     assert "This is a proposing-state turn. Use /propose now" in text
 
 
-def test_untyped_turn_loads_the_stored_executing_state_skill(monkeypatch, state_root):
+def test_untyped_turn_in_the_executing_state_orders_no_state_skill(monkeypatch, state_root):
     from lib.session_state import merge_state
     merge_state("ci1", {"state": "execute"})
     _, text = _run(monkeypatch,
                    {"session_id": "ci1", "prompt": "keep going"})
-    assert "This is an executing-state turn. Use /execute now" in text
-    assert "proposing-state" not in text
+    assert "/execute" not in (text or "")
+    assert "proposing-state" not in (text or "")
 
 
 def test_a_mentioned_skill_is_not_ordered(monkeypatch, state_root):
@@ -90,7 +119,7 @@ def test_incident_batch_approval_enters_executing(monkeypatch, state_root):
     _, text = _run(monkeypatch,
                    {"session_id": "ci1", "prompt": INCIDENT_BATCH_APPROVAL})
     assert load_state("ci1")["state"] == "execute"
-    assert "This is an executing-state turn" in text
+    assert "proposing-state" not in (text or "")
 
 
 def test_incident_enter_execute_is_overridden_by_a_stray_propose(monkeypatch, state_root):

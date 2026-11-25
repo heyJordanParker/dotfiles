@@ -160,6 +160,33 @@ def harness_authored(text):
     return text.startswith(_MACHINE_PREAMBLES)
 
 
+SCHEDULED_FIRE = "scheduled_task_fire"
+
+
+def is_scheduled_fire(path):
+    """Whether the prompt being submitted now is a scheduled task's fire.
+
+    Claude Code writes a `scheduled_task_fire` system record for every CronCreate,
+    /loop, and ScheduleWakeup fire, then submits the task's prompt, so at
+    UserPromptSubmit the record is the newest one after the last message.
+    """
+    if not path or not os.path.isfile(path):
+        return False
+    try:
+        for line in _lines_from_end(path):
+            try:
+                record = json.loads(line)
+            except ValueError:
+                continue
+            if record.get("type") in ("user", "assistant"):
+                return False
+            if record.get("type") == "system" and record.get("subtype") == SCHEDULED_FIRE:
+                return True
+    except OSError:
+        return False
+    return False
+
+
 def current_turn(recs):
     """Records after the last genuine user message, chronological."""
     cut = 0

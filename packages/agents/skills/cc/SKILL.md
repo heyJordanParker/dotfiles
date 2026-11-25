@@ -29,7 +29,7 @@ Never guess.
 
 ## 2. Read the Architecture and the Domain
 
-Read `Architecture.md` beside this file. It tells you which Prompt file your change belongs in. Then read `Domain.md` beside this file for the domain language you write in.
+@Architecture.md tells you which Prompt file your change belongs in. Then read `Domain.md` beside this file for the domain language you write in.
 
 ## 3. Name the Prompt type and fill only what it owns
 
@@ -81,12 +81,12 @@ Name the specific thing, the specific action, and the specific Condition it hold
 Example: "Run the Hook tests with `uv run pytest tests/hooks` from the repo root" is specific in all three.
 Never: an abstract noun standing in for the thing, such as "the relevant artifact" or "the appropriate layer"; an abstract qualifier such as "as needed", "where appropriate", "if relevant", "properly", "correctly", or "generally"; or a principle written where an instruction belongs.
 
-A block's format identifies its type without its heading. Structure carries the Decision Hierarchy (Architecture.md), so nesting is legal wherever it writes a real ranking. Use an unnumbered listicle by default, a numbered one when order matters, one item for the WHY. A list whose items are not equals indents the ranking or breaks apart into Skills, more rules files, or more folders.
+A block's format identifies its type without its heading. Structure shows the Problem Hierarchy (Architecture.md), so nesting is legal wherever it shows a real ranking. Use an unnumbered listicle by default, a numbered one when order matters, one item for the WHY. A list whose items are not equals indents the ranking or breaks apart into Skills, more rules files, or more folders.
 
 A Fact is a plain sentence in a listicle:
 
-  - The domain's words live in `/Domain.md`.
-  - This project uses Laravel and React + TanStack Query.
+  - @Domain.md contains the domain language.
+  - `uv run pytest tests/hooks` runs the Hook tests.
 
 A Rule is a ### title with its explanation on the lines below, no bold lead:
 

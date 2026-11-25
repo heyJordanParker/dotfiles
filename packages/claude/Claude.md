@@ -53,4 +53,3 @@ enough was deleted.
 # Facts
 
 - @Domain.md contains the domain language every project shares.
-- `cf` is the Cloudflare CLI for the Cloudflare API and Workers projects. A project with `wrangler.jsonc` or `wrangler.toml` still deploys through Wrangler.

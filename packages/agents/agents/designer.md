@@ -5,7 +5,7 @@ color: magenta
 model: opus
 effort: high
 mode: build
-skills: design, impeccable, agent-browser, trace, critical-path, execute, naming, user-testing, debug, prove, build
+skills: design, impeccable, agent-browser, trace, critical-path, naming, user-testing, debug, prove, build
 permissionMode: acceptEdits
 ---
 

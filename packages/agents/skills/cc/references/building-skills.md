@@ -7,9 +7,6 @@ carries WHY; those live in the Agent and Claude.md.
 - Every Agent starts every session holding a listing of every Skill, where one entry is one
   Skill's name and its description. The Agent chooses a Skill from that listing, and the Skill's
   body reaches the Agent only after the Agent calls it.
-- The source of truth is `packages/agents/skills/<name>/SKILL.md`.
-- Stow and plugin packaging copy the source into the runtime locations, which include
-  `~/.claude/skills/`, `.claude/skills/`, and plugin `skills/`.
 
 ## 1. Name the gap
 

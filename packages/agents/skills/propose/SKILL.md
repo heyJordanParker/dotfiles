@@ -1,7 +1,7 @@
 ---
 name: propose
 description: |
-  Mandatory contract for every proposing-state turn. The classifier names it when the Architect types /propose. Routes every decision to its layer, researches until the Proposal names files, methods, and data changes, orders the Decisions by dependency, shows each one with its code and options, and fixes the findable flaws before sending. TRIGGER on every proposing-state turn — the classifier mandates this. DO NOT TRIGGER for executing turns (that is /execute) or auto turns (mixed intents resolve action first). For the opening maps, /show-me is canonical.
+  Required on every proposing-state turn. The classifier loads it when the Architect types /propose. It sorts each choice into Architecture, Convention, or implementation, researches until the Proposal names files, methods, and data changes, orders the Problems by dependency, shows each with the Solution to ship and its code, and fixes every flaw it can find before sending. TRIGGER on every proposing-state turn, because the classifier requires it. DO NOT TRIGGER for executing turns or auto turns (mixed intents resolve action first). /show-me draws the opening map.
 ---
 
 # Propose
@@ -20,13 +20,13 @@ description: |
 
 Read the code every claim rests on. Use /understand to research the systems behind the change. Run what can be run here: the command, the API call, the page. Reuse an existing surface before creating one, name every noun the way the project names it, and stay inside every boundary the Claude.md files and the Architect set.
 
-## 3. Order the Decisions
+## 3. Order the Problems
 
-The dominant Decision first, each dependent Decision nested under the Decision that decides whether it exists, settled Decisions final. A settled Decision that blocks the only path is surfaced, not reopened.
+Put the biggest Problem first. Nest each smaller Problem under the Problem whose Solution decides whether it exists. Put the Problems the Architect already accepted last. When an accepted Solution blocks the only path, say so, and do not reopen it.
 
 ## 4. Show the Proposal
 
-Open with the whole-change map, drawn with /show-me. Show the code each Decision turns on, and the Solution you would ship. Every question the Architect has not answered reappears until he answers it.
+Open with a /show-me map of the whole change. Show each Problem with the Solution you would ship and the code it changes. Repeat every question the Architect has not answered until he answers it.
 
 ## 5. Improve it before sending
 

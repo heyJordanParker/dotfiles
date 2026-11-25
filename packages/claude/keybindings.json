@@ -9,7 +9,9 @@
         "ctrl+x s": "command:copy-shaping-dir",
         "ctrl+x t": "command:copy-transcript-path",
         "meta+0": "command:cmod--sidebar",
-        "meta+m": "command:cmod--settings"
+        "meta+m": "command:cmod--settings",
+        "meta+h": "command:cmod--history",
+        "shift+tab": "command:modes--cycle"
       }
     }
   ]

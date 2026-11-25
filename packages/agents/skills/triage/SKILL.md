@@ -20,7 +20,7 @@ Open the file the finding names and confirm the call, the missing check, or the 
 Never: grade or route a finding without confirming it against the code.
 
 ### Write each verdict to triage.md the moment you reach it
-The sheet is docs/agents/<NNN>-<task-slug>/triage.md in the run's Evidence directory: one row per finding — source, what the code showed, grade, ruling. Append the row as the finding is assessed, never in a batch at the end, so the write records the judgment instead of replacing it.
+The sheet is docs/agents/<YYYYMMDD>-<task-slug>/triage.md in the run's Evidence directory: one row per finding, with its source, what the code showed, its grade, and the ruling. Append the row as the finding is assessed, never in a batch at the end, so the write records the judgment instead of replacing it.
 
 ## 3. Rewrite each finding as who it affects and what breaks
 
@@ -49,8 +49,8 @@ Only findings confirmed in step 2 pass the gate. Blocking fails the run: use /de
 A fix dispatched at a symptom returns the same cause as a new finding next round.
 
 IF the fix needs an Architectural change:
-### Take it to the Architect
-The Architect owns the Architecture, so the gate stops at the Decision instead of making it.
+### Route it like any other fix, and show it in the report
+The Architect reviews every Architectural change, so the report draws it with /show-me.
 
 ## 7. Report grouped by who it affects
 

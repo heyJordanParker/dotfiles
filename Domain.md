@@ -37,11 +37,19 @@ Who is responsible for something. Everything has exactly one Owner. The Owner ma
 _Avoid_: assignee, responsible party, stakeholder
 
 **Architect**:
-The expert software architect directing the Agent. The Architect owns the Architecture and the strategic decisions. The Architect does not read or know the code, only the Architecture. The Architect prompts the Agent, and the Agent owns all the tactical work.
+The person who directs the Agents. The Architect decides the Capabilities and the UX, and reads the Architecture, never the code.
 
 **Architecture**:
-The big-picture decisions of a system. Architecture is the files, the public APIs, and the database. It is expensive to reverse, so every Architectural change needs the Architect's approval. Everything below Architecture is tactical and owned by the Agent.
+The big-picture decisions of a system: the files, the public APIs, the database, and the names that form the application's language. Later code builds on it, so it is costly to change.
 _Avoid_: design, structure
+
+**Module**:
+A self-contained part of the codebase that owns one or more Capabilities. Other code reaches it only through its Public API.
+_Avoid_: component, building block, service, surface, boundary, seam
+
+**Public API**:
+What other code may use from a Module. Changing it is an Architectural change, and everything behind it is tactical.
+_Avoid_: interface, contract, surface, affordance
 
 **User**:
 The person the Agent's work serves. The Goal of the work is to serve the User, so the User's needs define the work.
@@ -54,13 +62,13 @@ _Avoid_: flows, critical functionality, user journeys
 The outcome the User wants. The Architect sets it. The Agent reaches it, verifies it, and never changes it.
 
 **Problem**:
-Something that stops the User from reaching a Goal. The User can reach a Goal only once every one of the Problems on the way is solved.
+Something that stops the User from reaching a Goal, or slows down work on the project. A Problem is about the Architecture or a Capability: one the product should have and does not, or had and lost. What the code does is not a Problem until it changes one of them.
 
 **Solution**:
 One of several ways to solve a Problem. Its tradeoffs and our context decide if it is the best one. It requires one or more Capabilities.
 
 **Capability**:
-Something our product can do.
+Something our product can do for the User.
 
 **Process**:
 The exact steps to follow, in order, to predictably produce a result. A Capability requires one or more Processes.
@@ -85,14 +93,11 @@ A thing the Agent is allowed to act on. UI Affordances are what the User sees an
 **Slicing**:
 Breaking the modeled change into Slices that are executed and verified separately. Separate Slices let the Architect review specific increments, let the Plan change midway, and limit how much work is lost when something goes wrong.
 
-**Execution**:
-An Agent building what was decided with or without a Plan/Proposal. The Agent owns every tactical decision and escalates any Architectural change to the Architect.
-
 **Review**:
-The Architect examining and correcting the Execution. The Agent requests a Review by presenting the work following the Decision Hierarchy.
+The Architect examining and correcting the Execution. The Agent requests a Review by presenting the work following the Problem Hierarchy.
 
-**Decision Hierarchy**:
-Work is organized in a hierarchy. Decisions at a higher level define the decisions below them and invalidate them when they change. Deciding top-down is efficient because a few big calls at a higher level replace many small ones below. Independent branches of the hierarchy are worked in parallel.
+**Problem Hierarchy**:
+All work solves the Problems that block a Goal, and those Problems form a tree. A big Problem causes smaller Problems, which cause smaller ones in turn. Solving a Problem removes every Problem it causes, so solving from the top removes whole branches at once. Independent branches are worked in parallel.
 
 **Verification**:
 Undeniable proof that a Task, Goal, or Skill is finished in a way the User can consume, with no gap between the claimed result and the User's real experience. Verification guarantees the Goal was achieved before any Review starts. A Review that finds the Goal unmet is a failed Verification.
@@ -102,7 +107,7 @@ Artifact an Agent produces to prove its work in the form of a report with (if ne
 _Avoid_: proof, QA record
 
 **Frame**:
-The WHO. The character played, built from one person, several people, a set of traits, or any mix. Usually accompanied by Principles.
+The WHO. The character played, built from one person, several people, a set of traits, or any mix. Who the Agent is biases it toward that character's best practices. Usually accompanied by Principles.
 _Avoid_: persona, role
 
 **Principle**:
@@ -130,22 +135,18 @@ The program that runs an Agent. It loops the Agent by feeding it Prompts, runnin
 Automation the Harness runs at fixed points in the Agent's run, such as a tool call or the end of a turn.
 
 **Proposal**:
-The Agent's proposed path to a Goal, optimized for the Architect to review and approve each Architectural change in it. A Proposal is organized as a Decision Hierarchy and presented hierarchically. A Proposal lives in the conversation.
+The Agent's Solutions to the Problems that block a Goal, each shown with the Capabilities and Architecture it changes, for the Architect to review and approve before Execution.
 
 **Plan**:
-The contract for reaching a Goal. The Plan's Architecture is immutable and changing it requires the Architect's approval. Tactical decisions inside the Plan are owned by the Agent executing it. A Plan lives in a file.
+The contract for reaching a Goal. A Plan lives in a file.
 _Avoid_: roadmap, spec
-
-**Interview**:
-Process where an Agent builds understanding of the Architect's requirements and context by asking questions.
-_Avoid_: requirements gathering, discovery, planning session
 
 **Decision**:
 Architectural decision driven by the needs of the domain, recorded because it is hard to reverse, not obvious from the code, and a real trade-off. Holds what was chosen and why, so it never gets relitigated.
 _Avoid_: ADR, architectural decision record, decision log
 
 **Precedent**:
-Pattern the repository already used to solve a similar Problem. Agents start work by finding a Precedent, then following it and avoiding creativity. New patterns need the Architect's approval.
+Pattern the repository already used to solve a similar Problem.
 
 ## Prompting
 
@@ -154,7 +155,7 @@ Instructions for an Agent. Every documentation file is a Prompt: Claude.md, Doma
 _Avoid_: message, request, query, command, instruction
 
 **Rule**:
-Tactical correction of the Agent's Disposition. Rules are specific – a specific action to do in a specific situation. The Frame and Principles solve the strategic, high-level decisions. Rules solve mostly everything else. Rules are used to correct the Agent when a) the Agent does something factually incorrect (due to lack of up-to-date info or general bias) or b) the Agent's Disposition is different than the approach preferred by the Architect.
+Tactical correction of the Agent's Disposition: a specific action in a specific situation. Principles teach the Agent how to think, and the Frame biases it toward the best practices of who it is. Rules correct only what the Agent still gets wrong under both: a fact it does not know, or a Disposition that differs from the approach the Architect prefers.
 _Avoid_: requirement, constraint, boundary, instruction
 
 **Fact**:
@@ -188,7 +189,7 @@ File grouping the Rules for one topic. The Harness loads a Rule File automatical
 Check that decides whether a Principle, Rule, or Skill step applies.
 
 **Fluff**:
-Line in a Prompt that corrects nothing — the Agent behaves the same without it. Cut on sight.
+Text that does nothing for its reader: a Prompt line the Agent behaves the same without, or reply text that neither moves the Goal nor needs the Architect's eyes. Cut on sight.
 _Avoid_: filler, padding
 
 **Overprompting**:

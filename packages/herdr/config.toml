@@ -10,6 +10,7 @@ delivery = "herdr"
 show_agent_labels_on_pane_borders = true
 
 agent_panel_sort = "spaces"
+status_indicators = "dots"
 [experimental]
 pane_history = true
 kitty_graphics = true

@@ -72,9 +72,9 @@ Adoption claims need usage signals, not vibes.
 Use signals such as stars, download counts, dependent counts, recent release activity, issue/PR activity, maintainer activity, production-user references, or ecosystem mentions. Name the date observed and what the signal cannot prove.
 Never: make a niche experiment look established because a blog post is enthusiastic.
 
-## 6. Report findings for the Decision
+## 6. Report the answer and the option you would pick
 
-Return the answer in the smallest shape that lets the Architect decide: answer, grounded Evidence, contradictions, unverified claims, adoption signal when relevant, and recommendation.
+Return the answer in its smallest shape: the answer, grounded Evidence, contradictions, unverified claims, the adoption signal when it matters, and the option you would pick.
 
 Template:
   ```markdown
@@ -93,7 +93,7 @@ Template:
   - <signal, date observed, and limitation>
 
   Recommendation:
-  - <Decision-oriented recommendation, with confidence>
+  - <the option you would pick and why, with your confidence>
   ```
 
 ## 7. Verify before final answer

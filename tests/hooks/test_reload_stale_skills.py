@@ -93,9 +93,9 @@ def test_a_skill_past_its_distance_is_ordered_again(monkeypatch, write_transcrip
 def test_a_tool_batch_is_measured_like_a_prompt(monkeypatch, write_transcript):
     """The model is called after a batch as it is after a prompt, and a session the
     architect walked away from is nothing but batches."""
-    path = write_transcript([_used("execute"), _assistant("x" * (30 * TURN))])
-    _, text, event = _run(monkeypatch, _batch(path), {"execute": 30})
-    assert text.startswith("Use /execute now")
+    path = write_transcript([_used("delegate"), _assistant("x" * (20 * TURN))])
+    _, text, event = _run(monkeypatch, _batch(path), {"delegate": 20})
+    assert text.startswith("Use /delegate now")
     assert event == "PostToolBatch"
 
 
@@ -187,18 +187,16 @@ def test_a_compaction_names_every_skill_in_use(monkeypatch, write_transcript):
     _, text, event = _run(monkeypatch, _compact(path), {}, mode="orchestrate", state="execute")
     assert event == "SessionStart"
     assert text.startswith("### Use the Skills the compaction cut")
-    assert "Use /execute now" in text
     assert "Use /orchestrate now." in text
     assert "Use /naming, /delegate now" in text
 
 
 def test_a_compaction_names_the_mode_and_state_skills_once(monkeypatch, write_transcript):
-    """The agent used /execute and /orchestrate itself, and session state names
-    them too: one block, each named once."""
-    path = write_transcript([_used("execute"), _used("orchestrate"), _used("delegate"),
+    """The agent used /orchestrate itself, and session state names it too: one
+    block, each named once."""
+    path = write_transcript([_used("orchestrate"), _used("delegate"),
                              _assistant("x" * TURN)])
     _, text, _ = _run(monkeypatch, _compact(path), {}, mode="orchestrate", state="execute")
-    assert text.count("/execute") == 1
     assert text.count("/orchestrate") == 1
     assert text.count("/delegate") == 1
 
@@ -236,7 +234,6 @@ def test_a_compaction_with_no_transcript_still_names_the_mode_and_state(monkeypa
     """The gates keep enforcing both axes whether or not the file was flushed."""
     _, text, _ = _run(monkeypatch, _compact("/no/such/transcript.jsonl"), {},
                       mode="orchestrate", state="execute")
-    assert "Use /execute now" in text
     assert "Use /orchestrate now." in text
 
 
@@ -287,8 +284,7 @@ def test_an_unreadable_transcript_orders_nothing(monkeypatch):
 
 
 def test_reload_every_reads_the_frontmatter(tmp_path, monkeypatch):
-    """The real reader, against the real corpus: the numbers the architect set."""
-    assert hook.reload_every("execute") == 30
+    """The real reader, against the real corpus: a Skill without the key, or without a file, has no distance."""
     assert hook.reload_every("show-me") == 0
     assert hook.reload_every("no-such-skill") == 0
 

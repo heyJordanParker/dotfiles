@@ -4,16 +4,21 @@ The Process for documenting a folder: its WHY and the Facts its whole folder con
 
 ## 1. Write the WHY
 
-One item: the business Problem and the Architect's thinking behind the folder's shape.
+One item: the Capabilities the folder provides.
 
-### Use domain language, never library names
-"Domain models never import plugin code" outlives "Models never import FunnelKit."
+### Say what the folder does for the User, never how, and never what uses it
+The code shows the path, the internals, and the libraries. The code that uses the
+folder names the folder, so the folder never names it back.
+Never: "Checkout (`src/checkout/`) wraps the Stripe SDK in `CartService`, and Invoices render through it."
 
 ## 2. Collect the Facts
 
-Plain sentences, one per line. A Fact earns its line by sparing the Agent research the
-folder's work would otherwise force: the command that runs this folder, behavior confirmed
-empirically, where a record or Skill lives.
+Plain sentences, one per line. A Fact is what an Agent cannot learn from the code. Most
+Facts give the intent and the Architectural decisions behind the folder, because the code
+shows what it does but not why. A few are about the code, such as the command that runs it.
+
+### Enforce a rule with a tool instead of writing it
+A rule a lint rule, a test, or a Hook can check lives there, and no Claude.md states it.
 
 ### Keep only Facts the whole folder consumes
 A Fact one Process consumes goes on that Skill's step, not here.
@@ -34,17 +39,15 @@ Never: "Agents were moved from `packages/claude/agents/` to `packages/agents/age
 ## 4. Fill the Template
 
 Template:
-  # WHY
+  # Checkout
 
-  One clone rebuilds the whole machine: GNU Stow lays every package at its target,
-  and the claude package doubles as the plugin marketplace source, so the tree that
-  runs this machine is the tree that ships to consumers.
+  Checkout charges a Customer for a cart and records a paid Order. The payment
+  processor holds every card number, so a breach of the business leaks none.
 
   # Facts
 
-  - The domain's words live in `/Domain.md`.
-  - The Process for writing Prompts is the /cc Skill.
-  - This project uses Laravel and React + TanStack Query.
+  - Checkout stays one page, because each extra step loses buyers.
+  - `npm run stripe:listen` forwards Stripe's webhooks to the local app.
 
 Never: a file tree (tracer shows structure at runtime), Rules (rules files), a Process
 (Skills), vocabulary (Domain.md), or Decisions inline (docs/architecture/decisions/).

@@ -9,7 +9,10 @@ One Process keeps the project's language and Decisions precise while Shaping or 
 
 ## 1. Use the right home
 
-Project language lives in the repo-root `Domain.md`. Decisions live in `docs/architecture/decisions/`. Create either only when there is something to write.
+Project language lives in the repo-root `Domain.md`, and the repo-root Claude.md loads it. Decisions live in `docs/architecture/decisions/`. Create either only when there is something to write.
+
+Template:
+  - @Domain.md contains the domain language.
 
 ## 2. Challenge language against `Domain.md`
 

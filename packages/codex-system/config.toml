@@ -3,10 +3,6 @@ model_reasoning_effort = "medium"
 approval_policy = "never"
 personality = "pragmatic"
 
-# Boot every session with the CTO as base instructions. The global Claude.md
-# still loads via ~/.codex/AGENTS.md in its own channel.
-model_instructions_file = "/Users/jordan/.agents/agents/cto.md"
-
 # Codex reads our nested Claude.md hierarchy natively — no parallel AGENTS.md needed
 project_doc_fallback_filenames = ["Claude.md"]
 

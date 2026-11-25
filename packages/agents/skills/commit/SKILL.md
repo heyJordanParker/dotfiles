@@ -1,15 +1,13 @@
 ---
 name: commit
 description: |
-  Mandatory contract for every commit. The classifier names it when it authorizes a commit — it injects "Skills to execute: /commit" whenever the Architect asks to commit ("/commit", "commit this", "create a commit"). Holds the whole commit job: commit your own changes, write the message, commit, verify, then suggest which session notes should become permanent — plus the commit-message format (type prefix, Capability subject, Problem and Solution body, file tree). TRIGGER on every commit-authorized turn, or when the Architect asks to write or revise a commit message. DO NOT TRIGGER when the Architect has not asked to commit — applying changes, deploying, shipping, or replacing files are not commit requests.
+  Mandatory contract for every commit. The Architect authorizes a commit by typing /commit, for that turn only, and the classifier then injects "Skills to execute: /commit". Holds the whole commit job: commit your own changes, write the message, commit, and verify, plus the commit-message format (type prefix, Capability subject, Problem and Solution body, file tree). TRIGGER on every turn where the Architect typed /commit, or when the Architect asks to write or revise a commit message. DO NOT TRIGGER on any other turn: "commit this", applying changes, deploying, shipping, and replacing files authorize nothing.
 ---
 
 # Commit
 
 - The Architect approved committing the work.
-- The `cto` Prompt governs reading before claiming, proving it ran, and holding scope.
 - This Skill adds the commit Process and the commit-message shape.
-- Tests and Review are separate; the Architect runs them when wanted.
 
 ## 1. Load the repository state
 
@@ -32,7 +30,7 @@ Say `Nothing to commit.` and stop.
 
 IF your changes hold a secret or a credential:
 ### Stop and warn the Architect
-Commit nothing. Show the Architect the secret's file and line, then wait for his answer.
+Commit nothing. Show the Architect the secret's file and line, then wait for the Architect's answer.
 
 ## 3. Write and commit the message
 
@@ -42,7 +40,7 @@ Make one commit. Write the message to a file, then commit your files with `git c
 Your files can hold another Agent's edits, and the commit takes each file whole. The changes you worked on last fill most of your Context, so weigh each change by its effect on the User, never by how much of it you remember.
 
 ### Write WHAT changed and WHY as Capabilities, Problems, and Solutions
-The type prefix is one of `feat`, `fix`, `chore`, `refactor`, `docs`, or `test`. The subject is lowercase after the colon, under 72 characters, and says what the User can do now, covering every committed change. The body says WHAT changed and WHY: the Problem each change solves and the Solution it takes. The body uses the product's words, and the file tree holds the code's names. The file tree comes last, drawn with /show-me, and each annotation says WHAT that file now does.
+The type prefix is one of `feat`, `fix`, `chore`, `refactor`, `docs`, or `test`. The subject is lowercase after the colon, under 72 characters, and says what the User can do now, covering every committed change. The body says WHAT changed and WHY: the Problem each change solves and the Solution it takes. The body uses the product's words, and the file tree holds the code's names. The file tree comes last, drawn with /show-me but without the `+` and `-` markers, because a commit message shows no color. Each annotation says WHAT that file now does. An added or deleted file's annotation opens with `added` or `deleted`, then says why.
 
 Template:
   ```
@@ -96,9 +94,10 @@ Example: several Capabilities.
 
   app/
   ├── Configurators/
-  │   └── MatomoConfigurator.php*   <- installs Matomo with GeoIP
-  ├── Commands/SecretsCommand.php*  <- bun secrets
-  ├── .vault_pass*                  <- connects deploys to 1Password
+  │   └── MatomoConfigurator.php*   <- added, installs Matomo with GeoIP
+  ├── Commands/SecretsCommand.php*  <- added, runs bun secrets
+  ├── .vault_pass*                  <- added, connects deploys to 1Password
+  ├── .env.production*              <- deleted, 1Password holds these secrets now
   └── trellis/
       └── group_vars/all/vault.yml* <- the encrypted secrets
   ```
@@ -116,7 +115,3 @@ Never: `Completely turned off cors`, `Fixed stuff`, or a multi-file commit witho
 
 ### Report the commit once the command exits 0
 Report `Committed: <sha> <subject>`.
-
-## 5. Suggest permanent session notes
-
-After committing, read session notes and suggest which should become permanent in global or project Claude.md, Skills, Agents, Rules, or Commands. Suggest only; do not act.

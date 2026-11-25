@@ -8,7 +8,6 @@ The Process for finding whether a built-in slash command already does the Task, 
 - Side effects are the dividing line between a Skill the Agent can invoke and a Command the Architect fires.
 - Built-in slash commands are available before repository commands.
 - In this repository, command source files live in `packages/agents/commands/<command>.md`.
-- `scripts/sync.py` generates Codex command artifacts from the shared command source.
 
 IF a built-in slash command already does the Task:
 ### Use the built-in slash command

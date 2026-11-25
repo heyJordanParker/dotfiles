@@ -32,6 +32,10 @@ Remove application programming interface keys, passwords, and personally identif
 ### Use the operating system temporary directory
 Save the handoff document in the temporary directory, never in the current workspace.
 
+### Link the document with its full path as the link text
+The Architect copies the path into the next session, so the link text is the whole path, not the file name.
+Example: [/tmp/handoff-billing-sync.md](/tmp/handoff-billing-sync.md)
+
 ## 4. Add suggested Skills
 
 ### Include a suggested Skills section

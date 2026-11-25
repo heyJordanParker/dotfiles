@@ -37,7 +37,7 @@ Use an agent when the Task recurs across sessions and the separate Frame or runt
 - `initialPrompt` auto-submits a first turn when the agent starts.
 - `mcpServers` scopes Model Context Protocol servers to the agent.
 - `hooks` scopes Hook wiring to the agent.
-- `memory` is never written: the Harness's `user`, `project`, and `local` are off in every root.
+- `memory: user|project|local` gives the agent a memory folder that persists across sessions.
 - `readonly: true` is ours, not the Harness's: it takes writing away from the Agent on both Harnesses — the write tools, the shell commands that change the tree, and output redirection. The key is optional, has no other value, and omitting it leaves the Agent writing (step 6).
 - `mode: orchestrate|build` is ours, not the Harness's: it sets how the Agent works. `orchestrate` spawns Subagents and `build` spawns none, whether the Agent runs as a session or is dispatched (step 7).
 - `ssh: enabled` is ours, not the Harness's: it lets the Agent reach another machine. It is the one opt-in declaration, so omitting it denies (step 6).
@@ -155,8 +155,7 @@ The Agent tool no longer accepts a `resume` parameter. Use `SendMessage({to: age
 
 - A Subagent does not carry `references/` or run scripts unless a preloaded Skill gives it those.
 - A preloaded Skill makes its `references/` available and runs its `!` commands at load with no tool call and no Agent tokens.
-- Skill preload fires on Subagent dispatch through the Task or Agent tool.
-- Running an agent as the main session with `--agent` does not preload its `skills:` bodies.
+- `skills:` preloads only when the agent is dispatched as a Subagent. A main session running as the agent, through `--agent` or the `"agent"` setting, preloads none.
 
 ### Preload resolves against the visible Skill listing
 An agent's `skills:` preload matches names only against the model-invocable `available_skills` set, the same listing the main Agent sees. Hide a Skill and the loader warns `Skill '<name>' specified in frontmatter was not found`, then skips it.

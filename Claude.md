@@ -4,7 +4,6 @@ Reproducible macOS environment setup and Claude Code plugin distribution from a 
 
 # Facts
 
-- `/Domain.md` is the shared vocabulary for Prompts.
 - The Prompt Architecture lives in `docs/architecture/Architecture.md`.
 - Decisions live in `docs/architecture/decisions/`.
 - This repository's Rules live in `.claude/rules/`.
