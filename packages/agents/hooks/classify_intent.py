@@ -213,27 +213,6 @@ def skills_directive(skills):
             % (", ".join(skills), contract))
 
 
-def draft_directive():
-    """The order to draft before replying, when THINK_BEFORE_TALKING is on.
-
-    /present carries the same instruction, and a measured `cld -p` run showed the
-    agent skipping it: a single-shot turn answers straight from thinking. The
-    directive arrives with the turn instead. Empty while the flag is unset, so the
-    turn's injected context is what it was before this existed.
-    """
-    if os.environ.get("THINK_BEFORE_TALKING") != "1":
-        return ""
-    return ("### Write think.md before the reply\n"
-            "Write this turn's findings and the decisions you have settled to "
-            "docs/agents/<YYYYMMDD>-<task-slug>/think.md in the run's Evidence "
-            "directory, then write the reply from that file. Replace the whole "
-            "file so it holds this turn only, never appended to an earlier "
-            "turn's. This file is your own working document, so writing it is "
-            "never the acting a question turn withholds. It records what you "
-            "did and settled, never what you would do: a decision you write "
-            "there is one you carry out this turn.")
-
-
 def main():
     # Guard against recursion: the model call runs a nested harness process.
     if os.environ.get("CLAUDE_SESSION_HOOK") == "true":
@@ -300,11 +279,6 @@ def main():
             context = (context + "\n\n" + COMMIT_DIRECTIVE) if context else COMMIT_DIRECTIVE
     else:
         context = WRITE_FAILED_NOTICE if (forced_state or forced_mode or forced_commit) else ""
-
-    # The draft order, when the flag is on.
-    draft = draft_directive()
-    if draft:
-        context = (context + "\n\n" + draft) if context else draft
 
     if context:
         emit_context(context)
