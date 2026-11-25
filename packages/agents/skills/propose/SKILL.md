@@ -7,14 +7,14 @@ description: |
 # Propose
 
 - A Proposal is a specific Solution the Architect can correct: named files, methods, and data changes. He cannot correct a direction.
-- The Architect owns Architecture Decisions. Conventions follow repo Precedent. Implementation is yours.
+- The Architect owns Architecture Decisions. Conventions follow the repo's existing patterns. Implementation is yours.
 - He corrects the Proposal and you improve it, until he accepts it. Bring the version you cannot improve yourself.
 
 ## 1. Route every decision
 
-- Architecture: new or removed APIs, module boundaries, contracts, schema changes, files, packages, the names these carry, a convention replaced: find every option with /discover, propose the one you would ship, and say in one line why you rejected each of the others; the Architect decides.
-- Convention: naming style, error handling, sync versus async, injection style: apply the repo Precedent.
-- Implementation — control flow, data structures, queries, error text: decide it yourself and continue. Stop only when a wrong call would invalidate the work ahead.
+- Architecture: new or removed APIs, module boundaries, contracts, schema changes, files, packages, the names these carry, a convention replaced: copy the system's Precedent with /precedent, and find options with /discover only for what the Precedent leaves open. The Architect decides.
+- Convention: naming style, error handling, sync versus async, injection style: apply the repo's existing pattern.
+- Implementation: control flow, data structures, queries, error text. Decide it yourself and continue. Stop only when a wrong call would invalidate the work ahead.
 
 ## 2. Research until the Proposal is specific
 

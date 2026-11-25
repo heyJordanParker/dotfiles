@@ -24,7 +24,7 @@ Tell the Architect there are no uncommitted changes to test.
 
 ### Prepare Subagent Context
 
-Write the Intent as one or two sentences on WHY these changes were made, focused on business motivation rather than code. Write the Summary as one paragraph covering what changed: files, Precedents, and scope. Use /show-me for an annotated file tree of the changed files and their immediate Context.
+Write the Intent as one or two sentences on WHY these changes were made, focused on business motivation rather than code. Write the Summary as one paragraph covering what changed: files, the patterns they follow, and scope. Use /show-me for an annotated file tree of the changed files and their immediate Context.
 
 ## 2. Enumerate Critical Paths
 

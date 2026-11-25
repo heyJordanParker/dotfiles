@@ -17,7 +17,7 @@ Defaults, naming, edge cases, and implementation details wait until the data mod
 Never: ask about defaults before the data model, naming before the Architecture, edge cases before the happy path, or implementation details before the approach.
 
 ### Separate Architecture, Convention, and implementation
-Architecture is module boundaries, public contracts, data ownership, dependency direction, new modules, and schema mutations. Convention follows repo Precedent. Implementation is your tactical work: method internals, error messages, and control flow.
+Architecture is module boundaries, public contracts, data ownership, dependency direction, new modules, and schema mutations. Convention follows the repo's existing patterns. Implementation is your tactical work: method internals, error messages, and control flow.
 Never: present an implementation choice as an Architectural Decision.
 
 ## 2. Break the Architecture before presenting it

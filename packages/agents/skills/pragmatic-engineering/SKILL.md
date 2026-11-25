@@ -50,7 +50,7 @@ The error names the limit, its value, and what was asked for. A silent limit is 
 
 ## 4. Use existing code and libraries
 
-Reuse repo Precedent and well-maintained third-party code before writing local machinery. Read the library behavior before building on it.
+Reuse the repo's existing code and well-maintained third-party code before writing local machinery. Read the library behavior before building on it.
 
 IF you see duplicated third-party functionality or building before understanding library behavior:
 ### Stop and research the library first

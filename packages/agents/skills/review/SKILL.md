@@ -1,6 +1,6 @@
 ---
 name: review
-description: Read the changeset yourself, review it with the code-reviewer and ponytail Agents on the same target at once, triage their findings with /triage, and iterate until a round returns no breaking finding. TRIGGER on "review the changes", "code review", on the Review before a changeset is presented to the Architect, and when a /orchestrate or /verify-changes step names it. DO NOT TRIGGER for N identical reviewers on one Task (that is /independent-review).
+description: Read the changeset yourself, review it with the code-reviewer and ponytail Agents on the same target at once, triage their findings with /triage, and iterate until a round returns no breaking finding. TRIGGER on "review the changes", "code review", on the Review before a changeset is presented to the Architect, and when an /orchestrate step names it.
 ---
 
 # Review

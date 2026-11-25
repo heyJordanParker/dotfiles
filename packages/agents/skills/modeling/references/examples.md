@@ -39,7 +39,7 @@ Example: system email From field reads `admin_organisation_countries`.
 Architecture must show each public API, scheduled entry point, signal, and dependency that moves data across a boundary.
 Example: `save_form()` calls form save and `_update_user_m2m()`, which emits `user_m2m_field_updated`, which reaches the `sso-dwbn-theme` handler.
 
-### Name adapted Precedent
+### Name the system a new component adapts
 For new components, name the existing system being adapted and list the public methods or inputs that form the contract.
 Example: `letter-browser` builds on the global search page through `activeQuery`, `performSearch()`, `appendNextPage()`, `initializeState()`, `typesense.service`, `intercom.service`, and Router.
 

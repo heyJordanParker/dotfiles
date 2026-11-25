@@ -8,12 +8,12 @@ description: Find every option that solves a Problem, so the one you propose is 
 ## 1. Write every option
 
 ### Write every option as one line before you understand any
-An option stays one line until every option is written. Sources: the Precedent in this repo (/trace), the shape an established system uses for this Problem (/research), and the Architect's words.
+An option stays one line until every option is written. Sources: the patterns in this repo (/trace), the system's Precedent (/precedent), and the Architect's words.
 
 ## 2. Understand every option
 
 ### Give every option the same depth
-For each option, trace the files it touches, the callers it changes, and the Precedent it builds on. For an external option, read a dated source. Use /architecture step 2 to find its failures.
+For each option, trace the files it touches, the callers it changes, and the pattern it builds on. For an external option, read a dated source. Use /architecture step 2 to find its failures.
 
 ## 3. Rank and pick
 

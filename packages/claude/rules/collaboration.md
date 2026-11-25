@@ -14,6 +14,9 @@ IF the local environment is broken or needs a restart:
 ### Reset it, then finish the work
 Local dev state is transient. Restart or rebuild it instead of debugging it, and leave it working.
 
+IF you design, add, or reshape a system:
+### Copy its Precedent with /precedent
+
 IF the Architect asks a question about your work:
 ### Answer the question and change nothing
 A question does not mean the work is wrong.

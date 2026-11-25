@@ -43,8 +43,8 @@ Template:
   Reuses:
   - Existing module/component from exact/path
 
-  Precedent:
-  - Each Architectural pick builds on exact/path/to/precedent, or searched exact locations and no Precedent exists.
+  Builds on:
+  - Each Architectural pick builds on exact/path/to/pattern, or searched exact locations and none exists.
 
   Regression scope:
   - Existing behavior in exact/path — verify with exact command or manual check.
@@ -101,8 +101,8 @@ Template:
   - Create: exact/path/to/file.ext
   - Modify: exact/path/to/existing.ext
 
-  Precedent:
-  - Each Architectural choice builds on exact/path/to/precedent, or the search proving none exists.
+  Builds on:
+  - Each Architectural choice builds on exact/path/to/pattern, or the search proving none exists.
 
   Step 1: [Action — exact code or specific Task step]
 

@@ -30,8 +30,8 @@ A near-duplicate is the existing Skill's missing Rule, Example, Template, Condit
 Reference.
 
 ### Model a new Process on the real human team that already does this work
-An existing human process is a better Precedent than an invented one. When no repo Precedent
-exists, name the human role or process the Skill or Agent roster mirrors (editorial desk, agency,
+An existing human process is the Precedent, never an invented one. When no sibling Skill
+covers the work, name the human role or process the Skill or Agent roster mirrors (editorial desk, agency,
 code review) before shaping anything.
 Never: an invented roster or Process no working human team has ever run.
 

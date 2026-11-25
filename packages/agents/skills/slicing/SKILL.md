@@ -47,10 +47,10 @@ Example: `Type "dharma" and results filter live`.
 ## 3. Explore the codebase per Slice
 
 ### Read every file the Slice will modify
-For each Slice, identify Precedents to reuse, modules to reuse, existing behavior that could regress, and exact create and modify paths.
+For each Slice, identify patterns to reuse, modules to reuse, existing behavior that could regress, and exact create and modify paths.
 
-### Record unprecedented searches
-When a Slice introduces a pattern with no Precedent, record the locations searched. That search becomes the Evidence the `Precedent` field cites.
+### Record searches that found nothing to build on
+When a Slice introduces a pattern the repo does not have yet, record the locations searched. That search becomes the Evidence the `Builds on` field cites.
 
 ## 4. Generate acceptance criteria
 
@@ -86,7 +86,7 @@ Use the Templates Reference. Then create one symlink per Plan in `~/.claude/plan
 Once written, the Plan defines the Architecture. The executing Agent implements it and does not redesign it. Announce this when the Plan is done.
 
 ### Architecture is fixed
-Changing file layout, module boundaries, dependency direction, Precedents, data ownership, public API contracts, or scope requires Architect approval.
+Changing file layout, module boundaries, dependency direction, Precedent, data ownership, public API contracts, or scope requires Architect approval.
 
 ### Tactical execution is flexible
 The Agent owns variable names within convention, error-message wording, internal implementation inside the same complexity class, test organization, and comments.
@@ -114,7 +114,7 @@ The Plan must say how each demo is proven.
 ### No open flags remain
 No ⚠️ survives into the Plan.
 
-### Every Architectural pick names Precedent
+### Every Architectural pick names what it builds on
 Each file, public API, database, module boundary, and dependency direction names the file or system it builds on, or the search proving none exists.
 
 ## 8. Present the Plan

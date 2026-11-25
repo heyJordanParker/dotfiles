@@ -88,7 +88,7 @@ The Architect and an Agent discussing a rough form of the final deliverable. The
 Turning the shape selected in Shaping into the concrete affordances of the change. Modeling extracts further context from the Architect and finds the correct scope for the Execution. The model shows the database, the UX, and the Architecture, and every decision after Modeling is made against the model.
 
 **Affordance**:
-A thing the Agent is allowed to act on. UI Affordances are what the User sees and interacts with. Code Affordances are Architectural — the files, the APIs, and the database changes behind the UI.
+A thing the Agent is allowed to act on. UI Affordances are what the User sees and interacts with. Code Affordances are Architectural: the files, the APIs, and the database changes behind the UI.
 
 **Slicing**:
 Breaking the modeled change into Slices that are executed and verified separately. Separate Slices let the Architect review specific increments, let the Plan change midway, and limit how much work is lost when something goes wrong.
@@ -118,7 +118,7 @@ _Avoid_: value, guideline, tenet
 The imperfect way an Agent behaves on its own. Fixed per model, because models are frozen and do not learn. We alter the Disposition with Prompts.
 
 **AI Slop**:
-Work from an Agent that looks complete but is impractical or flat-out incorrect. Even with good Prompting, AI Slop appears on every layer (choices, architecture, code, comments, docs, orchestration, thoroughness) and must be continually removed and corrected everywhere. AI Slop is costly in three ways: by making the product look like a cheap commodity instead of a premium solution, by creating debt that future Agents must compensate for (reducing future Agent quality), or by shipping incomplete work and regressions that frustrate the User and lose the business money.
+Work from an Agent that looks complete but is impractical or flat-out incorrect. Even with good Prompting, AI Slop appears on every layer (choices, architecture, code, comments, docs, orchestration, thoroughness) and must be removed everywhere. AI Slop is costly in three ways: by making the product look like a cheap commodity instead of a premium solution, by creating debt that future Agents must compensate for (reducing future Agent quality), or by shipping incomplete work and regressions that frustrate the User and lose the business money.
 _Avoid_: slop, low-quality output, boilerplate
 
 **Elegant**:
@@ -146,7 +146,7 @@ Architectural decision driven by the needs of the domain, recorded because it is
 _Avoid_: ADR, architectural decision record, decision log
 
 **Precedent**:
-Pattern the repository already used to solve a similar Problem.
+Modern, established system that a whole system of ours copies.
 
 ## Prompting
 

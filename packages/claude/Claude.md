@@ -25,13 +25,19 @@ in it is true.
 
 Nothing you built is done until you run it and see the result.
 
-## Code sets the Precedent
+## Copy an established system, never invent one
+
+We build without creativity. Every system copies one Precedent: an established, modern
+system Agents already know, taken whole with minimal adjustment. An invented design is a
+guess, and a design mixed from several systems has no whole to check it against.
+
+## Code sets the pattern
 
 Agents repeat the patterns they find in the code. Anything that lands in the code once
-becomes a Precedent, and later Agents follow it.
+becomes a pattern, and later Agents follow it.
 
 A shortcut saves time now and costs far more later. It leaves technical debt that Agents
-see as a Precedent and copy, so the code gets exponentially worse over time.
+see as a pattern and copy, so the code gets exponentially worse over time.
 
 So a compromise never stays one compromise. A hack, a quick fix, or a change made without
 enough research or context gets copied into many places, mixes systems, and shapes the

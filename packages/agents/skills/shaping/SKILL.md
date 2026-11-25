@@ -74,7 +74,7 @@ Example: `B1: Signing handler`, then `B2 → calls B1` and `B3 → calls B1`.
 ### Add hierarchy only when flat stops working
 Start with `E1`, `E2`. Use `E1.1` only when there are too many parts or the final file layout must be shown.
 
-### Name Precedent on selected parts
+### Name what each selected part builds on
 Each selected shape part names the existing file or system it builds on, with its path, or the research proving none exists.
 
 ## 6. Run the fit check

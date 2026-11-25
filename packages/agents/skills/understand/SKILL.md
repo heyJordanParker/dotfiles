@@ -1,6 +1,6 @@
 ---
 name: understand
-description: Deep research of the systems behind a change — name the systems, show the architecture, read the git history for intent, trace the code, attack the understanding, and report in a layered file another Agent can act on coherently. TRIGGER when a change lands in a system the Agent has not mapped, when the Architect says "understand the system first", "research the architecture", "deep research", or "how did this come to be", and when a dispatch brief asks for system research. DO NOT TRIGGER for external library or vendor research (that is /research), for one symbol or file lookup (that is /trace), or for orchestrating research Subagents into an unknown situation (that is /progressive-research).
+description: Deep research of the systems behind a change. Name the systems, show the architecture, read the git history for intent, trace the code, attack the understanding, and report in a layered file another Agent can act on coherently. TRIGGER when a change lands in a system the Agent has not mapped, when the Architect says "understand the system first", "research the architecture", "deep research", or "how did this come to be", and when a dispatch brief asks for system research. DO NOT TRIGGER for external library or vendor research (that is /research), or for one symbol or file lookup (that is /trace).
 ---
 
 # Understand
@@ -13,7 +13,7 @@ description: Deep research of the systems behind a change — name the systems, 
 ## 1. Name the systems
 
 ### List each system before reading any implementation
-From the tree itself — `trace stats`, `trace tree`, the entry points — list each system the task touches: its owner module, its one-sentence job, the modules it calls, and the modules that call it. A system you cannot describe this way is not yet safe to read deeply.
+From the tree itself, meaning `trace stats`, `trace tree`, and the entry points, list each system the task touches: its owner module, its one-sentence job, the modules it calls, and the modules that call it. A system you cannot describe this way is not yet safe to read deeply.
 Never: opening the file the task names and reading outward from it.
 
 ### Verify the task's premise
@@ -54,7 +54,7 @@ Template:
   ```
 
 ### 3.3 Build the decision timeline
-Order the design-changing commits into a timeline: date, commit id, the design decision it made, and the Problem that forced it. Record every rejected design by name — a design the history rejected must not return through the next change.
+Order the design-changing commits into a timeline: date, commit id, the design decision it made, and the Problem that forced it. Record every rejected design by name. A design the history rejected must not return through the next change.
 
 ### 3.4 State each system's maturity
 From the timeline: how old the design is, how many times it was reshaped, and whether it has held since the last reshaping. A design that survived many reshapings constrains future changes more than a new design does; a design one commit old is open to a contract-change proposal. The implementing agent calibrates how freely it may propose changes from this.
@@ -69,7 +69,7 @@ Close missing understanding with another read, or list it as an open question. N
 ## 5. Attack
 
 ### 5.1 Verify the invariants
-State the invariants the system protects — the conditions that must stay true — and verify each against the code. Make three predictions about behavior the task will touch and confirm each in the source. A prediction that fails means the understanding is wrong: go back to the step that produced it.
+State the invariants the system protects, meaning the conditions that must stay true, and verify each against the code. Make three predictions about behavior the task will touch and confirm each in the source. A prediction that fails means the understanding is wrong: go back to the step that produced it.
 
 ### 5.2 Challenge the design against industry precedent
 With the history in hand, ask why each major part of the architecture exists at all. Then compare the design with the proven industry Solution for the same Problem and name every divergence. A divergence the history explains is a recorded Decision; a divergence with no recorded reason is a finding for the report.

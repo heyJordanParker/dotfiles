@@ -108,8 +108,8 @@ Open with `## Big Changes`, one to three sentences naming the Architectural shif
 ### Stay at the interface level
 Architecture covers files, public APIs, and database. Internal transforms stay out unless they are the public contract under review.
 
-### Name Precedent for every component
-`Builds on:` names the existing component or full path this follows. If no Precedent exists, show the research that proves it.
+### Name what every component builds on
+`Builds on:` names the existing component or full path this follows. If none exists, show the research that proves it.
 
 ## 7. Close the Modeling artifact
 

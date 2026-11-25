@@ -20,7 +20,6 @@ Invoked as `/talents:<name>`:
 - **cc**: write and fix Claude Code skills, agents, commands, hooks, rules, and Claude.md
 - **commit**: commit your own changes with a type prefix, a Problem and Solution body, and a file tree
 - **critical-path**: measure the blast radius of a risky change and verify what depends on it
-- **debate**: independent architect agents debate architectural options through rounds
 - **debug**: systematic debugging that traces the root cause before any fix
 - **delegate**: dispatch one-shot subagents with a complete brief and an Evidence folder
 - **design**: UI components, styling, CSS architecture, and interaction decisions
@@ -28,15 +27,12 @@ Invoked as `/talents:<name>`:
 - **domain-design**: build a project's Domain.md and record its Decisions
 - **gh-issue**: create GitHub issues that carry the problem, the WHY, and the systems it crosses
 - **handoff**: compact the conversation into a handoff document for another agent
-- **independent-review**: identical parallel agents on one task, for consensus through redundancy
-- **merge**: merge two branches and prove every behaviour from both sides still runs
 - **modeling**: turn a shaped change into a database schema, UX flows, and architecture
 - **naming**: name a code identifier, or review the names code already has
 - **orchestrate**: orchestrate mode, where subagents make every change and the agent validates them
 - **plan-tests**: list the tests a change needs before any code is written
 - **pragmatic-engineering**: keep engineering boring and complete
 - **present**: present proposals and findings so the reader can act on them
-- **progressive-research**: broad-to-narrow research that specializes subagents once the situation is proven
 - **propose**: the contract for proposing turns, with researched Solutions and their code, ordered by dependency
 - **prove**: produce the Evidence that work is done before claiming it is
 - **rank**: score a set of options and order them
@@ -45,13 +41,11 @@ Invoked as `/talents:<name>`:
 - **review**: review the changeset with parallel reviewers and iterate until nothing breaking remains
 - **shaping**: shape a rough idea into requirements, boundaries, and solution options
 - **show-me**: draw every code change as a diff, an annotated file tree, or a diagram
-- **show-me-html**: publish one page that shows an architecture proposal's start and final states
 - **slicing**: break a modeled change into vertical slices with acceptance criteria
 - **tdd**: implement an approved change one Capability at a time, test first
 - **triage**: turn reviewer findings into one graded report and act on the gate
 - **understand**: deep research of the systems behind a change, written up for another agent
 - **user-testing**: trace real user flows through code changes and find the gaps
-- **verify-changes**: verify the whole changeset the way the user meets it
 - **write-test**: write one test that goes red when the app loses a Capability
 
 ### Commands
@@ -83,7 +77,7 @@ The split worth knowing:
 - **explorer**: in-codebase architectural mapping ("where is X used", "how does Y work end-to-end"), with the trace and understand skills
 - **researcher**: external research (library docs, APIs, framework references, web lookups), with the research, agent-browser, cc, and trace skills
 
-Every agent but ux-tester preloads [tracer](https://github.com/heyJordanParker/tracer)'s trace skill. The designer, researcher, tester, and ux-tester agents preload agent-browser, and designer also preloads impeccable. Install the [agent-browser](https://github.com/vercel-labs/agent-browser) and [impeccable](https://github.com/pbakaus/impeccable) plugins before using them.
+Every agent preloads [tracer](https://github.com/heyJordanParker/tracer)'s trace skill. The designer, researcher, and tester agents preload agent-browser, and designer also preloads impeccable. Install the [agent-browser](https://github.com/vercel-labs/agent-browser) and [impeccable](https://github.com/pbakaus/impeccable) plugins before using them.
 
 ### Safe Delete
 
