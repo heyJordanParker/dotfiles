@@ -10,7 +10,7 @@ Reproducible macOS environment setup and Claude Code plugin distribution from a 
 - `packages/agents` is the source of truth for shared Skills, Agents, Commands, and Hooks.
 - The `claude` package stows to `~/.claude/`, where its `Claude.md` becomes the user-global Claude.md.
 - `packages/claude`'s `agents`, `commands`, and `skills` are symlinks into `packages/agents`.
-- The `rulebook` package stows to `~/.config/rulebook/`: the global rulebook config, the rules it checks every Prompt with, and their probes.
+- The `rulebook` package stows to `~/.config/rulebook/`: the global rulebook config, the rules it checks every Prompt with, and their tests.
 - `scripts/sync.py` restows packages and generates Hook wiring.
 - Plugin packaging dereferences `packages/claude` symlinks into real files in the plugin cache.
 - Our codex settings and Hook wiring live in `packages/codex-system/config.toml`, stowed to `/etc/codex`, codex's read-only system layer. `~/.codex/config.toml` is codex's own local file, never committed, where it writes project trust and app state.
