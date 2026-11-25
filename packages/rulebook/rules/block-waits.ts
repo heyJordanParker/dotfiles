@@ -1,8 +1,48 @@
 import { defineRule, type SgNode } from '@cmodjs/rulebook'
 
-const WAITS = /^(u?sleep|sleepSync|nanosleep|time_nanosleep|time_sleep_until|setTimeout|delay|until|poll|eventually|toPass|wait(?:[A-Z_]\w*)?)$/
+const CLOCKS: ReadonlySet<string> = new Set(['sleep', 'usleep', 'nanosleep', 'sleepSync', 'time_nanosleep', 'time_sleep_until', 'setTimeout', 'waitForTimeout'])
 
-const SPAWNS = /^(\$|spawn|spawnSync|exec|execSync|execFile|execFileSync|execa|shell_exec|system|passthru|proc_open|popen|run|call|check_call|check_output|Popen|create_subprocess_exec|create_subprocess_shell)$/
+const POLLS: ReadonlySet<string> = new Set([
+  'poll',
+  'toPass',
+  'eventually',
+  'until',
+  'whenAvailable',
+  'waitFor',
+  'waitForFunction',
+  'waitForSelector',
+  'waitForElementToBeRemoved',
+  'waitUntil',
+  'waitUsing',
+  'waitForText',
+  'waitForTextIn',
+  'waitForReload',
+  'clickAndWaitForReload',
+  'waitForDialog',
+  'waitForLink',
+  'waitForInput',
+  'waitForLocation',
+  'waitForRoute',
+  'waitUntilMissing',
+  'waitUntilMissingText',
+  'waitUntilEnabled',
+  'waitUntilDisabled',
+  'waitUntilVue',
+  'waitUntilVueIsNot',
+  'waitForDisplayed',
+  'waitForExist',
+  'waitForClickable',
+  'waitForEnabled',
+  'waitForStable',
+])
+
+const DURATIONS: ReadonlySet<string> = new Set(['wait', 'pause', 'delay'])
+
+const SPAWNS: ReadonlySet<string> = new Set(['$', 'spawn', 'spawnSync', 'exec', 'execSync', 'execFile', 'execFileSync', 'execa', 'shell_exec', 'system', 'passthru', 'proc_open', 'popen', 'run', 'call', 'check_call', 'check_output', 'Popen', 'create_subprocess_exec', 'create_subprocess_shell'])
+
+const NAME_FIELDS: readonly string[] = ['property', 'attribute', 'field', 'name']
+
+const NUMBERS: ReadonlySet<string> = new Set(['number', 'integer', 'float'])
 
 const STRINGS: ReadonlySet<string> = new Set(['string_fragment', 'string_content'])
 
@@ -47,13 +87,29 @@ export default defineRule({
 })
 
 function isWait(call: SgNode): boolean {
+  const callee = call.field('name') ?? call.field('function')
+  if (callee === null) return false
+  const name = nameOf(callee)
   const args = call.field('arguments')
-  const callee = call.text().slice(0, (args?.range().start.index ?? call.range().end.index) - call.range().start.index).trim()
-  const name = call.field('name')?.text() ?? /[A-Za-z_$][\w$]*$/.exec(callee)?.[0] ?? callee
-  if (WAITS.test(name)) return true
-  if (name === 'pause') return /^\(\s*\d/.test(args?.text() ?? '')
-  if (callee.includes('::') && /(^|\\)Sleep$/.test(callee.split('::')[0] ?? '')) return true
-  return SPAWNS.test(name) && args !== null && /^sleep(\s|$)/.test(firstString(args) ?? '')
+  if (CLOCKS.has(name) || POLLS.has(name)) return true
+  if (DURATIONS.has(name)) return NUMBERS.has(String(firstArgument(args)?.kind()))
+  const scope = call.field('scope')
+  if (scope !== null && nameOf(scope) === 'Sleep') return true
+  return SPAWNS.has(name) && args !== null && firstString(args)?.trim().split(' ')[0] === 'sleep'
+}
+
+function nameOf(node: SgNode): string {
+  for (const field of NAME_FIELDS) {
+    const part = node.field(field)
+    if (part !== null) return nameOf(part)
+  }
+  const last = node.kind() === 'qualified_name' ? node.children().findLast((child) => child.isNamed()) : undefined
+  return last === undefined ? node.text() : nameOf(last)
+}
+
+function firstArgument(args: SgNode | null): SgNode | undefined {
+  const first = args?.children().find((child) => child.isNamed())
+  return first?.kind() === 'argument' ? first.children().find((child) => child.isNamed()) : first
 }
 
 function firstString(node: SgNode): string | undefined {
