@@ -14,7 +14,7 @@ export default defineConfig({
     '**/commands/**/*.md',
     '**/skills/**/*.md',
   ],
-  probes: ['probes/*.md'],
+  tests: ['probes/*.md'],
   timeout: 60_000,
   messages: { spawn: { tools: ['Agent', 'Workflow', 'RemoteTrigger', '*spawn_agent'] } },
 })
