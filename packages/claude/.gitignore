@@ -1,3 +1,0 @@
-# `cmod rules` links each mod's rules into ~/.claude/rules at runtime, at a machine-specific path
-/rules/*
-!/rules/*.md
