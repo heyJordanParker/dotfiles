@@ -25,7 +25,19 @@
   },
   "bashEditDiffEnabled": false,
   "model": "opus",
-  "hooks": {},
+  "hooks": {
+    "PermissionRequest": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ~/.agents/hooks/auto_approve_permissions.py"
+          }
+        ]
+      }
+    ]
+  },
   "worktree": {
     "bgIsolation": "none"
   },

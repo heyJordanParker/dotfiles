@@ -91,7 +91,7 @@ enabled = true
 # that guard Claude-only tools (Agent/EnterWorktree/TeamDelete/ExitPlanMode) have
 # no event to fire on and are excluded. Local-only; never plugin-distributed.
 [[hooks.PermissionRequest]]
-matcher = "Read|Glob|Grep|Write|Edit|NotebookEdit|Bash"
+matcher = "*"
 [[hooks.PermissionRequest.hooks]]
 type = "command"
 command = "python3 /Users/jordan/.agents/hooks/auto_approve_permissions.py"

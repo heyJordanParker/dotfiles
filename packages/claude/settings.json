@@ -101,7 +101,7 @@
         ]
       },
       {
-        "matcher": "Read|Glob|Grep|Write|Edit|NotebookEdit|Bash",
+        "matcher": "*",
         "hooks": [
           {
             "type": "command",

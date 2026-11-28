@@ -5,8 +5,9 @@ import json
 import sys
 
 BINDING = {
-    "events": {"PermissionRequest": ["Read", "Glob", "Grep", "Write", "Edit", "NotebookEdit", "Bash"]},
+    "events": {"PermissionRequest": ["*"]},
     "harness": "all",
+    "roots": "all",
 }
 
 
